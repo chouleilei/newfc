@@ -12,6 +12,7 @@
  */
 import { AppError, Errors } from '../core/errors';
 import type { DB } from '../db/connection';
+import { insightRowsFilter } from './ownership';
 import type { AssistantContext } from './schemas';
 import {
   PAGE_CAPABILITY_MAP, pageCapability, type DomainCapability, type DraftKind, type PageCapability,
@@ -416,9 +417,9 @@ export function parsePageContextV2(raw: unknown): AssistantPageContextV2 | null 
 
 /* ============ 资源与关系校验(§9.1 第 2、3 步) ============ */
 
-function exists(db: DB, sql: string, id: number): boolean {
+function exists(db: DB, sql: string, id: number, extra: unknown[] = []): boolean {
   try {
-    return Boolean(db.prepare(sql).get(id));
+    return Boolean(db.prepare(sql).get(id, ...extra));
   } catch {
     // 表不存在(如未启用财务转换的旧库)时按不存在处理。
     return false;
@@ -434,10 +435,16 @@ function rowOf<T>(db: DB, sql: string, value: string | number): T | null {
 }
 
 /** 资源 ID → 存在性校验；不存在时报 CONTEXT_INVALID 并指出字段名。 */
-function requireResource(db: DB, field: string, snapshotId: string, sql: string, id: number, label: string): void {
-  if (!exists(db, sql, id)) {
+function requireResource(db: DB, field: string, snapshotId: string, sql: string, id: number, label: string, extra: unknown[] = []): void {
+  if (!exists(db, sql, id, extra)) {
     throw contextError('CONTEXT_INVALID', `${label} #${id} 不存在`, { field, snapshotId, reason: '客户端传入的业务 ID 未通过数据库核验' });
   }
+}
+
+/** 洞察按归属可见:他人的洞察与不存在同样处理(AC-X04)。 */
+function requireInsight(db: DB, field: string, snapshotId: string, id: number): void {
+  const owner = insightRowsFilter();
+  requireResource(db, field, snapshotId, `SELECT id FROM ai_insight WHERE id=? AND ${owner.sql}`, id, '洞察报告', owner.params);
 }
 
 /** 树关系校验：组织/科目必须在版本绑定的树快照里(§9.1「验证版本、快照、组织、科目、指标及页面资源关系」)。 */
@@ -479,7 +486,7 @@ function validateEntityExists(db: DB, entityType: string, id: number, field: str
     case 'budget_version': return requireResource(db, field, snapshotId, 'SELECT id FROM budget_version WHERE id=?', id, '预算版本');
     case 'actual_snapshot': return requireResource(db, field, snapshotId, 'SELECT id FROM actual_snapshot_batch WHERE id=?', id, '实际快照');
     case 'import_batch': return requireResource(db, field, snapshotId, 'SELECT id FROM import_batch WHERE id=?', id, '导入批次');
-    case 'insight': return requireResource(db, field, snapshotId, 'SELECT id FROM ai_insight WHERE id=?', id, '洞察报告');
+    case 'insight': return requireInsight(db, field, snapshotId, id);
     case 'conversion': return requireResource(db, field, snapshotId, 'SELECT id FROM finance_conversion_batch WHERE id=?', id, '财务转换批次');
     case 'mapping_version': return requireResource(db, field, snapshotId, 'SELECT id FROM finance_mapping_version WHERE id=?', id, '财务映射版本');
     case 'cleaning_template': return requireResource(db, field, snapshotId, 'SELECT id FROM import_mapping_template WHERE id=?', id, '清洗模板');
@@ -560,7 +567,7 @@ export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendCont
   }
   if (scope.importBatchId != null) requireResource(db, 'importBatchId', snapshotId, 'SELECT id FROM import_batch WHERE id=?', scope.importBatchId, '导入批次');
   if (scope.metricId != null) requireResource(db, 'metricId', snapshotId, 'SELECT id FROM report_metric WHERE id=?', scope.metricId, '指标');
-  if (scope.insightId != null) requireResource(db, 'insightId', snapshotId, 'SELECT id FROM ai_insight WHERE id=?', scope.insightId, '洞察报告');
+  if (scope.insightId != null) requireInsight(db, 'insightId', snapshotId, scope.insightId);
   if (scope.conversionId != null) requireResource(db, 'conversionId', snapshotId, 'SELECT id FROM finance_conversion_batch WHERE id=?', scope.conversionId, '财务转换批次');
   if (scope.mappingVersionId != null) requireResource(db, 'mappingVersionId', snapshotId, 'SELECT id FROM finance_mapping_version WHERE id=?', scope.mappingVersionId, '财务映射版本');
   if (scope.templateId != null) requireResource(db, 'templateId', snapshotId, 'SELECT id FROM import_mapping_template WHERE id=?', scope.templateId, '清洗模板');

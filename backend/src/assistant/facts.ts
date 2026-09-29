@@ -217,7 +217,7 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
     }
   }
   if (intents.has('budget_quality') && requireVersion('质量检查需要预算版本')) {
-    add('budget_quality', () => budgetQualityReport(db, versionId!), versionSrc);
+    add('budget_quality', () => tools.get_budget_quality(db, versionId!), versionSrc);
   }
   if (intents.has('anomalies') && requireVersion('异常检查需要预算版本')) {
     add('anomalies', () => tools.calculate_anomalies(db, { versionId: versionId!, batchId: context.actualSnapshotId ?? null }), analysisSrc);

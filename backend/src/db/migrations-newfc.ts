@@ -225,4 +225,19 @@ CREATE TABLE app_setting (
 );
 `,
   },
+  {
+    version: 42,
+    name: 'assistant_owner',
+    sql: `
+/* AC-F20/AC-X04 助手记录归属:会话、写操作预览、保存的洞察记录创建人。
+   受限用户只看自己的;迁移前遗留行(owner 为空)只对全组织用户可见。
+   删除用户时置空而不删记录,审计可追溯。 */
+ALTER TABLE ai_conversation ADD COLUMN owner_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL;
+ALTER TABLE ai_action ADD COLUMN owner_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL;
+ALTER TABLE ai_insight ADD COLUMN owner_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL;
+CREATE INDEX idx_ai_conversation_owner ON ai_conversation(owner_user_id, updated_at);
+CREATE INDEX idx_ai_action_owner ON ai_action(owner_user_id);
+CREATE INDEX idx_ai_insight_owner ON ai_insight(owner_user_id);
+`,
+  },
 ];

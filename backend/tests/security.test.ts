@@ -162,7 +162,8 @@ describe('AC-F24 / AC-X04 用户、角色与组织授权', () => {
     const unknown = await fetchAs(viewer.session, `${base}/api/not-registered-anywhere`);
     expect(unknown.status).toBe(403);
     expect(await unknown.json()).toMatchObject({ code: 'ROUTE_NOT_AUTHORIZED' });
-    const group = await fetchAs(viewer.session, `${base}/api/dashboard`);
+    // 历年对比是集团口径报表;工作台已按范围裁剪(见 assistant-scope.test.ts)
+    const group = await fetchAs(viewer.session, `${base}/api/report/historical`);
     expect(group.status).toBe(403);
     expect(await group.json()).toMatchObject({ code: 'SCOPE_RESTRICTED' });
     const security = await fetchAs(viewer.session, `${base}/api/security/users`);

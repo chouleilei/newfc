@@ -10,6 +10,8 @@
  */
 import type { DB } from '../db/connection';
 import type { AssistantContext } from './schemas';
+import { AppError } from '../core/errors';
+import { orgTreeFilter } from './tool-policy';
 
 export type ResolutionOrigin = 'request' | 'message' | 'conversation' | 'default';
 
@@ -554,7 +556,17 @@ export function resolveMessageContext(
 
   /* ---------- 组织 ---------- */
   if (tableExists(db, 'org')) {
-    const rows = db.prepare('SELECT id,code,name,status FROM org ORDER BY sort_order, id').all() as NodeRow[];
+    const allRows = db.prepare('SELECT id,code,name,status FROM org ORDER BY sort_order, id').all() as NodeRow[];
+    /* AC-X04:受限用户只在授权子树内解析组织。问题点名范围外组织时明确拒绝,
+       不静默退回到授权范围回答(那样会把「南京公司」的问题答成本公司数字)。 */
+    const visible = orgTreeFilter(db);
+    const rows = visible ? allRows.filter((row) => visible(row.id)) : allRows;
+    if (visible) {
+      const outside = matchNode(text, allRows);
+      if (outside.hit && !visible(outside.hit.row.id)) {
+        throw new AppError('NOT_FOUND', `组织「${outside.hit.row.name}」不存在或无权访问`, 404);
+      }
+    }
     if (context.orgId == null) {
       const matched = matchNode(text, rows);
       if (matched.hit) {

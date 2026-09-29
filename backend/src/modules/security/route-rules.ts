@@ -66,7 +66,12 @@ addRouteRules([
   R('WRITE', /^\/years\/\d+\/(freeze|reopen)$/, 'actual:finalize', true),
 
   // 分析
-  R('GET', /^\/dashboard$/, 'dashboard:read', true),
+  // 工作台与按组织范围计算的报表/穿透:受限用户按 currentOrgScopeId/currentCellOrgId 裁剪(AC-X04)
+  R('GET', /^\/dashboard$/, 'dashboard:read'),
+  R('GET', /^\/report\/(completion|structure|trend|multi-year-trend)$/, 'analysis:read'),
+  R('GET', /^\/analysis\/anomalies$/, 'analysis:read'),
+  R('GET', /^\/evidence\/(budget-cell|actual-cell|metric-cell)$/, 'analysis:read'),
+  // 其余报表(历年对比、准确率、版本对比等)是集团口径
   R('GET', /^\/report\//, 'analysis:read', true),
   R('GET', /^\/analysis\//, 'analysis:read', true),
   R('GET', /^\/evidence\//, 'analysis:read', true),
@@ -77,6 +82,7 @@ addRouteRules([
   R('GET', /^\/io\/template\/actual$/, 'actual:read'),
   R('GET', /^\/io\/export\/logs$/, 'audit:read'),
   R('GET', /^\/io\/export\/metrics$/, 'master:read'),
+  R('GET', /^\/io\/export\/(completion|structure)\/\d+$/, 'analysis:export'),
   R('GET', /^\/io\/export\//, 'analysis:export', true),
   R('GET', /^\/io\/(import-batches|cleaning\/(templates|aliases))$/, 'import:run'),
   R('*', /^\/io\//, 'import:run', true),
@@ -95,6 +101,7 @@ addRouteRules([
   R('WRITE', /^\/settings\//, 'settings:manage'),
   R('*', /^\/security\//, 'security:manage'),
 
-  // AI 助手:继承的事实查询按集团口径,受限用户暂不开放(T-2 改造为按范围裁剪)
-  R('*', /^\/assistant\//, 'assistant:use', true),
+  // AI 助手:受限用户可用。工具/动作/导出在 assistant/tool-policy.ts 按同一 AuthContext
+  // 校验权限与组织范围;会话/操作/洞察按创建人隔离(assistant/ownership.ts)。
+  R('*', /^\/assistant\//, 'assistant:use'),
 ]);

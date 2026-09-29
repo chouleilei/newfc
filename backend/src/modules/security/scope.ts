@@ -1,6 +1,6 @@
 import type { DB } from '../../db/connection';
 import { AppError } from '../../core/errors';
-import type { AuthContext } from '../../core/request-context';
+import { currentAuth, type AuthContext } from '../../core/request-context';
 import type { Permission } from './permissions';
 
 /**
@@ -67,4 +67,29 @@ export function effectiveOrgScopeId(db: DB, auth: AuthContext, requested: number
   }
   if (auth.orgRootIds.length === 1) return auth.orgRootIds[0];
   throw new AppError('SCOPE_REQUIRED', '当前账号授权了多个组织,请先选择要查看的组织', 400);
+}
+
+/**
+ * 按当前请求身份取组织范围参数(路由、助手直接调用、导出共用)。
+ * 无身份上下文或全组织用户原样返回;受限用户走 effectiveOrgScopeId。
+ */
+export function currentOrgScopeId(db: DB, requested: number | null | undefined): number | null {
+  const auth = currentAuth();
+  if (!auth || auth.allOrgs) return requested ?? null;
+  return effectiveOrgScopeId(db, auth, requested ?? null);
+}
+
+/** 受限用户访问单元格级穿透:必须给出范围内组织。 */
+export function currentCellOrgId(db: DB, orgId: number | undefined): number | undefined {
+  const auth = currentAuth();
+  if (!auth || auth.allOrgs) return orgId;
+  if (orgId == null) throw new AppError('SCOPE_REQUIRED', '当前账号只授权了部分组织,请指定要穿透的组织', 400);
+  assertOrgVisible(db, auth, orgId);
+  return orgId;
+}
+
+/** 当前请求需要集团口径时的检查。 */
+export function requireCurrentAllOrgs(what: string): void {
+  const auth = currentAuth();
+  if (auth && !auth.allOrgs) requireAllOrgs(auth, what);
 }

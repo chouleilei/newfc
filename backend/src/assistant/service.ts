@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { currentOwnerId, insightRowsFilter, ownedRowsFilter } from './ownership';
 import type { DB } from '../db/connection';
 import * as budget from '../modules/budget/budget.service';
 import * as exportSvc from '../modules/io/export.service';
@@ -40,6 +41,10 @@ import { rewriteTemplateNarrative } from './narrative';
 import { PROMPT_VERSION, REPORT_REWRITE_TASK, TREND_SECTION_REWRITE_TASK } from './prompts';
 import { trendNarrativeAiEnabled } from './feature-flags';
 import { executeTool, toolAcceptsParam, toolDefinitions, toolLabel } from './tools';
+import { authorizeToolCall, requireActionPermission, requireAllOrgsForAction, scopedOrgId, toolAllowed } from './tool-policy';
+import type { Permission } from '../modules/security/permissions';
+import { assertOrgVisible } from '../modules/security/scope';
+import { currentAuth } from '../core/request-context';
 import type { AssistantContext } from './schemas';
 import {
   buildContextSummary, detectOverrides, resolveBackendContext,
@@ -55,6 +60,34 @@ import { metricEvidence } from '../modules/evidence/evidence.service';
 import type { VerificationFactItem } from '../modules/report/verification';
 
 const ACTION_TYPES = new Set(['budget_draft', 'scenario', 'copy_budget', 'bulk_adjustment', 'basis_text', 'export']);
+
+/**
+ * AI 操作与对应正式页面同一套权限(AC-F20/AC-F24):预算版本写入与路由表一致要求 budget:write
+ * 且全组织范围;导出要求 analysis:export(明细导出另在 normalizeExport 限全组织)。
+ * 预览与确认各校验一次:预览后被撤权/降级的用户不能再确认。
+ */
+const ACTION_POLICIES: Record<string, { permission: Permission; allOrgs: boolean; label: string }> = {
+  budget_draft: { permission: 'budget:write', allOrgs: true, label: '新建预算版本' },
+  copy_budget: { permission: 'budget:write', allOrgs: true, label: '复制预算版本' },
+  bulk_adjustment: { permission: 'budget:write', allOrgs: true, label: '批量调整预算' },
+  scenario: { permission: 'analysis:read', allOrgs: false, label: '情景测算' },
+  basis_text: { permission: 'assistant:use', allOrgs: false, label: '保存依据草稿' },
+  export: { permission: 'analysis:export', allOrgs: false, label: '导出' },
+};
+
+function authorizeAction(db: DB, type: string, params?: Record<string, any>): void {
+  const policy = ACTION_POLICIES[type];
+  if (!policy) throw Errors.validation('不支持的 AI 操作类型');
+  requireActionPermission(policy.permission, policy.label);
+  if (policy.allOrgs) requireAllOrgsForAction(policy.label);
+  if (!params) return;
+  // 确认时复核已存参数的范围:预览后授权范围被收窄的用户不能再取得范围外事实。
+  if (type === 'export') {
+    if (params.kind !== 'completion') requireAllOrgsForAction(`导出「${params.kind}」`);
+    else scopedOrgId(db, params.options?.orgScopeId ?? null);
+  }
+  if (type === 'scenario' && params.versionId != null) scopedOrgId(db, params.orgScopeId ?? null);
+}
 const now = () => new Date().toISOString();
 function actionTtlMs(): number {
   const value = Number(process.env.AI_ACTION_TTL_MS || 15 * 60 * 1000);
@@ -74,6 +107,7 @@ interface AiActionDbRow {
   result_json: string | null;
   created_at: string;
   updated_at: string;
+  owner_user_id?: number | null;
 }
 
 function parseJson<T>(raw: string | null | undefined, fallback: T): T {
@@ -143,13 +177,14 @@ function conversationTitle(message: string): string {
 function ensureConversation(db: DB, id?: number, title = ''): number {
   if (id != null) {
     const n = positiveInt(id, 'conversationId');
-    const row = db.prepare('SELECT id FROM ai_conversation WHERE id=?').get(n) as { id: number } | undefined;
+    const owner = ownedRowsFilter();
+    const row = db.prepare(`SELECT id FROM ai_conversation WHERE id=? AND ${owner.sql}`).get(n, ...owner.params) as { id: number } | undefined;
     if (!row) throw Errors.notFound('AI 会话');
     return n;
   }
   const t = now();
   const safeTitle = conversationTitle(title);
-  const result = db.prepare('INSERT INTO ai_conversation(title,created_at,updated_at) VALUES(?,?,?)').run(safeTitle, t, t);
+  const result = db.prepare('INSERT INTO ai_conversation(title,created_at,updated_at,owner_user_id) VALUES(?,?,?,?)').run(safeTitle, t, t, currentOwnerId());
   return Number(result.lastInsertRowid);
 }
 
@@ -1049,9 +1084,9 @@ async function runModelRouting(
   /** 模型调用度量：次数与累计耗时，随响应返回并写入操作日志，便于估算用量。 */
   const usage = { modelCalls: 0, modelMs: 0, toolCalls: 0 };
   /** V2 页面口径下只暴露页面允许的领域能力工具(§9.3)。 */
-  const roundToolDefinitions = input.allowedTools
-    ? toolDefinitions.filter((def) => input.allowedTools!.has(def.function.name))
-    : toolDefinitions;
+  /** 同时按当前身份过滤(AC-F24):不向模型暴露必然被拒的工具。 */
+  const roundToolDefinitions = toolDefinitions.filter((def) =>
+    (!input.allowedTools || input.allowedTools.has(def.function.name)) && toolAllowed(def.function.name));
 
   /**
    * 跑一轮请求。
@@ -1346,10 +1381,11 @@ function fetchVerificationFact(
   const scopeInput = {
     versionId: 0,
     batchId: context.actualSnapshotId ?? null,
-    orgScopeId: context.orgId ?? null,
+    orgScopeId: scopedOrgId(db, context.orgId),
     accountScopeId: context.accountId ?? null,
     sheetKey: typeof view.sheetKey === 'string' ? view.sheetKey : null,
   };
+  requireActionPermission('analysis:read', '核验分析事实');
   if (root === 'analysis') {
     if (context.budgetVersionId == null) return null;
     const report = completionReport(db, { ...scopeInput, versionId: context.budgetVersionId, warningThreshold });
@@ -1469,6 +1505,17 @@ export async function chat(
     resolved = resolveMessageContext(db, message, requested, inherited.context, { defaultVersion: true, yearOverride, messageOverride });
   }
   const { context, resolution } = resolved;
+  /* AC-X04:受限用户的组织范围由服务端确定。页面/消息/上一轮给出的组织必须在授权范围内;
+     未指定时取唯一授权根并如实写入解析说明;多根时留空,由需要组织范围的查询要求明确选择。 */
+  const chatAuth = currentAuth();
+  if (chatAuth && !chatAuth.allOrgs) {
+    if (context.orgId != null) assertOrgVisible(db, chatAuth, context.orgId);
+    else if (chatAuth.orgRootIds.length === 1) {
+      context.orgId = chatAuth.orgRootIds[0];
+      const orgRow = db.prepare('SELECT name FROM org WHERE id=?').get(context.orgId) as { name: string } | undefined;
+      resolution.push({ field: 'orgId', value: context.orgId, origin: 'default', reason: '按当前账号的授权组织范围', label: orgRow?.name });
+    }
+  }
   const ambiguities = resolved.ambiguities;
   options.onProgress?.({
     stage: 'context',
@@ -1508,6 +1555,8 @@ export async function chat(
   }
 
   /** 草稿影响：请求内叠加基线重算(§9.6)。结果只进 facts/正文，不进模型、不落库。 */
+  // 草稿影响按整版重算汇总(集团口径),与编制页同样只对全组织用户开放。
+  if (backendCtx?.draft) requireAllOrgsForAction('草稿影响测算');
   const draftImpact = backendCtx?.draft ? computeDraftImpact(db, backendCtx.draft) : null;
   if (backendCtx && (verificationFact || backendCtx.draft)) {
     // 模型可见的只有「页面给出的脱敏范围 + 后端重算的核验/草稿结论摘要」，原始 draft.changes 永不进入。
@@ -1903,7 +1952,7 @@ function normalizeScenario(db: DB, p: Record<string, unknown>) {
   const costGrowth = boundedRate(p.costGrowth ?? (preset === 'conservative' ? -0.02 : preset === 'aggressive' ? 0.08 : 0), 'costGrowth');
   const expenseGrowth = boundedRate(p.expenseGrowth ?? (preset === 'conservative' ? -0.02 : preset === 'aggressive' ? 0.08 : 0), 'expenseGrowth');
   const batchId = p.batchId == null ? undefined : positiveInt(p.batchId, 'batchId');
-  const orgScopeId = p.orgScopeId == null ? undefined : positiveInt(p.orgScopeId, 'orgScopeId');
+  const orgScopeId = scopedOrgId(db, p.orgScopeId == null ? undefined : positiveInt(p.orgScopeId, 'orgScopeId')) ?? undefined;
   const accountScopeId = p.accountScopeId == null ? undefined : positiveInt(p.accountScopeId, 'accountScopeId');
   const params: Record<string, unknown> = { preset, ...(versionId == null ? {} : { versionId }), ...(batchId == null ? {} : { batchId }), ...(orgScopeId == null ? {} : { orgScopeId }), ...(accountScopeId == null ? {} : { accountScopeId }), incomeGrowth, costGrowth, expenseGrowth };
   if (p.targetProfitCents != null) {
@@ -1966,6 +2015,8 @@ function normalizeExport(db: DB, p: Record<string, unknown>) {
   const format = String(p.format || 'xlsx').toLowerCase();
   if (format !== 'xlsx' && format !== 'csv') throw Errors.validation('导出格式必须是 xlsx 或 csv');
   const params: Record<string, unknown> = { kind, format };
+  // 明细导出是整版/整年全组织数据,只对全组织用户开放;执行报告导出按组织范围裁剪。
+  if (kind !== 'completion') requireAllOrgsForAction(`导出「${kind}」`);
   if (kind === 'budget_detail' || kind === 'completion') params.versionId = positiveInt(p.versionId, 'versionId');
   if (kind === 'actual_current') params.year = validYear(p.year, 'year');
   if (kind === 'completion' && p.options != null) {
@@ -1989,6 +2040,11 @@ function normalizeExport(db: DB, p: Record<string, unknown>) {
     const unknownKeys = Object.keys(raw).filter((key) => !['batchId', 'orgScopeId', 'accountScopeId', 'forecastVersionId', 'sheetKey', 'summaryLevel'].includes(key));
     if (unknownKeys.length) throw Errors.validation(`导出 options 不支持的字段：${unknownKeys.join('、')}`);
     params.options = options;
+  }
+  if (kind === 'completion') {
+    const options = (params.options ?? {}) as Record<string, unknown>;
+    const orgScopeId = scopedOrgId(db, options.orgScopeId as number | undefined);
+    if (orgScopeId != null) params.options = { ...options, orgScopeId };
   }
   // 预览阶段只读取元数据，不生成文件；确认阶段再次调用正式导出 service。
   let estimate = 0;
@@ -2083,10 +2139,11 @@ export function preview(db: DB, input: { type: unknown; params?: unknown; conver
     throw Errors.validation('预览参数不接收页面草稿：请先保存页面修改，再创建正式操作预览');
   }
   const type = normalizeActionType(input?.type);
+  authorizeAction(db, type);
   const keyRaw = input?.idempotencyKey ?? rawParams.idempotencyKey;
   const idempotencyKey = keyRaw == null ? null : boundedText(keyRaw, 'idempotencyKey', 200, true);
   if (idempotencyKey) {
-    const old = db.prepare('SELECT * FROM ai_action WHERE idempotency_key=?').get(idempotencyKey) as AiActionDbRow | undefined;
+    const old = idempotentAction(db, idempotencyKey);
     // 幂等命中不回吐确认令牌:前端幂等键是可预测的非加密哈希,持键不等于持有预览。
     // 令牌只在创建响应中下发生成方;重试方拿到公开视图,确认必须持原令牌。
     if (old) return { ...publicAction(old), confirmationToken: undefined };
@@ -2104,13 +2161,13 @@ export function preview(db: DB, input: { type: unknown; params?: unknown; conver
   let id: number;
   try {
     const result = db.prepare(
-      `INSERT INTO ai_action(conversation_id,type,params_json,preview_json,status,idempotency_key,confirmation_token,expires_at,created_at,updated_at)
-       VALUES(?,?,?,?,?,?,?,?,?,?)`,
-    ).run(conversationId ?? null, type, JSON.stringify(storedParams), JSON.stringify(normalized.preview), 'pending', idempotencyKey, confirmationToken, expiresAt, timestamp, timestamp);
+      `INSERT INTO ai_action(conversation_id,type,params_json,preview_json,status,idempotency_key,confirmation_token,expires_at,created_at,updated_at,owner_user_id)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(conversationId ?? null, type, JSON.stringify(storedParams), JSON.stringify(normalized.preview), 'pending', idempotencyKey, confirmationToken, expiresAt, timestamp, timestamp, currentOwnerId());
     id = Number(result.lastInsertRowid);
   } catch (err) {
     if (idempotencyKey && String((err as Error)?.message || '').includes('UNIQUE')) {
-      const old = db.prepare('SELECT * FROM ai_action WHERE idempotency_key=?').get(idempotencyKey) as AiActionDbRow | undefined;
+      const old = idempotentAction(db, idempotencyKey);
       if (old) return { ...publicAction(old), confirmationToken: undefined };
     }
     throw err;
@@ -2135,9 +2192,23 @@ export function publicAction(row: AiActionDbRow | undefined): any {
   };
 }
 
+/**
+ * 幂等键命中的已有操作。键全局唯一:命中他人的操作时不回吐其内容(即使是公开视图),
+ * 按冲突拒绝,由调用方换键重试。
+ */
+function idempotentAction(db: DB, idempotencyKey: string): AiActionDbRow | undefined {
+  const old = db.prepare('SELECT * FROM ai_action WHERE idempotency_key=?').get(idempotencyKey) as AiActionDbRow | undefined;
+  if (!old) return undefined;
+  const owner = ownedRowsFilter();
+  const visible = db.prepare(`SELECT id FROM ai_action WHERE id=? AND ${owner.sql}`).get(old.id, ...owner.params);
+  if (!visible) throw Errors.conflict('幂等键已被其他操作使用,请重新生成预览');
+  return old;
+}
+
 function getAction(db: DB, id: number): AiActionDbRow {
   const actionId = positiveInt(id, 'actionId');
-  const row = db.prepare('SELECT * FROM ai_action WHERE id=?').get(actionId) as AiActionDbRow | undefined;
+  const owner = ownedRowsFilter();
+  const row = db.prepare(`SELECT * FROM ai_action WHERE id=? AND ${owner.sql}`).get(actionId, ...owner.params) as AiActionDbRow | undefined;
   if (!row) throw Errors.notFound('AI 操作');
   return row;
 }
@@ -2157,6 +2228,7 @@ function executeConfirmed(db: DB, row: AiActionDbRow, actor: string): any {
     return publicAction(current);
   }
   row = current;
+  authorizeAction(db, row.type, parseJson<Record<string, any>>(row.params_json, {}));
   if (new Date(row.expires_at).getTime() <= Date.now()) {
     db.prepare("UPDATE ai_action SET status='expired',updated_at=? WHERE id=? AND status='pending'").run(now(), row.id);
     throw Errors.conflict('AI 操作已过期');
@@ -2175,7 +2247,7 @@ function executeConfirmed(db: DB, row: AiActionDbRow, actor: string): any {
   else if (row.type === 'budget_draft') result = budget.createVersion(db, { year: validYear(p.year, 'year'), name: boundedText(p.name, '版本名称', 200, true), kind: p.kind === 'forecast' ? 'forecast' : 'budget', note: boundedText(p.note, '备注', 10_000), baseFrom: p.baseFrom, baseYear: validYear(p.baseYear, 'baseYear'), baseSnapshotId: p.baseSnapshotId == null ? undefined : positiveInt(p.baseSnapshotId, 'baseSnapshotId'), growthRate: boundedRate(p.growthRate, 'growthRate') });
   else if (row.type === 'bulk_adjustment') result = budget.saveEntries(db, positiveInt(p.versionId, 'versionId'), Array.isArray(p.entries) ? p.entries : []);
   else if (row.type === 'basis_text') {
-    const info = db.prepare('INSERT INTO ai_insight(conversation_id,title,result_json,citations_json,created_at) VALUES(?,?,?,?,?)').run(row.conversation_id, boundedText(p.title, '标题', 200, true), JSON.stringify({ text: boundedText(p.text, '依据文本', 20_000, true), draft: true }), JSON.stringify(Array.isArray(p.citations) ? p.citations : []), now());
+    const info = db.prepare('INSERT INTO ai_insight(conversation_id,title,result_json,citations_json,created_at,owner_user_id) VALUES(?,?,?,?,?,?)').run(row.conversation_id, boundedText(p.title, '标题', 200, true), JSON.stringify({ text: boundedText(p.text, '依据文本', 20_000, true), draft: true }), JSON.stringify(Array.isArray(p.citations) ? p.citations : []), now(), row.owner_user_id ?? null);
     result = { insightId: Number(info.lastInsertRowid), draft: true };
   } else if (row.type === 'scenario') result = { accepted: true, params: p, deterministic: true };
   else throw Errors.validation('导出操作请使用 confirmAsync');
@@ -2206,6 +2278,7 @@ export async function confirmAsync(db: DB, id: number, actor = '', confirmationT
   if (new Date(row.expires_at).getTime() <= Date.now()) throw Errors.conflict('AI 操作已过期');
   checkToken(row, confirmationToken);
   if (row.type !== 'export') return confirm(db, id, actor, confirmationToken);
+  authorizeAction(db, row.type, parseJson<Record<string, any>>(row.params_json, {}));
   /* 乐观锁:先用条件 UPDATE 把 pending 原子地推进到 confirming,只有一个并发
      确认能拿到 changes=1;拿不到的直接返回现状(另一个请求正在生成)。
      否则两个并发 confirm 都通过事务外的 pending+令牌校验,各自跑一遍大导出
@@ -2299,6 +2372,8 @@ async function buildArtifact(db: DB, row: AiActionDbRow): Promise<{ buffer: Buff
 export async function exportArtifact(db: DB, id: number): Promise<{ buffer: Buffer; filename: string }> {
   const row = getAction(db, id);
   if (row.status !== 'confirmed' || row.type !== 'export') throw Errors.conflict('导出操作尚未确认');
+  // 下载同样复核授权:确认后被撤权/收窄范围的用户不能再取得文件。
+  authorizeAction(db, row.type, parseJson<Record<string, any>>(row.params_json, {}));
   const cached = artifactCache.get(row.id);
   if (cached) return cached;
   const built = await buildArtifact(db, row);
@@ -2315,7 +2390,10 @@ export function cancel(db: DB, id: number, actor = '') {
   return publicAction(getAction(db, row.id));
 }
 
-export function conversations(db: DB) { return db.prepare('SELECT id,title,created_at,updated_at FROM ai_conversation ORDER BY updated_at DESC,id DESC').all(); }
+export function conversations(db: DB) {
+  const owner = ownedRowsFilter();
+  return db.prepare(`SELECT id,title,created_at,updated_at FROM ai_conversation WHERE ${owner.sql} ORDER BY updated_at DESC,id DESC`).all(...owner.params);
+}
 
 /**
  * 会话重命名。
@@ -2324,9 +2402,7 @@ export function conversations(db: DB) { return db.prepare('SELECT id,title,creat
  * 所以补一个显式重命名入口；空标题回退成「会话 #id」由前端展示。
  */
 export function renameConversation(db: DB, id: number, title: unknown, actor = '') {
-  const conversationId = positiveInt(id, 'conversationId');
-  const exists = db.prepare('SELECT id FROM ai_conversation WHERE id=?').get(conversationId);
-  if (!exists) throw Errors.notFound('AI 会话');
+  const conversationId = ensureConversation(db, id);
   const safeTitle = boundedText(title, 'title', 200, false);
   db.prepare('UPDATE ai_conversation SET title=?, updated_at=? WHERE id=?').run(safeTitle, now(), conversationId);
   writeLog(db, 'ai.conversation.rename', 'ai_conversation', conversationId, { actor, title: safeTitle });
@@ -2341,9 +2417,8 @@ export function renameConversation(db: DB, id: number, title: unknown, actor = '
  * 因此已确认的操作、已保存的洞察和操作日志仍然可追溯。
  */
 export function deleteConversation(db: DB, id: number, actor = '') {
-  const conversationId = positiveInt(id, 'conversationId');
-  const row = db.prepare('SELECT id,title FROM ai_conversation WHERE id=?').get(conversationId) as { id: number; title: string } | undefined;
-  if (!row) throw Errors.notFound('AI 会话');
+  const conversationId = ensureConversation(db, id);
+  const row = db.prepare('SELECT id,title FROM ai_conversation WHERE id=?').get(conversationId) as { id: number; title: string };
   const messageCount = (db.prepare('SELECT COUNT(*) n FROM ai_message WHERE conversation_id=?').get(conversationId) as { n: number }).n;
   const pending = (db.prepare("SELECT COUNT(*) n FROM ai_action WHERE conversation_id=? AND status='pending'").get(conversationId) as { n: number }).n;
   db.transaction(() => {
@@ -2356,7 +2431,8 @@ export function deleteConversation(db: DB, id: number, actor = '') {
 /** 删除已保存的洞察。洞察是只读分析快照，删除不影响任何业务数据。 */
 export function deleteInsight(db: DB, id: number, actor = '') {
   const insightId = positiveInt(id, 'insightId');
-  const row = db.prepare('SELECT id,title FROM ai_insight WHERE id=?').get(insightId) as { id: number; title: string } | undefined;
+  const owner = insightRowsFilter();
+  const row = db.prepare(`SELECT id,title FROM ai_insight WHERE id=? AND ${owner.sql}`).get(insightId, ...owner.params) as { id: number; title: string } | undefined;
   if (!row) throw Errors.notFound('AI 洞察');
   db.transaction(() => {
     db.prepare('DELETE FROM ai_insight WHERE id=?').run(insightId);
@@ -2366,9 +2442,8 @@ export function deleteInsight(db: DB, id: number, actor = '') {
 }
 
 export function conversation(db: DB, id: number) {
-  const conversationId = positiveInt(id, 'conversationId');
+  const conversationId = ensureConversation(db, id);
   const row = db.prepare('SELECT id,title,created_at,updated_at FROM ai_conversation WHERE id=?').get(conversationId);
-  if (!row) throw Errors.notFound('AI 会话');
   const messages = db.prepare('SELECT id,role,content,response_json,model,created_at FROM ai_message WHERE conversation_id=? ORDER BY id').all(conversationId) as any[];
   // 只回解析后的 response：原来是 `{ ...m, response: parseJson(...) }`，把原始
   // response_json 字符串和解析结果一起发出去，等于把同一份事实传两遍。
@@ -2381,16 +2456,18 @@ export function conversation(db: DB, id: number) {
 
 export function insight(db: DB, id: number) {
   const insightId = positiveInt(id, 'insightId');
-  const row = db.prepare('SELECT * FROM ai_insight WHERE id=?').get(insightId) as any;
+  const owner = insightRowsFilter();
+  const row = db.prepare(`SELECT * FROM ai_insight WHERE id=? AND ${owner.sql}`).get(insightId, ...owner.params) as any;
   if (!row) throw Errors.notFound('洞察');
-  // 同理：result_json / citations_json 不随解析结果一起回传。
-  const { result_json: _resultJson, citations_json: _citationsJson, ...rest } = row;
+  // 同理：result_json / citations_json 不随解析结果一起回传;归属列是内部授权字段,不外露。
+  const { result_json: _resultJson, citations_json: _citationsJson, owner_user_id: _owner, ...rest } = row;
   return { ...rest, result: parseJson(row.result_json, {}), citations: parseJson(row.citations_json, []) };
 }
 
 export function insights(db: DB, limit = 50) {
   const size = Math.min(200, Math.max(1, Number.isSafeInteger(Number(limit)) ? Number(limit) : 50));
-  return db.prepare('SELECT id,conversation_id,title,created_at FROM ai_insight ORDER BY id DESC LIMIT ?').all(size)
+  const owner = insightRowsFilter();
+  return db.prepare(`SELECT id,conversation_id,title,created_at FROM ai_insight WHERE ${owner.sql} ORDER BY id DESC LIMIT ?`).all(...owner.params, size)
     .map((row: any) => ({ id: row.id, conversationId: row.conversation_id, title: row.title, createdAt: row.created_at }));
 }
 
@@ -2557,8 +2634,8 @@ export function saveInsight(db: DB, input: { conversationId?: number; title?: un
   const title = boundedText(input?.title || `${kind} 分析洞察`, '标题', 200, true);
   const timestamp = now();
   const result = { kind, params: p, generatedAt: timestamp, note, summary: summarizeInsight(kind, data) };
-  const info = db.prepare('INSERT INTO ai_insight(conversation_id,title,result_json,citations_json,created_at) VALUES(?,?,?,?,?)')
-    .run(conversationId, title, JSON.stringify(result), JSON.stringify(citations), timestamp);
+  const info = db.prepare('INSERT INTO ai_insight(conversation_id,title,result_json,citations_json,created_at,owner_user_id) VALUES(?,?,?,?,?,?)')
+    .run(conversationId, title, JSON.stringify(result), JSON.stringify(citations), timestamp, currentOwnerId());
   const id = Number(info.lastInsertRowid);
   writeLog(db, 'ai.insight', 'ai_insight', id, { actor, kind });
   return insight(db, id);
@@ -2612,7 +2689,8 @@ export async function reportDraft(db: DB, input: Record<string, unknown>): Promi
   const p = plainObject(input);
   // §9.1：与 chat 共用统一解析入口；页面范围作为参数的缺省来源。
   const pageCtx = resolveBackendContext(db, p.pageContext);
-  const draft = buildReportDraft(db, {
+  // 与 generate_report 工具同一道授权(AC-X04):权限、组织范围与集团口径章节限制。
+  const [authorized] = authorizeToolCall(db, 'generate_report', [{
     kind: normalizeReportKind(p.kind),
     versionId: p.versionId == null ? pageCtx?.pageContext.budgetVersionId ?? null : positiveInt(p.versionId, 'versionId'),
     year: p.year == null ? pageCtx?.pageContext.year ?? null : validYear(p.year, 'year'),
@@ -2622,7 +2700,8 @@ export async function reportDraft(db: DB, input: Record<string, unknown>): Promi
     accountScopeId: p.accountScopeId == null ? pageCtx?.pageContext.accountId ?? null : positiveInt(p.accountScopeId, 'accountScopeId'),
     sheetKey: p.sheetKey == null ? (typeof pageCtx?.view.sheetKey === 'string' ? pageCtx.view.sheetKey : null) : boundedText(p.sheetKey, 'sheetKey', 80),
     topN: p.topN == null ? null : positiveInt(p.topN, 'topN'),
-  });
+  }]);
+  const draft = buildReportDraft(db, authorized as Parameters<typeof buildReportDraft>[1]);
   const wantsNarrative = p.narrative == null ? true : Boolean(p.narrative);
   if (!wantsNarrative) return { ...draft, model: 'template' };
   if (draft.kind === 'annual_review') return annualReviewTrendRewrite(draft);

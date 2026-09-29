@@ -33,9 +33,11 @@ import {
   financeMappingVersionList, financeParallelTrialList, financeSourceProfileList,
 } from './finance';
 import { budgetCellEvidence, actualCellEvidence, metricEvidence } from '../modules/evidence/evidence.service';
+import { insightRowsFilter } from './ownership';
+import { authorizeToolCall, orgTreeFilter } from './tool-policy';
 
-export const tools = {
-  get_org_tree: (db: DB) => org.getOrgTree(db),
+const rawTools = {
+  get_org_tree: (db: DB) => org.getOrgTree(db, orgTreeFilter(db)),
   get_account_tree: (db: DB) => account.getAccountTree(db),
   list_budget_versions: (db: DB, year?: number) => budget.listVersions(db, year),
   get_budget_matrix: (db: DB, versionId: number) => budget.getEditMatrix(db, versionId),
@@ -138,9 +140,18 @@ export const tools = {
   list_backups: (db: DB) => backup.listBackups(backup.backupDirOf(db.name)),
 };
 
+/**
+ * 对外只暴露经授权包装的工具:executeTool 与 facts.ts 等直接调用点走同一道授权
+ * (tool-policy.ts),不存在绕过范围校验的内部入口。
+ */
+export const tools: typeof rawTools = Object.fromEntries(
+  Object.entries(rawTools).map(([name, fn]) => [name, (db: DB, ...args: unknown[]) => (fn as (db: DB, ...rest: unknown[]) => unknown)(db, ...authorizeToolCall(db, name, args))]),
+) as typeof rawTools;
+
 /** 与 service.ts insights() 同口径的只读列表;service.ts 依赖本文件,为避免循环依赖在这里直接查表。 */
 function listInsightRows(db: DB, limit: number) {
-  return db.prepare('SELECT id,conversation_id,title,created_at FROM ai_insight ORDER BY id DESC LIMIT ?').all(limit)
+  const owner = insightRowsFilter();
+  return db.prepare(`SELECT id,conversation_id,title,created_at FROM ai_insight WHERE ${owner.sql} ORDER BY id DESC LIMIT ?`).all(...owner.params, limit)
     .map((row: any) => ({ id: row.id, conversationId: row.conversation_id, title: row.title, createdAt: row.created_at }));
 }
 

@@ -880,5 +880,6 @@ describe('导入资源上限：sheet 数与解压字节', () => {
       code: 'VALIDATION_FAILED',
       message: expect.stringContaining('解压后内容超过安全上限'),
     });
-  });
+    // 构造 18k 行×5k 字节的样本本身耗时约 20s,全量并行时会超过默认 30s
+  }, 120_000);
 });

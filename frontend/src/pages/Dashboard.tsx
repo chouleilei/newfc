@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import { EnhancedTable as Table } from '../components/EnhancedTable';
 import { Link, useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, can } from '../api/client';
 import { centsToYuan, formatRate, formatRateOrReason, formatProgress, RATE_SPECIAL_TEXT } from '../utils/money';
 import MoneyText from '../components/MoneyText';
 import { escapeHtml } from '../utils/escapeHtml';
@@ -55,6 +55,8 @@ interface DashboardData {
     yearActuals: { year: number; latest_snapshot: string; batch_count: number }[];
   };
   recentLogs: { id: number; action: string; entity_type: string; created_at: string; detail_json: string }[];
+  /** 当前账号只授权部分组织:组织计数与结构问题按范围裁剪,不返回全局操作日志(AC-X04)。 */
+  scopeLimited?: boolean;
 }
 
 interface CompletionCell {
@@ -1048,7 +1050,12 @@ export default function Dashboard() {
         </Col>
         <Col xs={24} lg={12}>
           <div className="bd-eyebrow">08 / 最近操作</div>
-          <Card size="small" title="最近操作" extra={<Button size="small" type="link" onClick={() => navigate('/data?tab=logs')}>全部日志</Button>}>
+          <Card size="small" title="最近操作" extra={can('audit:read') && !dash.scopeLimited ? <Button size="small" type="link" onClick={() => navigate('/data?tab=logs')}>全部日志</Button> : null}>
+            {dash.recentLogs.length === 0 && (
+              <Typography.Text type="secondary">
+                {dash.scopeLimited || !can('audit:read') ? '当前账号不查看全局操作日志' : '暂无操作记录'}
+              </Typography.Text>
+            )}
             {/* 紧凑日志行:发丝线分隔,主行=操作标签+实体名,meta 行=时间+入口链接。
                 数据管理页的全量日志仍是表格,不动。 */}
             {dash.recentLogs.slice(0, 5).map((log) => {

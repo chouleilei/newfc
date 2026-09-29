@@ -65,4 +65,14 @@ describe('侧栏按权限裁剪(AC-X04)', () => {
     expect(keys(filterMenuByPermission(items, (p) => viewer.has(p)))).toEqual(['/', 'grp-master', '/org', '/master-entities', 'grp-system', '/jobs']);
     expect(keys(filterMenuByPermission(items, () => false))).toEqual(['grp-system', '/jobs']);
   });
+
+  it('只授权部分组织的账号不展示集团口径入口,按范围裁剪的分析页照常展示', () => {
+    const list = [
+      { key: 'grp-budget', label: '预算', children: [{ key: '/budget', label: '编制' }, { key: '/progress', label: '进度' }] },
+      { key: 'grp-analysis', label: '分析', children: [{ key: '/analysis', label: '执行' }, { key: '/history', label: '历年' }] },
+    ];
+    const all = () => true;
+    expect(keys(filterMenuByPermission(list, all, false))).toEqual(['grp-analysis', '/analysis']);
+    expect(keys(filterMenuByPermission(list, all, true))).toEqual(['grp-budget', '/budget', '/progress', 'grp-analysis', '/analysis', '/history']);
+  });
 });

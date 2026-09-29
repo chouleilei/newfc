@@ -2,6 +2,8 @@ import type { DB } from '../../db/connection';
 import * as actual from '../actual/actual.service';
 import { queryLogs } from '../audit/log';
 import { accountStructureIssues, orgStructureIssues, structureCheckPayload } from '../check/master-data-health';
+import { currentAuth } from '../../core/request-context';
+import { orgInScope, resolveOrgScope } from '../security/scope';
 
 /**
  * 首页工作台总览(/api/dashboard 与助手 get_dashboard_overview 工具同源)。
@@ -16,7 +18,12 @@ export function dashboardOverview(db: DB) {
   const years = actual.listYearStates(db);
   const lastBatch = db.prepare('SELECT year, snapshot_date, created_at FROM actual_snapshot_batch WHERE updates_current = 1 AND status = ? ORDER BY snapshot_date DESC, id DESC LIMIT 1').get('active') as { year: number; snapshot_date: string } | undefined;
   // 结构检查与 /api/org/check、/api/account/check 同一信号源(结构化 issues + {ok,problems} 兼容)
-  const orgCheck = structureCheckPayload(orgStructureIssues(db));
+  /* AC-X04:受限用户只看到授权子树内的组织计数与组织结构问题(不含跨组织的整体问题);
+     操作日志仅对有 audit:read 的全组织用户返回。版本/快照是全局元数据,照常返回。 */
+  const auth = currentAuth();
+  const scope = auth && !auth.allOrgs ? resolveOrgScope(db, auth) : null;
+  const orgIssues = orgStructureIssues(db);
+  const orgCheck = structureCheckPayload(scope ? orgIssues.filter((issue) => issue.orgId != null && orgInScope(scope, issue.orgId)) : orgIssues);
   const accCheck = structureCheckPayload(accountStructureIssues(db));
   /* UX-24 首页「下一步」所需的后台事实(只读):
      - recentDraft:最近更新的草稿版本,供「继续编制」直接定位 /budget/:id;
@@ -50,7 +57,7 @@ export function dashboardOverview(db: DB) {
   `).all() as { year: number; latest_snapshot: string; batch_count: number }[];
   return {
     counts: {
-      orgs: count('SELECT COUNT(*) AS c FROM org'),
+      orgs: scope ? (scope.all ? count('SELECT COUNT(*) AS c FROM org') : scope.orgIds.size) : count('SELECT COUNT(*) AS c FROM org'),
       accounts: count('SELECT COUNT(*) AS c FROM account'),
       metrics: count('SELECT COUNT(*) AS c FROM report_metric'),
       versions: count('SELECT COUNT(*) AS c FROM budget_version'),
@@ -65,6 +72,7 @@ export function dashboardOverview(db: DB) {
       pendingAdoption,
       yearActuals,
     },
-    recentLogs: queryLogs(db, { pageSize: 10 }).items,
+    recentLogs: !auth || (auth.allOrgs && auth.permissions.has('audit:read')) ? queryLogs(db, { pageSize: 10 }).items : [],
+    scopeLimited: scope != null,
   };
 }

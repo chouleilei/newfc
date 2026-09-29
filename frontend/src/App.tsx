@@ -6,7 +6,7 @@ import type { MenuProps } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { useThemeMode, SIDER_INSET, SIDER_MENU_MARGIN } from './theme';
-import { api, can, setSession, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_EVENT, DOWNLOAD_FEEDBACK_EVENT, type DownloadFeedbackDetail, type SessionInfo } from './api/client';
+import { api, can, getSession, setSession, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_EVENT, DOWNLOAD_FEEDBACK_EVENT, type DownloadFeedbackDetail, type SessionInfo } from './api/client';
 import { assistantApi } from './api/assistant';
 import { relativeTime } from './utils/relativeTime';
 import { AssistantProvider } from './assistant/AssistantProvider';
@@ -171,18 +171,29 @@ export const MENU_PERMISSION: Record<string, string> = {
   '/settings/security': 'security:manage',
 };
 
-/** 按权限裁剪菜单:去掉无权限的叶子,子项全被裁掉的分组一并去掉。 */
-export function filterMenuByPermission(items: MenuProps['items'], has: (permission: string) => boolean): MenuProps['items'] {
+/**
+ * 集团口径页面:主体数据是整版矩阵、全组织对比或系统级检查,后端对只授权部分组织的
+ * 账号返回 SCOPE_RESTRICTED(AC-X04)。对这类账号直接不展示入口,而不是点进去才报错。
+ * 执行分析、结构、趋势、预警与工作台按授权范围裁剪,照常展示。
+ */
+export const MENU_ALL_ORGS = new Set([
+  '/budget', '/progress', '/actual', '/data?tab=imports', '/cleaning-config', '/finance',
+  '/history', '/compare', '/master-health', '/data?tab=check', '/data?tab=yearclose', '/data?tab=backup',
+]);
+
+/** 按权限裁剪菜单:去掉无权限的叶子,子项全被裁掉的分组一并去掉;受限范围账号再去掉集团口径入口。 */
+export function filterMenuByPermission(items: MenuProps['items'], has: (permission: string) => boolean, allOrgs = true): MenuProps['items'] {
   const out: NonNullable<MenuProps['items']> = [];
   for (const item of items ?? []) {
     if (!item) continue;
     if ('children' in item && item.children) {
-      const children = filterMenuByPermission(item.children, has) ?? [];
+      const children = filterMenuByPermission(item.children, has, allOrgs) ?? [];
       if (children.length) out.push({ ...item, children });
       continue;
     }
     const key = 'key' in item && typeof item.key === 'string' ? item.key : '';
     const need = MENU_PERMISSION[key];
+    if (!allOrgs && MENU_ALL_ORGS.has(key)) continue;
     if (!need || has(need)) out.push(item);
   }
   return out;
@@ -384,7 +395,7 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
    * 2. 只有点击进入「小澧助手」/处于对话页面时，才在侧栏动态展开最近会话历史与新建对话，主工作区直接铺满，无重复内侧栏。
    */
   const dynamicMenuItems = useMemo<MenuProps['items']>(() => {
-    return (filterMenuByPermission(menuItems, can) ?? []).map((item) => {
+    return (filterMenuByPermission(menuItems, can, getSession()?.user.allOrgs ?? true) ?? []).map((item) => {
       if (!item || !('key' in item) || item.key !== 'grp-ai') return item;
 
       // 非对话页面：保持纯净功能入口，不展开会话记录

@@ -55,7 +55,7 @@ import { setChannelResolver, setModelCallRecorder } from './assistant/model';
 import { purgeExpiredJobs, recoverInterruptedJobs } from './modules/jobs/job.service';
 import { getSetting, listBusinessSettings, saveBusinessSettings } from './modules/settings/business-settings';
 import { registerMasterRoutes } from './modules/master/routes';
-import { orgInScope, resolveOrgScope } from './modules/security/scope';
+import { currentCellOrgId, currentOrgScopeId, orgInScope, resolveOrgScope } from './modules/security/scope';
 import { insertModelCall } from './modules/jobs/model-calls';
 import { registerJobRoutes } from './modules/jobs/routes';
 import { registerCleaningRoutes } from './modules/io/cleaning/routes';
@@ -764,7 +764,7 @@ export async function createApp(opts: ServerOptions) {
     res.json(report.completionReport(db(), {
       versionId,
       batchId: analysisOptionalInt(req.query.batchId, 'batchId'),
-      orgScopeId: analysisOptionalInt(req.query.orgScopeId, 'orgScopeId'),
+      orgScopeId: currentOrgScopeId(db(), analysisOptionalInt(req.query.orgScopeId, 'orgScopeId')),
       accountScopeId: analysisOptionalInt(req.query.accountScopeId, 'accountScopeId'),
       sheetKey: analysisSheetKey(req.query.sheetKey),
       summaryLevel: analysisOptionalInt(req.query.summaryLevel, 'summaryLevel'),
@@ -859,7 +859,7 @@ export async function createApp(opts: ServerOptions) {
     res.json(anomalyReport(db(), {
       versionId,
       batchId: analysisOptionalInt(req.query.batchId, 'batchId'),
-      orgScopeId: analysisOptionalInt(req.query.orgScopeId, 'orgScopeId'),
+      orgScopeId: currentOrgScopeId(db(), analysisOptionalInt(req.query.orgScopeId, 'orgScopeId')),
       accountScopeId: analysisOptionalInt(req.query.accountScopeId, 'accountScopeId'),
       sheetKey: analysisSheetKey(req.query.sheetKey),
       threshold: thresholdQuery(req.query.threshold, 'threshold'),
@@ -876,7 +876,9 @@ export async function createApp(opts: ServerOptions) {
     const orgCodes = typeof req.query.orgCodes === 'string' && req.query.orgCodes.trim()
       ? req.query.orgCodes.split(',').map((code) => code.trim()).filter(Boolean)
       : undefined;
-    res.json(multiYearTrend(db(), { baseYear, ...(depth !== undefined ? { depth } : {}), ...(orgCodes ? { orgCodes } : {}) }));
+    // 受限用户按授权范围裁剪(orgCodes 只能在范围内再收窄,由 multiYearTrend 取交集)
+    const orgScopeId = currentOrgScopeId(db(), analysisOptionalInt(req.query.orgScopeId, 'orgScopeId'));
+    res.json(multiYearTrend(db(), { baseYear, ...(depth !== undefined ? { depth } : {}), ...(orgCodes ? { orgCodes } : {}), ...(orgScopeId != null ? { orgScopeId } : {}) }));
   }));
   app.get('/api/report/structure', wrap((req, res) => {
     const versionId = Number(req.query.versionId);
@@ -886,7 +888,7 @@ export async function createApp(opts: ServerOptions) {
     res.json(structure.structureReport(db(), {
       versionId,
       batchId: analysisOptionalInt(req.query.batchId, 'batchId'),
-      orgScopeId: analysisOptionalInt(req.query.orgScopeId, 'orgScopeId'),
+      orgScopeId: currentOrgScopeId(db(), analysisOptionalInt(req.query.orgScopeId, 'orgScopeId')),
       accountScopeId: analysisOptionalInt(req.query.accountScopeId, 'accountScopeId'),
       sheetKey: analysisSheetKey(req.query.sheetKey),
       summaryLevel: analysisOptionalInt(req.query.summaryLevel, 'summaryLevel'),
@@ -906,7 +908,7 @@ export async function createApp(opts: ServerOptions) {
       year,
       versionId,
       accountScopeId: analysisOptionalInt(req.query.accountScopeId, 'accountScopeId'),
-      orgScopeId: analysisOptionalInt(req.query.orgScopeId, 'orgScopeId'),
+      orgScopeId: currentOrgScopeId(db(), analysisOptionalInt(req.query.orgScopeId, 'orgScopeId')),
       sheetKey: analysisSheetKey(req.query.sheetKey),
       batchId: analysisOptionalInt(req.query.batchId, 'batchId'),
       trendKind: trendKind as 'metric' | 'account' | 'composite',
@@ -929,14 +931,14 @@ export async function createApp(opts: ServerOptions) {
     const accountId = Number(req.query.accountId);
     const orgId = req.query.orgId == null ? undefined : Number(req.query.orgId);
     if (!Number.isInteger(versionId) || !Number.isInteger(accountId) || (orgId != null && !Number.isInteger(orgId))) throw Errors.validation('证据查询参数不完整');
-    res.json(evidence.budgetCellEvidence(db(), versionId, accountId, orgId));
+    res.json(evidence.budgetCellEvidence(db(), versionId, accountId, currentCellOrgId(db(), orgId)));
   }));
   app.get('/api/evidence/actual-cell', wrap((req, res) => {
     const batchId = Number(req.query.batchId);
     const accountId = Number(req.query.accountId);
     const orgId = req.query.orgId == null ? undefined : Number(req.query.orgId);
     if (!Number.isInteger(batchId) || !Number.isInteger(accountId) || (orgId != null && !Number.isInteger(orgId))) throw Errors.validation('证据查询参数不完整');
-    res.json(evidence.actualCellEvidence(db(), batchId, accountId, orgId));
+    res.json(evidence.actualCellEvidence(db(), batchId, accountId, currentCellOrgId(db(), orgId)));
   }));
   /** 指标穿透:范围参数与 /api/report/completion 共用同一套校验,保证穿透数字与报表逐分相等 */
   app.get('/api/evidence/metric-cell', wrap((req, res) => {
@@ -947,7 +949,7 @@ export async function createApp(opts: ServerOptions) {
       versionId,
       metricId,
       batchId: analysisOptionalInt(req.query.batchId, 'batchId'),
-      orgScopeId: analysisOptionalInt(req.query.orgScopeId, 'orgScopeId'),
+      orgScopeId: currentOrgScopeId(db(), analysisOptionalInt(req.query.orgScopeId, 'orgScopeId')),
       accountScopeId: analysisOptionalInt(req.query.accountScopeId, 'accountScopeId'),
       sheetKey: analysisSheetKey(req.query.sheetKey),
     }));
@@ -1190,7 +1192,7 @@ export async function createApp(opts: ServerOptions) {
     if (!Number.isInteger(versionId) || versionId <= 0) throw Errors.validation('versionId 必须是正整数');
     sendXlsx(res, await exportSvc.exportCompletion(db(), versionId, {
       batchId: analysisOptionalInt(req.query.batchId, 'batchId'),
-      orgScopeId: analysisOptionalInt(req.query.orgScopeId, 'orgScopeId'),
+      orgScopeId: currentOrgScopeId(db(), analysisOptionalInt(req.query.orgScopeId, 'orgScopeId')),
       accountScopeId: analysisOptionalInt(req.query.accountScopeId, 'accountScopeId'),
       sheetKey: analysisSheetKey(req.query.sheetKey),
       summaryLevel: analysisOptionalInt(req.query.summaryLevel, 'summaryLevel'),
@@ -1208,7 +1210,7 @@ export async function createApp(opts: ServerOptions) {
     sendXlsx(res, await exportSvc.exportStructure(db(), {
       versionId,
       batchId: analysisOptionalInt(req.query.batchId, 'batchId'),
-      orgScopeId: analysisOptionalInt(req.query.orgScopeId, 'orgScopeId'),
+      orgScopeId: currentOrgScopeId(db(), analysisOptionalInt(req.query.orgScopeId, 'orgScopeId')),
       accountScopeId: analysisOptionalInt(req.query.accountScopeId, 'accountScopeId'),
       sheetKey: analysisSheetKey(req.query.sheetKey),
       summaryLevel: analysisOptionalInt(req.query.summaryLevel, 'summaryLevel'),

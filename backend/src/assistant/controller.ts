@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from 'express';
+import { requireActionPermission, requireAllOrgsForAction } from './tool-policy';
 import type { DB } from '../db/connection';
 import * as svc from './service';
 import { qualityAdvice } from './quality-advice';
@@ -128,10 +129,15 @@ export function registerAssistantRoutes(
       res.status(400).json({ code: 'VALIDATION_FAILED', message: 'versionId 必须是正整数' });
       return;
     }
+    // 定稿质量门禁是整版检查(集团口径),与预算质量工具同一授权
+    requireActionPermission('budget:read', '查看预算质量');
+    requireAllOrgsForAction('预算质量建议');
     res.json(await qualityAdvice(db(), versionId));
   }));
   // AI 功能增强计划 §四.阶段三.AI:主数据「语义命名相似」候选对(只读建议,永不作为事实,零写入)
   app.post('/api/assistant/master-data-semantic-names', assistantNarrativeRateLimit, wrap(async (_req, res) => {
+    requireActionPermission('master:read', '查看主数据');
+    requireAllOrgsForAction('主数据语义检查');
     res.json(await masterDataSemanticNames(db()));
   }));
 }
