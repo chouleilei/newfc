@@ -452,4 +452,73 @@ CREATE TABLE eas_correction_review (
 );
 `,
   },
+  {
+    version: 45,
+    name: 'data_governance',
+    sql: `
+/* AC-F06 数据治理。问题按来源去重(issue_key),处置经复核生效;治理从不改写原始事实,
+   source_hash 是问题所依据事实的快照哈希,重验或生效时不一致即 GOVERNANCE_FACT_MUTATED。 */
+CREATE TABLE gov_issue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_key TEXT NOT NULL UNIQUE,
+  source_type TEXT NOT NULL CHECK (source_type IN ('eas_recon','eas_master','statement')),
+  problem_type TEXT NOT NULL,
+  source_ref TEXT NOT NULL,
+  org_id INTEGER REFERENCES org(id),
+  period TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('error','warning')),
+  title TEXT NOT NULL,
+  detail_json TEXT NOT NULL DEFAULT '{}',
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open','pending_review','resolved','dismissed')),
+  reopen_count INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  closed_at TEXT
+);
+CREATE INDEX idx_gov_issue_scope ON gov_issue(org_id, period, status);
+
+CREATE TABLE gov_disposition (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_id INTEGER NOT NULL REFERENCES gov_issue(id),
+  kind TEXT NOT NULL CHECK (kind IN ('mapping_override','false_positive','reimport')),
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending_review','approved','returned')),
+  source_hash_before TEXT NOT NULL,
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_gov_disposition_pending ON gov_disposition(issue_id) WHERE status = 'pending_review';
+
+CREATE TABLE gov_review (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  disposition_id INTEGER NOT NULL UNIQUE REFERENCES gov_disposition(id),
+  action TEXT NOT NULL CHECK (action IN ('approve','return')),
+  comment TEXT,
+  exception_reason TEXT,
+  reviewer_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE gov_effect_proof (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  disposition_id INTEGER NOT NULL UNIQUE REFERENCES gov_disposition(id),
+  before_hash TEXT NOT NULL,
+  after_hash TEXT NOT NULL,
+  verified INTEGER NOT NULL CHECK (verified IN (0,1)),
+  detail_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+/* 预检结果是治理问题的来源事实,同样不可改 */
+CREATE TRIGGER trg_eas_recon_result_immutable_u BEFORE UPDATE ON eas_recon_result BEGIN SELECT RAISE(ABORT, 'EAS 对账结果不可修改'); END;
+CREATE TRIGGER trg_eas_recon_result_immutable_d BEFORE DELETE ON eas_recon_result BEGIN SELECT RAISE(ABORT, 'EAS 对账结果不可删除'); END;
+
+/* T-3 新增权限码:只补给尚无该能力的内置模板角色(INSERT OR IGNORE,不覆盖管理员对角色的修改) */
+INSERT OR IGNORE INTO app_role_permission (role_id, permission) SELECT id, 'statements:import' FROM app_role WHERE code IN ('admin','data_maintainer');
+INSERT OR IGNORE INTO app_role_permission (role_id, permission) SELECT id, 'mgmt:review' FROM app_role WHERE code IN ('admin','business_reviewer');
+`,
+  },
 ];

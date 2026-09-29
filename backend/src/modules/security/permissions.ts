@@ -39,8 +39,10 @@ export const PERMISSION_CATALOG = [
   { code: 'governance:resolve', label: '处置数据质量问题', group: 'EAS 与治理' },
   { code: 'governance:review', label: '复核处置结果', group: 'EAS 与治理' },
   { code: 'statements:read', label: '查看财务报表', group: '财务报表' },
+  { code: 'statements:import', label: '导入与激活财务报表', group: '财务报表' },
   { code: 'mgmt:read', label: '查看管理会计', group: '管理会计' },
   { code: 'mgmt:write', label: '维护管理会计口径与分摊', group: '管理会计' },
+  { code: 'mgmt:review', label: '复核分摊调整与绩效', group: '管理会计' },
 
   { code: 'project:read', label: '查看项目', group: '项目' },
   { code: 'project:write', label: '维护项目', group: '项目' },
@@ -102,7 +104,7 @@ export const BUILTIN_ROLES: { code: string; name: string; description: string; l
   {
     code: 'data_maintainer', name: '数据维护', description: '上传、预览、确认导入与主数据映射', locked: false,
     permissions: [...READS, 'master:write', 'budget:write', 'actual:write', 'import:run', 'finance_import:manage',
-      'eas:import', 'eas:correction_submit', 'governance:resolve', 'contract:import', 'contract:write', 'expense:submit',
+      'eas:import', 'eas:correction_submit', 'statements:import', 'governance:resolve', 'contract:import', 'contract:write', 'expense:submit',
       'project:write', 'project_budget:write', 'plan:write', 'assistant:use', 'tasks:read'],
   },
   {
@@ -114,7 +116,7 @@ export const BUILTIN_ROLES: { code: string; name: string; description: string; l
     code: 'business_reviewer', name: '业务复核', description: '费用/合同复核、报告审批、更正与治理复核', locked: false,
     permissions: [...READS, 'contract:review', 'expense:review', 'report:approve', 'report:publish',
       'eas:correction_review', 'governance:review', 'risk:review', 'budget:finalize', 'actual:finalize',
-      'eas:period_lock', 'assistant:use'],
+      'eas:period_lock', 'mgmt:review', 'assistant:use'],
   },
   { code: 'viewer', name: '只读查看', description: '只读访问已授权组织的数据', locked: false, permissions: [...READS, 'assistant:use'] },
 ];
