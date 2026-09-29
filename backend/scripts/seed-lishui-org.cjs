@@ -8,7 +8,7 @@
  *  4. 调用本机 API 登录并按序创建 26 个预算组织
  *  5. 校验树结构与结构检查接口
  *
- * 用法: 先导出 NEWFC_ACCESS_USER/NEWFC_ACCESS_PASSWORD，再在 backend 目录运行本脚本。
+ * 用法: 先导出 NEWFC_SEED_USER/NEWFC_SEED_PASSWORD，再在 backend 目录运行本脚本。
  * 幂等性: 若目标编码已存在则中止,不重复创建。
  */
 const path = require('path');
@@ -58,20 +58,24 @@ const DEMO_TABLES = [
 
 function fail(msg) { console.error('FATAL: ' + msg); process.exit(1); }
 
+/* 登录:会话在 HttpOnly Cookie 中,写请求须附带 X-CSRF-Token;凭据只读取进程环境。 */
+async function apiLogin() {
+  const cfg = { username: process.env.NEWFC_SEED_USER, password: process.env.NEWFC_SEED_PASSWORD };
+  if (!cfg.username || !cfg.password) fail('请先设置 NEWFC_SEED_USER 和 NEWFC_SEED_PASSWORD(具备主数据维护权限的账号)');
+  const loginRes = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg),
+  });
+  if (!loginRes.ok) return { ok: false, detail: 'HTTP ' + loginRes.status + ': ' + await loginRes.text() };
+  const { csrfToken } = await loginRes.json();
+  const cookie = (loginRes.headers.get('set-cookie') || '').split(';')[0];
+  return { ok: true, headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrfToken } };
+}
+
 async function main() {
   /* 登录必须先于任何备份/清理操作；凭据只读取进程环境，不猜测启动脚本文本。 */
-  const cfg = {
-    username: process.env.NEWFC_ACCESS_USER,
-    password: process.env.NEWFC_ACCESS_PASSWORD,
-  };
-  if (!cfg.username || !cfg.password) fail('请先设置 NEWFC_ACCESS_USER 和 NEWFC_ACCESS_PASSWORD');
-  const loginRes = await fetch(`${BASE}/api/auth/login`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(cfg),
-  });
-  if (!loginRes.ok) fail('登录失败，未执行任何清理: HTTP ' + loginRes.status + ': ' + await loginRes.text());
-  const { token } = await loginRes.json();
-  const headers = { 'content-type': 'application/json', 'x-access-token': token };
+  const login = await apiLogin();
+  if (!login.ok) fail('登录失败，未执行任何清理: ' + login.detail);
+  const headers = login.headers;
   console.log('[0] API 登录验证通过');
 
   /* ---------- 0. 若 org 已为空(此前已清理过),跳过备份与清理,直接建树 ---------- */

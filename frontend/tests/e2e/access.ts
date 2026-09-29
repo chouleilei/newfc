@@ -1,25 +1,54 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, request as playwrightRequest, test as base, type Page } from '@playwright/test';
 
 /**
- * 开鉴权 E2E 实例的固定凭据与登录动作。
+ * E2E 登录:夹具库由 backend/scripts/e2e-user.ts 写入同名账号(默认值两边一致,
+ * 需要连自己的实例时用 NEWFC_E2E_USER / NEWFC_E2E_PASSWORD 覆盖)。
  *
- * 为什么要有这个文件：三个走界面登录的 spec 过去各自读 `process.env.NEWFC_ACCESS_USER/PASSWORD`，
- * 缺一个就直接 `throw new Error('缺少浏览器测试登录凭据')`；而默认 harness 的 webServer 反而显式
- * 设了 `NEWFC_DISABLE_AUTH=1`，登录框根本不会出现。结果这些用例在默认 harness 下必然失败，
- * 失败原因还是环境配置而不是代码回归。
- *
- * 现在 harness 与用例共用这里的默认值(见 `playwright.config.ts` 的鉴权实例 env)，
- * 无需任何环境变量即可跑通；需要连自己的实例时再用同名环境变量覆盖。
+ * 每个 worker 经 /api/auth/login 真实登录一次,拿到 HttpOnly 会话 Cookie 与 CSRF 令牌:
+ * - 浏览器上下文通过 storageState 带上 Cookie,SPA 启动时自行从 /api/auth/session 取 CSRF;
+ * - `request` / `page.request` 通过 extraHTTPHeaders 附带 X-CSRF-Token,写接口走与界面相同的校验。
+ * 没有任何关鉴权或测试旁路。
  */
-export const ACCESS_USER = process.env.NEWFC_ACCESS_USER || 'e2e';
-export const ACCESS_PASSWORD = process.env.NEWFC_ACCESS_PASSWORD || 'e2e-local-password';
+export const ACCESS_USER = process.env.NEWFC_E2E_USER || 'e2e';
+export const ACCESS_PASSWORD = process.env.NEWFC_E2E_PASSWORD || 'Vt9-playwright-local-pw';
 
-/** 从登录页真实登录，返回前端存下的访问令牌(供直接调 API 的用例复用同一会话)。 */
-export async function login(page: Page): Promise<string> {
+interface WorkerSession { cookie: string; csrf: string; host: string }
+
+export const test = base.extend<object, { workerSession: WorkerSession }>({
+  workerSession: [async ({}, use, workerInfo) => {
+    const baseURL = String(workerInfo.project.use.baseURL);
+    const ctx = await playwrightRequest.newContext({ baseURL });
+    const res = await ctx.post('/api/auth/login', { data: { username: ACCESS_USER, password: ACCESS_PASSWORD } });
+    if (!res.ok()) throw new Error(`E2E 登录失败 ${res.status()}: ${await res.text()}`);
+    const body = await res.json() as { csrfToken: string };
+    const cookie = (await ctx.storageState()).cookies.find((c) => c.name === 'newfc_session');
+    if (!cookie) throw new Error('E2E 登录未返回会话 Cookie');
+    await ctx.dispose();
+    await use({ cookie: cookie.value, csrf: body.csrfToken, host: new URL(baseURL).hostname });
+  }, { scope: 'worker' }],
+  storageState: async ({ workerSession }, use) => {
+    await use({
+      cookies: [{ name: 'newfc_session', value: workerSession.cookie, domain: workerSession.host, path: '/', expires: -1, httpOnly: true, secure: false, sameSite: 'Strict' }],
+      origins: [],
+    });
+  },
+  extraHTTPHeaders: async ({ workerSession }, use) => {
+    await use({ 'x-csrf-token': workerSession.csrf });
+  },
+});
+
+export { expect };
+
+/** 进入首页;若会话不存在(例如用例清空了 storageState)则经登录页真实登录。 */
+export async function login(page: Page): Promise<void> {
   await page.goto('/');
-  await page.getByPlaceholder('用户名').fill(ACCESS_USER);
-  await page.getByPlaceholder('密码').fill(ACCESS_PASSWORD);
-  await page.getByRole('button', { name: '登 录' }).click();
-  await expect(page.getByText('首页').first()).toBeVisible();
-  return page.evaluate(() => localStorage.getItem('budget-access-token') ?? '');
+  const loginButton = page.getByRole('button', { name: '登 录' });
+  const home = page.getByText('首页').first();
+  await expect(loginButton.or(home)).toBeVisible();
+  if (await loginButton.isVisible()) {
+    await page.getByPlaceholder('用户名').fill(ACCESS_USER);
+    await page.getByPlaceholder('密码').fill(ACCESS_PASSWORD);
+    await loginButton.click();
+  }
+  await expect(home).toBeVisible();
 }

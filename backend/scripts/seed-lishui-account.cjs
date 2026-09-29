@@ -345,19 +345,24 @@ const TEMPLATE_EXCEPTIONS = new Set([
 function fail(msg) { console.error('FATAL: ' + msg); process.exit(1); }
 const TYPE_BY_PREFIX = { I: 'income', C: 'cost', E: 'expense' };
 
-async function main() {
-  /* ---------- 登录 ---------- */
-  const cfg = {
-    username: process.env.NEWFC_ACCESS_USER,
-    password: process.env.NEWFC_ACCESS_PASSWORD,
-  };
-  if (!cfg.username || !cfg.password) fail('请先设置 NEWFC_ACCESS_USER 和 NEWFC_ACCESS_PASSWORD');
+/* 登录:会话在 HttpOnly Cookie 中,写请求须附带 X-CSRF-Token;凭据只读取进程环境。 */
+async function apiLogin() {
+  const cfg = { username: process.env.NEWFC_SEED_USER, password: process.env.NEWFC_SEED_PASSWORD };
+  if (!cfg.username || !cfg.password) fail('请先设置 NEWFC_SEED_USER 和 NEWFC_SEED_PASSWORD(具备主数据维护权限的账号)');
   const loginRes = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg),
   });
-  if (!loginRes.ok) fail('登录失败: ' + (await loginRes.text()));
-  const { token } = await loginRes.json();
-  const H = { 'content-type': 'application/json', 'x-access-token': token };
+  if (!loginRes.ok) return { ok: false, detail: 'HTTP ' + loginRes.status + ': ' + await loginRes.text() };
+  const { csrfToken } = await loginRes.json();
+  const cookie = (loginRes.headers.get('set-cookie') || '').split(';')[0];
+  return { ok: true, headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrfToken } };
+}
+
+async function main() {
+  /* ---------- 登录 ---------- */
+  const login = await apiLogin();
+  if (!login.ok) fail('登录失败: ' + login.detail);
+  const H = login.headers;
   console.log('[0] API 登录成功');
 
   /* ---------- 外来数据守卫 ---------- */

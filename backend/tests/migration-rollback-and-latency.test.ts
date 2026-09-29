@@ -20,6 +20,9 @@ import { openDatabase, openReadonlyDatabase, type DB } from '../src/db/connectio
 import { backupDirOf, createBackup, restoreBackup, verifyBackupFile } from '../src/modules/backup/backup.service';
 import { scheduleCheckpointSummary } from '../src/assistant/checkpoint-summary';
 
+/** 从 fromVersion 起的全部迁移版本号(newfc 追加迁移后不必逐条改断言)。 */
+const versionsFrom = (fromVersion: number) => MIGRATIONS.map((m) => m.version).filter((v) => v >= fromVersion).sort((a, b) => a - b);
+
 const LATEST = Math.max(...MIGRATIONS.map((migration) => migration.version));
 
 function applyThrough(db: DB, targetVersion: number): void {
@@ -70,7 +73,7 @@ describe('AI 计划迁移(V29–V33)的备份与回滚验证', () => {
 
       // 2) 升级:本计划涉及的迁移一次性补齐
       const applied = applyMigrations(db).map((migration) => migration.version);
-      expect(applied).toEqual([29, 30, 31, 32, 33, 34, 35, 36, 37, 38]);
+      expect(applied).toEqual(versionsFrom(29));
       const upgradedColumns = (db.pragma('table_info(budget_compilation_checkpoint)') as { name: string }[]).map((column) => column.name);
       expect(upgradedColumns).toContain('summary');
       expect((db.pragma('table_info(assistant_narrative_task)') as { name: string }[]).map((column) => column.name)).toContain('attempts');
@@ -105,7 +108,7 @@ describe('AI 计划迁移(V29–V33)的备份与回滚验证', () => {
       const restored = await restoreBackup(holder, dbPath, backupFile, true);
       expect(restored.ok).toBe(true);
       expect(restored.originalVersion).toBe(PRE_AI_PLAN_VERSION);
-      expect(restored.appliedMigrations.map((item) => item.version)).toEqual([29, 30, 31, 32, 33, 34, 35, 36, 37, 38]);
+      expect(restored.appliedMigrations.map((item) => item.version)).toEqual(versionsFrom(29));
       expect(restored.finalVersion).toBe(LATEST);
       db = holder.getDb();
       // 恢复后数据仍在,且 provenance 默认值符合迁移语义
@@ -154,7 +157,7 @@ describe('AI 计划迁移(V29–V33)的备份与回滚验证', () => {
 
       // 重放:修复前在 CREATE TABLE import_name_alias_v30 处抛 "already exists",服务永久无法启动
       const applied = applyMigrations(db).map((migration) => migration.version);
-      expect(applied).toEqual([29, 30, 31, 32, 33, 34, 35, 36, 37, 38]);
+      expect(applied).toEqual(versionsFrom(29));
       // 旧表数据经重建后完整保留,且新枚举生效
       const alias = db.prepare("SELECT target_kind, target_code FROM import_name_alias WHERE source_text='上海旧称'").get() as { target_kind: string; target_code: string };
       expect(alias).toEqual({ target_kind: 'budget', target_code: 'SH' });
@@ -179,7 +182,7 @@ describe('AI 计划迁移(V29–V33)的备份与回滚验证', () => {
       db.exec(v30.sql.split('ALTER TABLE import_name_alias_v30 RENAME')[0].trim());
 
       const applied = applyMigrations(db).map((migration) => migration.version);
-      expect(applied).toEqual([29, 30, 31, 32, 33, 34, 35, 36, 37, 38]);
+      expect(applied).toEqual(versionsFrom(29));
       const alias = db.prepare("SELECT target_kind, target_code FROM import_name_alias WHERE source_text='上海旧称'").get() as { target_kind: string; target_code: string };
       expect(alias).toEqual({ target_kind: 'budget', target_code: 'SH' });
       expect((db.prepare('SELECT MAX(version) AS v FROM schema_migration').get() as { v: number }).v).toBe(LATEST);

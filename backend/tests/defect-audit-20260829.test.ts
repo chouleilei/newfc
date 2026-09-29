@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import ExcelJS from 'exceljs';
-import { createApp } from '../src/server';
 import { openDatabase, type DB } from '../src/db/connection';
 import { applyMigrations, MIGRATIONS } from '../src/db/migrations';
 import { buildFixture, standardBudgetVersion, testDb, budget, actual, metric, account, org } from './helpers';
@@ -22,59 +22,23 @@ async function closeServer(server: ReturnType<import('express').Express['listen'
 }
 
 describe('2026-08-29 缺陷复核：HTTP 鉴权与输入边界', () => {
-  it('鉴权先于大 JSON 解析，令牌登录/会话/登出形成完整闭环', async () => {
+  it('鉴权先于大 JSON 解析:未登录的畸形请求体直接 401', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-auth-audit-'));
     const dbPath = path.join(dir, 'newfc.sqlite');
-    const { app, holder } = await createApp({
-      dbPath,
-      auth: { username: 'audit-user', password: 'correct horse battery' },
-    });
+    const { app, holder } = await createTestApp({ dbPath });
     const server = app.listen(0);
     const port = (server.address() as { port: number }).port;
     const base = `http://127.0.0.1:${port}`;
-
     try {
       const anonymous = await fetch(`${base}/api/health`);
       expect(anonymous.status).toBe(401);
       expect(await anonymous.json()).toMatchObject({ code: 'UNAUTHORIZED' });
-
-      // 非法 JSON 若先进入 body parser 会得到 400；这里必须在读取/解析正文前直接得到 401。
       const malformedAnonymous = await fetch(`${base}/api/backup/create`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{',
       });
       expect(malformedAnonymous.status).toBe(401);
-
-      const failed = await fetch(`${base}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.77' },
-        body: JSON.stringify({ username: 'audit-user', password: 'wrong' }),
-      });
-      expect(failed.status).toBe(401);
-      const failureDetail = holder.getDb()
-        .prepare("SELECT detail_json FROM operation_log WHERE action='auth.login_failed' ORDER BY id DESC LIMIT 1")
-        .get() as { detail_json: string };
-      expect(JSON.parse(failureDetail.detail_json).ip).not.toBe('203.0.113.77');
-
-      const login = await fetch(`${base}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ username: 'audit-user', password: 'correct horse battery' }),
-      });
-      expect(login.status).toBe(200);
-      const session = await login.json() as { token: string; username: string };
-      expect(session).toMatchObject({ username: 'audit-user' });
-      expect(session.token).toMatch(/^[a-f0-9]{64}$/);
-
-      const headers = { 'x-access-token': session.token };
-      expect((await fetch(`${base}/api/health`, { headers })).status).toBe(200);
-      const sessionResponse = await fetch(`${base}/api/auth/session`, { headers });
-      expect(await sessionResponse.json()).toMatchObject({ authEnabled: true, username: 'audit-user' });
-
-      const logout = await fetch(`${base}/api/auth/logout`, { method: 'POST', headers });
-      expect(logout.status).toBe(200);
-      expect((await fetch(`${base}/api/health`, { headers })).status).toBe(401);
     } finally {
       await closeServer(server);
       holder.getDb().close();
@@ -85,7 +49,7 @@ describe('2026-08-29 缺陷复核：HTTP 鉴权与输入边界', () => {
   it('数组、对象和非数值查询参数稳定返回 400，备份创建带进程内冷却', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-query-audit-'));
     const dbPath = path.join(dir, 'newfc.sqlite');
-    const { app, holder } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app, holder } = await createTestApp({ dbPath });
     const server = app.listen(0);
     const port = (server.address() as { port: number }).port;
     const base = `http://127.0.0.1:${port}`;
@@ -105,13 +69,13 @@ describe('2026-08-29 缺陷复核：HTTP 鉴权与输入边界', () => {
         '/api/io/export/actual-current/not-a-year',
       ];
       for (const requestPath of paths) {
-        const response = await fetch(base + requestPath);
+        const response = await authFetch(base + requestPath);
         expect(response.status, requestPath).toBe(400);
         expect(await response.json(), requestPath).toMatchObject({ code: 'VALIDATION_FAILED' });
       }
 
       for (const requestPath of ['/api/org/1/move', '/api/account/1/move']) {
-        const response = await fetch(base + requestPath, {
+        const response = await authFetch(base + requestPath, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: '{}',
@@ -120,7 +84,7 @@ describe('2026-08-29 缺陷复核：HTTP 鉴权与输入边界', () => {
         expect(await response.json(), requestPath).toMatchObject({ code: 'VALIDATION_FAILED' });
       }
 
-      const health = await fetch(`${base}/api/health`);
+      const health = await authFetch(`${base}/api/health`);
       // 与迁移清单联动,避免每加一条迁移都要改断言
       const latestSchema = Math.max(...MIGRATIONS.map((migration) => migration.version));
       expect(await health.json()).toMatchObject({ ok: true, database: 'ready', schemaVersion: latestSchema });
@@ -129,7 +93,7 @@ describe('2026-08-29 缺陷复核：HTTP 鉴权与输入边界', () => {
       uploadWorkbook.addWorksheet('实际数导入').addRow(['年度', '截止日期', '组织编码', '科目编码', '累计金额(元)']);
       const form = new FormData();
       form.append('file', new Blob([await uploadWorkbook.xlsx.writeBuffer()]), 'actual.xlsx');
-      const uploadResponse = await fetch(`${base}/api/io/actual/import`, { method: 'POST', body: form });
+      const uploadResponse = await authFetch(`${base}/api/io/actual/import`, { method: 'POST', body: form });
       expect(uploadResponse.status).toBe(400);
       expect(await uploadResponse.json()).toMatchObject({ code: 'IMPORT_VALIDATION_FAILED' });
 
@@ -142,20 +106,20 @@ describe('2026-08-29 缺陷复核：HTTP 鉴权与输入边界', () => {
       historyForm.append('file', new Blob([await historyWorkbook.xlsx.writeBuffer()]), 'history.xlsx');
       historyForm.append('history', 'true');
       historyForm.append('snapshotDate', '2026-03-31');
-      const historyResponse = await fetch(`${base}/api/io/actual/import`, { method: 'POST', body: historyForm });
+      const historyResponse = await authFetch(`${base}/api/io/actual/import`, { method: 'POST', body: historyForm });
       expect(historyResponse.status).toBe(200);
       const historyPreview = await historyResponse.json() as { importBatchId: number; snapshotDate: string; batches: { snapshotDate: string }[] };
       expect(historyPreview.snapshotDate).toBe('2026-03-31');
       expect(historyPreview.batches).toEqual([expect.objectContaining({ snapshotDate: '2026-03-31' })]);
-      await fetch(`${base}/api/io/import-batches/${historyPreview.importBatchId}/cancel`, { method: 'POST' });
+      await authFetch(`${base}/api/io/import-batches/${historyPreview.importBatchId}/cancel`, { method: 'POST' });
 
-      const first = await fetch(`${base}/api/backup/create`, {
+      const first = await authFetch(`${base}/api/backup/create`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{}',
       });
       expect(first.status).toBe(200);
-      const second = await fetch(`${base}/api/backup/create`, {
+      const second = await authFetch(`${base}/api/backup/create`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{}',
@@ -473,16 +437,10 @@ describe('2026-08-29 缺陷复核：完成率与指标边界', () => {
 });
 
 describe('2026-08-29 缺陷复核：AI 出境边界', () => {
-  it('远程明文 HTTP 或复用登录口令时停用模型，但确定性助手仍可工作', () => {
-    const keys = ['AI_BASE_URL', 'AI_API_KEY', 'NEWFC_ACCESS_PASSWORD', 'AI_ALLOW_INSECURE_HTTP'] as const;
+  it('远程明文 HTTP 时停用模型，但确定性助手仍可工作', () => {
+    const keys = ['AI_BASE_URL', 'AI_API_KEY', 'AI_ALLOW_INSECURE_HTTP'] as const;
     const previous = new Map(keys.map((key) => [key, process.env[key]]));
     try {
-      process.env.AI_BASE_URL = 'https://model.example.com/v1';
-      process.env.AI_API_KEY = 'same-secret';
-      process.env.NEWFC_ACCESS_PASSWORD = 'same-secret';
-      expect(aiConfigurationIssue()).toMatch(/不得与/);
-      expect(modelConfig().baseUrl).toBeUndefined();
-
       process.env.AI_API_KEY = 'independent-key';
       process.env.AI_BASE_URL = 'http://198.51.100.20/v1';
       expect(aiConfigurationIssue()).toMatch(/必须使用 https/);

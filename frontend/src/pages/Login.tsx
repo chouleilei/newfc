@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Alert, Button, Form, Input, Typography } from 'antd';
-import { api, setToken } from '../api/client';
+import { api, setSession, type SessionInfo } from '../api/client';
 import { BrandLogo } from '../components/BrandLogo';
 
 interface LoginForm {
@@ -9,7 +9,7 @@ interface LoginForm {
 }
 
 /** 登录页:墨账封面 + 朱红光斑(年度账册) + 单张白卡,成功后由 App 接管进入主界面 */
-export default function Login({ onSuccess }: { onSuccess: (username: string) => void }) {
+export default function Login({ onSuccess }: { onSuccess: (session: SessionInfo) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -17,9 +17,9 @@ export default function Login({ onSuccess }: { onSuccess: (username: string) => 
     setLoading(true);
     setError('');
     try {
-      const res = await api.post<{ authEnabled: boolean; token?: string; username?: string }>('/auth/login', values);
-      if (res.token) setToken(res.token);
-      onSuccess(res.username ?? values.username);
+      const session = await api.post<SessionInfo>('/auth/login', values);
+      setSession(session);
+      onSuccess(session);
     } catch (e) {
       setError(e instanceof Error ? e.message : '登录失败,请稍后重试');
     } finally {
@@ -34,10 +34,10 @@ export default function Login({ onSuccess }: { onSuccess: (username: string) => 
           <BrandLogo size={52} />
           <div style={{ textAlign: 'center' }}>
             <Typography.Title level={4} style={{ marginBottom: 2 }}>
-              年度预算管理
+              水利财务分析
             </Typography.Title>
             <Typography.Text type="secondary" className="bd-brand-sub" style={{ fontSize: 12 }}>
-              Budget Console
+              newfc Finance Console
             </Typography.Text>
           </div>
         </div>
@@ -74,7 +74,7 @@ export default function Login({ onSuccess }: { onSuccess: (username: string) => 
           type="secondary"
           style={{ display: 'block', textAlign: 'center', fontSize: 12, marginTop: 24, opacity: 0.7 }}
         >
-          newfc 水利财务分析
+          首次使用请由运维在服务器执行 npm run admin:create 初始化管理员
         </Typography.Text>
       </div>
     </div>

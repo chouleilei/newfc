@@ -35,14 +35,9 @@ export interface AiFeatureBindingRow {
   updated_at: string;
 }
 
-/** 渠道校验:与 aiConfigurationIssue() 同款规则(URL 合法;https 或本机/可信内网 http;apiKey 不得等于访问密码)。 */
+/** 渠道校验:与 aiConfigurationIssue() 同款规则(URL 合法;https 或本机/可信内网 http)。 */
 export function channelConfigurationIssue(input: { baseUrl: string; apiKey?: string }): string | undefined {
   const baseUrl = input.baseUrl.trim();
-  const apiKey = (input.apiKey ?? '').trim();
-  const accessPassword = (process.env.NEWFC_ACCESS_PASSWORD || '').trim();
-  if (apiKey && accessPassword && apiKey === accessPassword) {
-    return 'apiKey 不得与 NEWFC_ACCESS_PASSWORD 使用同一密钥';
-  }
   let parsed: URL;
   try { parsed = new URL(baseUrl); } catch { return 'baseUrl 不是合法 URL'; }
   if (parsed.protocol === 'https:') return undefined;

@@ -35,7 +35,11 @@ import {
   masterDataHealthReport, orgStructureIssues, accountStructureIssues, structureCheckPayload,
 } from './modules/check/master-data-health';
 import * as evidence from './modules/evidence/evidence.service';
-import { SessionStore, type AuthConfig } from './modules/auth/session';
+import {
+  makeWrap, registerRequestContext, registerAuthRoutes, registerSessionAuth, registerRouteGuard, registerSecurityRoutes, requestContextOf,
+} from './modules/security/http';
+import { ensureBuiltinRoles } from './modules/security/security.service';
+import { currentAuth, runWithContext, systemContext } from './core/request-context';
 import * as financeProfiles from './modules/finance-import/source-profile.service';
 import * as financeMappings from './modules/finance-import/mapping/mapping.service';
 import { validateMappingVersion } from './modules/finance-import/mapping/mapping-validator';
@@ -47,7 +51,13 @@ import * as financeConversions from './modules/finance-import/conversion/convers
 import * as financeParallel from './modules/finance-import/conversion/parallel-trial.service';
 import { registerAssistantRoutes } from './assistant/controller';
 import * as aiChannels from './modules/settings/ai-channels.service';
-import { setChannelResolver } from './assistant/model';
+import { setChannelResolver, setModelCallRecorder } from './assistant/model';
+import { purgeExpiredJobs, recoverInterruptedJobs } from './modules/jobs/job.service';
+import { getSetting, listBusinessSettings, saveBusinessSettings } from './modules/settings/business-settings';
+import { registerMasterRoutes } from './modules/master/routes';
+import { orgInScope, resolveOrgScope } from './modules/security/scope';
+import { insertModelCall } from './modules/jobs/model-calls';
+import { registerJobRoutes } from './modules/jobs/routes';
 import { registerCleaningRoutes } from './modules/io/cleaning/routes';
 import { MAX_UPLOAD_BYTES } from './modules/io/import-limits';
 import { assertNoFinanceOwnedConflicts } from './modules/finance-import/owned-scope';
@@ -66,8 +76,6 @@ export interface ServerOptions {
   dbPath: string;
   port?: number;
   host?: string;
-  /** 登录账号;用户名或密码为空时关闭登录(本机开放模式) */
-  auth?: AuthConfig;
   backupCronHours?: number;
   /** 可信反向代理跳数；直连部署必须保持 false（默认）。 */
   trustProxy?: false | number;
@@ -95,6 +103,15 @@ export async function createApp(opts: ServerOptions) {
     await backup.createBackup(db(), backup.backupDirOf(opts.dbPath), 'pre-migrate-auto');
   }
   applyMigrations(db());
+  ensureBuiltinRoles(db());
+  // 持久任务恢复(AC-F21):上个进程未完成的任务标为 interrupted,不静默丢失
+  try {
+    const interrupted = recoverInterruptedJobs(db());
+    if (interrupted > 0) console.warn(`[startup] ${interrupted} 个未完成任务已标记为 interrupted`);
+    purgeExpiredJobs(db(), getSetting<number>(db(), 'jobs.retention_days'));
+  } catch (error) {
+    console.error('[startup] 恢复中断任务失败', error);
+  }
   // 财务转换中断恢复:上次进程在解析中途退出会留下永远不会推进的 parsing 批次,
   // 启动时按失败关闭(blocked + CONVERSION_INTERRUPTED 报告),原件保留、可重新转换。
   // 恢复失败不阻止服务启动。
@@ -116,8 +133,9 @@ export async function createApp(opts: ServerOptions) {
   recoverNarrativeTasks(db());
 
   const app = express();
+  registerRequestContext(app);
   // 登录接口单独使用极小请求体,防止未认证请求借审计日志撑爆数据库
-  app.use('/api/auth/login', express.json({ limit: '16kb' }));
+  app.use('/api/auth', express.json({ limit: '16kb' }));
   app.disable('x-powered-by');
   app.use((_req, res, next) => {
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
@@ -128,11 +146,8 @@ export async function createApp(opts: ServerOptions) {
   // 单层 nginx 反代部署应显式设 1；其他部署必须按真实代理层数配置。
   app.set('trust proxy', opts.trustProxy ?? false);
 
-  const wrap = (fn: (req: Request, res: Response) => Promise<unknown> | unknown) =>
-    (req: Request, res: Response, next: NextFunction) => {
-      // 先进入 promise 链再调用 fn，确保同步参数校验异常也能交给统一错误处理中间件。
-      Promise.resolve().then(() => fn(req, res)).catch(next);
-    };
+  // 先进入 promise 链再调用 fn(同步校验异常也交给统一错误处理),并重新进入请求上下文。
+  const wrap = makeWrap();
 
   const queryString = (value: unknown, name: string): string | undefined => {
     if (value === undefined) return undefined;
@@ -191,116 +206,8 @@ export async function createApp(opts: ServerOptions) {
     return items as Record<string, unknown>[];
   };
 
-  // 登录会话(方案十四扩展):登录/会话查询/登出开放访问,其余 /api 需令牌
-  const auth = new SessionStore(opts.auth ?? { username: '', password: '' });
+  registerAuthRoutes(app, { db, wrap });
 
-  app.post('/api/auth/login', wrap((req, res) => {
-    if (!auth.enabled) return res.json({ authEnabled: false });
-    const { username, password } = req.body ?? {};
-    const clientKey = req.ip ?? 'unknown';
-    const usernameStr = String(username ?? '');
-    const passwordStr = String(password ?? '');
-    if (usernameStr.length > 128 || passwordStr.length > 128) {
-      throw new AppError('VALIDATION_FAILED', '用户名或密码过长', 400);
-    }
-    const result = auth.login(clientKey, usernameStr, passwordStr);
-    if (!result.ok) {
-      // 已锁定的重复请求直接 429,不再写库,避免锁定期间仍被持续刷日志
-      if (result.lockedOnly) {
-        throw new AppError('AUTH_LOCKED', `失败次数过多,请 ${result.lockedSeconds} 秒后重试`, 429);
-      }
-      writeLog(db(), 'auth.login_failed', 'auth', '-', {
-        ip: clientKey,
-        username: usernameStr.slice(0, 32),
-        ...(result.lockedSeconds ? { lockedSeconds: result.lockedSeconds } : {}),
-      });
-      const message = result.lockedSeconds
-        ? `失败次数过多,请 ${result.lockedSeconds} 秒后重试`
-        : '用户名或密码错误';
-      throw new AppError('AUTH_FAILED', message, 401);
-    }
-    writeLog(db(), 'auth.login', 'auth', result.session!.username, { ip: clientKey });
-    res.json({
-      authEnabled: true,
-      token: result.session!.token,
-      username: result.session!.username,
-      expiresAt: result.session!.expiresAt,
-    });
-  }));
-
-  app.get('/api/auth/session', wrap((req, res) => {
-    if (!auth.enabled) return res.json({ authEnabled: false, username: null });
-    const session = auth.resolve(req.header('x-access-token'));
-    if (!session) throw new AppError('UNAUTHORIZED', '未登录或会话已过期', 401);
-    res.json({ authEnabled: true, username: session.username, expiresAt: session.expiresAt });
-  }));
-
-  app.post('/api/auth/logout', wrap((req, res) => {
-    const token = req.header('x-access-token');
-    const session = token ? auth.resolve(token) : undefined;
-    auth.logout(token);
-    if (session) writeLog(db(), 'auth.logout', 'auth', session.username, {});
-    res.json({ ok: true });
-  }));
-
-  const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-    if (!auth.enabled) return next();
-    const session = auth.resolve(req.header('x-access-token'));
-    if (!session) {
-      res.status(401).json({ code: 'UNAUTHORIZED', message: '未登录或会话已过期' });
-      return;
-    }
-    (req as Request & { authUser?: string }).authUser = session.username;
-    next();
-  };
-  /**
-   * 禁用认证模式(NEWFC_DISABLE_AUTH=1)的写保护:此时任何能触达端口的进程都能调用,
-   * 但浏览器跨站表单/fetch 不应能触发写库副作用(multipart/form-data 无预检)。
-   * - Host 必须等于监听地址(防 DNS rebinding);0.0.0.0 绑定不做 Host 限制;
-   * - 浏览器跨站请求必带 Origin/Referer,带则要求与 Host 同源;不带(脚本/curl)放行。
-   */
-  const disableAuthWriteGuard = (req: Request, res: Response, next: NextFunction) => {
-    if (auth.enabled) return next();
-    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
-    const host = String(req.headers.host ?? '');
-    const hostMatch = /^(?:\[([0-9a-fA-F:]+)\]|([^:]+?))(?::(\d+))?$/.exec(host);
-    const hostName = (hostMatch?.[1] ?? hostMatch?.[2] ?? '').toLowerCase();
-    const hostPort = hostMatch?.[3] ? Number(hostMatch[3]) : null;
-    const listenHost = (opts.host ?? '127.0.0.1').toLowerCase();
-    if (listenHost !== '0.0.0.0' && listenHost !== '::') {
-      const names = new Set([listenHost]);
-      if (listenHost === '127.0.0.1') names.add('localhost');
-      if (listenHost === 'localhost') names.add('127.0.0.1');
-      // 端口以实际监听 socket 为准(app.listen(0) 的测试与派生端口部署不能被误伤)
-      const effectivePort = req.socket?.localPort ?? opts.port ?? 3760;
-      const portOk = hostPort == null || hostPort === effectivePort;
-      if (!names.has(hostName) || !portOk) {
-        res.status(403).json({ code: 'FORBIDDEN', message: '禁用认证模式仅接受指向监听地址的请求(Host 不匹配)' });
-        return;
-      }
-    }
-    const origin = req.headers.origin ?? req.headers.referer;
-    if (origin) {
-      let originHost = '';
-      try { originHost = new URL(String(origin)).host; } catch { originHost = '__invalid__'; }
-      if (originHost !== host) {
-        res.status(403).json({ code: 'FORBIDDEN', message: '跨站请求被拒绝(Origin 与 Host 不同源)' });
-        return;
-      }
-    } else {
-      /* 无 Origin/Referer 的写请求:脚本与 curl 是这种形态,但浏览器跨站表单
-         配合 <meta name="referrer" content="no-referrer"> 也能抑制 Referer,
-         且 multipart/form-data、text/plain 两种表单编码不触发 CORS 预检。
-         用 Sec-Fetch-Site 显式拦住这类跨站请求(现代浏览器必带、不可伪造);
-         不带该头的非浏览器客户端(脚本/curl/同源旧浏览器)不受影响。 */
-      const fetchSite = String(req.headers['sec-fetch-site'] ?? '').toLowerCase();
-      if (fetchSite === 'cross-site') {
-        res.status(403).json({ code: 'FORBIDDEN', message: '跨站请求被拒绝(Sec-Fetch-Site: cross-site)' });
-        return;
-      }
-    }
-    next();
-  };
   /* ============ 存活/就绪检查(公开，不含业务数据) ============ */
   // 存活:进程可响应即可。就绪:本实例数据库可查询、schema 为最新、数据目录可写。
   // 模型是否配置不影响就绪(确定性业务不依赖模型)。
@@ -335,10 +242,16 @@ export async function createApp(opts: ServerOptions) {
     res.status(ok ? 200 : 503).json({ ok, status: ok ? 'ready' : 'not_ready', checks });
   });
 
-  app.use('/api', requireAuth);
-  app.use('/api', disableAuthWriteGuard);
+  registerSessionAuth(app, db);
   // 认证通过后才解析普通 API 的大请求体，避免匿名请求占用 JSON 解析 CPU/内存。
   app.use(express.json({ limit: '20mb' }));
+  // 路由权限表(默认拒绝)与组织参数可见性核验
+  registerRouteGuard(app, db);
+  registerSecurityRoutes(app, db, wrap);
+  registerJobRoutes(app, db, wrap);
+  registerMasterRoutes(app, db, wrap);
+  app.get('/api/settings/business', wrap((_req, res) => res.json({ items: listBusinessSettings(db()) })));
+  app.put('/api/settings/business', wrap((req, res) => res.json({ items: saveBusinessSettings(db(), req.body) })));
 
   /* ============ 恢复期间的请求门闸 ============ */
   // 恢复会关闭并替换数据库连接:中途到达的业务请求会拿到已关闭的连接,大面积 500。
@@ -356,6 +269,11 @@ export async function createApp(opts: ServerOptions) {
     res.status(503).json({ code: 'RESTORING', message: '备份恢复进行中,请稍后再试' });
   });
   registerAssistantRoutes(app, db, wrap);
+
+  // 模型调用观测(AC-F21):只记规模/耗时/结果,不记正文;写入失败不影响调用
+  setModelCallRecorder((record) => {
+    try { insertModelCall(db(), record); } catch (error) { console.error('[model-call] 记录失败', error); }
+  });
 
   // LLM 渠道管理(§7.3):把库内渠道解析注入模型适配层;功能调用按 binding 选渠道。
   setChannelResolver((feature) => {
@@ -477,7 +395,11 @@ export async function createApp(opts: ServerOptions) {
   app.get('/api/finance/parallel-trials/:id/report', wrap(async(req,res)=>{const buf=await financeParallel.parallelTrialReport(db(),Number(req.params.id));res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');res.setHeader('Content-Disposition','attachment; filename="finance-parallel-trial.xlsx"');res.send(buf);}));
 
   /* ============ 组织管理 ============ */
-  app.get('/api/org/tree', wrap((_req, res) => res.json(org.getOrgTree(db()))));
+  app.get('/api/org/tree', wrap((_req, res) => {
+    const auth = currentAuth();
+    const scope = auth ? resolveOrgScope(db(), auth) : null;
+    res.json(org.getOrgTree(db(), scope && !scope.all ? (id) => orgInScope(scope, id) : undefined));
+  }));
   app.post('/api/org', wrap((req, res) => {
     const { parentId = null, code, name, sortOrder } = req.body ?? {};
     res.status(201).json(org.createOrg(db(), { parentId, code, name, sortOrder }));
@@ -1321,6 +1243,12 @@ export async function createApp(opts: ServerOptions) {
       pageSize,
       action: queryString(req.query.action, 'action'),
       entityType: queryString(req.query.entityType, 'entityType'),
+      entityId: queryString(req.query.entityId, 'entityId'),
+      actorUserId: req.query.actorUserId === undefined ? undefined : positiveQueryInt(req.query.actorUserId, 'actorUserId', 1),
+      result: queryString(req.query.result, 'result'),
+      requestId: queryString(req.query.requestId, 'requestId'),
+      from: queryString(req.query.from, 'from'),
+      to: queryString(req.query.to, 'to'),
     }));
   }));
 
@@ -1413,23 +1341,24 @@ export async function createApp(opts: ServerOptions) {
 
   /* ============ 错误处理 ============ */
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const requestId = requestContextOf(res)?.requestId;
     if (err instanceof AppError) {
-      res.status(err.status).json(errorBody(err));
+      res.status(err.status).json({ ...errorBody(err), requestId });
       return;
     }
     if (err instanceof multer.MulterError) {
-      res.status(400).json({ code: 'UPLOAD_FAILED', message: `上传失败: ${err.message}` });
+      res.status(400).json({ code: 'UPLOAD_FAILED', message: `上传失败: ${err.message}`, requestId });
       return;
     }
     // 内部异常细节只进日志不回传客户端(SQL/路径等信息不外泄);
     // body-parser 等中间件错误自带 4xx status:保留状态码,同样不回传原文
     const status = (err as { status?: unknown }).status;
-    console.error('[unhandled]', err);
+    console.error(`[unhandled] requestId=${requestId ?? '-'}`, err);
     if (typeof status === 'number' && status >= 400 && status < 500) {
-      res.status(status).json({ code: 'REQUEST_REJECTED', message: '请求格式或大小不符合要求' });
+      res.status(status).json({ code: 'REQUEST_REJECTED', message: '请求格式或大小不符合要求', requestId });
       return;
     }
-    res.status(500).json({ code: 'INTERNAL_ERROR', message: '服务器内部错误,详情见服务端日志' });
+    res.status(500).json({ code: 'INTERNAL_ERROR', message: '服务器内部错误,详情见服务端日志', requestId });
   });
 
   return { app, holder, cleaningUploads };

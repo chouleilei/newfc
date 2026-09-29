@@ -6,6 +6,7 @@
  * 报告全程确定性,不依赖任何模型配置。
  */
 import { describe, expect, it } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -17,7 +18,6 @@ function budgetEntries(db: DB, fx: Fixture, entries: { orgId: number; accountId:
   budget.saveEntries(db, version.id, entries);
 }
 import { masterDataHealthReport, orgStructureIssues, accountStructureIssues, structureCheckPayload } from '../src/modules/check/master-data-health';
-import { createApp } from '../src/server';
 
 function healthCodes(db: ReturnType<typeof testDb>): string[] {
   return masterDataHealthReport(db).issues.map((issue) => issue.code);
@@ -213,14 +213,14 @@ describe('结构检查端点:形状统一 + {ok,problems} 兼容', () => {
   it('/api/org/check 与 /api/account/check 返回 issues 结构并保留 problems', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-http-'));
     const dbPath = path.join(dir, 'test.sqlite');
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
     const base = `http://127.0.0.1:${port}`;
     try {
       // 造一个孤儿组织:先建再直接改库悬空
-      const created = await fetch(`${base}/api/org`, {
+      const created = await authFetch(`${base}/api/org`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ parentId: null, code: 'T1', name: '临时' }),
@@ -234,14 +234,14 @@ describe('结构检查端点:形状统一 + {ok,problems} 兼容', () => {
       raw.prepare('UPDATE org SET parent_id = 99999 WHERE id = ?').run(node.id);
       raw.close();
 
-      const orgCheck = (await (await fetch(`${base}/api/org/check`)).json()) as {
+      const orgCheck = (await (await authFetch(`${base}/api/org/check`)).json()) as {
         ok: boolean; problems: string[]; issues: { code: string; severity: string; orgId?: number }[];
       };
       expect(orgCheck.ok).toBe(false);
       expect(orgCheck.problems.some((p) => p.includes('孤儿节点'))).toBe(true);
       expect(orgCheck.issues.some((issue) => issue.code === 'ORPHAN_NODE' && issue.severity === 'blocking' && issue.orgId === node.id)).toBe(true);
 
-      const accCheck = (await (await fetch(`${base}/api/account/check`)).json()) as { ok: boolean; problems: string[]; issues: unknown[] };
+      const accCheck = (await (await authFetch(`${base}/api/account/check`)).json()) as { ok: boolean; problems: string[]; issues: unknown[] };
       expect(accCheck.ok).toBe(true);
       expect(accCheck.problems).toEqual([]);
       expect(accCheck.issues).toEqual([]);
@@ -261,13 +261,13 @@ describe('结构检查端点:形状统一 + {ok,problems} 兼容', () => {
   it('/api/dashboard 的 structure 与 /api/org/check 同源:带 issues 结构而不是裸 problems', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dashboard-structure-'));
     const dbPath = path.join(dir, 'test.sqlite');
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
     const base = `http://127.0.0.1:${port}`;
     try {
-      const created = await fetch(`${base}/api/org`, {
+      const created = await authFetch(`${base}/api/org`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ parentId: null, code: 'T1', name: '临时' }),
@@ -279,7 +279,7 @@ describe('结构检查端点:形状统一 + {ok,problems} 兼容', () => {
       raw.prepare('UPDATE org SET parent_id = 99999 WHERE id = ?').run(node.id);
       raw.close();
 
-      const dashboard = (await (await fetch(`${base}/api/dashboard`)).json()) as {
+      const dashboard = (await (await authFetch(`${base}/api/dashboard`)).json()) as {
         structure: {
           org: { ok: boolean; problems: string[]; issues: { code: string; severity: string; orgId?: number }[] };
           account: { ok: boolean; problems: string[]; issues: unknown[] };
@@ -288,9 +288,9 @@ describe('结构检查端点:形状统一 + {ok,problems} 兼容', () => {
       expect(dashboard.structure.org.ok).toBe(false);
       expect(dashboard.structure.org.issues.some((issue) => issue.code === 'ORPHAN_NODE' && issue.orgId === node.id)).toBe(true);
       // 与 /api/org/check 的 payload 完全一致(同一信号源)
-      const orgCheck = await (await fetch(`${base}/api/org/check`)).json();
+      const orgCheck = await (await authFetch(`${base}/api/org/check`)).json();
       expect(dashboard.structure.org).toEqual(orgCheck);
-      expect(dashboard.structure.account).toEqual(await (await fetch(`${base}/api/account/check`)).json());
+      expect(dashboard.structure.account).toEqual(await (await authFetch(`${base}/api/account/check`)).json());
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       fs.rmSync(dir, { recursive: true, force: true });

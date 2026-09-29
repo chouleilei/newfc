@@ -6,7 +6,7 @@ import type { MenuProps } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { useThemeMode, SIDER_INSET, SIDER_MENU_MARGIN } from './theme';
-import { api, clearToken, AUTH_EXPIRED_EVENT, DOWNLOAD_FEEDBACK_EVENT, type DownloadFeedbackDetail, type SessionInfo } from './api/client';
+import { api, can, setSession, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_EVENT, DOWNLOAD_FEEDBACK_EVENT, type DownloadFeedbackDetail, type SessionInfo } from './api/client';
 import { assistantApi } from './api/assistant';
 import { relativeTime } from './utils/relativeTime';
 import { AssistantProvider } from './assistant/AssistantProvider';
@@ -17,6 +17,7 @@ import { isPageKey } from './assistant/context';
 import { UserPrefsProvider, useUserPrefs } from './hooks/useUserPrefs';
 import { entryPathFor, prefsNamespaceFor, MAX_FAVORITES } from './utils/userPrefs';
 import Login from './pages/Login';
+import ChangePassword from './pages/ChangePassword';
 import { Suspense } from 'react';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import { useRouteScrollMemory } from './hooks/useRouteScrollMemory';
@@ -41,6 +42,10 @@ const BudgetProgress = lazyWithRetry(() => import('./pages/BudgetProgress'));
 const AnomalyCenter = lazyWithRetry(() => import('./pages/AnomalyCenter'));
 const MetricTrend = lazyWithRetry(() => import('./pages/MetricTrend'));
 const SettingsAi = lazyWithRetry(() => import('./pages/SettingsAi'));
+const SecurityAdmin = lazyWithRetry(() => import('./pages/SecurityAdmin'));
+const SettingsBusiness = lazyWithRetry(() => import('./pages/SettingsBusiness'));
+const MasterEntities = lazyWithRetry(() => import('./pages/MasterEntities'));
+const JobsCenter = lazyWithRetry(() => import('./pages/JobsCenter'));
 
 const { Sider, Header, Content, Footer } = Layout;
 
@@ -111,6 +116,7 @@ const menuItems: MenuProps['items'] = [
       { key: '/org', label: '组织' },
       { key: '/account', label: '科目' },
       { key: '/metric', label: '指标' },
+      { key: '/master-entities', label: '项目·供应商·映射' },
       { key: '/master-health', label: '健康体检' },
     ],
   },
@@ -123,10 +129,64 @@ const menuItems: MenuProps['items'] = [
       { key: '/data?tab=yearclose', label: '年度关闭' },
       { key: '/data?tab=backup', label: '备份与迁移' },
       { key: '/data?tab=logs', label: '操作日志' },
+      { key: '/jobs', label: '任务中心' },
+      { key: '/settings/business', label: '业务设置' },
       { key: '/settings/ai', label: 'AI 渠道设置' },
+      { key: '/settings/security', label: '用户与权限' },
     ],
   },
 ];
+
+/**
+ * 侧栏入口所需权限:无权限的入口不显示(只是体验优化,后端仍逐请求校验)。
+ * 未登记的键(任务中心、助手会话项等)对所有已登录用户可见。
+ */
+export const MENU_PERMISSION: Record<string, string> = {
+  '/': 'dashboard:read',
+  '/assistant': 'assistant:use',
+  '/insights': 'assistant:use',
+  '/budget': 'budget:read',
+  '/progress': 'budget:read',
+  '/actual': 'actual:read',
+  '/data?tab=imports': 'import:run',
+  '/cleaning-config': 'import:run',
+  '/finance': 'finance_import:manage',
+  '/analysis': 'analysis:read',
+  '/alerts': 'analysis:read',
+  '/structure': 'analysis:read',
+  '/metric-trend': 'analysis:read',
+  '/history': 'analysis:read',
+  '/compare': 'analysis:read',
+  '/org': 'master:read',
+  '/account': 'master:read',
+  '/metric': 'master:read',
+  '/master-entities': 'master:read',
+  '/master-health': 'master:read',
+  '/data?tab=check': 'master:read',
+  '/data?tab=yearclose': 'actual:finalize',
+  '/data?tab=backup': 'system:backup',
+  '/data?tab=logs': 'audit:read',
+  '/settings/business': 'settings:read',
+  '/settings/ai': 'settings:read',
+  '/settings/security': 'security:manage',
+};
+
+/** 按权限裁剪菜单:去掉无权限的叶子,子项全被裁掉的分组一并去掉。 */
+export function filterMenuByPermission(items: MenuProps['items'], has: (permission: string) => boolean): MenuProps['items'] {
+  const out: NonNullable<MenuProps['items']> = [];
+  for (const item of items ?? []) {
+    if (!item) continue;
+    if ('children' in item && item.children) {
+      const children = filterMenuByPermission(item.children, has) ?? [];
+      if (children.length) out.push({ ...item, children });
+      continue;
+    }
+    const key = 'key' in item && typeof item.key === 'string' ? item.key : '';
+    const need = MENU_PERMISSION[key];
+    if (!need || has(need)) out.push(item);
+  }
+  return out;
+}
 
 function leafLabel(key: string): string {
   const walk = (nodes?: MenuProps['items']): string | undefined => {
@@ -185,10 +245,13 @@ export function selectedKey(pathname: string, search: string): string {
   if (seg === '/' || seg === '') return '/';
   if (seg === '/budget') return '/budget';
   if (seg === '/settings') {
-    return pathname.startsWith('/settings/ai') ? '/settings/ai' : '/';
+    if (pathname.startsWith('/settings/ai')) return '/settings/ai';
+    if (pathname.startsWith('/settings/security')) return '/settings/security';
+    if (pathname.startsWith('/settings/business')) return '/settings/business';
+    return '/';
   }
   if (seg === '/data') return dataMenuKey(new URLSearchParams(search).get('tab'));
-  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend'];
+  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs'];
   return leaves.includes(seg) ? seg : '/';
 }
 
@@ -236,15 +299,15 @@ function Brand({ collapsed }: { collapsed: boolean }) {
  * UX-25:偏好 Provider 按登录用户名命名空间挂在壳层,侧栏收藏/页头星标/最近访问
  * 与分析页命名视图共用同一份偏好;本机模式(无账号)落 default 命名空间。
  */
-function Page({ username, onLogout }: { username: string; onLogout: () => void }) {
+function Page({ username, onLogout, onChangePassword }: { username: string; onLogout: () => void; onChangePassword: () => void }) {
   return (
     <UserPrefsProvider namespace={prefsNamespaceFor(username)}>
-      <PageInner username={username} onLogout={onLogout} />
+      <PageInner username={username} onLogout={onLogout} onChangePassword={onChangePassword} />
     </UserPrefsProvider>
   );
 }
 
-function PageInner({ username, onLogout }: { username: string; onLogout: () => void }) {
+function PageInner({ username, onLogout, onChangePassword }: { username: string; onLogout: () => void; onChangePassword: () => void }) {
   const loc = useLocation();
   const navigate = useNavigate();
   const navType = useNavigationType();
@@ -321,7 +384,7 @@ function PageInner({ username, onLogout }: { username: string; onLogout: () => v
    * 2. 只有点击进入「小澧助手」/处于对话页面时，才在侧栏动态展开最近会话历史与新建对话，主工作区直接铺满，无重复内侧栏。
    */
   const dynamicMenuItems = useMemo<MenuProps['items']>(() => {
-    return (menuItems ?? []).map((item) => {
+    return (filterMenuByPermission(menuItems, can) ?? []).map((item) => {
       if (!item || !('key' in item) || item.key !== 'grp-ai') return item;
 
       // 非对话页面：保持纯净功能入口，不展开会话记录
@@ -581,10 +644,12 @@ function PageInner({ username, onLogout }: { username: string; onLogout: () => v
                 items: [
                   /* UX-25 重置入口:只清个人偏好(localStorage bd:prefs:*),不触碰任何业务数据 */
                   { key: 'reset-prefs', icon: <i className="ri-eraser-line" aria-hidden />, label: '清空视图与收藏' },
+                  { key: 'password', icon: <i className="ri-key-2-line" aria-hidden />, label: '修改口令' },
                   { key: 'logout', icon: <i className="ri-logout-box-r-line" aria-hidden />, label: '退出登录', danger: true },
                 ],
                 onClick: ({ key }) => {
                   if (key === 'logout') onLogout();
+                  if (key === 'password') onChangePassword();
                   if (key === 'reset-prefs') {
                     modal.confirm({
                       title: '清空个人偏好?',
@@ -667,30 +732,34 @@ function DownloadFeedback() {
   return null;
 }
 
-/** 鉴权门卫:启动时校验会话,未登录渲染登录页;会话过期事件触发时切回登录页 */
+/** 鉴权门卫:启动时用 Cookie 校验会话并取回 CSRF 令牌;未登录渲染登录页;需改口令时先进入改口令页 */
 type AuthState =
   | { status: 'checking' }
   | { status: 'guest' }
-  | { status: 'user'; username: string };
+  | { status: 'user'; session: SessionInfo; changingPassword: boolean };
 
 function AuthGate() {
   const [auth, setAuth] = useState<AuthState>({ status: 'checking' });
 
+  const enter = (session: SessionInfo) => {
+    setSession(session);
+    setAuth({ status: 'user', session, changingPassword: session.user.mustChangePassword });
+  };
+  const refresh = () => api.get<SessionInfo>('/auth/session').then(enter);
+
   useEffect(() => {
     let alive = true;
     api.get<SessionInfo>('/auth/session')
-      .then((s) => {
-        if (!alive) return;
-        if (!s.authEnabled) setAuth({ status: 'user', username: '本机模式' });
-        else if (s.username) setAuth({ status: 'user', username: s.username });
-        else setAuth({ status: 'guest' });
-      })
-      .catch(() => { if (alive) setAuth({ status: 'guest' }); });
+      .then((s) => { if (alive) enter(s); })
+      .catch(() => { if (alive) { setSession(null); setAuth({ status: 'guest' }); } });
     const onExpired = () => setAuth({ status: 'guest' });
+    const onPasswordChange = () => setAuth((prev) => prev.status === 'user' ? { ...prev, changingPassword: true } : prev);
     window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    window.addEventListener(PASSWORD_CHANGE_EVENT, onPasswordChange);
     return () => {
       alive = false;
       window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+      window.removeEventListener(PASSWORD_CHANGE_EVENT, onPasswordChange);
     };
   }, []);
 
@@ -702,15 +771,36 @@ function AuthGate() {
     );
   }
   if (auth.status === 'guest') {
-    return <Login onSuccess={(username) => setAuth({ status: 'user', username })} />;
+    return <Login onSuccess={enter} />;
   }
 
   const logout = async () => {
     try { await api.post('/auth/logout'); } catch { /* 会话已失效也照常回登录页 */ }
-    clearToken();
+    setSession(null);
     setAuth({ status: 'guest' });
   };
-  return <><DownloadFeedback /><Page username={auth.username} onLogout={logout} /></>;
+  const { session } = auth;
+  if (auth.changingPassword) {
+    const forced = session.user.mustChangePassword;
+    return (
+      <ChangePassword
+        forced={forced}
+        username={session.user.username}
+        onDone={() => { void refresh().catch(() => setAuth({ status: 'guest' })); }}
+        onCancel={forced ? () => void logout() : () => setAuth({ ...auth, changingPassword: false })}
+      />
+    );
+  }
+  return (
+    <>
+      <DownloadFeedback />
+      <Page
+        username={session.user.displayName || session.user.username}
+        onLogout={logout}
+        onChangePassword={() => setAuth({ ...auth, changingPassword: true })}
+      />
+    </>
+  );
 }
 
 /** 路由:data router,支持编辑页 useBlocker(未保存离开拦截)。
@@ -732,6 +822,10 @@ function getRouter() {
       { path: 'alerts', element: <AnomalyCenter /> },
       { path: 'metric-trend', element: <MetricTrend /> },
       { path: 'settings/ai', element: <SettingsAi /> },
+      { path: 'settings/security', element: <SecurityAdmin /> },
+      { path: 'settings/business', element: <SettingsBusiness /> },
+      { path: 'master-entities', element: <MasterEntities /> },
+      { path: 'jobs', element: <JobsCenter /> },
       { path: 'org', element: <OrgManage /> },
       { path: 'account', element: <AccountManage /> },
       { path: 'metric', element: <MetricManage /> },

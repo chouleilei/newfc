@@ -4,11 +4,11 @@
  * 每个 it 对应一处已修复的缺陷，命名里写清「原来错在哪」，避免以后被重构回旧行为。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import * as assistant from '../src/assistant/service';
 import { executeTool } from '../src/assistant/tools';
 import { modelConfig, EnvChatModel } from '../src/assistant/model';
 import { resetAssistantRateLimit } from '../src/assistant/rate-limit';
-import { createApp } from '../src/server';
 import { openDatabase } from '../src/db/connection';
 import { loadSnapshotNodes } from '../src/modules/tree/snapshot';
 import { testDb, tempFileDb, buildFixture, standardBudgetVersion, budget, org, account } from './helpers';
@@ -200,12 +200,12 @@ describe('缺陷修复回归:路由与限流', () => {
   it('带副作用的 GET /api/assistant/chat/stream 已删除', async () => {
     const { dbPath, db, dir } = tempFileDb();
     db.close();
-    const { app, holder } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app, holder } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/api/assistant/chat/stream?message=${encodeURIComponent('列出预算版本')}`);
+      const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat/stream?message=${encodeURIComponent('列出预算版本')}`);
       expect(response.status).toBe(404);
       await response.arrayBuffer();
       // GET 不应创建任何会话
@@ -229,18 +229,18 @@ describe('缺陷修复回归:路由与限流', () => {
     const previous = process.env.AI_RATE_LIMIT_PER_MIN;
     process.env.AI_RATE_LIMIT_PER_MIN = '1';
     resetAssistantRateLimit();
-    const { app, holder } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app, holder } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
     const base = `http://127.0.0.1:${port}/api/assistant`;
     try {
-      const first = await fetch(`${base}/actions/${pending[0].id}/cancel`, { method: 'POST' });
+      const first = await authFetch(`${base}/actions/${pending[0].id}/cancel`, { method: 'POST' });
       expect(first.status).toBe(200);
-      const second = await fetch(`${base}/actions/${pending[1].id}/cancel`, { method: 'POST' });
+      const second = await authFetch(`${base}/actions/${pending[1].id}/cancel`, { method: 'POST' });
       expect(second.status).toBe(429);
       expect((await second.json() as any).code).toBe('AI_RATE_LIMITED');
-      const download = await fetch(`${base}/actions/${pending[2].id}/download`);
+      const download = await authFetch(`${base}/actions/${pending[2].id}/download`);
       expect(download.status).toBe(429);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));

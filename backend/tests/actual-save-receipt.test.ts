@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { AppError } from '../src/core/errors';
-import { createApp } from '../src/server';
 import { testDb, buildFixture, actual } from './helpers';
 import type { DB } from '../src/db/connection';
 
@@ -206,7 +206,7 @@ afterEach(async () => {
 });
 
 async function boot(): Promise<{ base: string; db: DB }> {
-  const { app, holder } = await createApp({ dbPath: ':memory:', auth: { username: '', password: '' } });
+  const { app, holder } = await createTestApp({ dbPath: ':memory:' });
   httpDb = holder.getDb();
   server = app.listen(0);
   await new Promise<void>((resolve) => server!.once('listening', () => resolve()));
@@ -223,7 +223,7 @@ describe('实际保存回执 HTTP 契约(UX-11)', () => {
       entries: [{ orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain, amount: '100.00' }],
       expectedCurrentBatchId: null, requestId: REQ_1,
     };
-    const post = (body: unknown) => fetch(`${base}/actual/save`, {
+    const post = (body: unknown) => authFetch(`${base}/actual/save`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     const first = await post(payload);
@@ -238,7 +238,7 @@ describe('实际保存回执 HTTP 契约(UX-11)', () => {
     expect(retryBody.batchId).toBe(firstBody.batchId);
     expect(batchCount(db, 2026)).toBe(1);
 
-    const receipt = await fetch(`${base}/actual/save-requests/${REQ_1}`);
+    const receipt = await authFetch(`${base}/actual/save-requests/${REQ_1}`);
     expect(receipt.status).toBe(200);
     const receiptBody = (await receipt.json()) as { committed: boolean; requestId: string; batchId: number; result: { batchId: number } };
     expect(receiptBody).toMatchObject({ committed: true, requestId: REQ_1, batchId: firstBody.batchId });
@@ -252,22 +252,22 @@ describe('实际保存回执 HTTP 契约(UX-11)', () => {
   it('未知请求编号返回清晰 404;非法编号 400;既有 :id 路由不受影响', async () => {
     const { base, db } = await boot();
     buildFixture(db);
-    const missing = await fetch(`${base}/actual/save-requests/${REQ_2}`);
+    const missing = await authFetch(`${base}/actual/save-requests/${REQ_2}`);
     expect(missing.status).toBe(404);
     expect(((await missing.json()) as { message: string }).message).toMatch(/相同请求编号/);
 
-    const invalid = await fetch(`${base}/actual/save-requests/not%20valid`);
+    const invalid = await authFetch(`${base}/actual/save-requests/not%20valid`);
     expect(invalid.status).toBe(400);
 
     // 注册顺序不影响既有批次路由
-    const notFoundBatch = await fetch(`${base}/actual/batches/99999`);
+    const notFoundBatch = await authFetch(`${base}/actual/batches/99999`);
     expect(notFoundBatch.status).toBe(404);
   });
 
   it('requestId 非字符串被 400 拒绝', async () => {
     const { base, db } = await boot();
     const fx = buildFixture(db);
-    const res = await fetch(`${base}/actual/save`, {
+    const res = await authFetch(`${base}/actual/save`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         year: 2026, snapshotDate: '2026-03-31',

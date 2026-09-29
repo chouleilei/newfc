@@ -82,9 +82,8 @@ export function registerAssistantRoutes(
   }));
   // 只保留 POST 流式入口。曾经存在的 `GET /api/assistant/chat/stream` 已删除：
   // 它会创建会话、写 ai_message、写操作日志并消耗模型额度，却是一个 GET——
-  // 浏览器的 EventSource 无法附带 `x-access-token`，鉴权开启时根本用不了；
-  // 而 `NEWFC_DISABLE_AUTH=1` 的本机模式下，任意站点用 `new EventSource(...)`
-  // 就能跨站触发这些副作用(简单 GET 无预检、CORS 只挡读取不挡副作用)。
+  // GET 不经 CSRF 校验，带着会话 Cookie 的跨站 `new EventSource(...)` 就能触发这些副作用
+  // (简单 GET 无预检、CORS 只挡读取不挡副作用)。
   // 前端一直走 POST + fetch 读流，因此直接移除，不保留兼容层。
   app.post('/api/assistant/preview', assistantRateLimit, wrap((req, res) => {
     const parsed = parsePreviewRequest(req.body);

@@ -1,5 +1,6 @@
+import { expect, test } from './access';
 import path from 'path';
-import { expect,test } from '@playwright/test';
+
 
 test('财务余额表到实际快照的人工确认全链路',async({page,request})=>{
   await page.goto('/finance');

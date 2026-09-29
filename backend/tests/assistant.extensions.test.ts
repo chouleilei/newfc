@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import { anomalyReport } from '../src/assistant/anomaly';
 import { explainTerms, GLOSSARY } from '../src/assistant/glossary';
 import { navigationCatalog, resolveNavigation } from '../src/assistant/navigation';
 import { queryFacts } from '../src/assistant/facts';
 import * as assistant from '../src/assistant/service';
 import { executeTool } from '../src/assistant/tools';
-import { createApp } from '../src/server';
 import { freezeYear } from '../src/modules/report/report.service';
 import { testDb, buildFixture, standardBudgetVersion, saveActualSnapshot, budget, account, actual, org } from './helpers';
 
@@ -189,24 +189,24 @@ describe('AI 助手:导航、业务解释与异常检查', () => {
 
   it('HTTP 暴露 glossary / navigation / insights 接口', async () => {
     const dbPath = `/tmp/assistant-ext-${Date.now()}.sqlite`;
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
     const base = `http://127.0.0.1:${port}/api/assistant`;
 
-    const glossary: any = await (await fetch(`${base}/glossary?q=完成率`)).json();
+    const glossary: any = await (await authFetch(`${base}/glossary?q=完成率`)).json();
     expect(glossary.matched[0].key).toBe('completion_rate');
     expect(glossary.catalog.length).toBe(GLOSSARY.length);
 
-    const navigation: any = await (await fetch(`${base}/navigation`)).json();
+    const navigation: any = await (await authFetch(`${base}/navigation`)).json();
     expect(navigation.pages.some((p: any) => p.page === 'analysis')).toBe(true);
 
-    const bad = await fetch(`${base}/insights`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'nope' }) });
+    const bad = await authFetch(`${base}/insights`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'nope' }) });
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { code: string }).code).toBe('VALIDATION_FAILED');
 
-    const list: any = await (await fetch(`${base}/insights`)).json();
+    const list: any = await (await authFetch(`${base}/insights`)).json();
     expect(Array.isArray(list.items)).toBe(true);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });

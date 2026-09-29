@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test } from './access';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'node:module';

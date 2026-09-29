@@ -7,7 +7,7 @@ import { runConsistencyChecks } from '../src/modules/check/consistency';
 import { yearTrend, completionReport } from '../src/modules/report/report.service';
 import { exportSnapshot } from '../src/modules/io/export.service';
 import { createBackup, resolveBackupFile, verifyBackupFile, backupDirOf } from '../src/modules/backup/backup.service';
-import { SessionStore } from '../src/modules/auth/session';
+import { LoginThrottle } from '../src/modules/security/http';
 
 /** 针对代码审查发现缺陷的回归测试 */
 
@@ -195,37 +195,21 @@ describe('回归:备份月度归档与恢复路径', () => {
   });
 });
 
-describe('回归:登录锁定后的重复请求不再计入失败次数', () => {
-  it('锁定期间返回 lockedOnly,调用方可跳过写库', () => {
-    const store = new SessionStore({ username: 'u', password: 'p' });
-    let lockedSeconds: number | undefined;
-    for (let i = 0; i < 8; i++) {
-      const r = store.login('1.2.3.4', 'bad', 'bad');
-      expect(r.lockedOnly).toBeUndefined();
-      lockedSeconds = r.lockedSeconds ?? lockedSeconds;
-    }
-    expect(lockedSeconds).toBeGreaterThan(0);
-    const again = store.login('1.2.3.4', 'bad', 'bad');
-    expect(again.ok).toBe(false);
-    expect(again.lockedOnly).toBe(true);
-    expect(again.lockedSeconds).toBeGreaterThan(0);
+describe('回归:登录限流(按 IP 与按账号)', () => {
+  it('同一 IP 连续失败达到上限后锁定', () => {
+    const t = new LoginThrottle();
+    let locked = 0;
+    for (let i = 0; i < 8; i++) locked = t.failure('1.2.3.4', 'bad', false);
+    expect(locked).toBeGreaterThan(0);
+    expect(t.lockedSeconds('1.2.3.4', 'other')).toBeGreaterThan(0);
   });
 
-  it('按账号锁定:伪造 IP 轮换无法绕过失败上限', () => {
-    const store = new SessionStore({ username: 'u', password: 'p' });
-    // 8 次失败全部来自正确用户名、不同 IP(模拟直连伪造 X-Forwarded-For)
-    for (let i = 0; i < 8; i++) {
-      const r = store.login(`10.0.0.${i}`, 'u', 'wrong');
-      expect(r.ok).toBe(false);
-    }
-    // 换一个全新 IP 也应命中账号锁,而不是重新拿到 8 次配额
-    const rotated = store.login('99.9.9.9', 'u', 'wrong');
-    expect(rotated.ok).toBe(false);
-    expect(rotated.lockedOnly).toBe(true);
-    expect(rotated.lockedSeconds).toBeGreaterThan(0);
-    // 锁定期内不验证凭据:正确密码同样被账号锁拦住
-    expect(store.login('99.9.9.9', 'u', 'p').ok).toBe(false);
-    // 乱填用户名不触发账号锁(不存在的账号无从锁定,IP 维度仍照常计数)
-    expect(store.login('10.1.1.1', 'nobody', 'x').lockedOnly).toBeUndefined();
+  it('按账号锁定:伪造 IP 轮换无法绕过失败上限;不存在的账号不触发账号锁', () => {
+    const t = new LoginThrottle();
+    for (let i = 0; i < 8; i++) t.failure(`10.0.0.${i}`, 'u', true);
+    expect(t.lockedSeconds('99.9.9.9', 'u')).toBeGreaterThan(0);
+    expect(t.lockedSeconds('99.9.9.9', 'U')).toBeGreaterThan(0);
+    t.failure('10.1.1.1', 'nobody', false);
+    expect(t.lockedSeconds('10.1.1.2', 'nobody')).toBe(0);
   });
 });

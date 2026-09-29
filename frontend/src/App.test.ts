@@ -3,7 +3,7 @@
  * dataMenuKey 归并(导入批次/一致性检查恢复为独立入口)与 pageTitle 特判。
  */
 import { describe, expect, it } from 'vitest';
-import { dataMenuKey, pageTitle, selectedKey } from './App';
+import { dataMenuKey, filterMenuByPermission, pageTitle, selectedKey } from './App';
 
 describe('侧栏高亮与归并(阶段一)', () => {
   it('新增叶子项均在 selectedKey 白名单内', () => {
@@ -14,6 +14,10 @@ describe('侧栏高亮与归并(阶段一)', () => {
     expect(selectedKey('/alerts', '')).toBe('/alerts');
     expect(selectedKey('/metric-trend', '')).toBe('/metric-trend');
     expect(selectedKey('/settings/ai', '')).toBe('/settings/ai');
+    expect(selectedKey('/settings/security', '')).toBe('/settings/security');
+    expect(selectedKey('/settings/business', '')).toBe('/settings/business');
+    expect(selectedKey('/master-entities', '')).toBe('/master-entities');
+    expect(selectedKey('/jobs', '')).toBe('/jobs');
     // 既有行为不变
     expect(selectedKey('/assistant', '')).toBe('/assistant');
     expect(selectedKey('/budget', '')).toBe('/budget');
@@ -43,5 +47,22 @@ describe('侧栏高亮与归并(阶段一)', () => {
     expect(pageTitle('/master-health', '', '/master-health')).toBe('健康体检');
     expect(pageTitle('/cleaning-config', '', '/cleaning-config')).toBe('清洗模板与别名');
     expect(pageTitle('/settings/ai', '', '/settings/ai')).toBe('AI 渠道设置');
+  });
+});
+
+describe('侧栏按权限裁剪(AC-X04)', () => {
+  const items = [
+    { key: '/', label: '首页' },
+    { key: 'grp-master', label: '主数据', children: [{ key: '/org', label: '组织' }, { key: '/master-entities', label: '项目' }] },
+    { key: 'grp-system', label: '系统', children: [{ key: '/jobs', label: '任务中心' }, { key: '/settings/security', label: '用户与权限' }] },
+    { key: 'grp-sec', label: '仅管理', children: [{ key: '/settings/ai', label: 'AI' }] },
+  ];
+  const keys = (list: ReturnType<typeof filterMenuByPermission>): string[] =>
+    (list ?? []).flatMap((i) => (i && 'children' in i && i.children ? [String(i.key), ...keys(i.children)] : [String(i?.key)]));
+
+  it('去掉无权限叶子,子项全空的分组一并去掉;未登记入口始终可见', () => {
+    const viewer = new Set(['dashboard:read', 'master:read']);
+    expect(keys(filterMenuByPermission(items, (p) => viewer.has(p)))).toEqual(['/', 'grp-master', '/org', '/master-entities', 'grp-system', '/jobs']);
+    expect(keys(filterMenuByPermission(items, () => false))).toEqual(['grp-system', '/jobs']);
   });
 });

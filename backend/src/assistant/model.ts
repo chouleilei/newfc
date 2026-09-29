@@ -9,7 +9,13 @@
  */
 export interface ToolCall { id?: string; name: string; arguments: Record<string, unknown>; }
 export interface ModelInput { messages: any[]; tools?: any[]; signal?: AbortSignal; }
-export interface ChatCompletionResult { text: string; model?: string; toolCalls?: ToolCall[]; }
+export interface ChatCompletionResult {
+  text: string;
+  model?: string;
+  toolCalls?: ToolCall[];
+  /** 供应商返回的 usage(非流式通常有;流式默认没有,由观测层估算) */
+  usage?: { promptTokens: number; completionTokens: number };
+}
 /** 流事件：text 为增量正文，result 为该轮的最终结构化结果(含工具调用)。 */
 export type ModelStreamEvent =
   | { type: 'text'; text: string }
@@ -22,11 +28,6 @@ export interface ChatModel {
 
 export function aiConfigurationIssue(): string | undefined {
   const baseUrl = (process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || '').trim();
-  const apiKey = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
-  const accessPassword = (process.env.NEWFC_ACCESS_PASSWORD || '').trim();
-  if (apiKey && accessPassword && apiKey === accessPassword) {
-    return 'AI_API_KEY 不得与 NEWFC_ACCESS_PASSWORD 使用同一密钥';
-  }
   if (!baseUrl) return undefined;
   let parsed: URL;
   try { parsed = new URL(baseUrl); } catch { return 'AI_BASE_URL 不是合法 URL'; }
@@ -183,7 +184,16 @@ function parseCompletionPayload(data: any, modelName: string): ChatCompletionRes
       }))
       .filter((call: ToolCall) => call.name)
     : [];
-  return { text: typeof message.content === 'string' ? message.content : '', model: modelName, toolCalls: calls };
+  const usage = data?.usage;
+  const promptTokens = Number(usage?.prompt_tokens);
+  const completionTokens = Number(usage?.completion_tokens);
+  return {
+    text: typeof message.content === 'string' ? message.content : '',
+    model: modelName,
+    toolCalls: calls,
+    ...(Number.isSafeInteger(promptTokens) && Number.isSafeInteger(completionTokens) && promptTokens >= 0 && completionTokens >= 0
+      ? { usage: { promptTokens, completionTokens } } : {}),
+  };
 }
 
 function timeoutError(err: unknown, reason?: string | null): Error {
@@ -214,12 +224,158 @@ function finishPartialCalls(partials: Map<number, PartialToolCall>): ToolCall[] 
     .filter((call) => call.name);
 }
 
+/* ============ 模型调用观测(AC-F21) ============ */
+
+export type ModelCallStatus = 'success' | 'error' | 'timeout' | 'cancelled';
+
+/** 不含提示词/回答正文,只有规模、耗时与错误分类。 */
+export interface ModelCallRecord {
+  feature: string;
+  provider: string;
+  model: string;
+  channelName: string;
+  stream: boolean;
+  status: ModelCallStatus;
+  errorType: string;
+  errorMessage: string;
+  fallbackUsed: boolean;
+  latencyMs: number;
+  promptChars: number;
+  completionChars: number;
+  promptTokens: number;
+  completionTokens: number;
+  tokensEstimated: boolean;
+  toolCallCount: number;
+}
+
+let modelCallRecorder: ((record: ModelCallRecord) => void) | null = null;
+/** server 启动后注入落库实现;测试/未注入时不记录。 */
+export function setModelCallRecorder(recorder: ((record: ModelCallRecord) => void) | null): void {
+  modelCallRecorder = recorder;
+}
+
+/** 粗略 token 估算:中日韩字符按 1 个,其余按 4 字符 1 个。仅在供应商未返回 usage 时使用。 */
+export function estimateTokens(text: string): number {
+  let cjk = 0;
+  for (const ch of text) if (/[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff]/.test(ch)) cjk += 1;
+  return cjk + Math.ceil((text.length - cjk) / 4);
+}
+
+export function classifyModelError(error: unknown): { status: ModelCallStatus; errorType: string } {
+  const name = (error as { name?: string })?.name;
+  const message = error instanceof Error ? error.message : String(error);
+  if (name === 'AbortError' || /客户端已取消/.test(message)) return { status: 'cancelled', errorType: 'cancelled' };
+  if (/超时|timed? ?out/i.test(message)) return { status: 'timeout', errorType: 'timeout' };
+  const http = /AI provider returned (\d{3})/.exec(message);
+  if (http) return { status: 'error', errorType: http[1].startsWith('4') ? `http_4xx` : 'http_5xx' };
+  if (/非法 JSON|缺少 choices|既不是 SSE/.test(message)) return { status: 'error', errorType: 'invalid_response' };
+  if (/请求失败|fetch failed|ECONN|ENOTFOUND|EAI_AGAIN/.test(message)) return { status: 'error', errorType: 'network' };
+  return { status: 'error', errorType: 'unknown' };
+}
+
+function redactModelError(message: string): string {
+  return message.replace(/Bearer\s+[\w.~+/=-]+/gi, 'Bearer [redacted]').replace(/sk-[\w-]{6,}/g, 'sk-[redacted]').slice(0, 300);
+}
+
+function recordModelCall(
+  feature: AiFeature | undefined,
+  primary: ResolvedModelConfig,
+  input: ModelInput,
+  stream: boolean,
+  started: number,
+  outcome: { result?: ChatCompletionResult; error?: unknown; completionChars?: number },
+): void {
+  if (!modelCallRecorder) return;
+  try {
+    const promptText = input.messages.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''))).join('\n');
+    const { result, error } = outcome;
+    let status: ModelCallStatus = 'success';
+    let errorType = '';
+    let errorMessage = '';
+    if (error !== undefined) {
+      ({ status, errorType } = classifyModelError(error));
+      errorMessage = redactModelError(error instanceof Error ? error.message : String(error));
+    } else if (!result) {
+      status = 'cancelled';
+      errorType = 'consumer_stopped';
+    }
+    const tagged = result?.model ?? '';
+    const slash = tagged.indexOf('/');
+    const channelName = primary.channelName && slash > 0 ? tagged.slice(0, slash) : (primary.channelName ?? '');
+    const fallbackUsed = Boolean(primary.channelName && result && !tagged.startsWith(`${primary.channelName}/`))
+      || /备用渠道/.test(errorMessage);
+    const completionText = result?.text ?? '';
+    const completionChars = outcome.completionChars ?? completionText.length;
+    const usage = result?.usage;
+    modelCallRecorder({
+      feature: feature ?? '',
+      provider: primary.provider,
+      model: primary.channelName && slash > 0 ? tagged.slice(slash + 1) : (result?.model ?? primary.model),
+      channelName,
+      stream,
+      status,
+      errorType,
+      errorMessage,
+      fallbackUsed,
+      latencyMs: Date.now() - started,
+      promptChars: promptText.length,
+      completionChars,
+      promptTokens: usage ? usage.promptTokens : estimateTokens(promptText),
+      completionTokens: usage ? usage.completionTokens : result ? estimateTokens(completionText) : Math.ceil(completionChars / 2),
+      tokensEstimated: !usage,
+      toolCallCount: result?.toolCalls?.length ?? 0,
+    });
+  } catch {
+    /* 观测失败不影响业务调用 */
+  }
+}
+
 export class EnvChatModel implements ChatModel {
   /**
    * 构造参数即功能标识(§7.1 枚举),决定走哪个渠道绑定;不传时按 env/任一渠道解析,
    * 行为与渠道功能引入前一致(测试直连 EnvChatModel 的场景不受影响)。
    */
   constructor(private readonly feature?: AiFeature) {}
+
+  /** 一次性调用:真实外呼(已配置模型)时记录观测;未配置时返回模板,不算模型调用。 */
+  async complete(input: ModelInput): Promise<ChatCompletionResult> {
+    const primary = resolveModelConfig(this.feature);
+    if (!primary.baseUrl || input.signal?.aborted) return this.completeInner(input);
+    const started = Date.now();
+    try {
+      const result = await this.completeInner(input);
+      recordModelCall(this.feature, primary, input, false, started, { result, completionChars: result.text.length });
+      return result;
+    } catch (error) {
+      recordModelCall(this.feature, primary, input, false, started, { error });
+      throw error;
+    }
+  }
+
+  /** 流式调用:同样记录观测;调用方提前停止读取(未拿到 result)记为 cancelled。 */
+  async *streamChat(input: ModelInput): AsyncIterable<ModelStreamEvent> {
+    const primary = resolveModelConfig(this.feature);
+    if (!primary.baseUrl || input.signal?.aborted) {
+      yield* this.streamChatInner(input);
+      return;
+    }
+    const started = Date.now();
+    let result: ChatCompletionResult | undefined;
+    let completionChars = 0;
+    let error: unknown;
+    try {
+      for await (const event of this.streamChatInner(input)) {
+        if (event.type === 'text') completionChars += event.text.length;
+        else result = event.result;
+        yield event;
+      }
+    } catch (err) {
+      error = err;
+      throw err;
+    } finally {
+      recordModelCall(this.feature, primary, input, primary.stream, started, { result, error, completionChars });
+    }
+  }
 
   /**
    * 发一次请求，并按三档超时布好定时器。
@@ -318,7 +474,7 @@ export class EnvChatModel implements ChatModel {
     } finally { cleanup(); }
   }
 
-  async complete(input: ModelInput): Promise<ChatCompletionResult> {
+  private async completeInner(input: ModelInput): Promise<ChatCompletionResult> {
     if (input.signal?.aborted) {
       const error = new Error('客户端已取消请求');
       error.name = 'AbortError';
@@ -353,7 +509,7 @@ export class EnvChatModel implements ChatModel {
    * 供应商不支持流式(或返回的是普通 JSON、测试里被 stub 掉 body)时自动按一次性响应解析，
    * 仍然只发一次请求，不会重复计费。
    */
-  async *streamChat(input: ModelInput): AsyncIterable<ModelStreamEvent> {
+  private async *streamChatInner(input: ModelInput): AsyncIterable<ModelStreamEvent> {
     if (input.signal?.aborted) {
       const error = new Error('客户端已取消请求');
       error.name = 'AbortError';
@@ -361,13 +517,13 @@ export class EnvChatModel implements ChatModel {
     }
     let config = resolveModelConfig(this.feature);
     if (!config.baseUrl) {
-      const result = await this.complete(input);
+      const result = await this.completeInner(input);
       if (result.text) yield { type: 'text', text: result.text };
       yield { type: 'result', result };
       return;
     }
     if (!config.stream) {
-      const result = await this.complete(input);
+      const result = await this.completeInner(input);
       if (result.text) yield { type: 'text', text: result.text };
       yield { type: 'result', result };
       return;

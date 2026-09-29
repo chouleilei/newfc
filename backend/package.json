@@ -20,7 +20,10 @@
     "fixtures:finance": "ts-node scripts/generate-finance-fixtures.ts",
     "seed:finance:e2e": "node --expose-gc -r ts-node/register/transpile-only scripts/seed-finance-e2e.ts",
     "seed:e2e:simulation": "node --expose-gc -r ts-node/register/transpile-only scripts/seed-e2e-simulation.ts",
-    "migrate:dist": "node dist/db/migrate-cli.js"
+    "migrate:dist": "node dist/db/migrate-cli.js",
+    "admin:create": "node dist/modules/security/admin-cli.js create",
+    "admin:reset-password": "node dist/modules/security/admin-cli.js reset-password",
+    "admin:create:dev": "ts-node src/modules/security/admin-cli.ts create"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import os from 'os';
@@ -12,7 +13,9 @@ import { MIGRATIONS, applyMigrations } from '../src/db/migrations';
 import * as io from '../src/modules/io/excel';
 import * as imports from '../src/modules/import/import.service';
 import { buildStandardActualPreview, buildStandardBudgetPreview } from '../src/modules/import/preview-detail';
-import { createApp } from '../src/server';
+
+/** 从 fromVersion 起的全部迁移版本号(newfc 追加迁移后不必逐条改断言)。 */
+const versionsFrom = (fromVersion: number) => MIGRATIONS.map((m) => m.version).filter((v) => v >= fromVersion).sort((a, b) => a - b);
 
 /**
  * UX-29 跨模块契约与回归夹具:保存、预览、确认、恢复的组合场景。
@@ -440,7 +443,7 @@ describe('V35 旧库迁移到最新(V38):数据保留与三类新表结构', () 
         VALUES (1, 'actual', 'committed', NULL, 0, '旧导入.xlsx', '${'a'.repeat(64)}', X'00', '{}', '{"years":[2026],"count":1}', '{"count":1}', '2026-06-30', '2026-06-30')`).run();
 
       const applied = applyMigrations(db).map((migration) => migration.version);
-      expect(applied).toEqual([36, 37, 38]);
+      expect(applied).toEqual(versionsFrom(36));
       expect((db.prepare('SELECT MAX(version) AS v FROM schema_migration').get() as { v: number }).v)
         .toBe(Math.max(...MIGRATIONS.map((migration) => migration.version)));
 
@@ -508,7 +511,7 @@ afterEach(async () => {
 });
 
 async function boot(): Promise<{ base: string; db: DB }> {
-  const { app, holder } = await createApp({ dbPath: ':memory:', auth: { username: '', password: '' } });
+  const { app, holder } = await createTestApp({ dbPath: ':memory:' });
   httpDb = holder.getDb();
   server = app.listen(0);
   await new Promise<void>((resolve) => server!.once('listening', () => resolve()));
@@ -517,7 +520,7 @@ async function boot(): Promise<{ base: string; db: DB }> {
 }
 
 const post = (base: string, pathName: string, body: unknown) =>
-  fetch(`${base}${pathName}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  authFetch(`${base}${pathName}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 describe('条件定稿/采用 HTTP 契约(UX-07 组合)', () => {
   it('确认期间 revision 改变 → 409;旧调用(无 expectedRevision)保持直接定稿', async () => {
@@ -611,7 +614,7 @@ describe('条件定稿/采用 HTTP 契约(UX-07 组合)', () => {
     delete summary.unifiedPreview;
     db.prepare('UPDATE import_batch SET summary_json = ? WHERE id = ?').run(JSON.stringify(summary), batch.id);
 
-    const response = await fetch(`${base}/io/import-batches/${batch.id}`);
+    const response = await authFetch(`${base}/io/import-batches/${batch.id}`);
     expect(response.status).toBe(200);
     const detail = (await response.json()) as Record<string, unknown> & {
       detailCapability: string; detailNote: string; status: string;
@@ -621,7 +624,7 @@ describe('条件定稿/采用 HTTP 契约(UX-07 组合)', () => {
     expect(detail.status).toBe('committed');
     expect(detail).not.toHaveProperty('fileBlob');
     expect(detail).not.toHaveProperty('payload');
-    const rows = await fetch(`${base}/io/import-batches/${batch.id}/preview-rows`);
+    const rows = await authFetch(`${base}/io/import-batches/${batch.id}/preview-rows`);
     expect(rows.status).toBe(404);
     expect(((await rows.json()) as { message: string }).message).toContain('启用前');
   });

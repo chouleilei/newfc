@@ -15,9 +15,13 @@ export function listOrgRows(db: DB): OrgRow[] {
   return db.prepare(`${SELECT} ORDER BY sort_order, id`).all() as OrgRow[];
 }
 
-export function getOrgTree(db: DB): { tree: TreeNodeDto[]; rows: OrgRow[]; leafIds: number[] } {
-  const rows = listOrgRows(db);
-  return { tree: buildTree(rows), rows, leafIds: [...computeLeafIds(rows)] };
+export function getOrgTree(db: DB, visible?: (orgId: number) => boolean): { tree: TreeNodeDto[]; rows: OrgRow[]; leafIds: number[] } {
+  const all = listOrgRows(db);
+  if (!visible) return { tree: buildTree(all), rows: all, leafIds: [...computeLeafIds(all)] };
+  // 受限用户:只返回授权范围(授权根及其下级);授权根的上级不可见,在返回中作为根节点
+  const rows = all.filter((r) => visible(r.id)).map((r) => (r.parent_id != null && !visible(r.parent_id) ? { ...r, parent_id: null } : r));
+  const leaves = computeLeafIds(all);
+  return { tree: buildTree(rows), rows, leafIds: rows.map((r) => r.id).filter((id) => leaves.has(id)) };
 }
 
 export function getOrg(db: DB, id: number): OrgRow {

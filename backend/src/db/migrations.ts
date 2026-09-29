@@ -1,4 +1,5 @@
 import type { DB } from './connection';
+import { NEWFC_MIGRATIONS } from './migrations-newfc';
 
 export interface Migration {
   version: number;
@@ -1373,6 +1374,9 @@ CREATE TABLE cleaning_reopen_session (
 `,
   },
 ];
+
+// newfc 自有迁移(V39 起)按领域维护在 migrations-newfc.ts,保持只追加。
+MIGRATIONS.push(...NEWFC_MIGRATIONS);
 
 /**
  * V34 一次性导入:AI_BASE_URL 已配置且 ai_channel 为空时,把 env 配置落成名为

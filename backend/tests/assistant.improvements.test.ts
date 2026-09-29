@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import ExcelJS from 'exceljs';
 import { detectIntents, detectRankFocus, looksLikeWriteConfirmation } from '../src/assistant/intent';
 import { resolveMessageContext } from '../src/assistant/resolve';
@@ -7,7 +8,6 @@ import * as assistant from '../src/assistant/service';
 import { executeTool, toolDefinitions } from '../src/assistant/tools';
 import { SYSTEM_PROMPT } from '../src/assistant/prompts';
 import { resetAssistantRateLimit } from '../src/assistant/rate-limit';
-import { createApp } from '../src/server';
 import { queryLogs } from '../src/modules/audit/log';
 import { createSourceProfile } from '../src/modules/finance-import/source-profile.service';
 import {
@@ -468,12 +468,12 @@ describe('AI 助手:会话与洞察管理、限流与度量', () => {
     const previous = process.env.AI_RATE_LIMIT_PER_MIN;
     process.env.AI_RATE_LIMIT_PER_MIN = '2';
     resetAssistantRateLimit();
-    const { app, holder } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app, holder } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
     const post = async () => {
-      const response = await fetch(`http://127.0.0.1:${port}/api/assistant/chat`, {
+      const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message: '列出预算版本' }),
       });
@@ -503,12 +503,12 @@ describe('AI 助手:会话与洞察管理、限流与度量', () => {
     budget.setCurrentVersion(db, version.id);
     db.close();
     resetAssistantRateLimit();
-    const { app, holder } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app, holder } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
     const call = async (method: string, path: string, body?: unknown) => {
-      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+      const response = await authFetch(`http://127.0.0.1:${port}${path}`, {
         method, headers: { 'content-type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });

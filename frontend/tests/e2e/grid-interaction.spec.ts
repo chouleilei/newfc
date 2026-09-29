@@ -1,5 +1,5 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
-import { login } from './access';
+import { type APIRequestContext } from '@playwright/test';
+import { expect, test, login } from './access';
 
 /**
  * 预算编制网格交互的浏览器级兜底:单测已覆盖 useGridInteraction 的全部逻辑,
@@ -11,39 +11,37 @@ import { login } from './access';
 
 async function api(
   request: APIRequestContext,
-  token: string,
   method: string,
   route: string,
   data?: unknown,
 ) {
   const response = await request.fetch(`/api${route}`, {
     method,
-    headers: { 'x-access-token': token },
+    
     data,
   });
   expect(response.ok(), `${method} ${route}: ${response.status()} ${await response.text()}`).toBeTruthy();
   return response;
 }
 
-let token = '';
 const createdVersions: number[] = [];
 
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
 test.beforeEach(async ({ page }) => {
-  token = await login(page);
+  await login(page);
 });
 
 test.afterAll(async ({ request }) => {
   for (const id of createdVersions.reverse()) {
-    await request.fetch(`/api/versions/${id}`, { method: 'DELETE', headers: { 'x-access-token': token } }).catch(() => undefined);
+    await request.fetch(`/api/versions/${id}`, { method: 'DELETE' }).catch(() => undefined);
   }
 });
 
 /** 建一份 2029 年空草稿并打开编制页,切到「管理类费用表」预设表
  *  (UX-06 起新草稿默认落在「全部科目」视图,不再是只读的「利润表」) */
 async function openFreshDraft(page: Parameters<typeof login>[0], suffix: string): Promise<number> {
-  const draft = await (await api(page.request, token, 'POST', '/versions', {
+  const draft = await (await api(page.request, 'POST', '/versions', {
     year: 2029, kind: 'budget', name: `E2E网格交互${suffix}`, note: '网格交互测试,跑完即删',
   })).json() as { id: number };
   createdVersions.push(draft.id);

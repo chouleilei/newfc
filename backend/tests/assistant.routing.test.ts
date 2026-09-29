@@ -1,10 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import { detectIntents, looksLikeFollowUp, needsBudgetVersion, withInheritedIntents } from '../src/assistant/intent';
 import { contextDigest, resolveMessageContext } from '../src/assistant/resolve';
 import { queryFacts } from '../src/assistant/facts';
 import * as assistant from '../src/assistant/service';
 import { executeTool } from '../src/assistant/tools';
-import { createApp } from '../src/server';
 import { testDb, buildFixture, standardBudgetVersion, saveActualSnapshot, budget, actual, org } from './helpers';
 
 /**
@@ -527,11 +527,11 @@ describe('AI 助手:多轮追问', () => {
 describe('AI 助手:真流式 SSE', () => {
   it('先落响应头与 open 事件，token 逐块下发，done 带完整结构化响应', async () => {
     const dbPath = `/tmp/assistant-stream-${Date.now()}.sqlite`;
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
-    const response = await fetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, {
+    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: '列出预算版本', context: { year: 2026 } }),
@@ -549,11 +549,11 @@ describe('AI 助手:真流式 SSE', () => {
 
   it('请求体非法时仍返回结构化 400，而不是半截 SSE', async () => {
     const dbPath = `/tmp/assistant-stream-bad-${Date.now()}.sqlite`;
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
-    const response = await fetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, {
+    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: '' }),

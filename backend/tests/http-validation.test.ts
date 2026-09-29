@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import { createApp } from '../src/server';
 import { createSourceProfile } from '../src/modules/finance-import/source-profile.service';
 import { createMappingVersion } from '../src/modules/finance-import/mapping/mapping.service';
 import { buildFixture } from './helpers';
@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 async function boot(): Promise<{ base: string; db: DB }> {
-  const { app, holder } = await createApp({ dbPath: ':memory:', auth: { username: '', password: '' } });
+  const { app, holder } = await createTestApp({ dbPath: ':memory:' });
   db = holder.getDb();
   server = app.listen(0);
   await new Promise<void>((resolve) => server!.once('listening', () => resolve()));
@@ -32,7 +32,7 @@ async function boot(): Promise<{ base: string; db: DB }> {
 }
 
 function write(base: string, method: 'POST' | 'PUT', path: string, body: unknown) {
-  return fetch(`${base}${path}`, {
+  return authFetch(`${base}${path}`, {
     method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import os from 'os';
@@ -15,7 +16,6 @@ import { createSourceProfile } from '../src/modules/finance-import/source-profil
 import { createMappingVersion, lockMappingVersion, replaceAccountMappings, replaceOrgMappings, replaceReconciliationRules } from '../src/modules/finance-import/mapping/mapping.service';
 import { validateMappingVersion } from '../src/modules/finance-import/mapping/mapping-validator';
 import { createConversion, createImportPreview } from '../src/modules/finance-import/conversion/conversion-batch.service';
-import { createApp } from '../src/server';
 
 /** UX-14:统一预览明细冻结、批次只读详情、清洗/财务适配。 */
 
@@ -492,7 +492,7 @@ describe('批次详情与冻结明细 HTTP 契约', () => {
   it('创建预览→只读详情→分页明细→确认→结果与冻结读取全链路', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'import-detail-http-'));
     tempDirs.push(dir);
-    const { app, holder } = await createApp({ dbPath: path.join(dir, 'newfc.sqlite'), auth: { username: '', password: '' } });
+    const { app, holder } = await createTestApp({ dbPath: path.join(dir, 'newfc.sqlite') });
     const fx = buildFixture(holder.getDb());
     const version = budget.createVersion(holder.getDb(), { year: 2026, name: 'HTTP 导入预算' });
     const server = app.listen(0);
@@ -504,7 +504,7 @@ describe('批次详情与冻结明细 HTTP 契约', () => {
       const budgetForm = new FormData();
       budgetForm.append('versionId', String(version.id));
       budgetForm.append('file', new Blob([budgetFile]), '预算.xlsx');
-      const budgetPreviewResponse = await fetch(`${base}/io/budget/import`, { method: 'POST', body: budgetForm });
+      const budgetPreviewResponse = await authFetch(`${base}/io/budget/import`, { method: 'POST', body: budgetForm });
       expect(budgetPreviewResponse.status).toBe(200);
       const budgetPreview = await budgetPreviewResponse.json() as {
         importBatchId: number; unifiedPreview: { source: string; actions: Record<string, number> };
@@ -512,7 +512,7 @@ describe('批次详情与冻结明细 HTTP 契约', () => {
       expect(budgetPreview.unifiedPreview).toMatchObject({ source: 'standard', actions: { insert: 2 } });
 
       // 只读详情:状态、目标、允许动作;不含文件正文或可重放 payload
-      const detailResponse = await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}`);
+      const detailResponse = await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}`);
       expect(detailResponse.status).toBe(200);
       const detail = await detailResponse.json() as Record<string, unknown> & {
         status: string; detailCapability: string; target: { versionId: number; versionName: string };
@@ -526,35 +526,35 @@ describe('批次详情与冻结明细 HTTP 契约', () => {
       expect(detail).not.toHaveProperty('payload');
 
       // 分页明细:动作与组织筛选、分页键
-      const rowsPage = await (await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows?page=1&pageSize=1`)).json() as { total: number; items: unknown[] };
+      const rowsPage = await (await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows?page=1&pageSize=1`)).json() as { total: number; items: unknown[] };
       expect(rowsPage.total).toBe(2);
       expect(rowsPage.items).toHaveLength(1);
-      const shRows = await (await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows?orgId=${fx.orgIds.shanghai}`)).json() as { total: number; items: { orgCode: string }[] };
+      const shRows = await (await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows?orgId=${fx.orgIds.shanghai}`)).json() as { total: number; items: { orgCode: string }[] };
       expect(shRows.total).toBe(1);
       expect(shRows.items[0].orgCode).toBe('SH');
-      const warnRows = await (await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows?warningOnly=1`)).json() as { total: number };
+      const warnRows = await (await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows?warningOnly=1`)).json() as { total: number };
       expect(warnRows.total).toBe(0);
-      const badAction = await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows?action=bogus`);
+      const badAction = await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows?action=bogus`);
       expect(badAction.status).toBe(400);
-      const badId = await fetch(`${base}/io/import-batches/abc`);
+      const badId = await authFetch(`${base}/io/import-batches/abc`);
       expect(badId.status).toBe(400);
-      const missing = await fetch(`${base}/io/import-batches/999999`);
+      const missing = await authFetch(`${base}/io/import-batches/999999`);
       expect(missing.status).toBe(404);
 
       // 确认只发送批次 ID;结果与冻结明细仍可读
-      const confirmResponse = await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/confirm`, {
+      const confirmResponse = await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/confirm`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
       });
       expect(confirmResponse.status).toBe(200);
-      const committedDetail = await (await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}`)).json() as {
+      const committedDetail = await (await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}`)).json() as {
         status: string; result: { saved: number }; actions: { rollback: { allowed: boolean } };
       };
       expect(committedDetail.status).toBe('committed');
       expect(committedDetail.result.saved).toBe(2);
       expect(committedDetail.actions.rollback.allowed).toBe(true);
-      const afterRows = await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows`);
+      const afterRows = await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/preview-rows`);
       expect(afterRows.status).toBe(200);
-      const source = await fetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/source`);
+      const source = await authFetch(`${base}/io/import-batches/${budgetPreview.importBatchId}/source`);
       expect(source.status).toBe(200); // 既有 source 路由不受新路由影响
 
       // 标准实际导入(多年度):摘要按组冻结,确认后结果可读
@@ -565,7 +565,7 @@ describe('批次详情与冻结明细 HTTP 契约', () => {
       ] }]);
       const actualForm = new FormData();
       actualForm.append('file', new Blob([actualFile]), '实际.xlsx');
-      const actualPreviewResponse = await fetch(`${base}/io/actual/import`, { method: 'POST', body: actualForm });
+      const actualPreviewResponse = await authFetch(`${base}/io/actual/import`, { method: 'POST', body: actualForm });
       expect(actualPreviewResponse.status).toBe(200);
       const actualPreview = await actualPreviewResponse.json() as {
         importBatchId: number; unifiedPreview: { periods: { year: number; snapshotDate: string }[]; actions: Record<string, number> };
@@ -575,7 +575,7 @@ describe('批次详情与冻结明细 HTTP 契约', () => {
         { year: 2026, snapshotDate: '2026-06-30', entryCount: 1 },
       ]);
       expect(actualPreview.unifiedPreview.actions.insert).toBe(2);
-      const actualDetail = await (await fetch(`${base}/io/import-batches/${actualPreview.importBatchId}`)).json() as {
+      const actualDetail = await (await authFetch(`${base}/io/import-batches/${actualPreview.importBatchId}`)).json() as {
         target: { years: number[]; periods: unknown[] };
       };
       expect(actualDetail.target.years).toEqual([2025, 2026]);

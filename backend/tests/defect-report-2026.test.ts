@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import ExcelJS from 'exceljs';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -25,7 +26,6 @@ import { isAccountVisibleForScope } from '../src/core/accountScope';
 import * as assistant from '../src/assistant/service';
 import { EnvChatModel } from '../src/assistant/model';
 import * as imports from '../src/modules/import/import.service';
-import { createApp } from '../src/server';
 import { createSourceProfile, updateSourceProfile } from '../src/modules/finance-import/source-profile.service';
 import { previewRule, saveRule } from '../src/modules/calculation/calculation.service';
 import { backupDirOf, createBackup, pruneBackups, restoreBackup, verifyBackupFile } from '../src/modules/backup/backup.service';
@@ -45,6 +45,9 @@ import {
   replaceOrgMappings,
   replaceReconciliationRules,
 } from '../src/modules/finance-import/mapping/mapping.service';
+
+/** 从 fromVersion 起的全部迁移版本号(newfc 追加迁移后不必逐条改断言)。 */
+const versionsFrom = (fromVersion: number) => MIGRATIONS.map((m) => m.version).filter((v) => v >= fromVersion).sort((a, b) => a - b);
 
 /**
  * 《全仓缺陷排查报告-2026-08-29》逐项回归。
@@ -230,8 +233,8 @@ describe('D03 恢复旧 schema 后自动迁移', () => {
     };
     const restored = await restoreBackup(holder, dbPath, legacyPath, true);
     expect(restored.originalVersion).toBe(22);
-    expect(restored.appliedMigrations.map((item) => item.version)).toEqual([23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38]);
-    expect(restored.finalVersion).toBe(38);
+    expect(restored.appliedMigrations.map((item) => item.version)).toEqual(versionsFrom(23));
+    expect(restored.finalVersion).toBe(Math.max(...MIGRATIONS.map((m) => m.version)));
 
     const db = holder.getDb();
     const fx = buildFixture(db);
@@ -766,7 +769,7 @@ describe('D14 SSE 客户端断开取消模型与落库', () => {
   it('客户端收到 open 后断开会 abort provider，且不写会话、消息和 ai.chat 日志', async () => {
     process.env.AI_BASE_URL = 'http://model.test/v1';
     resetAssistantRateLimit();
-    const { app, holder } = await createApp({ dbPath: ':memory:', auth: { username: '', password: '' } });
+    const { app, holder } = await createTestApp({ dbPath: ':memory:' });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
@@ -793,7 +796,7 @@ describe('D14 SSE 客户端断开取消模型与落库', () => {
 
     const clientController = new AbortController();
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, {
+      const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message: '你好' }),
@@ -1378,11 +1381,11 @@ describe('R04 CRLF SSE 兼容', () => {
 
 describe('R05 trust proxy 部署边界', () => {
   it('直连默认关闭，只有调用方显式配置时才信任对应代理跳数', async () => {
-    const direct = await createApp({ dbPath: ':memory:', auth: { username: '', password: '' } });
+    const direct = await createTestApp({ dbPath: ':memory:' });
     expect(direct.app.get('trust proxy')).toBe(false);
     direct.holder.getDb().close();
 
-    const proxied = await createApp({ dbPath: ':memory:', auth: { username: '', password: '' }, trustProxy: 1 });
+    const proxied = await createTestApp({ dbPath: ':memory:', trustProxy: 1 });
     expect(proxied.app.get('trust proxy')).toBe(1);
     proxied.holder.getDb().close();
   });

@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test } from './access';
 
 /**
  * 数据驱动页面测试(方案《小澧助手全页面回答范围自动对齐开发计划》§13.4)。

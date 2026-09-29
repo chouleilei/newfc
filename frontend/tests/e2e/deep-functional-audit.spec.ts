@@ -1,14 +1,13 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { type APIRequestContext } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
-import { login } from './access';
+import { expect, test, login } from './access';
 import { currentBudgetVersionId } from './versions';
 
 const artifactDir = path.join(process.cwd(), 'test-results', 'deep-functional-audit');
 
 async function api(
   request: APIRequestContext,
-  token: string,
   method: string,
   route: string,
   data?: unknown,
@@ -17,15 +16,15 @@ async function api(
   // 会打到本机常驻实例的真实库上，而不是 harness 起的一次性夹具。
   const response = await request.fetch(`/api${route}`, {
     method,
-    headers: { 'x-access-token': token },
+    
     data,
   });
   expect(response.ok(), `${method} ${route}: ${response.status()} ${await response.text()}`).toBeTruthy();
   return response;
 }
 
-async function expectXlsx(request: APIRequestContext, token: string, route: string): Promise<void> {
-  const response = await api(request, token, 'GET', route);
+async function expectXlsx(request: APIRequestContext, route: string): Promise<void> {
+  const response = await api(request, 'GET', route);
   const body = await response.body();
   expect(body.length, `${route} 导出内容为空`).toBeGreaterThan(1_000);
   expect(body.subarray(0, 2).toString()).toBe('PK');
@@ -38,7 +37,7 @@ test('跨年度页面功能、筛选、追溯、下载与管理工具深度交�
   test.slow();
   fs.mkdirSync(artifactDir, { recursive: true });
   const runtimeErrors: string[] = [];
-  const token = await login(page);
+  await login(page);
   page.on('pageerror', (error) => runtimeErrors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => { if (message.type() === 'error') runtimeErrors.push(`console: ${message.text()}`); });
   page.on('response', (response) => { if (response.status() >= 400) runtimeErrors.push(`http ${response.status()}: ${response.url()}`); });
@@ -66,7 +65,7 @@ test('跨年度页面功能、筛选、追溯、下载与管理工具深度交�
   expect((await historyDownload).suggestedFilename()).toContain('历年');
 
   // 预算矩阵：汇总、附注台账、编制记录、表格及组织口径均需加载。
-  await page.goto(`/budget/${await currentBudgetVersionId(page.request, token, 2026)}`);
+  await page.goto(`/budget/${await currentBudgetVersionId(page.request, 2026)}`);
   await expect(page.getByText('利润总额', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: '更多' }).click();
   await page.getByRole('menuitem', { name: /测算依据台账/ }).click();
@@ -120,24 +119,24 @@ test('跨年度页面功能、筛选、追溯、下载与管理工具深度交�
 });
 
 test('API功能矩阵、临时CRUD生命周期、报表追溯及全部Excel导出', async ({ page, request }) => {
-  const token = await login(page);
+  await login(page);
   const created: { orgs: number[]; accounts: number[]; metrics: number[]; sheets: number[]; versions: number[] } = {
     orgs: [], accounts: [], metrics: [], sheets: [], versions: [],
   };
   try {
-    const dashboard = await (await api(request, token, 'GET', '/dashboard')).json();
+    const dashboard = await (await api(request, 'GET', '/dashboard')).json();
     expect(dashboard.currentVersions).toHaveLength(5);
-    const versions = await (await api(request, token, 'GET', '/versions')).json() as { id: number; year: number; kind: string; is_current: number }[];
+    const versions = await (await api(request, 'GET', '/versions')).json() as { id: number; year: number; kind: string; is_current: number }[];
     const budgets = versions.filter((version) => version.kind === 'budget' && version.is_current === 1);
     expect(budgets.map((version) => version.year).sort()).toEqual([2022, 2023, 2024, 2025, 2026]);
 
-    const orgTree = await (await api(request, token, 'GET', '/org/tree')).json();
-    const accountTree = await (await api(request, token, 'GET', '/account/tree')).json();
+    const orgTree = await (await api(request, 'GET', '/org/tree')).json();
+    const accountTree = await (await api(request, 'GET', '/account/tree')).json();
     expect(orgTree.rows).toHaveLength(26);
     expect(accountTree.rows).toHaveLength(239);
-    expect((await (await api(request, token, 'GET', '/org/check')).json()).ok).toBe(true);
-    expect((await (await api(request, token, 'GET', '/account/check')).json()).ok).toBe(true);
-    const managementMetrics = (await (await api(request, token, 'GET', '/metrics')).json()).items as { code: string; name: string }[];
+    expect((await (await api(request, 'GET', '/org/check')).json()).ok).toBe(true);
+    expect((await (await api(request, 'GET', '/account/check')).json()).ok).toBe(true);
+    const managementMetrics = (await (await api(request, 'GET', '/metrics')).json()).items as { code: string; name: string }[];
     expect(managementMetrics).toHaveLength(12);
     expect(managementMetrics).toEqual(expect.arrayContaining([
       expect.objectContaining({ code: 'P07', name: '总收入' }),
@@ -147,149 +146,149 @@ test('API功能矩阵、临时CRUD生命周期、报表追溯及全部Excel导�
       expect.objectContaining({ code: 'R01', name: '营业利润率' }),
       expect.objectContaining({ code: 'R05', name: '度电营业成本' }),
     ]));
-    expect((await (await api(request, token, 'GET', '/sheets')).json()).items.length).toBeGreaterThan(0);
-    const snapshots = await (await api(request, token, 'GET', '/snapshots')).json();
+    expect((await (await api(request, 'GET', '/sheets')).json()).items.length).toBeGreaterThan(0);
+    const snapshots = await (await api(request, 'GET', '/snapshots')).json();
     expect((snapshots.items ?? snapshots).length).toBeGreaterThan(0);
 
-    const years = await (await api(request, token, 'GET', '/actual/years')).json() as { year: number; status: string; final_batch_id: number | null }[];
+    const years = await (await api(request, 'GET', '/actual/years')).json() as { year: number; status: string; final_batch_id: number | null }[];
     expect(years.filter((year) => year.status === 'frozen').map((year) => year.year).sort()).toEqual([2022, 2023, 2024, 2025]);
     for (const budget of budgets) {
-      const matrix = await (await api(request, token, 'GET', `/versions/${budget.id}/matrix`)).json();
+      const matrix = await (await api(request, 'GET', `/versions/${budget.id}/matrix`)).json();
       expect(matrix.entries).toHaveLength(2402);
-      expect((await (await api(request, token, 'GET', `/versions/${budget.id}/quality`)).json()).coverage.percent).toBe(100);
-      expect((await (await api(request, token, 'GET', `/versions/${budget.id}/validate`)).json()).ok).toBe(true);
-      expect((await (await api(request, token, 'GET', `/versions/${budget.id}/summary`)).json()).metrics).toHaveLength(7);
-      const completion = await (await api(request, token, 'GET', `/report/completion?versionId=${budget.id}`)).json();
+      expect((await (await api(request, 'GET', `/versions/${budget.id}/quality`)).json()).coverage.percent).toBe(100);
+      expect((await (await api(request, 'GET', `/versions/${budget.id}/validate`)).json()).ok).toBe(true);
+      expect((await (await api(request, 'GET', `/versions/${budget.id}/summary`)).json()).metrics).toHaveLength(7);
+      const completion = await (await api(request, 'GET', `/report/completion?versionId=${budget.id}`)).json();
       expect(completion.asOfDate).toBe(budget.year === 2026 ? '2026-08-22' : `${budget.year}-12-31`);
-      const trend = await (await api(request, token, 'GET', `/report/trend?year=${budget.year}&versionId=${budget.id}`)).json();
+      const trend = await (await api(request, 'GET', `/report/trend?year=${budget.year}&versionId=${budget.id}`)).json();
       expect(trend.points.length).toBeGreaterThanOrEqual(4);
     }
 
-    const historical = await (await api(request, token, 'GET', '/report/historical')).json();
+    const historical = await (await api(request, 'GET', '/report/historical')).json();
     expect(historical.years).toHaveLength(4);
     for (const year of [2022, 2023, 2024, 2025]) {
-      const accuracy = await (await api(request, token, 'GET', `/report/accuracy?year=${year}`)).json();
+      const accuracy = await (await api(request, 'GET', `/report/accuracy?year=${year}`)).json();
       expect(accuracy.accuracyProfit).not.toBeNull();
-      const matrix = await (await api(request, token, 'GET', `/actual/matrix?year=${year}`)).json();
+      const matrix = await (await api(request, 'GET', `/actual/matrix?year=${year}`)).json();
       expect(matrix.entries).toHaveLength(2402);
-      const batches = await (await api(request, token, 'GET', `/actual/batches?year=${year}`)).json();
+      const batches = await (await api(request, 'GET', `/actual/batches?year=${year}`)).json();
       expect(batches).toHaveLength(4);
     }
 
     const budget2026 = budgets.find((version) => version.year === 2026)!;
     const forecast2026 = versions.find((version) => version.year === 2026 && version.kind === 'forecast')!;
-    const comparison = await (await api(request, token, 'GET', `/report/version-compare?base=${budget2026.id}&target=${forecast2026.id}`)).json();
+    const comparison = await (await api(request, 'GET', `/report/version-compare?base=${budget2026.id}&target=${forecast2026.id}`)).json();
     expect(comparison.leafChanges.length).toBeGreaterThan(0);
-    const budgetMatrix = await (await api(request, token, 'GET', `/versions/${budget2026.id}/matrix`)).json();
+    const budgetMatrix = await (await api(request, 'GET', `/versions/${budget2026.id}/matrix`)).json();
     const sample = budgetMatrix.entries[0];
-    const budgetEvidence = await (await api(request, token, 'GET', `/evidence/budget-cell?versionId=${budget2026.id}&accountId=${sample.accountId}&orgId=${sample.orgId}`)).json();
+    const budgetEvidence = await (await api(request, 'GET', `/evidence/budget-cell?versionId=${budget2026.id}&accountId=${sample.accountId}&orgId=${sample.orgId}`)).json();
     expect(budgetEvidence.sourceType).toBe('budget');
     expect(budgetEvidence.value.amountCents !== 0 || budgetEvidence.value.quantity !== 0).toBe(true);
     expect(budgetEvidence.entry).not.toBeNull();
-    const batches2026 = await (await api(request, token, 'GET', '/actual/batches?year=2026')).json();
-    const actualEvidence = await (await api(request, token, 'GET', `/evidence/actual-cell?batchId=${batches2026[0].id}&accountId=${sample.accountId}&orgId=${sample.orgId}`)).json();
+    const batches2026 = await (await api(request, 'GET', '/actual/batches?year=2026')).json();
+    const actualEvidence = await (await api(request, 'GET', `/evidence/actual-cell?batchId=${batches2026[0].id}&accountId=${sample.accountId}&orgId=${sample.orgId}`)).json();
     expect(actualEvidence.sourceType).toBe('actual');
     expect(actualEvidence.value.amountCents !== 0 || actualEvidence.value.quantity !== 0).toBe(true);
 
-    expect((await (await api(request, token, 'GET', '/check/consistency')).json()).ok).toBe(true);
-    expect((await (await api(request, token, 'GET', '/migrations')).json()).pending).toHaveLength(0);
-    expect((await (await api(request, token, 'GET', '/logs?page=1&pageSize=20')).json()).items.length).toBeGreaterThan(0);
-    expect((await (await api(request, token, 'GET', '/io/import-batches?page=1&pageSize=20')).json()).items).toBeDefined();
-    expect((await (await api(request, token, 'GET', '/calculation-rules')).json()).items.length).toBeGreaterThan(0);
+    expect((await (await api(request, 'GET', '/check/consistency')).json()).ok).toBe(true);
+    expect((await (await api(request, 'GET', '/migrations')).json()).pending).toHaveLength(0);
+    expect((await (await api(request, 'GET', '/logs?page=1&pageSize=20')).json()).items.length).toBeGreaterThan(0);
+    expect((await (await api(request, 'GET', '/io/import-batches?page=1&pageSize=20')).json()).items).toBeDefined();
+    expect((await (await api(request, 'GET', '/calculation-rules')).json()).items.length).toBeGreaterThan(0);
 
     // 临时组织完整生命周期：创建、改名、层级移动、停启用、删除。
     const suffix = Date.now().toString().slice(-8);
-    const orgA = await (await api(request, token, 'POST', '/org', { code: `ZT${suffix}A`, name: 'E2E临时组织A', sortOrder: 9998 })).json(); created.orgs.push(orgA.id);
-    const orgB = await (await api(request, token, 'POST', '/org', { code: `ZT${suffix}B`, name: 'E2E临时组织B', sortOrder: 9999 })).json(); created.orgs.push(orgB.id);
-    const orgChild = await (await api(request, token, 'POST', '/org', { parentId: orgA.id, code: `ZT${suffix}C`, name: 'E2E临时子组织', sortOrder: 1 })).json(); created.orgs.push(orgChild.id);
-    await api(request, token, 'PATCH', `/org/${orgChild.id}`, { name: 'E2E临时子组织已改名' });
-    await api(request, token, 'POST', `/org/${orgChild.id}/move`, { parentId: orgB.id });
-    await api(request, token, 'POST', `/org/${orgChild.id}/status`, { status: 'inactive' });
-    await api(request, token, 'POST', `/org/${orgChild.id}/status`, { status: 'active' });
+    const orgA = await (await api(request, 'POST', '/org', { code: `ZT${suffix}A`, name: 'E2E临时组织A', sortOrder: 9998 })).json(); created.orgs.push(orgA.id);
+    const orgB = await (await api(request, 'POST', '/org', { code: `ZT${suffix}B`, name: 'E2E临时组织B', sortOrder: 9999 })).json(); created.orgs.push(orgB.id);
+    const orgChild = await (await api(request, 'POST', '/org', { parentId: orgA.id, code: `ZT${suffix}C`, name: 'E2E临时子组织', sortOrder: 1 })).json(); created.orgs.push(orgChild.id);
+    await api(request, 'PATCH', `/org/${orgChild.id}`, { name: 'E2E临时子组织已改名' });
+    await api(request, 'POST', `/org/${orgChild.id}/move`, { parentId: orgB.id });
+    await api(request, 'POST', `/org/${orgChild.id}/status`, { status: 'inactive' });
+    await api(request, 'POST', `/org/${orgChild.id}/status`, { status: 'active' });
 
     // 临时科目、指标、预设表完整生命周期，删除后不污染真实主数据。
-    const accA = await (await api(request, token, 'POST', '/account', { code: `ZE${suffix}A`, name: 'E2E临时费用A', type: 'expense', sortOrder: 9998 })).json(); created.accounts.push(accA.id);
-    const accB = await (await api(request, token, 'POST', '/account', { code: `ZE${suffix}B`, name: 'E2E临时费用B', type: 'expense', sortOrder: 9999 })).json(); created.accounts.push(accB.id);
-    const accChild = await (await api(request, token, 'POST', '/account', { parentId: accA.id, code: `ZE${suffix}C`, name: 'E2E临时费用明细', type: 'expense', sortOrder: 1 })).json(); created.accounts.push(accChild.id);
-    await api(request, token, 'PATCH', `/account/${accChild.id}`, { name: 'E2E临时费用明细已改名' });
-    await api(request, token, 'POST', `/account/${accChild.id}/move`, { parentId: accB.id });
-    await api(request, token, 'POST', `/account/${accChild.id}/status`, { status: 'inactive' });
-    await api(request, token, 'POST', `/account/${accChild.id}/status`, { status: 'active' });
-    const metric = await (await api(request, token, 'POST', '/metrics', { code: `ZM${suffix}`, name: 'E2E临时指标', displayOrder: 9999, terms: [{ sourceType: 'account', sourceAccountId: accChild.id, coefficient: 1 }] })).json(); created.metrics.push(metric.id);
-    await api(request, token, 'PATCH', `/metrics/${metric.id}`, { name: 'E2E临时指标已修改', displayOrder: 9998, terms: [{ sourceType: 'account', sourceAccountId: accChild.id, coefficient: -1 }] });
-    const sheet = await (await api(request, token, 'POST', '/sheets', { code: `zs_${suffix}`, name: 'E2E临时表格', rootCodes: [accB.code], collapsedCodes: [], sortOrder: 9999 })).json(); created.sheets.push(sheet.id);
-    await api(request, token, 'PATCH', `/sheets/${sheet.id}`, { name: 'E2E临时表格已修改', rootCodes: [accB.code], collapsedCodes: [accB.code], sortOrder: 9998 });
+    const accA = await (await api(request, 'POST', '/account', { code: `ZE${suffix}A`, name: 'E2E临时费用A', type: 'expense', sortOrder: 9998 })).json(); created.accounts.push(accA.id);
+    const accB = await (await api(request, 'POST', '/account', { code: `ZE${suffix}B`, name: 'E2E临时费用B', type: 'expense', sortOrder: 9999 })).json(); created.accounts.push(accB.id);
+    const accChild = await (await api(request, 'POST', '/account', { parentId: accA.id, code: `ZE${suffix}C`, name: 'E2E临时费用明细', type: 'expense', sortOrder: 1 })).json(); created.accounts.push(accChild.id);
+    await api(request, 'PATCH', `/account/${accChild.id}`, { name: 'E2E临时费用明细已改名' });
+    await api(request, 'POST', `/account/${accChild.id}/move`, { parentId: accB.id });
+    await api(request, 'POST', `/account/${accChild.id}/status`, { status: 'inactive' });
+    await api(request, 'POST', `/account/${accChild.id}/status`, { status: 'active' });
+    const metric = await (await api(request, 'POST', '/metrics', { code: `ZM${suffix}`, name: 'E2E临时指标', displayOrder: 9999, terms: [{ sourceType: 'account', sourceAccountId: accChild.id, coefficient: 1 }] })).json(); created.metrics.push(metric.id);
+    await api(request, 'PATCH', `/metrics/${metric.id}`, { name: 'E2E临时指标已修改', displayOrder: 9998, terms: [{ sourceType: 'account', sourceAccountId: accChild.id, coefficient: -1 }] });
+    const sheet = await (await api(request, 'POST', '/sheets', { code: `zs_${suffix}`, name: 'E2E临时表格', rootCodes: [accB.code], collapsedCodes: [], sortOrder: 9999 })).json(); created.sheets.push(sheet.id);
+    await api(request, 'PATCH', `/sheets/${sheet.id}`, { name: 'E2E临时表格已修改', rootCodes: [accB.code], collapsedCodes: [accB.code], sortOrder: 9998 });
 
     // 临时草稿覆盖创建、增长预览、改名、保存、记录点、体检、清空和删除。
-    const preview = await (await api(request, token, 'POST', '/versions/generation-preview', { year: 2027, kind: 'budget', baseFrom: 'budget', baseYear: 2026, growthRate: '0.05' })).json();
+    const preview = await (await api(request, 'POST', '/versions/generation-preview', { year: 2027, kind: 'budget', baseFrom: 'budget', baseYear: 2026, growthRate: '0.05' })).json();
     expect(preview.generatedCount).toBe(2402);
-    const draft = await (await api(request, token, 'POST', '/versions', { year: 2027, kind: 'budget', name: `E2E临时草稿${suffix}`, note: '深度功能测试' })).json(); created.versions.push(draft.id);
-    await api(request, token, 'PATCH', `/versions/${draft.id}`, { name: `E2E临时草稿已改名${suffix}` });
+    const draft = await (await api(request, 'POST', '/versions', { year: 2027, kind: 'budget', name: `E2E临时草稿${suffix}`, note: '深度功能测试' })).json(); created.versions.push(draft.id);
+    await api(request, 'PATCH', `/versions/${draft.id}`, { name: `E2E临时草稿已改名${suffix}` });
     const sampleAccount = budgetMatrix.accountNodes.find((node: { id: number }) => node.id === sample.accountId);
     const entry = sampleAccount.type === 'quantity'
       ? { orgId: sample.orgId, accountId: sample.accountId, quantity: '12.3456', note: 'E2E数量测试' }
       : { orgId: sample.orgId, accountId: sample.accountId, amount: '12345.67', formula: '=1028.805833*12', note: 'E2E金额测试' };
-    const saved = await (await api(request, token, 'PUT', `/versions/${draft.id}/entries`, {
+    const saved = await (await api(request, 'PUT', `/versions/${draft.id}/entries`, {
       expectedRevision: draft.revision,
       entries: [entry],
     })).json();
-    expect((await (await api(request, token, 'POST', `/versions/${draft.id}/checkpoints`, { title: 'E2E功能记录点' })).json()).created).toBe(true);
-    expect((await (await api(request, token, 'GET', `/versions/${draft.id}/quality`)).json()).coverage.filled).toBe(1);
-    expect((await (await api(request, token, 'DELETE', `/versions/${draft.id}/entries`, {
+    expect((await (await api(request, 'POST', `/versions/${draft.id}/checkpoints`, { title: 'E2E功能记录点' })).json()).created).toBe(true);
+    expect((await (await api(request, 'GET', `/versions/${draft.id}/quality`)).json()).coverage.filled).toBe(1);
+    expect((await (await api(request, 'DELETE', `/versions/${draft.id}/entries`, {
       expectedRevision: saved.revision,
     })).json()).deleted).toBe(1);
-    const copied = await (await api(request, token, 'POST', `/versions/${budget2026.id}/copy`, { name: `E2E临时复制稿${suffix}` })).json(); created.versions.push(copied.id);
-    expect((await (await api(request, token, 'GET', `/versions/${copied.id}/matrix`)).json()).entries).toHaveLength(2402);
+    const copied = await (await api(request, 'POST', `/versions/${budget2026.id}/copy`, { name: `E2E临时复制稿${suffix}` })).json(); created.versions.push(copied.id);
+    expect((await (await api(request, 'GET', `/versions/${copied.id}/matrix`)).json()).entries).toHaveLength(2402);
 
-    const rules = await (await api(request, token, 'GET', '/calculation-rules')).json();
-    const calculation = await (await api(request, token, 'POST', `/versions/${copied.id}/calculation-preview`, { ruleId: rules.items[0].id })).json();
+    const rules = await (await api(request, 'GET', '/calculation-rules')).json();
+    const calculation = await (await api(request, 'POST', `/versions/${copied.id}/calculation-preview`, { ruleId: rules.items[0].id })).json();
     expect(calculation.items).toBeDefined();
 
     // 所有导出和模板都必须生成有效 XLSX，而不是只返回 200。
-    await expectXlsx(request, token, `/io/export/budget-detail/${budget2026.id}`);
-    await expectXlsx(request, token, '/io/export/actual-current/2026');
-    await expectXlsx(request, token, `/io/export/completion/${budget2026.id}`);
-    await expectXlsx(request, token, '/io/export/historical');
-    await expectXlsx(request, token, `/io/export/version-compare?base=${budget2026.id}&target=${forecast2026.id}`);
-    await expectXlsx(request, token, `/io/export/snapshot/${batches2026[0].id}`);
-    await expectXlsx(request, token, '/io/export/logs');
-    await expectXlsx(request, token, '/io/export/metrics');
-    await expectXlsx(request, token, '/io/template/budget');
-    await expectXlsx(request, token, '/io/template/actual?year=2026&snapshotDate=2026-08-22');
+    await expectXlsx(request, `/io/export/budget-detail/${budget2026.id}`);
+    await expectXlsx(request, '/io/export/actual-current/2026');
+    await expectXlsx(request, `/io/export/completion/${budget2026.id}`);
+    await expectXlsx(request, '/io/export/historical');
+    await expectXlsx(request, `/io/export/version-compare?base=${budget2026.id}&target=${forecast2026.id}`);
+    await expectXlsx(request, `/io/export/snapshot/${batches2026[0].id}`);
+    await expectXlsx(request, '/io/export/logs');
+    await expectXlsx(request, '/io/export/metrics');
+    await expectXlsx(request, '/io/template/budget');
+    await expectXlsx(request, '/io/template/actual?year=2026&snapshotDate=2026-08-22');
 
-    const backup = await (await api(request, token, 'POST', '/backup/create', { tag: 'deep-e2e' })).json();
-    expect((await (await api(request, token, 'GET', `/backup/verify?file=${encodeURIComponent(backup.file)}&scope=daily`)).json()).ok).toBe(true);
+    const backup = await (await api(request, 'POST', '/backup/create', { tag: 'deep-e2e' })).json();
+    expect((await (await api(request, 'GET', `/backup/verify?file=${encodeURIComponent(backup.file)}&scope=daily`)).json()).ok).toBe(true);
   } finally {
-    for (const id of created.versions.reverse()) await api(request, token, 'DELETE', `/versions/${id}`).catch(() => undefined);
-    for (const id of created.sheets.reverse()) await api(request, token, 'DELETE', `/sheets/${id}`).catch(() => undefined);
-    for (const id of created.metrics.reverse()) await api(request, token, 'DELETE', `/metrics/${id}`).catch(() => undefined);
-    for (const id of created.accounts.reverse()) await api(request, token, 'DELETE', `/account/${id}`).catch(() => undefined);
-    for (const id of created.orgs.reverse()) await api(request, token, 'DELETE', `/org/${id}`).catch(() => undefined);
+    for (const id of created.versions.reverse()) await api(request, 'DELETE', `/versions/${id}`).catch(() => undefined);
+    for (const id of created.sheets.reverse()) await api(request, 'DELETE', `/sheets/${id}`).catch(() => undefined);
+    for (const id of created.metrics.reverse()) await api(request, 'DELETE', `/metrics/${id}`).catch(() => undefined);
+    for (const id of created.accounts.reverse()) await api(request, 'DELETE', `/account/${id}`).catch(() => undefined);
+    for (const id of created.orgs.reverse()) await api(request, 'DELETE', `/org/${id}`).catch(() => undefined);
   }
 });
 
 test('预算附注历史九项交互验收：新增、修改、清空、公式、筛选、键盘、台账与接口', async ({ page, request }) => {
-  const token = await login(page);
+  await login(page);
   const suffix = Date.now().toString().slice(-8);
-  const sourceId = await currentBudgetVersionId(request, token, 2026);
-  const sourceMatrix = await (await api(request, token, 'GET', `/versions/${sourceId}/matrix`)).json();
+  const sourceId = await currentBudgetVersionId(request, 2026);
+  const sourceMatrix = await (await api(request, 'GET', `/versions/${sourceId}/matrix`)).json();
   const sample = sourceMatrix.entries.find((e: any) => e.amountCents !== 0) ?? sourceMatrix.entries[0];
-  const draft = await (await api(request, token, 'POST', '/versions', { year: 2028, kind: 'budget', name: `E2E附注历史${suffix}`, note: '附注历史验收' })).json();
+  const draft = await (await api(request, 'POST', '/versions', { year: 2028, kind: 'budget', name: `E2E附注历史${suffix}`, note: '附注历史验收' })).json();
   try {
     const put = async (note: string | undefined, formula?: string) => {
-      const current = await (await api(request, token, 'GET', `/versions/${draft.id}`)).json();
-      return api(request, token, 'PUT', `/versions/${draft.id}/entries`, { expectedRevision: current.revision, entries: [{ orgId: sample.orgId, accountId: sample.accountId, amount: '100.00', note, formula }] });
+      const current = await (await api(request, 'GET', `/versions/${draft.id}`)).json();
+      return api(request, 'PUT', `/versions/${draft.id}/entries`, { expectedRevision: current.revision, entries: [{ orgId: sample.orgId, accountId: sample.accountId, amount: '100.00', note, formula }] });
     };
     await put('第一行\n中文依据 123 / %', '=50*2');
-    await api(request, token, 'POST', `/versions/${draft.id}/checkpoints`, { title: '附注新增与公式' });
+    await api(request, 'POST', `/versions/${draft.id}/checkpoints`, { title: '附注新增与公式' });
     await put('第二行：已签合同金额', '=40+60');
-    await api(request, token, 'POST', `/versions/${draft.id}/checkpoints`, { title: '附注修改' });
+    await api(request, 'POST', `/versions/${draft.id}/checkpoints`, { title: '附注修改' });
     await put(undefined, '');
-    await api(request, token, 'POST', `/versions/${draft.id}/checkpoints`, { title: '附注清空' });
+    await api(request, 'POST', `/versions/${draft.id}/checkpoints`, { title: '附注清空' });
     // 恢复一个当前附注以便台账入口有可见行；不再记录 checkpoint，历史仍保持前三个记录点。
     await put('当前附注');
 
-    const history = await (await api(request, token, 'GET', `/versions/${draft.id}/cell-history?orgId=${sample.orgId}&accountId=${sample.accountId}`)).json();
+    const history = await (await api(request, 'GET', `/versions/${draft.id}/cell-history?orgId=${sample.orgId}&accountId=${sample.accountId}`)).json();
     expect(history.changes).toHaveLength(3);
     expect(history.changes.map((c: any) => c.before.note + '→' + c.after.note)).toEqual(expect.arrayContaining(['→第一行\n中文依据 123 / %', '第一行\n中文依据 123 / %→第二行：已签合同金额', '第二行：已签合同金额→']));
 
@@ -326,6 +325,6 @@ test('预算附注历史九项交互验收：新增、修改、清空、公式�
       await expect(page.getByText(/编制记录/).first()).toBeVisible();
     }
   } finally {
-    await api(request, token, 'DELETE', `/versions/${draft.id}`).catch(() => undefined);
+    await api(request, 'DELETE', `/versions/${draft.id}`).catch(() => undefined);
   }
 });

@@ -12,7 +12,7 @@ import { applyMigrations, MIGRATIONS } from '../src/db/migrations';
 const REPO_ROOT = path.join(__dirname, '..', '..');
 
 async function withServer<T>(dbPath: string, fn: (base: string, holder: { getDb(): import('../src/db/connection').DB }) => Promise<T>, extra: Record<string, unknown> = {}) {
-  const { app, holder } = await createApp({ dbPath, auth: { username: 'u', password: 'p-strong-enough' }, ...extra });
+  const { app, holder } = await createApp({ dbPath, ...extra });
   const server = app.listen(0);
   const port = (server.address() as { port: number }).port;
   try {

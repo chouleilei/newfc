@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import { attributionReport } from '../src/assistant/attribution';
 import { reportDraft, centsToWanText, normalizeReportKind } from '../src/assistant/report-draft';
 import { importHelpReport } from '../src/assistant/import-help';
@@ -6,7 +7,6 @@ import { queryFacts } from '../src/assistant/facts';
 import * as assistant from '../src/assistant/service';
 import * as imports from '../src/modules/import/import.service';
 import { executeTool } from '../src/assistant/tools';
-import { createApp } from '../src/server';
 import { testDb, buildFixture, budget, account, actual } from './helpers';
 
 /**
@@ -494,7 +494,7 @@ describe('AI 助手:导入辅助', () => {
 describe('AI 助手:新增只读接口的 HTTP 契约', () => {
   it('attribution / report / import-help 三个接口返回确定性结果', async () => {
     const dbPath = `/tmp/assistant-analysis-${Date.now()}.sqlite`;
-    const { app, holder } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app, holder } = await createTestApp({ dbPath });
     const db = holder.getDb() as any;
     const fx = buildFixture(db);
     const version = budget.createVersion(db, { year: 2026, name: 'HTTP 版本' });
@@ -511,7 +511,7 @@ describe('AI 助手:新增只读接口的 HTTP 契约', () => {
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
     const post = async (path: string, body: unknown) => {
-      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+      const response = await authFetch(`http://127.0.0.1:${port}${path}`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       });
       return { status: response.status, body: await response.json() as any };

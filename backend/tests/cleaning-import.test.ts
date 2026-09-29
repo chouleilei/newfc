@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import fs from 'fs';
@@ -18,7 +19,6 @@ import { CleaningUploadStore } from '../src/modules/io/cleaning/upload-store';
 import { sanitizeAiSuggestion, suggestCleaningStructure } from '../src/modules/io/cleaning/suggest';
 import { inspectWorkbook } from '../src/modules/io/cleaning/workbook';
 import * as profiles from '../src/modules/finance-import/source-profile.service';
-import { createApp } from '../src/server';
 
 async function xlsx(sheets: { name: string; rows: unknown[][] }[]): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -627,7 +627,7 @@ describe('清洗导入 HTTP 契约', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleaning-http-test-'));
     tempDirs.push(dir);
     const dbPath = path.join(dir, 'newfc.sqlite');
-    const { app, holder, cleaningUploads } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app, holder, cleaningUploads } = await createTestApp({ dbPath });
     const fx = buildFixture(holder.getDb());
     const version = budget.createVersion(holder.getDb(), { year: 2026, name: 'HTTP 预算' });
     const server = app.listen(0);
@@ -638,67 +638,67 @@ describe('清洗导入 HTTP 契约', () => {
       const form = new FormData();
       form.append('targetKind', 'budget');
       form.append('file', new Blob([file]), '非标预算.xlsx');
-      const uploadedResponse = await fetch(`${base}/io/cleaning/workbook`, { method: 'POST', body: form });
+      const uploadedResponse = await authFetch(`${base}/io/cleaning/workbook`, { method: 'POST', body: form });
       expect(uploadedResponse.status).toBe(201);
       const uploaded = await uploadedResponse.json() as any;
       expect(uploaded).toMatchObject({ originalName: '非标预算.xlsx', aiAvailable: false });
       expect(uploaded.sheets[0]).toMatchObject({ name: '非标表', rowCount: 3, columnCount: 3 });
       expect(fs.existsSync(path.join(cleaningUploads.directory, `${uploaded.token}.json`))).toBe(true);
 
-      const region = await (await fetch(`${base}/io/cleaning/workbook/${uploaded.token}/region?sheet=${encodeURIComponent('非标表')}&startRow=1&endRow=3&startCol=1&endCol=3&page=1&pageSize=2`)).json() as any;
+      const region = await (await authFetch(`${base}/io/cleaning/workbook/${uploaded.token}/region?sheet=${encodeURIComponent('非标表')}&startRow=1&endRow=3&startCol=1&endCol=3&page=1&pageSize=2`)).json() as any;
       expect(region).toMatchObject({ total: 3, page: 1, rows: [{ row: 1 }, { row: 2 }] });
       const cleaningPlan = plan({
         targetKind: 'budget', sheets: [{ sheetName: '非标表', headerRow: 2, dataStartRow: 3, dataEndRow: 3 }],
         columns: [{ sourceColumn: 1, field: 'orgCode' }, { sourceColumn: 2, field: 'accountCode' }, { sourceColumn: 3, field: 'amount' }], valueKind: 'amount',
       });
       const requestBody = { token: uploaded.token, target: { targetKind: 'budget', versionId: version.id }, plan: cleaningPlan };
-      const analyzedResponse = await fetch(`${base}/io/cleaning/analyze`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
+      const analyzedResponse = await authFetch(`${base}/io/cleaning/analyze`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
       expect(analyzedResponse.status).toBe(200);
       expect(await analyzedResponse.json()).toMatchObject({ counts: { effective: 1, errors: 0, unresolved: 0 } });
 
-      const previewResponse = await fetch(`${base}/io/cleaning/preview`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
+      const previewResponse = await authFetch(`${base}/io/cleaning/preview`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(requestBody) });
       expect(previewResponse.status).toBe(201);
       const preview = await previewResponse.json() as any;
       expect(preview.summary.actions).toMatchObject({ insert: 1 });
       expect(fs.existsSync(path.join(cleaningUploads.directory, `${uploaded.token}.xlsx`))).toBe(false);
-      const page = await (await fetch(`${base}/io/cleaning/previews/${preview.importBatchId}/rows?page=1&pageSize=100&action=insert`)).json() as any;
+      const page = await (await authFetch(`${base}/io/cleaning/previews/${preview.importBatchId}/rows?page=1&pageSize=100&action=insert`)).json() as any;
       expect(page).toMatchObject({ total: 1, items: [{ sheet_name: '非标表', row_number: 3, action: 'insert' }] });
 
-      const forged = await fetch(`${base}/io/import-batches/${preview.importBatchId}/confirm`, {
+      const forged = await authFetch(`${base}/io/import-batches/${preview.importBatchId}/confirm`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entries: [{ amount: '999999' }] }),
       });
       expect(forged.status).toBe(400);
       expect(await forged.json()).toMatchObject({ code: 'VALIDATION_FAILED' });
-      const confirmed = await fetch(`${base}/io/import-batches/${preview.importBatchId}/confirm`, {
+      const confirmed = await authFetch(`${base}/io/import-batches/${preview.importBatchId}/confirm`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
       });
       expect(confirmed.status).toBe(200);
       expect((holder.getDb().prepare('SELECT amount_cents FROM budget_entry WHERE version_id=? AND org_id=? AND account_id=?').get(version.id, fx.orgIds.shanghai, fx.accIds.incomeMain) as any).amount_cents).toBe(12_345);
-      expect((await fetch(`${base}/io/cleaning/previews/${preview.importBatchId}/rows`)).status).toBe(409);
-      const source = await fetch(`${base}/io/import-batches/${preview.importBatchId}/source`);
+      expect((await authFetch(`${base}/io/cleaning/previews/${preview.importBatchId}/rows`)).status).toBe(409);
+      const source = await authFetch(`${base}/io/import-batches/${preview.importBatchId}/source`);
       expect(source.status).toBe(200);
       expect(Buffer.from(await source.arrayBuffer()).equals(file)).toBe(true);
 
-      const templateResponse = await fetch(`${base}/io/cleaning/templates`, {
+      const templateResponse = await authFetch(`${base}/io/cleaning/templates`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
           name: 'HTTP 模板', targetKind: 'budget', config: { headerRow: 2, dataStartRow: 3, columns: cleaningPlan.columns, valueKind: 'amount', amountUnit: 'yuan', signConvention: 'display_positive' },
         }),
       });
       expect(templateResponse.status).toBe(201);
       expect(await templateResponse.json()).toMatchObject({ name: 'HTTP 模板', targetKind: 'budget' });
-      expect(await (await fetch(`${base}/io/cleaning/templates?targetKind=budget`)).json()).toMatchObject({ items: [{ name: 'HTTP 模板' }] });
+      expect(await (await authFetch(`${base}/io/cleaning/templates?targetKind=budget`)).json()).toMatchObject({ items: [{ name: 'HTTP 模板' }] });
 
-      const aliasResponse = await fetch(`${base}/io/cleaning/aliases`, {
+      const aliasResponse = await authFetch(`${base}/io/cleaning/aliases`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ targetKind: 'budget', mappingKind: 'account', sourceText: '主营收入', targetCode: 'I01' }),
       });
       expect(aliasResponse.status).toBe(201);
       const alias = await aliasResponse.json() as any;
       expect(alias).toMatchObject({ sourceText: '主营收入', targetCode: 'I01' });
-      const patched = await fetch(`${base}/io/cleaning/aliases/${alias.id}`, {
+      const patched = await authFetch(`${base}/io/cleaning/aliases/${alias.id}`, {
         method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sourceText: '主业收入' }),
       });
       expect(await patched.json()).toMatchObject({ sourceText: '主业收入' });
-      expect((await fetch(`${base}/io/cleaning/aliases/${alias.id}`, { method: 'DELETE' })).status).toBe(204);
+      expect((await authFetch(`${base}/io/cleaning/aliases/${alias.id}`, { method: 'DELETE' })).status).toBe(204);
 
       profiles.createSourceProfile(holder.getDb(), {
         code: 'HTTP-ERP', name: 'HTTP 财务源', config: { ownedOrgCodes: ['SH'], ownedAccountCodes: ['I01'], amountUnit: 'yuan' },
@@ -708,16 +708,16 @@ describe('清洗导入 HTTP 契约', () => {
         [2026, '2026-06-30', 'SH', 'I01', '1.00', '', ''],
       ] }]);
       const standardForm = new FormData(); standardForm.append('file', new Blob([standardFile]), 'standard.xlsx');
-      const standardConflict = await fetch(`${base}/io/actual/import`, { method: 'POST', body: standardForm });
+      const standardConflict = await authFetch(`${base}/io/actual/import`, { method: 'POST', body: standardForm });
       expect(standardConflict.status).toBe(409);
       expect(await standardConflict.json()).toMatchObject({ code: 'FINANCE_OWNED_CONFLICT' });
 
       const historyForm = new FormData(); historyForm.append('file', new Blob([standardFile]), 'history.xlsx'); historyForm.append('history', 'true');
-      const historyPreviewResponse = await fetch(`${base}/io/actual/import`, { method: 'POST', body: historyForm });
+      const historyPreviewResponse = await authFetch(`${base}/io/actual/import`, { method: 'POST', body: historyForm });
       expect(historyPreviewResponse.status).toBe(200);
       const historyPreview = await historyPreviewResponse.json() as any;
       expect(historyPreview.importBatchId).toBeGreaterThan(0);
-      await fetch(`${base}/io/import-batches/${historyPreview.importBatchId}/cancel`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      await authFetch(`${base}/io/import-batches/${historyPreview.importBatchId}/cancel`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       holder.getDb().close();

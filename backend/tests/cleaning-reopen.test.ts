@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import os from 'os';
@@ -12,7 +13,6 @@ import { createPendingCleaningPreview, reopenCleaningPreview } from '../src/modu
 import type { CleaningPlan, CleaningTarget } from '../src/modules/io/cleaning/plan';
 import { CleaningUploadStore } from '../src/modules/io/cleaning/upload-store';
 import * as imports from '../src/modules/import/import.service';
-import { createApp } from '../src/server';
 
 async function xlsx(sheets: { name: string; rows: unknown[][] }[]): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -311,7 +311,7 @@ describe('UX-16 清洗预览恢复 HTTP 契约', () => {
   it('上传→预览→恢复→重复恢复→重新分析→全新预览闭环,旧批次不能确认', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleaning-reopen-http-'));
     tempDirs.push(dir);
-    const { app, holder, cleaningUploads } = await createApp({ dbPath: path.join(dir, 'newfc.sqlite'), auth: { username: '', password: '' } });
+    const { app, holder, cleaningUploads } = await createTestApp({ dbPath: path.join(dir, 'newfc.sqlite') });
     buildFixture(holder.getDb());
     const version = budget.createVersion(holder.getDb(), { year: 2026, name: 'HTTP 恢复预算' });
     const server = app.listen(0);
@@ -322,9 +322,9 @@ describe('UX-16 清洗预览恢复 HTTP 契约', () => {
       const form = new FormData();
       form.append('targetKind', 'budget');
       form.append('file', new Blob([file]), '恢复测试.xlsx');
-      const uploaded = await (await fetch(`${base}/io/cleaning/workbook`, { method: 'POST', body: form })).json() as { token: string };
+      const uploaded = await (await authFetch(`${base}/io/cleaning/workbook`, { method: 'POST', body: form })).json() as { token: string };
       const planBody = budgetPlan('非标表');
-      const previewResponse = await fetch(`${base}/io/cleaning/preview`, {
+      const previewResponse = await authFetch(`${base}/io/cleaning/preview`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token: uploaded.token, target: { targetKind: 'budget', versionId: version.id }, plan: planBody }),
       });
@@ -333,7 +333,7 @@ describe('UX-16 清洗预览恢复 HTTP 契约', () => {
 
       // 生成预览后原上传 token 已删除,恢复服务重建临时文件
       expect(fs.existsSync(path.join(cleaningUploads.directory, `${uploaded.token}.xlsx`))).toBe(false);
-      const reopenedResponse = await fetch(`${base}/io/cleaning/previews/${preview.importBatchId}/reopen`, {
+      const reopenedResponse = await authFetch(`${base}/io/cleaning/previews/${preview.importBatchId}/reopen`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
       });
       expect(reopenedResponse.status).toBe(201);
@@ -343,7 +343,7 @@ describe('UX-16 清洗预览恢复 HTTP 契约', () => {
       expect(reopened.plan.targetKind).toBe('budget');
 
       // 重复请求幂等:同一 token,不再复制临时副本
-      const retryResponse = await fetch(`${base}/io/cleaning/previews/${preview.importBatchId}/reopen`, {
+      const retryResponse = await authFetch(`${base}/io/cleaning/previews/${preview.importBatchId}/reopen`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
       });
       expect(retryResponse.status).toBe(200);
@@ -353,19 +353,19 @@ describe('UX-16 清洗预览恢复 HTTP 契约', () => {
       expect(fs.readdirSync(cleaningUploads.directory).filter((name) => name.endsWith('.xlsx'))).toHaveLength(1);
 
       // 旧批次已取消,不能确认;逐行预览同样失效
-      const confirmOld = await fetch(`${base}/io/import-batches/${preview.importBatchId}/confirm`, {
+      const confirmOld = await authFetch(`${base}/io/import-batches/${preview.importBatchId}/confirm`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
       });
       expect(confirmOld.status).toBe(409);
 
       // 新 token 走现有 analyze → preview 流程,创建全新待确认批次
-      const analyzeResponse = await fetch(`${base}/io/cleaning/analyze`, {
+      const analyzeResponse = await authFetch(`${base}/io/cleaning/analyze`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token: reopened.token, target: reopened.target, plan: reopened.plan }),
       });
       expect(analyzeResponse.status).toBe(200);
       expect(await analyzeResponse.json()).toMatchObject({ counts: { effective: 1, errors: 0 } });
-      const freshPreviewResponse = await fetch(`${base}/io/cleaning/preview`, {
+      const freshPreviewResponse = await authFetch(`${base}/io/cleaning/preview`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token: reopened.token, target: reopened.target, plan: reopened.plan }),
       });
@@ -374,11 +374,11 @@ describe('UX-16 清洗预览恢复 HTTP 契约', () => {
       expect(fresh.importBatchId).not.toBe(preview.importBatchId);
 
       // 非法批次 ID 与非清洗批次
-      const badId = await fetch(`${base}/io/cleaning/previews/abc/reopen`, {
+      const badId = await authFetch(`${base}/io/cleaning/previews/abc/reopen`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
       });
       expect(badId.status).toBe(400);
-      const missing = await fetch(`${base}/io/cleaning/previews/99999/reopen`, {
+      const missing = await authFetch(`${base}/io/cleaning/previews/99999/reopen`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
       });
       expect(missing.status).toBe(404);

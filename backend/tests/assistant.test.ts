@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import * as assistant from '../src/assistant/service';
-import { createApp } from '../src/server';
 import { testDb, buildFixture, standardBudgetVersion, budget, actual, account } from './helpers';
 
 describe('AI assistant workflow', () => {
@@ -52,11 +52,11 @@ describe('AI assistant workflow', () => {
   });
   it('exposes assistant HTTP endpoints', async () => {
     const dbPath = `/tmp/assistant-http-${Date.now()}.sqlite`;
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
-    const response = await fetch(`http://127.0.0.1:${port}/api/assistant/chat`, { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ message:'列出预算版本' }) });
+    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat`, { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ message:'列出预算版本' }) });
     expect(response.status).toBe(200); const body:any = await response.json(); expect(body.conversationId ?? body.code).toBeDefined();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
@@ -174,11 +174,11 @@ describe('AI assistant workflow', () => {
 
   it('serves SSE token and done events with a complete structured response', async () => {
     const dbPath = `/tmp/assistant-sse-${Date.now()}.sqlite`;
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
-    const response = await fetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: '列出预算版本', context: { year: 2026 } }) });
+    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: '列出预算版本', context: { year: 2026 } }) });
     expect(response.status).toBe(200);
     const body = await response.text();
     expect(body).toContain('event: token');
@@ -189,11 +189,11 @@ describe('AI assistant workflow', () => {
 
   it('returns structured 400 errors for synchronous assistant validation failures', async () => {
     const dbPath = `/tmp/assistant-validation-${Date.now()}.sqlite`;
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
-    const response = await fetch(`http://127.0.0.1:${port}/api/assistant/preview`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'unsupported' }) });
+    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/preview`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'unsupported' }) });
     expect(response.status).toBe(400);
     expect(((await response.json()) as { code: string }).code).toBe('VALIDATION_FAILED');
     await new Promise<void>((resolve) => server.close(() => resolve()));

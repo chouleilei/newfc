@@ -1,7 +1,7 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { type APIRequestContext, type Page } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
-import { login } from './access';
+import { expect, test, login } from './access';
 
 /**
  * UX-31 代理试用(simulation 项目):方案《易用性与直觉化交互实施方案》第七节的
@@ -25,28 +25,27 @@ import { login } from './access';
 const SHOT_DIR = path.join(process.cwd(), '..', 'gui-test-screenshots', 'ux31-trial');
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 
-let token = '';
 /** 本文件创建的临时版本,跑完统一删除,不污染夹具 */
 const createdVersions: number[] = [];
 
 test.beforeEach(async ({ page }) => {
-  token = await login(page);
+  await login(page);
 });
 
 test.afterAll(async ({ request }) => {
   for (const id of createdVersions.reverse()) {
-    await request.delete(`/api/versions/${id}`, { headers: { 'x-access-token': token } }).catch(() => undefined);
+    await request.delete(`/api/versions/${id}`).catch(() => undefined);
   }
 });
 
 async function apiGet<T>(request: APIRequestContext, route: string): Promise<T> {
-  const response = await request.get(`/api${route}`, { headers: { 'x-access-token': token } });
+  const response = await request.get(`/api${route}`);
   expect(response.ok(), `GET ${route}: ${response.status()}`).toBeTruthy();
   return response.json() as Promise<T>;
 }
 
 async function apiSend<T>(request: APIRequestContext, method: string, route: string, data?: unknown): Promise<T> {
-  const response = await request.fetch(`/api${route}`, { method, headers: { 'x-access-token': token }, data });
+  const response = await request.fetch(`/api${route}`, { method,  data });
   expect(response.ok(), `${method} ${route}: ${response.status()} ${await response.text()}`).toBeTruthy();
   return response.json() as Promise<T>;
 }
@@ -210,7 +209,7 @@ test('UX31-S2 沿用已有预算:复制定稿版本,原定稿不变、当前采�
   expect(copyAfter.is_current).toBe(0);
   const writeLocked = await page.request.fetch(`/api/versions/${locked!.id}/entries`, {
     method: 'PUT',
-    headers: { 'x-access-token': token },
+    
     data: { expectedRevision: 1, entries: [{ orgId: 4, accountId: 3, amount: '1.00' }] },
   });
   expect(writeLocked.status(), '定稿版本不可原地修改(服务端必须 409 拒绝)').toBe(409);
@@ -428,7 +427,7 @@ test('UX31-S8 中断恢复:保存响应丢失后输入保留、不假成功、�
   trial.step('核对(API):失败期间没有生成快照、没有已提交回执');
   const batchesDuring = await apiGet<BatchLite[]>(page.request, '/actual/batches?year=2026');
   expect(batchesDuring.length, '保存未提交不得生成快照批次').toBe(batchesBefore.length);
-  const receiptBefore = await page.request.get(`/api/actual/save-requests/${requestId}`, { headers: { 'x-access-token': token } });
+  const receiptBefore = await page.request.get(`/api/actual/save-requests/${requestId}`);
   expect(receiptBefore.status()).toBe(404);
 
   trial.step('放行网络,用相同请求编号重试');

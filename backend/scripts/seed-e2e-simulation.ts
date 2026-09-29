@@ -19,6 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { openDatabase } from '../src/db/connection';
 import { applyMigrations } from '../src/db/migrations';
+import { seedE2eUser } from './e2e-user';
 import { createOrg } from '../src/modules/org/org.service';
 import { createAccount } from '../src/modules/account/account.service';
 import { createMetric, type MetricTermInput } from '../src/modules/metric/metric.service';
@@ -183,6 +184,7 @@ function main(): void {
     // 2026 必须先建：`seed-full-simulation` 的干净基线守卫要求库内尚无任何预算版本。
     const current = seedSimulationYear(db);
     const history = seedHistoricalYears(db);
+    seedE2eUser(db);
 
     const orgs = leafRows(db, 'org') as OrgRow[];
     const accounts = leafRows(db, 'account') as AccountRow[];

@@ -15,16 +15,10 @@ if (loadedEnv.files.length) {
 const dataDir = process.env.NEWFC_DATA_DIR || path.join(process.cwd(), 'data');
 const dbPath = path.join(dataDir, 'newfc.sqlite');
 
-const username = process.env.NEWFC_ACCESS_USER ?? '';
-const password =
-  process.env.NEWFC_DISABLE_AUTH === '1'
-    ? ''
-    : process.env.NEWFC_ACCESS_PASSWORD ?? '';
-if (!username || (!password && process.env.NEWFC_DISABLE_AUTH !== '1')) {
-  throw new Error(
-    '缺少登录凭据: 请设置 NEWFC_ACCESS_USER 和 NEWFC_ACCESS_PASSWORD;' +
-      '仅当显式设置 NEWFC_DISABLE_AUTH=1 时才可关闭登录(仅限可信本机环境)',
-  );
+for (const legacy of ['NEWFC_ACCESS_USER', 'NEWFC_ACCESS_PASSWORD', 'NEWFC_DISABLE_AUTH']) {
+  if (process.env[legacy]) {
+    console.warn(`[startup] ${legacy} 已不再使用:newfc 使用库内用户与角色登录(首个管理员执行 npm run admin:create)。`);
+  }
 }
 
 const aiIssue = aiConfigurationIssue();
@@ -49,7 +43,6 @@ startServer({
   dbPath,
   port: Number(process.env.NEWFC_PORT || 3760),
   host: process.env.NEWFC_HOST || '127.0.0.1',
-  auth: { username, password },
   trustProxy,
   autoMigrate: false,
 }).catch((err) => {

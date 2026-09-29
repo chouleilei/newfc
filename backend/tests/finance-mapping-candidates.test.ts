@@ -30,6 +30,9 @@ import { matchOrg } from '../src/modules/finance-import/mapping/matcher';
 import type { NormalizedFinanceRow } from '../src/modules/finance-import/finance.types';
 import type { DB } from '../src/db/connection';
 
+/** 从 fromVersion 起的全部迁移版本号(newfc 追加迁移后不必逐条改断言)。 */
+const versionsFrom = (fromVersion: number) => MIGRATIONS.map((m) => m.version).filter((v) => v >= fromVersion).sort((a, b) => a - b);
+
 function applyThrough(db: DB, targetVersion: number): void {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migration (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)`);
   for (const migration of MIGRATIONS.filter((item) => item.version <= targetVersion)) {
@@ -67,7 +70,7 @@ describe('迁移 V29/V30:provenance 列与别名 finance 扩展', () => {
     db.prepare("INSERT INTO import_name_alias (target_kind, mapping_kind, source_text, target_code, created_by, created_at, updated_at) VALUES ('budget', 'org', '旧称', 'P01', '', '2026-01-01', '2026-01-01')").run();
 
     const applied = applyMigrations(db).map((migration) => migration.version);
-    expect(applied).toEqual([29, 30, 31, 32, 33, 34, 35, 36, 37, 38]);
+    expect(applied).toEqual(versionsFrom(29));
     // 存量映射行默认手工来源 + 已复核
     const mapping = db.prepare('SELECT origin, reviewed FROM finance_org_mapping').get() as { origin: string; reviewed: number };
     expect(mapping).toEqual({ origin: 'manual', reviewed: 1 });

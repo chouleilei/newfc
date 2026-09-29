@@ -31,6 +31,9 @@ import { resetNarrativeCache } from '../src/assistant/narrative';
 import { resetAssistantRateLimit, tryConsumeNarrativeBudget } from '../src/assistant/rate-limit';
 import { PROMPT_VERSION } from '../src/assistant/prompts';
 
+/** 从 fromVersion 起的全部迁移版本号(newfc 追加迁移后不必逐条改断言)。 */
+const versionsFrom = (fromVersion: number) => MIGRATIONS.map((m) => m.version).filter((v) => v >= fromVersion).sort((a, b) => a - b);
+
 function applyThrough(db: DB, targetVersion: number): void {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migration (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)`);
   for (const migration of MIGRATIONS.filter((item) => item.version <= targetVersion)) {
@@ -124,7 +127,7 @@ describe('阶段六:迁移 V31 小结与 provenance 列', () => {
       // 升级前备份(模拟迁移器行为),之后升级
       const backup = await createBackup(db, backupDirOf(dbPath), 'pre-v31-test');
       const applied = applyMigrations(db).map((migration) => migration.version);
-      expect(applied).toEqual([31, 32, 33, 34, 35, 36, 37, 38]);
+      expect(applied).toEqual(versionsFrom(31));
 
       const columns = (db.pragma('table_info(budget_compilation_checkpoint)') as { name: string }[]).map((column) => column.name);
       for (const name of ['summary', 'summary_source', 'summary_model', 'summary_prompt_version', 'summary_generated_at', 'summary_guard_ok']) {
@@ -172,7 +175,7 @@ describe('阶段六:迁移 V32 异步叙述任务表', () => {
     const mem = new Database(':memory:') as unknown as DB;
     applyThrough(mem, 31);
     const applied = applyMigrations(mem).map((migration) => migration.version);
-    expect(applied).toEqual([32, 33, 34, 35, 36, 37, 38]);
+    expect(applied).toEqual(versionsFrom(32));
     mem.close();
   });
 });
@@ -208,7 +211,7 @@ describe('阶段六:迁移 V33 任务抢占与恢复列', () => {
     }
     mem.prepare('INSERT INTO assistant_narrative_task (kind, ref_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
       .run('checkpoint_summary', 6, 'done', now, now);
-    expect(applyMigrations(mem).map((migration) => migration.version)).toEqual([33, 34, 35, 36, 37, 38]);
+    expect(applyMigrations(mem).map((migration) => migration.version)).toEqual(versionsFrom(33));
     const rows = mem.prepare("SELECT ref_id, status FROM assistant_narrative_task ORDER BY id").all() as { ref_id: number; status: string }[];
     // ref 5 只留最新那条活动任务,done 行不受影响
     expect(rows.filter((row) => row.ref_id === 5)).toHaveLength(1);

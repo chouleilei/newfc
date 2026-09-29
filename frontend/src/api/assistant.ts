@@ -4,7 +4,7 @@
  * 前端只负责展示、交互和调用：不做预算计算、金额转换规则判断、版本状态判断或快照逻辑。
  * 金额字段一律是后端的整数分(利润方向带符号)，展示时用 utils/money 换算成万元。
  */
-import { ApiError, api, getToken, handleUnauthorized, request, type RequestOptions } from './client';
+import { ApiError, api, csrfHeaders, handleUnauthorized, request, type RequestOptions } from './client';
 import type { AssistantPageContextV2 } from '../assistant/context';
 
 export interface AssistantContext {
@@ -492,7 +492,7 @@ export interface StreamHandlers {
 
 /**
  * SSE 流式对话。使用 fetch + ReadableStream(而不是 EventSource)，
- * 因为需要携带 x-access-token 请求头；结构化结果只取 done 事件。
+ * 因为需要携带 CSRF 请求头；结构化结果只取 done 事件。
  * 浏览器不支持流读取时自动退回一次性 POST /chat。
  *
  * 事件：open(连接就绪) → token*(正文增量) → error?(失败原因) → done(完整结构化响应)。
@@ -502,15 +502,13 @@ export async function streamChat(
   handlers: StreamHandlers = {},
   signal?: AbortSignal,
 ): Promise<AssistantChatResponse> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  const token = getToken();
-  if (token) headers['x-access-token'] = token;
-  const res = await fetch('/api/assistant/chat/stream', { method: 'POST', headers, body: JSON.stringify(body), signal });
+  const headers: Record<string, string> = { 'content-type': 'application/json', ...csrfHeaders('POST') };
+  const res = await fetch('/api/assistant/chat/stream', { method: 'POST', headers, credentials: 'same-origin', body: JSON.stringify(body), signal });
   if (!res.ok) {
     const contentType = res.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       const data = await res.json();
-      // 流式路径与非流式 request() 对齐:401 清令牌并广播全局登出
+      // 流式路径与非流式 request() 对齐:401 清会话并广播全局登出
       handleUnauthorized(data);
       throw new ApiError(data, res.status);
     }

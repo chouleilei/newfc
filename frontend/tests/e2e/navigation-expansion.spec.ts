@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { login } from './access';
+import { type Page } from '@playwright/test';
+import { expect, test, login } from './access';
 
 /**
  * 侧栏叶子菜单项:分组的 submenu-title aria role 也是 menuitem,且折叠分组会用隐藏菜单

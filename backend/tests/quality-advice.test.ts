@@ -5,12 +5,12 @@
  * - 清洗结构建议端点(模型入口)同样挂在独立叙述桶上。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { testDb, buildFixture, standardBudgetVersion } from './helpers';
 import * as budget from '../src/modules/budget/budget.service';
-import { createApp } from '../src/server';
 import { qualityAdvice, qualityAdviceTemplate } from '../src/assistant/quality-advice';
 import { resetNarrativeCache, narrativeNumbersIntact } from '../src/assistant/narrative';
 import {
@@ -182,13 +182,13 @@ describe('清洗结构建议端点挂在独立叙述桶上', () => {
     resetAssistantRateLimit();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleaning-suggest-limit-'));
     const dbPath = path.join(dir, 'test.sqlite');
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
     const base = `http://127.0.0.1:${port}`;
     try {
-      const post = () => fetch(`${base}/api/io/cleaning/suggest`, {
+      const post = () => authFetch(`${base}/api/io/cleaning/suggest`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token: 'missing-token', targetKind: 'budget' }),
@@ -201,7 +201,7 @@ describe('清洗结构建议端点挂在独立叙述桶上', () => {
       expect(second.status).toBe(429);
       expect((await second.json() as { code: string }).code).toBe('AI_RATE_LIMITED');
       // 聊天桶未被消耗:同一 actor 的聊天入口仍可进入处理器
-      const chat = await fetch(`${base}/api/assistant/glossary`);
+      const chat = await authFetch(`${base}/api/assistant/glossary`);
       expect(chat.status).toBe(200);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));

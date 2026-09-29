@@ -5,6 +5,7 @@
  * - 阶段五:LLM 渠道管理 —— V34 迁移导入、CRUD 校验、删除解绑、绑定校验、适配层解析顺序与 env 兜底。
  */
 import { afterEach, describe, expect, it } from 'vitest';
+import { createTestApp, authFetch } from './http-helpers';
 import { testDb, buildFixture, standardBudgetVersion, budget } from './helpers';
 import { budgetQualityReport } from '../src/modules/check/budget-quality';
 import { budgetProgressReport } from '../src/modules/budget/progress.service';
@@ -12,7 +13,6 @@ import { anomalyReport } from '../src/assistant/anomaly';
 import * as aiChannels from '../src/modules/settings/ai-channels.service';
 import { applyMigrations, pendingMigrations } from '../src/db/migrations';
 import { openDatabase } from '../src/db/connection';
-import { createApp } from '../src/server';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -97,11 +97,11 @@ describe('阶段二:编制进度总览', () => {
     const fx = buildFixture(initDb);
     const v = standardBudgetVersion(fx);
     initDb.close();
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
-    const res = await fetch(`http://127.0.0.1:${port}/api/versions/${v.id}/progress`);
+    const res = await authFetch(`http://127.0.0.1:${port}/api/versions/${v.id}/progress`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rows: unknown[]; summary: { orgCount: number } };
     expect(body.summary.orgCount).toBe(3);
@@ -147,25 +147,25 @@ describe('阶段三:预警中心', () => {
     const fx = buildFixture(initDb);
     const v = standardBudgetVersion(fx);
     initDb.close();
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
     const base = `http://127.0.0.1:${port}/api`;
     // 连续 40 次(超过 chat 桶 30/min 默认上限),预警端点全部成功
     for (let i = 0; i < 40; i++) {
-      const res = await fetch(`${base}/analysis/anomalies?versionId=${v.id}`);
+      const res = await authFetch(`${base}/analysis/anomalies?versionId=${v.id}`);
       expect(res.status).toBe(200);
     }
     // assistant chat 限流计数未被消耗:第一次请求不应 429
-    const chat = await fetch(`${base}/assistant/chat`, {
+    const chat = await authFetch(`${base}/assistant/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: '列出预算版本', context: {} }),
     });
     expect(chat.status).not.toBe(429);
     // 阈值非法值 400
-    const bad = await fetch(`${base}/analysis/anomalies?versionId=${v.id}&threshold=abc`);
+    const bad = await authFetch(`${base}/analysis/anomalies?versionId=${v.id}&threshold=abc`);
     expect(bad.status).toBe(400);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
@@ -205,14 +205,11 @@ describe('阶段五:LLM 渠道管理', () => {
     }
   });
 
-  it('CRUD 校验:非法 URL、公网 http 限制、key 与访问密码相同', () => {
+  it('CRUD 校验:非法 URL、公网 http 限制', () => {
     const db = testDb();
-    const savedPassword = process.env.NEWFC_ACCESS_PASSWORD;
-    process.env.NEWFC_ACCESS_PASSWORD = 'topsecret';
     try {
       expect(() => aiChannels.createChannel(db, { name: 'A', baseUrl: 'not-a-url' })).toThrow(/合法 URL/);
       expect(() => aiChannels.createChannel(db, { name: 'A', baseUrl: 'http://8.8.8.8/v1' })).toThrow(/https/);
-      expect(() => aiChannels.createChannel(db, { name: 'A', baseUrl: 'https://api.example.com/v1', apiKey: 'topsecret' })).toThrow(/同一密钥/);
       const { id } = aiChannels.createChannel(db, { name: 'A', baseUrl: 'https://api.example.com/v1', apiKey: 'sk-abc-9999' });
       const list = aiChannels.listChannels(db);
       expect(list[0].keyPreview).toBe('sk-****9999');
@@ -224,9 +221,8 @@ describe('阶段五:LLM 渠道管理', () => {
       aiChannels.createChannel(db, { name: 'B', baseUrl: 'https://b.example.com/v1' });
       expect(() => aiChannels.createChannel(db, { name: 'B', baseUrl: 'https://c.example.com/v1' })).toThrow(/已存在/);
     } finally {
-      if (savedPassword !== undefined) process.env.NEWFC_ACCESS_PASSWORD = savedPassword; else delete process.env.NEWFC_ACCESS_PASSWORD;
+      db.close();
     }
-    db.close();
   });
 
   it('绑定校验与删除解绑:停用渠道不可绑、主备不得相同、删除自动 SET NULL', () => {
@@ -275,39 +271,39 @@ describe('阶段五:LLM 渠道管理', () => {
     const initDb = openDatabase(dbPath);
     applyMigrations(initDb);
     initDb.close();
-    const { app } = await createApp({ dbPath, auth: { username: '', password: '' } });
+    const { app } = await createTestApp({ dbPath });
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as { port: number }).port;
     const base = `http://127.0.0.1:${port}/api/settings`;
 
-    const created = await fetch(`${base}/ai-channels`, {
+    const created = await authFetch(`${base}/ai-channels`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: '网关A', baseUrl: 'https://gw.example.com/v1', apiKey: 'sk-gw-0001' }),
     });
     expect(created.status).toBe(201);
     const { id } = (await created.json()) as { id: number };
-    const list = (await (await fetch(`${base}/ai-channels`)).json()) as { items: { keyPreview: string }[] };
+    const list = (await (await authFetch(`${base}/ai-channels`)).json()) as { items: { keyPreview: string }[] };
     expect(list.items.some((c) => c.keyPreview.includes('****'))).toBe(true);
     expect(JSON.stringify(list)).not.toContain('sk-gw-0001');
 
-    const badPut = await fetch(`${base}/ai-feature-bindings`, {
+    const badPut = await authFetch(`${base}/ai-feature-bindings`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ bindings: [{ feature: 'chat', primaryChannelId: id, fallbackChannelId: id }] }),
     });
     expect(badPut.status).toBe(400);
-    const okPut = await fetch(`${base}/ai-feature-bindings`, {
+    const okPut = await authFetch(`${base}/ai-feature-bindings`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ bindings: [{ feature: 'chat', primaryChannelId: id, fallbackChannelId: null }] }),
     });
     expect(okPut.status).toBe(200);
-    const bindings = (await (await fetch(`${base}/ai-feature-bindings`)).json()) as { items: { feature: string; primaryChannelId: number | null }[] };
+    const bindings = (await (await authFetch(`${base}/ai-feature-bindings`)).json()) as { items: { feature: string; primaryChannelId: number | null }[] };
     expect(bindings.items.find((b) => b.feature === 'chat')?.primaryChannelId).toBe(id);
 
-    const del = await fetch(`${base}/ai-channels/${id}`, { method: 'DELETE' });
+    const del = await authFetch(`${base}/ai-channels/${id}`, { method: 'DELETE' });
     expect(del.status).toBe(200);
     expect(((await del.json()) as { affectedFeatures: string[] }).affectedFeatures).toContain('chat');
     await new Promise<void>((resolve) => server.close(() => resolve()));

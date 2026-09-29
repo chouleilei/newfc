@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test';
+
 import fs from 'fs';
 import path from 'path';
-import { login } from './access';
+import { expect, test, login } from './access';
 import { currentBudgetVersionId } from './versions';
 
 const outputDir = path.join(process.cwd(), 'test-results', 'visual-audit');
@@ -13,7 +13,7 @@ test('全覆盖模拟数据的桌面端逐页可视化审计', async ({ page }) 
   test.slow();
   fs.mkdirSync(outputDir, { recursive: true });
   const runtimeErrors: string[] = [];
-  const token = await login(page);
+  await login(page);
   page.on('pageerror', (error) => runtimeErrors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
     if (message.type() === 'error') runtimeErrors.push(`console: ${message.text()}`);
@@ -30,7 +30,7 @@ test('全覆盖模拟数据的桌面端逐页可视化审计', async ({ page }) 
   await page.screenshot({ path: path.join(outputDir, '01-dashboard-desktop.png'), fullPage: true });
 
   // 版本 id 由夹具生成顺序决定，必须现查而不能写死(写死成 /budget/7 时换一份夹具就 404)。
-  const matrixPath = `/budget/${await currentBudgetVersionId(page.request, token, 2026)}`;
+  const matrixPath = `/budget/${await currentBudgetVersionId(page.request, 2026)}`;
   // marker 取页面自身的稳定可见文案,而不是页面标题:「顶栏已显示菜单名、不再重复标题」的
   // 改动把各页 Card title 全部删了,断言标题会全线误报。/org 与 /account 复用 TreeManage,
   // 额外断言页面独有的搜索框占位符区分两页。
@@ -87,8 +87,8 @@ test('各页面移动端均无页面级横向溢出', async ({ browser }) => {
   test.slow();
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
-  const token = await login(page);
-  const versionId = await currentBudgetVersionId(page.request, token, 2026);
+  await login(page);
+  const versionId = await currentBudgetVersionId(page.request, 2026);
   const routes: { path: string; marker: string | RegExp }[] = [
     // 各页 Card title 已随「顶栏显示菜单名、页内不再重复标题」的改动移除,marker 一律取页内独有文案
     { path: '/org', marker: '结构检查' },
