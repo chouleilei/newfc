@@ -12,7 +12,7 @@ newfc：以 newbd（c67f6c4 快照）为代码基础、扩展 lishui-finance-ai 
 
 - 不读写 newbd（/root/newbd、/data/newbd、端口 3748、newbd-budget.service）或 lishui 的运行目录；lishui 只作只读参考。
 - 不引入 Dify/DB-GPT、MySQL、Redis、MinIO、Celery 等常驻中间件。
-- 金额：整数分存储；新接口以十进制字符串返回（`backend/src/core/money.ts` 的 `centsToDecimalString`/`parseDecimalToCents`），禁止用 number 浮点做金融计算；比率/数量/单价独立精度（decimal.js）。
+- 金额：整数分存储；新接口以十进制字符串返回（`backend/src/core/decimal.ts` 的 `centsToDecimalString`/`parseDecimalToCents`，bigint 定点、64 位范围；读可能超 2^53 的金额列必须 `.safeIntegers(true)`），禁止用 number 浮点做金融计算；比率/数量/单价用显式 scale 的缩放 bigint（`parseScaled`/`ratioString`/`allocateCents`），契约见 `docs/money-contract.md`。继承模块的 number 金额继续走 `core/money.ts` 的安全整数校验。
 - 权限：service 接收服务端构建的 `AuthContext`（用户/权限/组织范围），API、任务、AI 工具、下载、搜索使用同一校验；不信任客户端声明的范围。
 - 写入：短事务；导入先全量校验再原子提交；模型调用、OCR、长解析不在写事务里。
 - AI 只能调用同源 service 的只读工具；正式写操作走页面显式确认。
