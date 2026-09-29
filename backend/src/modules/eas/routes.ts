@@ -79,7 +79,7 @@ export function registerEasRoutes(app: Express, db: () => DB, wrap: Wrap, store:
   app.get('/api/eas/sets', wrap((req, res) => { res.json(listSets(db(), { orgId: optId(req.query.orgId), period: optPeriod(req.query.period) })); }));
   app.get('/api/eas/sets/:id', wrap((req, res) => { res.json(getSet(db(), id(req.params.id))); }));
   app.post('/api/eas/sets/:id/activate', wrap((req, res) => {
-    res.json(activateSet(db(), id(req.params.id), parseInput(easActivateRequest, req.body).expectedVersion));
+    res.json(activateSet(db(), id(req.params.id), parseInput(easActivateRequest, req.body)));
   }));
 
   app.get('/api/eas/period-status', wrap((req, res) => {

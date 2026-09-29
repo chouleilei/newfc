@@ -21,7 +21,9 @@ export const easPrecheckRequest = z.object({
 });
 export type EasPrecheckRequest = z.infer<typeof easPrecheckRequest>;
 
-export const easActivateRequest = z.object({ expectedVersion });
+/** expectedCurrentSetId:页面看到的当前生效集合(无则 null);与实际不一致说明有并发激活,返回 EAS_CURRENT_SET_CHANGED。 */
+export const easActivateRequest = z.object({ expectedVersion, expectedCurrentSetId: id.nullable() });
+export type EasActivateRequest = z.infer<typeof easActivateRequest>;
 export const easLockRequest = z.object({ orgId: id, period, setId: id, reason });
 export const easUnlockRequest = z.object({ expectedVersion, reason });
 export const easCorrectionCreate = z.object({ orgId: id, period, expectedCurrentSetId: id, reason });

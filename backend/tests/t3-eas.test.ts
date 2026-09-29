@@ -16,7 +16,7 @@ import path from 'path';
 import type { Server } from 'http';
 import { createApp } from '../src/server';
 import type { DB } from '../src/db/connection';
-import { buildFixture, type Fixture } from './helpers';
+import { buildFixture, org, type Fixture } from './helpers';
 import { createScopedUser, ensureAdmin, fetchAs, sessionFor } from './http-helpers';
 
 type Session = ReturnType<typeof sessionFor>;
@@ -103,7 +103,7 @@ async function importAll(base: string, s: Session, opts: { period?: string; fee?
 async function activateAndLock(base: string, s: Session, fx: Fixture, period = '2026-01') {
   const set = await (await post(base, s, '/api/eas/precheck', { orgId: fx.orgIds.shanghai, period })).json() as any;
   expect(set.status).toBe('passed');
-  const act = await post(base, s, `/api/eas/sets/${set.id}/activate`, { expectedVersion: set.version });
+  const act = await post(base, s, `/api/eas/sets/${set.id}/activate`, { expectedVersion: set.version, expectedCurrentSetId: null });
   expect(act.status, await act.clone().text()).toBe(200);
   const lock = await post(base, s, '/api/eas/locks', { orgId: fx.orgIds.shanghai, period, setId: set.id, reason: '1 月结账' });
   expect(lock.status, await lock.clone().text()).toBe(201);
@@ -236,7 +236,7 @@ describe('T-3 EAS 预检、激活与锁定', () => {
     expect(movement).toMatchObject({ status: 'failed', diffCount: 2, diffAmount: '20.00' });
     expect(movement.details.accounts.map((a: { accountCode: string }) => a.accountCode)).toEqual(['1002', '6602']);
 
-    const act = await post(base, admin, `/api/eas/sets/${failed.id}/activate`, { expectedVersion: failed.version });
+    const act = await post(base, admin, `/api/eas/sets/${failed.id}/activate`, { expectedVersion: failed.version, expectedCurrentSetId: null });
     expect(act.status).toBe(409);
     expect((await act.json() as any).code).toBe('EAS_RECON_NOT_PASSED');
   });
@@ -312,7 +312,7 @@ describe('T-3 EAS 锁后更正与复核', () => {
     expect(candidate.batches.find((b: { dataType: string }) => b.dataType === 'auxiliary').batchId).toBe(oldIds.auxiliary);
 
     // 更正候选集合不能走普通激活;申请人不能复核(无权限),复核人批准
-    const direct = await post(base, admin, `/api/eas/sets/${candidate.id}/activate`, { expectedVersion: candidate.version });
+    const direct = await post(base, admin, `/api/eas/sets/${candidate.id}/activate`, { expectedVersion: candidate.version, expectedCurrentSetId: oldSet.id });
     expect((await direct.json() as any).code).toBe('EAS_CORRECTION_REVIEW_REQUIRED');
     const pending = await (await get(base, reviewer.session, `/api/eas/corrections/${correction.id}`)).json() as any;
     expect(pending.status).toBe('pending_review');
@@ -370,5 +370,61 @@ describe('T-3 EAS 组织范围', () => {
     const viewer = createScopedUser(db, { username: 'eas-viewer', roleCodes: ['viewer'], allOrgs: true });
     expect((await get(base, viewer.session, '/api/eas/batches')).status).toBe(200);
     expect((await importFile(base, viewer.session, 'voucher', voucher(), 'v.csv')).status).toBe(403);
+  });
+});
+
+describe('T-3 EAS lishui v600 样本三件套', () => {
+  const dir = path.join(__dirname, 'fixtures', 'eas-v600');
+  const sample = (name: string) => fs.readFileSync(path.join(dir, name));
+
+  it('逐行金额、空项目编码保持为空;首期连续性 warning;配置 220201×项目 辅助要求后按带符号 −900,000.00 通过', async () => {
+    const { base, db, admin } = await boot();
+    const ls = org.createOrg(db, { parentId: null, code: 'LS', name: '澧水公司' }).id;
+    const ids: Record<string, number> = {};
+    for (const [type, file, rows] of [['voucher', 'eas_voucher.csv', 6], ['balance', 'eas_balance.csv', 4], ['auxiliary', 'eas_auxiliary.csv', 4]] as const) {
+      const res = await importFile(base, admin, type, sample(file), file);
+      expect(res.status, await res.clone().text()).toBe(201);
+      const batch = await res.json() as any;
+      expect(batch).toMatchObject({ orgId: ls, period: '2026-05', rowCount: rows });
+      ids[type] = batch.id;
+    }
+    const lines = (await (await get(base, admin, `/api/eas/batches/${ids.voucher}/lines`)).json() as any).lines;
+    expect(lines.find((l: any) => l.voucherNo === '记-0001' && l.entryNo === '1')).toMatchObject({ debit: '2100000.00', credit: '0.00', projectCode: 'LS-2026-001' });
+    expect(lines.find((l: any) => l.voucherNo === '记-0001' && l.entryNo === '2')).toMatchObject({ projectCode: null, supplierName: null });
+    expect(lines.find((l: any) => l.voucherNo === '记-0003' && l.entryNo === '2')).toMatchObject({ debit: '0.00', credit: '900000.00' });
+
+    const first = await (await post(base, admin, '/api/eas/precheck', { orgId: ls, period: '2026-05' })).json() as any;
+    const rules = Object.fromEntries(first.results.map((r: any) => [r.ruleCode, r.status]));
+    expect(rules).toEqual({ required_files: 'passed', voucher_balance_movement: 'passed', period_continuity: 'warning', auxiliary_requirements: 'warning' });
+
+    await post(base, admin, '/api/eas/aux-requirements', { orgId: ls, accountCode: '220201', auxType: '项目' });
+    const second = await (await post(base, admin, '/api/eas/precheck', { orgId: ls, period: '2026-05' })).json() as any;
+    const aux = second.results.find((r: any) => r.ruleCode === 'auxiliary_requirements');
+    expect(aux).toMatchObject({ status: 'passed', diffCount: 0, diffAmount: '0.00' });
+    expect(second.status).toBe('passed');
+
+    // 同一请求重复提交只有一个批次
+    const replay = await importFile(base, admin, 'voucher', sample('eas_voucher.csv'), 'eas_voucher.csv');
+    expect((await replay.json() as any)).toMatchObject({ id: ids.voucher, replayed: true });
+    expect((db.prepare('SELECT COUNT(*) AS c FROM eas_batch').get() as { c: number }).c).toBe(3);
+    expect((db.prepare('SELECT COUNT(*) AS c FROM eas_voucher_line').get() as { c: number }).c).toBe(6);
+  });
+
+  it('两个集合并发激活:后到者因当前集合已变化被拒绝', async () => {
+    const { base, db, admin } = await boot();
+    const ls = org.createOrg(db, { parentId: null, code: 'LS', name: '澧水公司' }).id;
+    for (const [type, file] of [['voucher', 'eas_voucher.csv'], ['balance', 'eas_balance.csv'], ['auxiliary', 'eas_auxiliary.csv']] as const) {
+      await importFile(base, admin, type, sample(file), file);
+    }
+    const a = await (await post(base, admin, '/api/eas/precheck', { orgId: ls, period: '2026-05' })).json() as any;
+    const b = await (await post(base, admin, '/api/eas/precheck', { orgId: ls, period: '2026-05' })).json() as any;
+    const [ra, rb] = await Promise.all([
+      post(base, admin, `/api/eas/sets/${a.id}/activate`, { expectedVersion: a.version, expectedCurrentSetId: null }),
+      post(base, admin, `/api/eas/sets/${b.id}/activate`, { expectedVersion: b.version, expectedCurrentSetId: null }),
+    ]);
+    expect([ra.status, rb.status].sort()).toEqual([200, 409]);
+    const loser = ra.status === 409 ? ra : rb;
+    expect((await loser.json() as any).code).toBe('EAS_CURRENT_SET_CHANGED');
+    expect((db.prepare('SELECT COUNT(*) AS c FROM eas_recon_set WHERE is_current = 1').get() as { c: number }).c).toBe(1);
   });
 });

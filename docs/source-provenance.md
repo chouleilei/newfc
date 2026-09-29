@@ -50,3 +50,11 @@ newbd 在 c67f6c4 之后的改进按需评估移植，逐条记录：
 | 日期 | newbd 来源提交 | 受影响模块 | newfc 提交 | 验证 |
 |---|---|---|---|---|
 | — | — | — | — | — |
+
+## lishui 样本夹具
+
+lishui 只提供业务规则和验收样本，不导入源码。下列样本按原字节复制为 newfc 的测试夹具，便于与 lishui 验收口径对照：
+
+| newfc 路径 | lishui 来源（`e50b4b6`） | 用途 |
+|---|---|---|
+| `backend/tests/fixtures/eas-v600/eas_voucher.csv`、`eas_balance.csv`、`eas_auxiliary.csv` | `docs/sample-data/v600/` 同名文件（由 2.2.0 归档 EAS xlsx 派生的示例数据，不含真实凭证） | `tests/t3-eas.test.ts` 的 v600 三件套验收（AC-F05） |

@@ -17,7 +17,7 @@ import { storeFile, type ObjectStore } from '../files/object-store';
 import { readTable } from '../io/table-reader';
 import { EAS_PARSER_VERSION, parseEasTable, type AuxLine, type BalanceLine, type ParsedEas, type VoucherLine } from './eas.parse';
 import type {
-  EasAuxRequirementCreate, EasBatchDto, EasBatchLinesDto, EasCorrectionCreate, EasCorrectionDto, EasCorrectionReview,
+  EasActivateRequest, EasAuxRequirementCreate, EasBatchDto, EasBatchLinesDto, EasCorrectionCreate, EasCorrectionDto, EasCorrectionReview,
   EasDataType, EasImportForm, EasLockRequest, EasPeriodLockDto, EasPeriodStatusDto, EasPrecheckRequest, EasReconResultDto,
   EasReconSetDto, EasRuleStatus,
 } from '../../contracts/eas';
@@ -199,11 +199,18 @@ export async function importEasFile(db: DB, store: ObjectStore, input: EasImport
       db.prepare("UPDATE eas_correction SET status = 'candidate_import', version = version + 1 WHERE id = ?").run(c.id);
     }
 
-    const info = db.prepare(`INSERT INTO eas_batch (data_type, org_id, source_company, period, file_object_id, file_sha256, file_name, row_count,
+    let info: { lastInsertRowid: number | bigint };
+    try {
+      info = db.prepare(`INSERT INTO eas_batch (data_type, org_id, source_company, period, file_object_id, file_sha256, file_name, row_count,
       debit_total_cents, credit_total_cents, status, is_current, correction_id, parser_version, created_by_user_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate', 0, ?, ?, ?, ?)`).run(
       parsed.dataType, orgId, parsed.company, parsed.period, file.id, file.sha256, input.fileName.slice(0, 255), parsed.lines.length,
       parsed.debitTotal, parsed.creditTotal, correctionId, EAS_PARSER_VERSION, auth?.userId ?? null, nowIso());
+    } catch (err) {
+      // 幂等键唯一索引兜底(写事务已串行,正常不会触发)
+      if (err instanceof Error && err.message.includes('idx_eas_batch_idem')) throw conflict('EAS_IDEMPOTENCY_CONFLICT', '同一文件正在被导入,请刷新后查看');
+      throw err;
+    }
     const batchId = Number(info.lastInsertRowid);
     insertLines(db, batchId, parsed);
     writeLog(db, 'eas.import', 'eas_batch', batchId, {
@@ -429,14 +436,18 @@ function activateSetInTx(db: DB, target: SetRow): void {
     .run(auth?.userId ?? null, nowIso(), target.id);
 }
 
-export function activateSet(db: DB, setId: number, expectedVersion: number): EasReconSetDto {
+export function activateSet(db: DB, setId: number, input: EasActivateRequest): EasReconSetDto {
   const row = db.transaction(() => {
     const target = getSetRow(db, setId);
     if (target.correction_id) throw conflict('EAS_CORRECTION_REVIEW_REQUIRED', '更正候选集合只能通过复核批准生效');
-    if (target.version !== expectedVersion) throw conflict('VERSION_CONFLICT', '对账集合已被其他人更新,请刷新后重试', { currentVersion: target.version });
+    if (target.version !== input.expectedVersion) throw conflict('VERSION_CONFLICT', '对账集合已被其他人更新,请刷新后重试', { currentVersion: target.version });
     if (target.is_current) return target;
     if (target.status !== 'passed') throw conflict('EAS_RECON_NOT_PASSED', '对账未通过,不能激活');
     if (lockedRow(db, target.org_id, target.period)) throw conflict('EAS_PERIOD_LOCKED', '已锁期间不能直接激活新集合,请走锁后更正');
+    const current = currentSetRow(db, target.org_id, target.period);
+    if ((current?.id ?? null) !== input.expectedCurrentSetId) {
+      throw conflict('EAS_CURRENT_SET_CHANGED', '当前生效集合已被其他人更换,请刷新后确认', { currentSetId: current?.id ?? null });
+    }
     activateSetInTx(db, target);
     writeLog(db, 'eas.activate', 'eas_recon_set', target.id, { orgId: target.org_id, period: target.period });
     return db.prepare('SELECT * FROM eas_recon_set WHERE id = ?').get(target.id) as SetRow;
