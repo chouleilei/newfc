@@ -249,4 +249,207 @@ CREATE INDEX idx_ai_insight_owner ON ai_insight(owner_user_id);
 ALTER TABLE import_batch ADD COLUMN created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL;
 `,
   },
+  {
+    version: 44,
+    name: 'file_objects_and_eas_workspace',
+    sql: `
+/* 文件对象层(T-3 公共基础):内容寻址不可变原件的登记。业务表只引用 id,下载经业务 service 鉴权。 */
+CREATE TABLE file_object (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sha256 TEXT NOT NULL UNIQUE CHECK (length(sha256) = 64),
+  size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+  content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+  original_name TEXT NOT NULL,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+
+/* AC-F05 EAS 原始事实与期间控制。金额为整数分;原始行不可改(触发器),批次切换只改批次/集合状态。 */
+CREATE TABLE eas_correction (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  status TEXT NOT NULL CHECK (status IN ('submitted','candidate_import','pending_review','approved','returned')),
+  reason TEXT NOT NULL,
+  expected_current_set_id INTEGER NOT NULL,
+  candidate_set_id INTEGER,
+  version INTEGER NOT NULL DEFAULT 1,
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT
+);
+CREATE UNIQUE INDEX idx_eas_correction_pending ON eas_correction(org_id, period)
+  WHERE status IN ('submitted','candidate_import','pending_review');
+
+CREATE TABLE eas_batch (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  data_type TEXT NOT NULL CHECK (data_type IN ('voucher','balance','auxiliary')),
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  source_company TEXT NOT NULL,
+  period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  file_sha256 TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  row_count INTEGER NOT NULL,
+  debit_total_cents INTEGER NOT NULL DEFAULT 0,
+  credit_total_cents INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate','active','superseded')),
+  is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),
+  correction_id INTEGER REFERENCES eas_correction(id),
+  parser_version TEXT NOT NULL,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_eas_batch_idem ON eas_batch(org_id, period, data_type, file_sha256, IFNULL(correction_id, 0));
+CREATE INDEX idx_eas_batch_scope ON eas_batch(org_id, period, data_type);
+
+CREATE TABLE eas_voucher_line (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL REFERENCES eas_batch(id),
+  source_row INTEGER NOT NULL,
+  voucher_date TEXT NOT NULL,
+  voucher_no TEXT NOT NULL,
+  entry_no TEXT NOT NULL,
+  account_code TEXT NOT NULL,
+  account_name TEXT NOT NULL,
+  summary TEXT,
+  debit_cents INTEGER NOT NULL,
+  credit_cents INTEGER NOT NULL,
+  project_code TEXT,
+  project_name TEXT,
+  dept_name TEXT,
+  supplier_name TEXT,
+  fund_source TEXT
+);
+CREATE INDEX idx_eas_voucher_batch ON eas_voucher_line(batch_id, account_code);
+
+CREATE TABLE eas_balance_line (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL REFERENCES eas_batch(id),
+  source_row INTEGER NOT NULL,
+  account_code TEXT NOT NULL,
+  account_name TEXT NOT NULL,
+  begin_debit_cents INTEGER NOT NULL,
+  begin_credit_cents INTEGER NOT NULL,
+  debit_cents INTEGER NOT NULL,
+  credit_cents INTEGER NOT NULL,
+  end_debit_cents INTEGER NOT NULL,
+  end_credit_cents INTEGER NOT NULL,
+  project_code TEXT,
+  project_name TEXT,
+  dept_name TEXT,
+  supplier_name TEXT
+);
+CREATE INDEX idx_eas_balance_batch ON eas_balance_line(batch_id, account_code);
+
+CREATE TABLE eas_aux_line (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL REFERENCES eas_batch(id),
+  source_row INTEGER NOT NULL,
+  aux_type TEXT NOT NULL,
+  aux_code TEXT NOT NULL,
+  aux_name TEXT NOT NULL,
+  account_code TEXT NOT NULL,
+  account_name TEXT NOT NULL,
+  begin_cents INTEGER NOT NULL,
+  debit_cents INTEGER NOT NULL,
+  credit_cents INTEGER NOT NULL,
+  end_cents INTEGER NOT NULL,
+  supplier_name TEXT
+);
+CREATE INDEX idx_eas_aux_batch ON eas_aux_line(batch_id, account_code, aux_type);
+
+CREATE TRIGGER trg_eas_voucher_immutable_u BEFORE UPDATE ON eas_voucher_line BEGIN SELECT RAISE(ABORT, 'EAS 原始凭证行不可修改'); END;
+CREATE TRIGGER trg_eas_voucher_immutable_d BEFORE DELETE ON eas_voucher_line BEGIN SELECT RAISE(ABORT, 'EAS 原始凭证行不可删除'); END;
+CREATE TRIGGER trg_eas_balance_immutable_u BEFORE UPDATE ON eas_balance_line BEGIN SELECT RAISE(ABORT, 'EAS 原始余额行不可修改'); END;
+CREATE TRIGGER trg_eas_balance_immutable_d BEFORE DELETE ON eas_balance_line BEGIN SELECT RAISE(ABORT, 'EAS 原始余额行不可删除'); END;
+CREATE TRIGGER trg_eas_aux_immutable_u BEFORE UPDATE ON eas_aux_line BEGIN SELECT RAISE(ABORT, 'EAS 原始辅助核算行不可修改'); END;
+CREATE TRIGGER trg_eas_aux_immutable_d BEFORE DELETE ON eas_aux_line BEGIN SELECT RAISE(ABORT, 'EAS 原始辅助核算行不可删除'); END;
+
+CREATE TABLE eas_recon_set (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  period TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('incomplete','failed','passed')),
+  is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),
+  correction_id INTEGER REFERENCES eas_correction(id),
+  error_count INTEGER NOT NULL DEFAULT 0,
+  warning_count INTEGER NOT NULL DEFAULT 0,
+  summary_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  activated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  activated_at TEXT
+);
+CREATE UNIQUE INDEX idx_eas_recon_current ON eas_recon_set(org_id, period) WHERE is_current = 1;
+CREATE INDEX idx_eas_recon_scope ON eas_recon_set(org_id, period);
+
+CREATE TABLE eas_recon_set_batch (
+  set_id INTEGER NOT NULL REFERENCES eas_recon_set(id),
+  data_type TEXT NOT NULL CHECK (data_type IN ('voucher','balance','auxiliary')),
+  batch_id INTEGER NOT NULL REFERENCES eas_batch(id),
+  PRIMARY KEY (set_id, data_type)
+);
+
+CREATE TABLE eas_recon_result (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  set_id INTEGER NOT NULL REFERENCES eas_recon_set(id),
+  rule_code TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('passed','warning','incomplete','failed')),
+  diff_count INTEGER NOT NULL DEFAULT 0,
+  diff_cents INTEGER NOT NULL DEFAULT 0,
+  details_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX idx_eas_recon_result_set ON eas_recon_result(set_id);
+
+CREATE TABLE eas_aux_requirement (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  account_code TEXT NOT NULL,
+  aux_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (org_id, account_code, aux_type)
+);
+
+CREATE TABLE eas_period_lock (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  period TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('locked','unlocked')),
+  set_id INTEGER NOT NULL REFERENCES eas_recon_set(id),
+  reason TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  locked_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  locked_at TEXT,
+  unlocked_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  unlocked_at TEXT,
+  UNIQUE (org_id, period)
+);
+
+CREATE TABLE eas_period_lock_event (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lock_id INTEGER NOT NULL REFERENCES eas_period_lock(id),
+  action TEXT NOT NULL CHECK (action IN ('lock','unlock','correction_switch')),
+  set_id INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE eas_correction_review (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  correction_id INTEGER NOT NULL REFERENCES eas_correction(id),
+  action TEXT NOT NULL CHECK (action IN ('approve','return')),
+  comment TEXT,
+  exception_reason TEXT,
+  reviewer_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+`,
+  },
 ];

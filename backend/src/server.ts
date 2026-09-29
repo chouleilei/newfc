@@ -55,6 +55,8 @@ import { setChannelResolver, setModelCallRecorder } from './assistant/model';
 import { purgeExpiredJobs, recoverInterruptedJobs } from './modules/jobs/job.service';
 import { getSetting, listBusinessSettings, saveBusinessSettings } from './modules/settings/business-settings';
 import { registerMasterRoutes } from './modules/master/routes';
+import { registerEasRoutes } from './modules/eas/routes';
+import { ObjectStore } from './modules/files/object-store';
 import { currentCellOrgId, currentOrgScopeId, orgInScope, resolveOrgScope } from './modules/security/scope';
 import { insertModelCall } from './modules/jobs/model-calls';
 import { registerJobRoutes } from './modules/jobs/routes';
@@ -250,6 +252,9 @@ export async function createApp(opts: ServerOptions) {
   registerSecurityRoutes(app, db, wrap);
   registerJobRoutes(app, db, wrap);
   registerMasterRoutes(app, db, wrap);
+  // T-3 新领域:原件存放在数据库同目录的 objects/(内存库用临时目录)
+  const objectStore = ObjectStore.forDbPath(opts.dbPath);
+  registerEasRoutes(app, db, wrap, () => objectStore);
   app.get('/api/settings/business', wrap((_req, res) => res.json({ items: listBusinessSettings(db()) })));
   app.put('/api/settings/business', wrap((req, res) => res.json({ items: saveBusinessSettings(db(), req.body) })));
 
