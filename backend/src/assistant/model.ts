@@ -270,6 +270,7 @@ export function classifyModelError(error: unknown): { status: ModelCallStatus; e
   if (http) return { status: 'error', errorType: http[1].startsWith('4') ? `http_4xx` : 'http_5xx' };
   if (/非法 JSON|缺少 choices|既不是 SSE/.test(message)) return { status: 'error', errorType: 'invalid_response' };
   if (/请求失败|fetch failed|ECONN|ENOTFOUND|EAI_AGAIN/.test(message)) return { status: 'error', errorType: 'network' };
+  if (/模型并发已满/.test(message)) return { status: 'error', errorType: 'busy' };
   return { status: 'error', errorType: 'unknown' };
 }
 
@@ -330,6 +331,29 @@ function recordModelCall(
   }
 }
 
+/**
+ * 进程内模型外呼并发上限(OPEN-04):超出时立即失败而不是排队,调用方按模型失败降级到规则查询,
+ * 避免慢供应商把请求线程和内存堆积起来。默认 4,可用 NEWFC_MODEL_CONCURRENCY 调整。
+ */
+let activeModelCalls = 0;
+
+export function modelConcurrencyLimit(): number {
+  const raw = Number(process.env.NEWFC_MODEL_CONCURRENCY || 4);
+  return Number.isInteger(raw) && raw > 0 ? raw : 4;
+}
+
+function acquireModelSlot(): () => void {
+  const limit = modelConcurrencyLimit();
+  if (activeModelCalls >= limit) throw new Error(`模型并发已满(上限 ${limit}),本次改用规则查询`);
+  activeModelCalls += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeModelCalls -= 1;
+  };
+}
+
 export class EnvChatModel implements ChatModel {
   /**
    * 构造参数即功能标识(§7.1 枚举),决定走哪个渠道绑定;不传时按 env/任一渠道解析,
@@ -342,13 +366,17 @@ export class EnvChatModel implements ChatModel {
     const primary = resolveModelConfig(this.feature);
     if (!primary.baseUrl || input.signal?.aborted) return this.completeInner(input);
     const started = Date.now();
+    let release: (() => void) | undefined;
     try {
+      release = acquireModelSlot();
       const result = await this.completeInner(input);
       recordModelCall(this.feature, primary, input, false, started, { result, completionChars: result.text.length });
       return result;
     } catch (error) {
       recordModelCall(this.feature, primary, input, false, started, { error });
       throw error;
+    } finally {
+      release?.();
     }
   }
 
@@ -363,7 +391,9 @@ export class EnvChatModel implements ChatModel {
     let result: ChatCompletionResult | undefined;
     let completionChars = 0;
     let error: unknown;
+    let release: (() => void) | undefined;
     try {
+      release = acquireModelSlot();
       for await (const event of this.streamChatInner(input)) {
         if (event.type === 'text') completionChars += event.text.length;
         else result = event.result;
@@ -373,6 +403,7 @@ export class EnvChatModel implements ChatModel {
       error = err;
       throw err;
     } finally {
+      release?.();
       recordModelCall(this.feature, primary, input, primary.stream, started, { result, error, completionChars });
     }
   }

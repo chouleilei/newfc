@@ -2,7 +2,7 @@
  * 持久任务(AC-F21):导入、报告、预测重算、知识索引等较长操作的统一状态、步骤与进度。
  *
  * - 状态写入都是短事务;任务体(含模型调用)在事务之外执行。
- * - 进程内有界并发(NEWFC_JOB_CONCURRENCY,默认 2),超出排队;不引入外部队列。
+ * - 进程内有界并发(NEWFC_JOB_CONCURRENCY,默认 1,与运行规范的开发基线一致),超出排队;不引入外部队列。
  * - 启动时把上个进程遗留的 queued/running 标为 interrupted,不静默丢失也不假装完成。
  * - 任务在创建者的身份上下文中执行(source='task')。开始执行前按当前库重新加载身份:
  *   用户已停用或已失去任务所需权限时直接失败(AUTH_REVOKED),不用排队时的旧授权读数据。
@@ -330,8 +330,8 @@ export interface JobHandle {
 export type JobBody = (handle: JobHandle) => Promise<unknown>;
 
 const limit = (() => {
-  const raw = Number(process.env.NEWFC_JOB_CONCURRENCY || 2);
-  return Number.isSafeInteger(raw) && raw >= 1 && raw <= 8 ? raw : 2;
+  const raw = Number(process.env.NEWFC_JOB_CONCURRENCY || 1);
+  return Number.isSafeInteger(raw) && raw >= 1 && raw <= 8 ? raw : 1;
 })();
 let active = 0;
 const waiting: (() => void)[] = [];

@@ -1378,6 +1378,10 @@ export async function startServer(opts: ServerOptions) {
   });
   const { app, holder } = await createApp(opts);
   const server = app.listen(port, host);
+  // 空闲长连接保持时间长于常见客户端/反代的复用窗口,避免服务端恰在客户端复用时关闭连接(ECONNRESET);
+  // headersTimeout 须大于 keepAliveTimeout。
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
   await new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => reject(error);
     server.once('error', onError);
