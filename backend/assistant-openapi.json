@@ -1,0 +1,2423 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "Budget AI Assistant",
+  "version": "1.2.0",
+  "description": "事实查询、写入预览/确认和导出接口。AI 不直接写入预算数据。"
+ },
+ "servers": [
+  {
+   "url": "http://127.0.0.1:3748"
+  }
+ ],
+ "security": [
+  {
+   "AccessToken": []
+  }
+ ],
+ "paths": {
+  "/api/assistant/chat": {
+   "post": {
+    "summary": "自然语言查询或生成操作建议",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChatRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "事实、引用和可选操作建议",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChatResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/ValidationError"
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/chat/stream": {
+   "post": {
+    "summary": "SSE 自然语言查询",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChatRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "event: token 多次，最后 event: done；done.data 与 ChatResponse 相同并含 done=true",
+      "content": {
+       "text/event-stream": {}
+      }
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    },
+    "description": "真流式 SSE。事件顺序：event: open(连接就绪) → event: token(正文增量，多个) → event: error(仅失败时) → event: done(完整 ChatResponse 并附 done:true)。响应头先发出后再转发模型增量，首字延迟等于模型第一个增量；请求体校验在写响应头之前完成，因此参数错误仍返回结构化 400。响应头已发出后的异常以 event: error 下发并补一个 event: done。"
+   }
+  },
+  "/api/assistant/preview": {
+   "post": {
+    "summary": "创建待确认操作预览",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PreviewRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "pending action",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Action"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/ValidationError"
+     },
+     "409": {
+      "$ref": "#/components/responses/ConflictError"
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/actions/{id}/confirm": {
+   "post": {
+    "summary": "提交确认令牌并执行操作",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/ActionId"
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ConfirmRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "confirmed action",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Action"
+        }
+       }
+      }
+     },
+     "409": {
+      "$ref": "#/components/responses/ConflictError"
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/actions/{id}/cancel": {
+   "post": {
+    "summary": "取消待确认操作",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/ActionId"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "cancelled/已是终态的 action",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Action"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/actions/{id}/download": {
+   "get": {
+    "summary": "下载已确认的导出 action",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/ActionId"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "CSV 或 XLSX 文件",
+      "content": {
+       "text/csv": {},
+       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+      }
+     },
+     "409": {
+      "$ref": "#/components/responses/ConflictError"
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/conversations": {
+   "get": {
+    "summary": "会话列表",
+    "responses": {
+     "200": {
+      "description": "conversation items"
+     }
+    }
+   }
+  },
+  "/api/assistant/conversations/{id}": {
+   "get": {
+    "summary": "会话及消息",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "conversation detail"
+     }
+    }
+   },
+   "patch": {
+    "summary": "重命名会话",
+    "description": "标题为空时回退为「会话 #id」；写入 operation_log(ai.conversation.rename)。",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "title": {
+          "type": "string",
+          "maxLength": 200
+         }
+        },
+        "required": [
+         "title"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "重命名后的会话"
+     },
+     "404": {
+      "description": "会话不存在"
+     }
+    }
+   },
+   "delete": {
+    "summary": "删除会话",
+    "description": "消息随 ON DELETE CASCADE 一起删除；已保存的洞察与已产生的操作只解绑(ON DELETE SET NULL)，仍可追溯。写入 operation_log(ai.conversation.delete)。",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "删除结果，含被删除消息数与被解绑的洞察/操作数",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "integer"
+          },
+          "messageCount": {
+           "type": "integer"
+          },
+          "insightCount": {
+           "type": "integer"
+          },
+          "actionCount": {
+           "type": "integer"
+          },
+          "pendingActions": {
+           "type": "integer"
+          }
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "会话不存在"
+     }
+    }
+   }
+  },
+  "/api/assistant/insights/{id}": {
+   "get": {
+    "summary": "保存的洞察/依据草稿",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "insight"
+     }
+    }
+   },
+   "delete": {
+    "summary": "删除洞察",
+    "description": "洞察是只读分析快照，删除不影响任何业务数据。写入 operation_log(ai.insight.delete)。",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "minimum": 1
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "删除结果"
+     },
+     "404": {
+      "description": "洞察不存在"
+     }
+    }
+   }
+  },
+  "/api/assistant/attribution": {
+   "post": {
+    "summary": "差异归因(只读):按组织、科目和方向排序,支持逐层展开",
+    "description": "数字全部来自 completionReport;组织维度与科目维度根层合计必须相等,见 reconciliation。不写任何业务数据。",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AttributionRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "归因结果",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AttributionResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "参数或口径错误",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "参数或口径错误",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/report": {
+   "post": {
+    "summary": "报告生成(只读):执行月报 / 年度复盘 / 预算讨论材料",
+    "description": "后端先确定性组稿并附逐节引用;模型可用时只改写叙述文字,数字不变,模型不可用时 narrativeSource=template。不写任何业务数据。",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReportRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "报告草稿",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReportResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "参数或口径错误",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "参数或口径错误",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/import-help": {
+   "post": {
+    "summary": "导入辅助(只读):解释错误、建议组织/科目匹配、列出未匹配和重复项",
+    "description": "错误分类与解释为固化规则;匹配建议按编码编辑距离与前缀/名称命中打分,候选一定是库中真实节点。不写任何业务数据。",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ImportHelpRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "导入诊断",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImportHelpResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "参数或口径错误",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "参数或口径错误",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "助手请求超过每分钟上限(AI_RATE_LIMIT_PER_MIN，默认 30)，响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/insights": {
+   "get": {
+    "summary": "洞察列表",
+    "parameters": [
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "maximum": 200,
+       "default": 50
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "insight items"
+     }
+    }
+   },
+   "post": {
+    "summary": "保存分析洞察(后端按参数重新计算,不接受前端数字)",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "required": [
+         "kind"
+        ],
+        "properties": {
+         "conversationId": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": true
+         },
+         "title": {
+          "type": "string",
+          "maxLength": 200
+         },
+         "kind": {
+          "type": "string",
+          "enum": [
+           "execution",
+           "attribution",
+           "report",
+           "anomalies",
+           "trend",
+           "accuracy",
+           "version_variance",
+           "historical_comparison",
+           "budget_quality"
+          ]
+         },
+         "params": {
+          "type": "object",
+          "description": "kind=report 时用 params.reportKind 指定报告类型"
+         },
+         "note": {
+          "type": "string",
+          "maxLength": 10000
+         }
+        }
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "已保存的洞察"
+     },
+     "400": {
+      "description": "参数或口径错误",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assistant/glossary": {
+   "get": {
+    "summary": "业务解释(字段、状态、金额方向、单位换算、完成率)",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 500
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "matched + catalog"
+     }
+    }
+   }
+  },
+  "/api/assistant/navigation": {
+   "get": {
+    "summary": "可导航页面目录",
+    "responses": {
+     "200": {
+      "description": "pages"
+     }
+    }
+   }
+  },
+  "/api/assistant/quality-advice": {
+   "post": {
+    "summary": "定稿质量门禁「解释 + 修复建议」(只读)",
+    "description": "输入预算版本,返回该版本质量门禁的归并统计、处理顺序与最小修复路径建议。确定性模板先行;模型可用且 BUDGET_QUALITY_AI 未关闭时仅改写行文,数字守卫失败或模型不可用时 advice 回退模板稿(source=template)。不写任何业务数据。叙述生成走独立限流桶(AI_NARRATIVE_RATE_LIMIT_PER_MIN,默认 10)。",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/QualityAdviceRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "处理建议",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/QualityAdviceResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "参数错误",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Error"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "叙述生成请求超过每分钟上限(AI_NARRATIVE_RATE_LIMIT_PER_MIN,默认 10),响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  },
+  "/api/assistant/master-data-semantic-names": {
+   "post": {
+    "summary": "主数据「语义命名相似」候选对(只读建议)",
+    "description": "找出字面距离远但语义可能重名/同义的组织或科目节点对。输入仅为编码+名称清单,不涉金额;输出经白名单校验(编码必须存在于清单),结果永远标记为建议(source=model),不产生任何写入。模型未配置、BUDGET_MASTER_DATA_AI=0 或调用失败时 semanticAvailable=false 且 pairs 为空,体检报告其余部分完整可用。叙述生成走独立限流桶(AI_NARRATIVE_RATE_LIMIT_PER_MIN,默认 10)。",
+    "responses": {
+     "200": {
+      "description": "语义相似候选对",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MasterDataSemanticNamesResponse"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "叙述生成请求超过每分钟上限(AI_NARRATIVE_RATE_LIMIT_PER_MIN,默认 10),响应含 retryAfterSeconds 与 Retry-After 头"
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "securitySchemes": {
+   "AccessToken": {
+    "type": "apiKey",
+    "in": "header",
+    "name": "x-access-token"
+   }
+  },
+  "parameters": {
+   "ActionId": {
+    "name": "id",
+    "in": "path",
+    "required": true,
+    "schema": {
+     "type": "integer",
+     "minimum": 1
+    }
+   }
+  },
+  "responses": {
+   "ValidationError": {
+    "description": "参数校验失败",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   },
+   "ConflictError": {
+    "description": "状态、令牌或预览基线冲突",
+    "content": {
+     "application/json": {
+      "schema": {
+       "$ref": "#/components/schemas/Error"
+      }
+     }
+    }
+   }
+  },
+  "schemas": {
+   "AssistantContext": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "year": {
+      "type": "integer",
+      "minimum": 1900,
+      "maximum": 9999
+     },
+     "budgetVersionId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "targetVersionId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "actualSnapshotId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "importBatchId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "orgId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "accountId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "page": {
+      "type": "string",
+      "maxLength": 80
+     }
+    }
+   },
+   "ChatRequest": {
+    "type": "object",
+    "required": [
+     "message"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "conversationId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+     },
+     "context": {
+      "$ref": "#/components/schemas/AssistantContext"
+     },
+     "pageContext": {
+      "$ref": "#/components/schemas/PageContextV2"
+     }
+    },
+    "description": "提问请求。pageContext 为 V2 页面范围快照；提供后优先用于构造页面范围，旧 context 保留兼容。后端先校验 V2，再由本轮问题覆盖页面字段、会话只补空；问题覆盖成功时通过 contextStatus=explicit_override 与 contextTrace.overrides 说明。"
+   },
+   "ChatResponse": {
+    "type": "object",
+    "required": [
+     "conversationId",
+     "text",
+     "facts",
+     "citations",
+     "suggestions",
+     "action",
+     "navigation",
+     "resolvedContext",
+     "resolution",
+     "routing",
+     "model",
+     "intents",
+     "modelError"
+    ],
+    "properties": {
+     "conversationId": {
+      "type": "integer"
+     },
+     "text": {
+      "type": "string"
+     },
+     "facts": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "citations": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Citation"
+      }
+     },
+     "suggestions": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "action": {
+      "nullable": true,
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/ProposedAction"
+       }
+      ]
+     },
+     "navigation": {
+      "nullable": true,
+      "type": "object",
+      "description": "页面导航目标(page/path/label/reason/params);无导航意图为 null"
+     },
+     "resolvedContext": {
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/AssistantContext"
+       }
+      ],
+      "description": "后端最终使用的上下文；前端可据此回填筛选器，下一轮会作为继承上下文"
+     },
+     "resolution": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ContextResolution"
+      },
+      "description": "每一项上下文的来源与依据"
+     },
+     "routing": {
+      "type": "string",
+      "enum": [
+       "model",
+       "rules"
+      ],
+      "description": "model=模型自主调用只读工具路由；rules=模型不可用或未调用工具时的关键词兜底"
+     },
+     "model": {
+      "type": "string",
+      "description": "本轮实际生效的模型名；template 表示模型不可用、答案来自后端确定性模板"
+     },
+     "intents": {
+      "type": "object",
+      "description": "关键词意图识别结果。suppressed 是按语义蕴含省略的重复项(父级结果已包含)；inheritedRead 是本轮判定为纯追问时沿用的上一轮只读意图，为空表示意图来自本轮消息",
+      "properties": {
+       "read": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "write": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "suppressed": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "inheritedRead": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "modelError": {
+      "type": "string",
+      "nullable": true,
+      "description": "模型不可用的原因；null 表示无异常"
+     },
+     "contextStatus": {
+      "type": "string",
+      "enum": [
+       "aligned",
+       "explicit_override"
+      ],
+      "description": "aligned=已对齐当前页面;explicit_override=问题显式覆盖了页面范围(仅请求带 pageContext 时返回)"
+     },
+     "effectiveContext": {
+      "$ref": "#/components/schemas/EffectiveContext"
+     },
+     "contextSummary": {
+      "type": "string",
+      "description": "一行范围摘要,如「预算执行分析 · 2026 年 · 预算 V3 · 江垭电站 · 截至 6 月」;历史会话从 response_json 原样读取(§9.7)"
+     },
+     "contextTrace": {
+      "$ref": "#/components/schemas/ContextTrace"
+     },
+     "capability": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "overview",
+       "assistant_content",
+       "master_data",
+       "budget",
+       "actual",
+       "execution",
+       "comparison",
+       "import_conversion",
+       "evidence",
+       "operations",
+       null
+      ],
+      "description": "本轮实际调用的领域能力;读意图超出 PageCapabilityMap 时被拒绝并如实告知(§9.3)"
+     },
+     "draftApplied": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DraftAppliedSummary"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "草稿采用摘要;不含原始修改值"
+     }
+    }
+   },
+   "Citation": {
+    "type": "object",
+    "required": [
+     "source",
+     "asOf"
+    ],
+    "properties": {
+     "source": {
+      "type": "string"
+     },
+     "asOf": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "year": {
+      "type": "integer"
+     },
+     "budgetVersionId": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "targetVersionId": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "actualSnapshotId": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "treeSnapshotIds": {
+      "type": "object"
+     }
+    }
+   },
+   "PreviewRequest": {
+    "type": "object",
+    "required": [
+     "type"
+    ],
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "budget_draft",
+       "scenario",
+       "copy_budget",
+       "bulk_adjustment",
+       "basis_text",
+       "export",
+       "preview_budget_draft",
+       "preview_scenario",
+       "preview_copy_budget",
+       "preview_bulk_adjustment",
+       "preview_basis_text"
+      ]
+     },
+     "conversationId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "idempotencyKey": {
+      "type": "string",
+      "maxLength": 200
+     },
+     "params": {
+      "type": "object"
+     }
+    }
+   },
+   "ConfirmRequest": {
+    "type": "object",
+    "required": [
+     "confirmationToken"
+    ],
+    "properties": {
+     "confirmationToken": {
+      "type": "string",
+      "minLength": 1
+     }
+    }
+   },
+   "Action": {
+    "type": "object",
+    "required": [
+     "id",
+     "type",
+     "status",
+     "preview",
+     "expiresAt"
+    ],
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "conversationId": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "type": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "confirmed",
+       "cancelled",
+       "expired"
+      ]
+     },
+     "preview": {
+      "type": "object"
+     },
+     "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "confirmationToken": {
+      "type": "string"
+     },
+     "result": {}
+    }
+   },
+   "Error": {
+    "type": "object",
+    "required": [
+     "code",
+     "message"
+    ],
+    "properties": {
+     "code": {
+      "type": "string"
+     },
+     "message": {
+      "type": "string"
+     },
+     "errors": {
+      "type": "array"
+     },
+     "details": {
+      "type": "object",
+      "description": "安全错误定位信息；V2 错误可含 snapshotId、field 和 reason"
+     },
+     "retryAfterSeconds": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "description": "统一错误结构。V2 相关 code：CONTEXT_INVALID(400，schema/pageKey/白名单/资源或实体格式失败)；CONTEXT_NOT_READY(409，保留码，当前 UI 在发送前阻断未就绪页面)；CONTEXT_STALE(409，verification owner 或 cell focus 来源与当前页面/版本/快照不一致，不由 contextVersion 数字回退触发)；CONTEXT_CONFLICT(409，年度与预算版本/目标版本/实际快照、版本对比年度或树关系矛盾)；CONTEXT_TOO_LARGE(413，非草稿上下文 >64KiB、draft >5MiB、changes >10000、refs >500 或 bounds 列表超限)；DRAFT_STALE(409，草稿 revision/updatedAt/当前批次/版本状态/树基线变化)；CAPABILITY_UNAVAILABLE(400，保留给直接能力调用，普通聊天通常通过能力过滤和 notice 告知)。"
+   },
+   "AttributionRequest": {
+    "type": "object",
+    "required": [
+     "versionId"
+    ],
+    "properties": {
+     "versionId": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "batchId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true,
+      "description": "实际快照;缺省按现有取数口径"
+     },
+     "orgScopeId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true
+     },
+     "accountScopeId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true
+     },
+     "sheetKey": {
+      "type": "string",
+      "nullable": true
+     },
+     "maxDepth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3,
+      "description": "逐层展开层级上限"
+     },
+     "topN": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 10,
+      "description": "每层保留条目数"
+     },
+     "direction": {
+      "type": "string",
+      "enum": [
+       "favorable",
+       "unfavorable",
+       "all"
+      ],
+      "default": "all"
+     }
+    }
+   },
+   "AttributionNode": {
+    "type": "object",
+    "description": "归因树节点;金额为整数分且按利润方向带符号",
+    "properties": {
+     "dimension": {
+      "type": "string",
+      "enum": [
+       "org",
+       "account"
+      ]
+     },
+     "id": {
+      "type": "integer"
+     },
+     "parentId": {
+      "type": "integer",
+      "nullable": true
+     },
+     "code": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "level": {
+      "type": "integer"
+     },
+     "isLeaf": {
+      "type": "boolean"
+     },
+     "type": {
+      "type": "string",
+      "description": "科目维度的科目类型"
+     },
+     "budgetCents": {
+      "type": "integer"
+     },
+     "actualCents": {
+      "type": "integer"
+     },
+     "varianceCents": {
+      "type": "integer",
+      "description": "实际-预算,正数有利"
+     },
+     "favorable": {
+      "type": "string",
+      "enum": [
+       "favorable",
+       "unfavorable",
+       "none"
+      ]
+     },
+     "rate": {
+      "type": "number",
+      "nullable": true
+     },
+     "rateSpecial": {
+      "type": "string",
+      "nullable": true
+     },
+     "shareOfParent": {
+      "type": "number",
+      "nullable": true
+     },
+     "shareOfTotal": {
+      "type": "number",
+      "nullable": true
+     },
+     "childrenVarianceCents": {
+      "type": "integer",
+      "description": "完整子层差异合计,不受 topN 截断影响"
+     },
+     "reconciled": {
+      "type": "boolean"
+     },
+     "hiddenChildCount": {
+      "type": "integer"
+     },
+     "hiddenVarianceCents": {
+      "type": "integer"
+     },
+     "children": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AttributionNode"
+      }
+     }
+    }
+   },
+   "AttributionResponse": {
+    "type": "object",
+    "required": [
+     "version",
+     "params",
+     "totals",
+     "byOrg",
+     "byAccount",
+     "reconciliation"
+    ],
+    "properties": {
+     "version": {
+      "type": "object"
+     },
+     "asOfDate": {
+      "type": "string",
+      "nullable": true
+     },
+     "timeProgressValue": {
+      "type": "number",
+      "nullable": true
+     },
+     "actualSource": {
+      "type": "string",
+      "enum": [
+       "current",
+       "snapshot",
+       "final",
+       "none"
+      ]
+     },
+     "actualBatchId": {
+      "type": "integer",
+      "nullable": true
+     },
+     "treeBasis": {
+      "type": "object"
+     },
+     "scopeBasis": {
+      "type": "object"
+     },
+     "params": {
+      "type": "object"
+     },
+     "totals": {
+      "type": "object"
+     },
+     "byOrg": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AttributionNode"
+      }
+     },
+     "byAccount": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AttributionNode"
+      }
+     },
+     "rankedOrgLeaves": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "rankedAccountLeaves": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "quantityVariances": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      },
+      "description": "数量按 10^4 缩放整数,不参与金额归因"
+     },
+     "reconciliation": {
+      "type": "object",
+      "description": "组织维度与科目维度根层/叶子合计核对"
+     },
+     "notes": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "ReportRequest": {
+    "type": "object",
+    "required": [
+     "kind"
+    ],
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "monthly_execution",
+       "annual_review",
+       "budget_discussion"
+      ]
+     },
+     "versionId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true,
+      "description": "月报与讨论材料必填"
+     },
+     "year": {
+      "type": "integer",
+      "minimum": 1900,
+      "maximum": 9999,
+      "nullable": true,
+      "description": "年度复盘必填"
+     },
+     "batchId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true
+     },
+     "targetVersionId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true,
+      "description": "讨论材料的对比版本(同年度)"
+     },
+     "orgScopeId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true
+     },
+     "accountScopeId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true
+     },
+     "sheetKey": {
+      "type": "string",
+      "nullable": true
+     },
+     "topN": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "nullable": true
+     }
+    }
+   },
+   "ReportResponse": {
+    "type": "object",
+    "required": [
+     "kind",
+     "title",
+     "sections",
+     "citations",
+     "narrative",
+     "narrativeSource"
+    ],
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "monthly_execution",
+       "annual_review",
+       "budget_discussion"
+      ]
+     },
+     "kindLabel": {
+      "type": "string"
+     },
+     "title": {
+      "type": "string"
+     },
+     "generatedAt": {
+      "type": "string"
+     },
+     "period": {
+      "type": "object"
+     },
+     "scope": {
+      "type": "object"
+     },
+     "sections": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "key": {
+         "type": "string"
+        },
+        "title": {
+         "type": "string"
+        },
+        "bullets": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "确定性要点,金额已按万元两位小数格式化"
+        },
+        "data": {
+         "type": "object",
+         "description": "结构化数据,金额仍为整数分"
+        },
+        "citations": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Citation"
+         }
+        }
+       }
+      }
+     },
+     "facts": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "citations": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Citation"
+      }
+     },
+     "narrative": {
+      "type": "string",
+      "description": "Markdown 成稿"
+     },
+     "narrativeSource": {
+      "type": "string",
+      "enum": [
+       "template",
+       "model"
+      ]
+     },
+     "model": {
+      "type": "string",
+      "description": "template 表示模型未启用或已降级"
+     },
+     "suggestions": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "AI 建议,展示时必须标记为建议"
+     },
+     "notes": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "ImportHelpRequest": {
+    "type": "object",
+    "description": "batchId 与 errors 至少提供一个",
+    "properties": {
+     "batchId": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": true
+     },
+     "errors": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "row": {
+         "type": "integer",
+         "description": "0 表示整表级错误"
+        },
+        "field": {
+         "type": "string"
+        },
+        "message": {
+         "type": "string"
+        }
+       }
+      },
+      "description": "上传失败时 IMPORT_VALIDATION_FAILED 返回的数组"
+     },
+     "suggestionLimit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 3
+     }
+    }
+   },
+   "ImportHelpResponse": {
+    "type": "object",
+    "required": [
+     "errorCount",
+     "groups",
+     "unmatched",
+     "duplicates",
+     "nextSteps"
+    ],
+    "properties": {
+     "batch": {
+      "type": "object",
+      "nullable": true
+     },
+     "errorCount": {
+      "type": "integer"
+     },
+     "groups": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "category": {
+         "type": "string"
+        },
+        "label": {
+         "type": "string"
+        },
+        "explanation": {
+         "type": "string"
+        },
+        "fix": {
+         "type": "string"
+        },
+        "count": {
+         "type": "integer"
+        },
+        "rows": {
+         "type": "array",
+         "items": {
+          "type": "integer"
+         }
+        },
+        "samples": {
+         "type": "array",
+         "items": {
+          "type": "object"
+         }
+        }
+       }
+      }
+     },
+     "unmatched": {
+      "type": "object",
+      "properties": {
+       "org": {
+        "type": "array",
+        "items": {
+         "type": "object"
+        }
+       },
+       "account": {
+        "type": "array",
+        "items": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "候选建议来自当前组织树/科目树,带 score(0~1)与 reason,只作建议"
+     },
+     "duplicates": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "nextSteps": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "notes": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "ContextResolution": {
+    "type": "object",
+    "description": "单项上下文的解析结果与依据(方案 5.6 上下文自动解析)",
+    "required": [
+     "field",
+     "value",
+     "origin",
+     "reason"
+    ],
+    "properties": {
+     "field": {
+      "type": "string",
+      "enum": [
+       "year",
+       "budgetVersionId",
+       "targetVersionId",
+       "actualSnapshotId",
+       "orgId",
+       "accountId",
+       "importBatchId"
+      ]
+     },
+     "value": {
+      "type": "integer"
+     },
+     "origin": {
+      "type": "string",
+      "enum": [
+       "request",
+       "message",
+       "conversation",
+       "default"
+      ],
+      "description": "request=前端显式传入；message=本轮消息解析；conversation=沿用上一轮；default=数据库默认值(如当前生效版本)"
+     },
+     "reason": {
+      "type": "string",
+      "description": "命中依据，例如「命中名称「上海公司」」「2026 年当前生效预算版本」"
+     },
+     "label": {
+      "type": "string",
+      "description": "便于展示的名称(版本名/组织名/科目名/快照日期)"
+     }
+    }
+   },
+   "ProposedAction": {
+    "type": "object",
+    "description": "助手建议的写操作。仅为建议，落库仍需 preview → confirm 并携带确认令牌。",
+    "required": [
+     "type",
+     "params",
+     "source",
+     "previewable"
+    ],
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "budget_draft",
+       "copy_budget",
+       "scenario",
+       "basis_text",
+       "export"
+      ]
+     },
+     "params": {
+      "type": "object",
+      "description": "仅含该 action 的白名单字段"
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "model",
+       "rules"
+      ],
+      "description": "model=模型从自然语言抽取参数；rules=关键词兜底推断"
+     },
+     "previewable": {
+      "type": "boolean",
+      "description": "参数已通过 normalizePreview 只读干跑校验，可直接创建预览"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "validationMessage": {
+      "type": "string",
+      "description": "previewable=false 时说明缺少什么参数"
+     }
+    }
+   },
+   "QualityAdviceRequest": {
+    "type": "object",
+    "required": [
+     "versionId"
+    ],
+    "properties": {
+     "versionId": {
+      "type": "integer",
+      "description": "预算版本 ID"
+     }
+    },
+    "additionalProperties": false
+   },
+   "QualityAdviceResponse": {
+    "type": "object",
+    "properties": {
+     "versionId": {
+      "type": "integer"
+     },
+     "canFinalize": {
+      "type": "boolean"
+     },
+     "blockingCount": {
+      "type": "integer"
+     },
+     "warningCount": {
+      "type": "integer"
+     },
+     "groups": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      },
+      "description": "同类问题归并(确定性 groupBy)"
+     },
+     "advice": {
+      "type": "string",
+      "description": "处理建议 Markdown;模型改写稿或确定性模板稿"
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "template",
+       "model"
+      ]
+     },
+     "model": {
+      "type": "string"
+     },
+     "promptVersion": {
+      "type": "string"
+     },
+     "cached": {
+      "type": "boolean"
+     },
+     "guardFailure": {
+      "type": "object",
+      "properties": {
+       "extra": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "missing": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       }
+      }
+     }
+    }
+   },
+   "SemanticNamePair": {
+    "type": "object",
+    "required": [
+     "kind",
+     "aCode",
+     "aName",
+     "bCode",
+     "bName",
+     "reason"
+    ],
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "org",
+       "account"
+      ],
+      "description": "节点类型(编码命名空间)"
+     },
+     "aCode": {
+      "type": "string"
+     },
+     "aName": {
+      "type": "string"
+     },
+     "bCode": {
+      "type": "string"
+     },
+     "bName": {
+      "type": "string"
+     },
+     "reason": {
+      "type": "string",
+      "description": "一句话理由(截断至 200 字符)"
+     }
+    }
+   },
+   "MasterDataSemanticNamesResponse": {
+    "type": "object",
+    "required": [
+     "semanticAvailable",
+     "note",
+     "pairs",
+     "source",
+     "model",
+     "promptVersion"
+    ],
+    "properties": {
+     "semanticAvailable": {
+      "type": "boolean",
+      "description": "模型是否实际产出;false 时 pairs 为空"
+     },
+     "note": {
+      "type": "string",
+      "description": "确定性说明(未配置/关闭/失败原因或产出数量)"
+     },
+     "pairs": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/SemanticNamePair"
+      }
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "model"
+      ],
+      "description": "恒为 model:结果永远只是建议,不作为事实"
+     },
+     "model": {
+      "type": "string",
+      "description": "实际使用的模型名;未产出时为空串"
+     },
+     "promptVersion": {
+      "type": "string"
+     }
+    }
+   },
+   "PageScopeV2": {
+    "type": "object",
+    "description": "页面登记的取数范围(§6);全部可选,由页面适配器按自身语义填写",
+    "additionalProperties": false,
+    "properties": {
+     "year": {
+      "type": "integer",
+      "minimum": 1900,
+      "maximum": 9999
+     },
+     "periodStart": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+     },
+     "periodEnd": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+     },
+     "asOfDate": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+     },
+     "budgetVersionId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "预算/预测版本"
+     },
+     "targetVersionId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "对比版本"
+     },
+     "actualSnapshotId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "实际快照批次"
+     },
+     "importBatchId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "导入批次"
+     },
+     "orgScopeId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "组织范围"
+     },
+     "accountScopeId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "科目范围"
+     },
+     "metricId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "指标"
+     },
+     "insightId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "洞察"
+     },
+     "conversionId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "财务转换"
+     },
+     "mappingVersionId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "映射版本"
+     },
+     "templateId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "清洗模板"
+     },
+     "baseVersionId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "基准版本(对比页)"
+     },
+     "compareVersionId": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "比较版本(对比页)"
+     }
+    }
+   },
+   "PageViewV2": {
+    "type": "object",
+    "description": "页面能力白名单内的视图状态；具体允许键由 pageKey 对应 PageCapabilityMap 决定",
+    "additionalProperties": {
+     "oneOf": [
+      { "type": "string", "maxLength": 200 },
+      { "type": "number" },
+      { "type": "boolean" },
+      {
+       "type": "array",
+       "maxItems": 100,
+       "items": {
+        "oneOf": [
+         { "type": "string" },
+         { "type": "number" },
+         { "type": "boolean" }
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "EntityRefV2": {
+    "type": "object",
+    "required": ["entityType", "id"],
+    "properties": {
+     "entityType": { "type": "string", "minLength": 1, "maxLength": 40 },
+     "id": { "type": "integer", "minimum": 1 }
+    },
+    "description": "稳定业务实体引用；entityType 还必须位于当前 pageKey 的白名单内"
+   },
+   "SurfaceV2": {
+    "type": "object",
+    "required": ["id", "kind", "key"],
+    "properties": {
+     "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+     "kind": { "type": "string", "enum": ["drawer", "modal", "popover", "context_menu"] },
+     "key": { "type": "string", "minLength": 1, "maxLength": 80 },
+     "entity": {
+      "nullable": true,
+      "allOf": [{ "$ref": "#/components/schemas/EntityRefV2" }]
+     },
+     "parentId": { "type": "string", "minLength": 1, "maxLength": 80, "nullable": true }
+    }
+   },
+   "EntityFocusV2": {
+    "type": "object",
+    "required": ["kind", "entityType", "id"],
+    "properties": {
+     "kind": { "type": "string", "enum": ["entity"] },
+     "entityType": { "type": "string", "minLength": 1, "maxLength": 40 },
+     "id": { "type": "integer", "minimum": 1 }
+    }
+   },
+   "CellFocusV2": {
+    "type": "object",
+    "required": ["kind", "source", "sourceId", "orgId", "accountId"],
+    "properties": {
+     "kind": { "type": "string", "enum": ["cell"] },
+     "source": { "type": "string", "enum": ["budget", "actual"] },
+     "sourceId": { "type": "integer", "minimum": 1 },
+     "orgId": { "type": "integer", "minimum": 1 },
+     "accountId": { "type": "integer", "minimum": 1 },
+     "valueKind": { "type": "string", "enum": ["amount", "quantity", "formula", "note"] }
+    }
+   },
+   "ChartPointFocusV2": {
+    "type": "object",
+    "required": ["kind", "seriesKey", "dimensionType"],
+    "properties": {
+     "kind": { "type": "string", "enum": ["chart_point"] },
+     "seriesKey": { "type": "string", "minLength": 1, "maxLength": 120 },
+     "dimensionType": { "type": "string", "enum": ["org", "account", "metric", "period", "version"] },
+     "dimensionId": { "type": "integer", "minimum": 1 },
+     "period": { "type": "string", "minLength": 1, "maxLength": 20 }
+    }
+   },
+   "FactFocusV2": {
+    "type": "object",
+    "required": ["kind", "factType", "ownerKey", "factKey"],
+    "properties": {
+     "kind": { "type": "string", "enum": ["fact"] },
+     "factType": { "type": "string", "enum": ["verification"] },
+     "ownerKey": { "type": "string", "minLength": 1, "maxLength": 160 },
+     "factKey": { "type": "string", "minLength": 1, "maxLength": 60 },
+     "scopeRef": {
+      "type": "object",
+      "additionalProperties": {
+       "oneOf": [{ "type": "integer" }, { "type": "string" }]
+      }
+     }
+    },
+    "description": "客户端只提供定位；事实标签、级别、详情和金额由后端按 ownerKey/factKey 重取"
+   },
+   "FormFieldFocusV2": {
+    "type": "object",
+    "required": ["kind", "formKind", "field"],
+    "properties": {
+     "kind": { "type": "string", "enum": ["form_field"] },
+     "formKind": { "type": "string", "minLength": 1, "maxLength": 60 },
+     "field": { "type": "string", "minLength": 1, "maxLength": 80 }
+    }
+   },
+   "RefsSelectionV2": {
+    "type": "object",
+    "required": ["mode", "refs"],
+    "properties": {
+     "mode": { "type": "string", "enum": ["refs"] },
+     "refs": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/components/schemas/EntityRefV2" }
+     }
+    }
+   },
+   "BoundsSelectionV2": {
+    "type": "object",
+    "required": ["mode", "bounds"],
+    "properties": {
+     "mode": { "type": "string", "enum": ["bounds"] },
+     "bounds": {
+      "type": "object",
+      "properties": {
+       "sheetKey": { "type": "string", "minLength": 1, "maxLength": 60 },
+       "orgIds": {
+        "type": "array",
+        "maxItems": 2000,
+        "items": { "type": "integer", "minimum": 1 }
+       },
+       "accountIds": {
+        "type": "array",
+        "maxItems": 2000,
+        "items": { "type": "integer", "minimum": 1 }
+       }
+      }
+     }
+    }
+   },
+   "QuerySelectionV2": {
+    "type": "object",
+    "required": ["mode", "query"],
+    "properties": {
+     "mode": { "type": "string", "enum": ["query"] },
+     "query": {
+      "type": "object",
+      "additionalProperties": {
+       "nullable": true,
+       "oneOf": [
+        { "type": "string", "maxLength": 200 },
+        { "type": "number" },
+        { "type": "boolean" }
+       ]
+      }
+     }
+    }
+   },
+   "DraftV2": {
+    "type": "object",
+    "required": ["kind", "base", "changes"],
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": ["budget_grid", "actual_grid", "org_form", "account_form", "metric_formula", "calculation_rule", "cleaning_template", "alias_rule"]
+     },
+     "base": {
+      "type": "object",
+      "description": "业务主资源 ID、revision/updatedAt、当前批次或树快照等最小基线；具体字段由 kind 的运行时解析器校验"
+     },
+     "changes": {
+      "oneOf": [
+       { "type": "array", "maxItems": 10000, "items": {} },
+       { "type": "object", "maxProperties": 10000 }
+      ]
+     }
+    },
+    "description": "draft 自身不超过 5 MiB。原始 changes 不进入模型、响应、ai_message 或 operation_log；只返回脱敏摘要与聚合影响"
+   },
+   "PageContextV2": {
+    "type": "object",
+    "description": "AssistantPageContextV2：发送时冻结的页面范围快照。后端统一校验 schema/大小/白名单、资源 ID 与树关系；页面内按 surface > focus > scope 合并，selection 校验并保留但不通用改写查询；随后按问题明确范围 > 页面范围 > 会话补空 > 默认值解析。",
+    "required": [
+     "schemaVersion",
+     "snapshotId",
+     "pageKey",
+     "routeInstanceId",
+     "contextVersion"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "schemaVersion": {
+      "type": "integer",
+      "enum": [
+       2
+      ]
+     },
+     "snapshotId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "本次快照标识,仅用于错误回执定位"
+     },
+     "pageKey": {
+      "type": "string",
+      "enum": [
+       "dashboard",
+       "assistant",
+       "insights",
+       "master_health",
+       "cleaning_config",
+       "budget_progress",
+       "anomaly_center",
+       "metric_trend",
+       "ai_settings",
+       "org",
+       "account",
+       "metric",
+       "budget_versions",
+       "budget_edit",
+       "actual",
+       "finance_import",
+       "analysis",
+       "structure",
+       "history",
+       "version_compare",
+       "calculations",
+       "imports",
+       "data_check",
+       "yearclose",
+       "backup",
+       "migration",
+       "data_export",
+       "logs"
+      ]
+     },
+     "routeInstanceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "前端路由实例标识，用于注册 token 隔离迟到更新；后端不保存或比较 route 历史"
+     },
+     "contextVersion": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "前端页面语义状态版本；后端当前只校验非负安全整数，不比较回退或乱序"
+     },
+     "scope": {
+      "$ref": "#/components/schemas/PageScopeV2"
+     },
+     "view": {
+      "$ref": "#/components/schemas/PageViewV2"
+     },
+     "surfaces": {
+      "type": "array",
+      "maxItems": 20,
+      "description": "按打开顺序排列的浮层链，最后一项优先于 focus 与 scope",
+      "items": {
+       "$ref": "#/components/schemas/SurfaceV2"
+      }
+     },
+     "focus": {
+      "nullable": true,
+      "oneOf": [
+       { "$ref": "#/components/schemas/EntityFocusV2" },
+       { "$ref": "#/components/schemas/CellFocusV2" },
+       { "$ref": "#/components/schemas/ChartPointFocusV2" },
+       { "$ref": "#/components/schemas/FactFocusV2" },
+       { "$ref": "#/components/schemas/FormFieldFocusV2" }
+      ]
+     },
+     "selection": {
+      "nullable": true,
+      "oneOf": [
+       { "$ref": "#/components/schemas/RefsSelectionV2" },
+       { "$ref": "#/components/schemas/BoundsSelectionV2" },
+       { "$ref": "#/components/schemas/QuerySelectionV2" }
+      ],
+      "description": "经过校验并随请求保留；当前不通用地自动改写所有领域查询"
+     },
+     "draft": {
+      "nullable": true,
+      "oneOf": [
+       { "$ref": "#/components/schemas/DraftV2" }
+      ]
+     }
+    }
+   },
+   "EffectiveContext": {
+    "type": "object",
+    "description": "后端实际采用的安全范围(§9.7)",
+    "required": [
+     "pageKey",
+     "pageLabel",
+     "view"
+    ],
+    "properties": {
+     "pageKey": {
+      "type": "string",
+      "enum": [
+       "dashboard",
+       "assistant",
+       "insights",
+       "master_health",
+       "cleaning_config",
+       "budget_progress",
+       "anomaly_center",
+       "metric_trend",
+       "ai_settings",
+       "org",
+       "account",
+       "metric",
+       "budget_versions",
+       "budget_edit",
+       "actual",
+       "finance_import",
+       "analysis",
+       "structure",
+       "history",
+       "version_compare",
+       "calculations",
+       "imports",
+       "data_check",
+       "yearclose",
+       "backup",
+       "migration",
+       "data_export",
+       "logs"
+      ]
+     },
+     "pageLabel": {
+      "type": "string"
+     },
+     "year": {
+      "type": "integer"
+     },
+     "budgetVersionId": {
+      "type": "integer"
+     },
+     "targetVersionId": {
+      "type": "integer"
+     },
+     "actualSnapshotId": {
+      "type": "integer"
+     },
+     "importBatchId": {
+      "type": "integer"
+     },
+     "orgScopeId": {
+      "type": "integer"
+     },
+     "accountScopeId": {
+      "type": "integer"
+     },
+     "metricId": {
+      "type": "integer"
+     },
+     "view": {
+      "type": "object"
+     }
+    }
+   },
+   "ContextTrace": {
+    "type": "object",
+    "description": "范围合并轨迹:used=最终采用的字段来源;overrides=问题显式覆盖页面范围的字段;warnings=冲突/降级提示",
+    "required": [
+     "used",
+     "overrides",
+     "warnings"
+    ],
+    "properties": {
+     "used": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "overrides": {
+      "type": "array",
+      "items": {
+       "type": "object"
+      }
+     },
+     "warnings": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    }
+   },
+   "DraftAppliedSummary": {
+    "type": "object",
+    "description": "草稿采用摘要:只含类型/基线/变更数/校验问题数,绝不含原始修改值",
+    "required": [
+     "kind",
+     "baseline",
+     "changeCount",
+     "issueCount"
+    ],
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "budget_grid",
+       "actual_grid",
+       "org_form",
+       "account_form",
+       "metric_formula",
+       "calculation_rule",
+       "cleaning_template",
+       "alias_rule"
+      ]
+     },
+     "baseline": {
+      "type": "string",
+      "description": "人类可读的基线描述,如「版本 #3 · 修订 12」"
+     },
+     "changeCount": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "issueCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "确定性校验未通过的项数(配置类草稿)"
+     }
+    }
+   }
+  }
+ }
+}

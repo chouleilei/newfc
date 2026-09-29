@@ -1,0 +1,46 @@
+{
+  "name": "budget-backend",
+  "version": "0.3.0",
+  "description": "集团多组织年度预算管理系统 - 后端",
+  "private": true,
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "vitest run",
+    "test:fast": "vitest run tests/unit.core.test.ts tests/formula.test.ts tests/money-parity.test.ts tests/quantity.test.ts tests/ratio.metrics.test.ts tests/management.metrics.test.ts tests/unit.services.test.ts tests/structure.test.ts tests/sheet.test.ts tests/http-validation.test.ts tests/env.test.ts",
+    "migrate": "ts-node src/db/migrate-cli.ts",
+    "seed:simulation": "ts-node scripts/seed-full-simulation.ts",
+    "seed:history": "ts-node scripts/seed-historical-simulation.ts",
+    "fixtures:finance": "ts-node scripts/generate-finance-fixtures.ts",
+    "seed:finance:e2e": "node --expose-gc -r ts-node/register/transpile-only scripts/seed-finance-e2e.ts",
+    "seed:e2e:simulation": "node --expose-gc -r ts-node/register/transpile-only scripts/seed-e2e-simulation.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "jszip": "^3.10.1",
+    "multer": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "zod": "3.25.76"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  }
+}

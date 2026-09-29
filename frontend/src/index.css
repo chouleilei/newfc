@@ -1,0 +1,2566 @@
+/* 全局样式:「年度账册」——暖白纸面 + 墨色正文 + 朱红/赭石点缀的编辑排版
+   设计约束:
+   1. 层级只用「留白 + 1px 发丝边框 + 底色差」三件事表达,不用发光/渐变描边/网格底纹;
+   2. 阴影只给浮层(抽屉/弹窗/下拉),平铺卡片零阴影;
+   3. 动效只做 120~200ms 的状态过渡,不做循环动画(呼吸、扫描、流光一律去掉);
+   4. 颜色纪律:墨色=正文与主操作,朱红=点缀(眉题/当前标记/链接),苔绿/赭金/绛红
+      只表达好坏与预警,紫=AI 助手专属。 */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* IBM Plex Sans 自托管后置首位(方案 3.7),中文落回系统字体;
+     Roboto 保留作未加载到 woff2 时的兜底。栈结构与 theme.tsx 的 FONT_FAMILY 保持一致。 */
+  font-family:
+    'IBM Plex Sans', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bd-bg-layout, #f6f3ee);
+  color: var(--bd-text, #26221a);
+}
+
+/* ── 全站文字选中态:墨色 16% 淡底,取代浏览器默认的高饱和蓝块 ──
+   不写 color:跟随系统前景,保证浅色选中底上的深色文字与深色模式下的浅色文字都可读。 */
+::selection {
+  background: rgba(var(--bd-primary-rgb, 38, 34, 26), 0.16);
+}
+
+/* ══════════════════════════════════════════════════════════
+   1. 应用外壳:纯净暖白纸面,不加任何底纹
+   ══════════════════════════════════════════════════════════ */
+.bd-shell {
+  background-color: var(--bd-bg-layout, #f6f3ee);
+  /* 独立双滚动:外壳锁定视口高,滚动权移交 .bd-main(唯一滚动容器)
+     与侧栏菜单区(.bd-sider-menu,仅超高时自行滚动),侧栏导航常驻可见 */
+  height: 100vh;
+  overflow: hidden;
+}
+
+.bd-main {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 侧栏自身不随内容滚动:品牌区固定,菜单区成为独立滚动区 */
+.bd-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.bd-sider-menu {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.bd-main,
+.bd-main > .ant-layout-content,
+.bd-main > .ant-layout-footer {
+  background: transparent !important;
+}
+
+/* ── 侧栏:纸面底 + 一条 1px 分隔线 ── */
+.bd-sider {
+  background: var(--bd-bg-container) !important;
+  border-right: 1px solid var(--bd-border-subtle);
+}
+
+.bd-sider .ant-menu-item,
+.bd-sider .ant-menu-submenu-title {
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* 侧边栏选中态:墨色淡底 + 加粗墨色文字 + 底部赭金短线 —— 账册的「条目画重点」。
+   图标颜色走 antd 的 itemSelectedIconColor/darkItemSelectedIconColor token。 */
+.bd-sider .ant-menu-inline .ant-menu-item-selected {
+  background: rgba(var(--bd-primary-rgb), 0.10) !important;
+  color: var(--bd-text) !important;
+  font-weight: 600;
+}
+
+.bd-sider .ant-menu-inline .ant-menu-item-selected .bd-menu-label {
+  /* 金线只画在文字行下方,图标列与编号列保持干净 */
+  background: linear-gradient(transparent calc(100% - 2px), rgba(192, 138, 0, 0.55) calc(100% - 2px));
+}
+
+[data-theme='dark'] .bd-sider .ant-menu-inline .ant-menu-item-selected .bd-menu-label {
+  background: linear-gradient(transparent calc(100% - 2px), rgba(224, 182, 79, 0.55) calc(100% - 2px));
+}
+
+/* 菜单项文字行:编号 + 文字横向排,编号不撑行高 */
+.bd-menu-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* 条目编号:等宽小号,三级灰;选中行升朱红 —— 「这笔是当前页」 */
+.bd-menu-no {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--bd-text-tertiary);
+}
+
+.bd-sider .ant-menu-inline .ant-menu-item-selected .bd-menu-no {
+  color: var(--bd-accent);
+}
+
+/* ── 页级标题:墨色加粗,账册页签感 ── */
+.bd-page-title {
+  font-weight: 600 !important;
+  letter-spacing: 0.01em;
+}
+
+/* 展开的子菜单不加底色,避免侧栏出现大块灰带 */
+.bd-sider .ant-menu-sub.ant-menu-inline {
+  background: transparent !important;
+}
+
+/* 分组标题(编制/实际/分析…)比叶子项低一档对比,读起来有层次 */
+.bd-sider .ant-menu-submenu > .ant-menu-submenu-title {
+  color: var(--bd-text-secondary);
+}
+
+/* 底部折叠触发条:顶部 1px 分隔线,与侧栏右边线、顶栏底边线同一语言。
+   底色不在此覆盖 —— 亮/暗分别由 Layout 的 lightTriggerBg/triggerBg token 处理。 */
+.bd-sider .ant-layout-sider-trigger {
+  border-top: 1px solid var(--bd-border-subtle);
+}
+
+/* ── 顶栏:玻璃拟态(纸面半透明 + 背景模糊),底部 1px 发丝线保留边界 ── */
+.bd-header {
+  background: rgba(246, 243, 238, 0.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--bd-border-subtle);
+}
+
+[data-theme='dark'] .bd-header {
+  background: rgba(28, 25, 20, 0.82) !important;
+}
+
+/* ── 品牌标识:墨色圆角方块承纸色几何 Logo(图形见 components/BrandLogo.tsx) ── */
+.bd-brand-logo {
+  background: var(--bd-primary);
+  color: var(--bd-bg-container);
+}
+
+/* 品牌副标题:小号大写字距 */
+.bd-brand-sub {
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+}
+
+/* ── 顶栏芯片(单位/状态):浅灰底 + 细边框,不发光 ── */
+.bd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--bd-text-secondary);
+  border: 1px solid var(--bd-border);
+  background: var(--bd-bg-subtle);
+}
+
+.bd-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3e7d3e;
+}
+
+[data-theme='dark'] .bd-status-dot {
+  background: #7db87d;
+}
+
+/* ══════════════════════════════════════════════════════════
+   2. 面板:内容岛模型
+   ────────────────────────────────────────────────────────────
+   层级只有两层,且两层用不同手段表达,不叠加:
+   · 岛(唯一):.bd-content —— 白底 + 1px 边框 + 12px 圆角,一屏只有一个。
+     它是页面的「纸」,不承载语义,所以不带标题、不描粗边。
+   · 岛内分区:.bd-content 内的 .ant-card —— 去边框、去阴影,只用 #f7f8fc 填充
+     与 12px 圆角切开。填充比留白更适合承载「这是一块独立内容」。
+   页面根部的 Card 由 .bd-root-card 降级为「无壳」——它自己就是岛,不能再画一个框。
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 岛 ── */
+.bd-content {
+  background: var(--bd-bg-container);
+  border: 1px solid var(--bd-island-border, #ededf3);
+  border-radius: 12px;
+  padding: 16px 20px;
+  /* 撑满剩余视口(顶栏 54 + 上下外边距 32 + 页脚约 42),短页面也不塌 */
+  min-height: calc(100vh - 54px - 32px - 42px);
+}
+
+/* ── 岛内分区:填充代替描边 ──
+   必须写在下面那条无修饰的 .ant-card 之后:后者带 !important,
+   同优先级下靠源码顺序才能覆盖掉它给的白色实心底。 */
+.bd-content .ant-card {
+  border-color: transparent;
+  box-shadow: none;
+  background: var(--bd-bg-fill, #f7f8fc) !important;
+}
+
+.bd-content .ant-card-head {
+  border-bottom-color: var(--bd-border-subtle) !important;
+}
+
+/* ── 页面根部 Card:它自己就是岛,降级为无壳容器 ── */
+.bd-root-card,
+.bd-content .bd-root-card {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none;
+  /* 根 Card 的标题不再被 46px 高的头部条撑开,它是岛内第一个区块的标题 */
+}
+
+.bd-root-card > .ant-card-head {
+  border-bottom: none;
+  padding: 0 0 12px;
+  min-height: auto;
+}
+
+.ant-card {
+  background: var(--bd-bg-container) !important;
+  border-color: var(--bd-border-subtle);
+  box-shadow: none;
+}
+
+.ant-card-head {
+  border-bottom-color: var(--bd-border-subtle) !important;
+}
+
+.ant-card-head-title {
+  font-weight: 500;
+}
+
+/* 岛内分区标题 = 区块级档位(15px),夹在页级(17px)与正文(13px)之间。
+   AntD 默认按 token.fontSizeLG 走,显式声明以免被正文降档带下去。 */
+.bd-content .ant-card-head-title {
+  font-size: 15px;
+}
+
+/* 卡片标题里的图标统一比文字低一档对比 */
+.ant-card-head-title .anticon {
+  color: var(--bd-text-tertiary);
+}
+
+/* 页面切换淡入(唯一保留的入场动效) */
+.page-fade {
+  animation: pageFade 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pageFade {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 可点击磁贴:悬停换底色和边框 + 轻微上浮(translateY(-2px) + 弱一档投影)
+   时长分档(方案《排版工具与数据组件》三):位移/投影走 lift 令牌,描边走 border 令牌,颜色保持 0.15s */
+.quick-tile {
+  cursor: pointer;
+  border-radius: 12px;
+  border: 1px solid var(--bd-border-subtle);
+  transition:
+    background-color 0.15s ease,
+    border-color var(--bd-dur-border, 0.45s) ease-out,
+    transform var(--bd-dur-lift, 0.22s) var(--bd-ease-out, ease),
+    box-shadow var(--bd-dur-lift, 0.22s) var(--bd-ease-out, ease);
+}
+
+.quick-tile:hover {
+  border-color: rgba(var(--bd-primary-rgb), 0.45);
+  background: var(--bd-bg-subtle);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(12, 13, 14, 0.06);
+}
+
+/* antd hoverable 卡片同样放开上浮微动效(表格行 hover 仍只换底色,避免数据行跳动);
+   位移/投影走 lift 令牌,描边走 border 令牌 */
+.ant-card-hoverable {
+  transition:
+    transform var(--bd-dur-lift, 0.22s) var(--bd-ease-out, ease),
+    box-shadow var(--bd-dur-lift, 0.22s) var(--bd-ease-out, ease),
+    border-color var(--bd-dur-border, 0.45s) ease-out;
+}
+
+.ant-card-hoverable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(12, 13, 14, 0.06) !important;
+}
+
+[data-theme='dark'] .quick-tile:hover,
+[data-theme='dark'] .ant-card-hoverable:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   3. 数字与指标:等宽对齐,颜色只表达财务语义
+   ══════════════════════════════════════════════════════════ */
+.ant-table td,
+.ant-descriptions td,
+.money-num,
+.tabular-numbers {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* 数字统一走 Roboto 并开启等宽数字(tnum):
+   旧栈是 'SF Pro Text' / 'DIN Alternate',Linux 上都不存在,会落到 Arial ——
+   金额列因此失去数字设计感,且数字宽度不等导致小数点对不齐。 */
+.money-num,
+.tabular-numbers {
+  font-family: 'IBM Plex Sans', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* KPI 展示数字用 Fraunces 衬线(年度账册方向):年报仪表感,
+   中文单位「万元」等缺字形由 IBM Plex Sans 与系统宋/黑依次兜底。 */
+.kpi-value {
+  font-family: 'Fraunces', 'IBM Plex Sans', Roboto, 'PingFang SC', 'Songti SC', 'SimSun', serif;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+  color: var(--bd-text);
+}
+
+/* 分析页核心指标(antd Statistic)同样使用展示数字字体 */
+.ant-statistic .ant-statistic-content {
+  font-family: 'Fraunces', 'IBM Plex Sans', Roboto, 'PingFang SC', 'Songti SC', 'SimSun', serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 首页主数字:放大到 48px,不加渐变描字与辉光,呈现纯粹而有力的主数据焦点 */
+.kpi-hero {
+  font-size: 48px !important;
+  line-height: 1.1 !important;
+  letter-spacing: 0;
+}
+
+/* 指标标签:小号灰字,轻字距 */
+.bd-metric-label {
+  font-size: 12px;
+  letter-spacing: 0.2px;
+  color: var(--bd-text-tertiary);
+}
+
+/* ══════════════════════════════════════════════════════════
+   4. 表格:表头浅灰底 + 细分隔线,正文素净
+   ══════════════════════════════════════════════════════════ */
+.ant-table-thead > tr > th {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--bd-text-secondary);
+}
+
+/* 矩阵表格专属容器 */
+.matrix-container {
+  border-radius: 8px;
+  border: 1px solid var(--bd-border);
+  background: var(--bd-bg-container);
+}
+
+/* 单元格聚焦:2px 主色环,不加外发光 */
+.matrix-cell-input:focus,
+.matrix-cell-input-focused {
+  box-shadow: 0 0 0 2px rgba(var(--bd-primary-rgb), 0.24) !important;
+  border-color: var(--bd-primary) !important;
+  z-index: 2;
+}
+
+/* ── 十字准星联动高亮(《视觉高级感提升方案》3.3①)──
+   宽表录入最怕串行:聚焦/悬停某格时,所属行与列的表头同步以 4% 主色淡入,
+   让「我现在改的是哪一列」无需回看表头即可确认。
+   实现走事件委托 + CSS 变量(容器上挂 data-gr/data-gc),不逐格挂监听、不引依赖。
+   底色淡到 4% 是刻意的:它是定位辅助,不是选区,不能与选区底色抢注意力。 */
+.matrix-container[data-crosshair-r] th[data-gc],
+.matrix-container[data-crosshair-c] th[data-gr],
+.matrix-container[data-crosshair-r] td[data-gc][data-crosshair-col],
+.matrix-container[data-crosshair-c] td[data-gr][data-crosshair-row] {
+  background-color: rgba(var(--bd-primary-rgb), 0.04);
+}
+
+.matrix-container th[data-crosshair-active],
+.matrix-container td[data-crosshair-active] {
+  background-color: rgba(var(--bd-primary-rgb), 0.06);
+}
+
+/* ── 冻结列滚动阴影(3.3②)──
+   横向滚动时首列浮现右侧阴影、表头浮现下方阴影,归位即隐去。
+   阴影透明度由既有 --bd-shadow-overlay 家族派生,不新造阴影令牌。 */
+.bd-grid-frozen-x::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--bd-frozen-w, 280px);
+  width: 10px;
+  pointer-events: none;
+  z-index: 4;
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0));
+  opacity: 0;
+  transition: opacity var(--bd-dur-lift) var(--bd-ease-out);
+}
+
+.bd-grid-frozen-x[data-scrolled='1']::before {
+  opacity: 1;
+}
+
+[data-theme='dark'] .bd-grid-frozen-x::before {
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0));
+}
+
+/* ══════════════════════════════════════════════════════════
+   5. 细节:滚动条 / 焦点环 / 工具栏
+   ══════════════════════════════════════════════════════════ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: rgba(154, 161, 171, 0.30);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(154, 161, 171, 0.48);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 键盘焦点可见:可点击卡片/自定义按钮块被 Tab 聚焦时给出清晰指示 */
+.quick-tile:focus-visible,
+[role='button']:focus-visible {
+  outline: 2px solid var(--bd-primary);
+  outline-offset: 2px;
+}
+
+/* ── 墨色主按钮:账册唯一主操作实底,不做渐变;
+   hover/active 用 CSS 定死(覆盖 antd 的 hover 算法色)——
+   亮色=墨色提亮一档,暗色=米色压深一档,两套主题都靠「明度微移」表态,不动色相 ── */
+.ant-btn-primary:not(:disabled):not(.ant-btn-dangerous):not(.ant-btn-background-ghost):not(.ant-btn-link) {
+  background: var(--bd-primary);
+  border-color: transparent;
+  color: var(--bd-bg-container);
+}
+
+.ant-btn-primary:not(:disabled):not(.ant-btn-dangerous):not(.ant-btn-background-ghost):not(.ant-btn-link):hover {
+  background: #3f3a2f !important;
+  color: #fdfbf6 !important;
+}
+
+[data-theme='dark'] .ant-btn-primary:not(:disabled):not(.ant-btn-dangerous):not(.ant-btn-background-ghost):not(.ant-btn-link):hover {
+  background: #c9bfa4 !important;
+  color: #24211a !important;
+}
+
+.ant-btn-primary:not(:disabled):not(.ant-btn-dangerous):not(.ant-btn-background-ghost):not(.ant-btn-link):active {
+  background: #171410 !important;
+}
+
+[data-theme='dark'] .ant-btn-primary:not(:disabled):not(.ant-btn-dangerous):not(.ant-btn-background-ghost):not(.ant-btn-link):active {
+  background: #f4edda !important;
+}
+
+.bd-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-height: 32px;
+  /* 密度/列配置/全屏三件套加起来约 290px,窄屏(移动端)放不进一行时必须换行,
+     否则工具栏会把卡片连同整页一起撑宽,出现页面级横向滚动。 */
+  flex-wrap: wrap;
+}
+
+/* ── 窄屏卡片头部:标题与右侧操作区分行 ──
+   antd 的 .ant-card-head-wrapper 是 nowrap 的单行 flex,右侧 extra 里那串按钮
+   (如「结构检查 + 新增根节点」「更多 + 保存本年实际并生成快照」)在手机上会把卡片
+   连同整页撑宽到 430~570px,出现页面级横向滚动。这里只在窄屏放开换行,
+   让 extra 落到标题下面单独一行;各操作区自身的 Space 另外带 wrap 属性再逐个换行。 */
+@media (max-width: 767px) {
+  .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  /* 顶栏在窄屏要给「小澧助手」入口腾地方:日期是装饰信息,先让它退场,
+     入口本身也收成纯图标(见 AssistantDock 的 compact 分支),保证顶栏不撑出横向滚动。 */
+  .bd-header-date {
+    display: none;
+  }
+
+  .ant-card-extra {
+    margin-inline-start: 0;
+    padding-block: 0;
+  }
+
+  /* 组织/科目树的行内操作(改名/移动/停用/新增下级/删除)是 flex: 0 0 auto 的一整条,
+     不换行时同样会把整页撑宽,这里让它落到条目正文下面并允许多行。 */
+  .ant-list-item {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .ant-list-item-action {
+    /* flex: 0 0 auto 的一整条按钮(约 336px)在手机上既不换行也不收缩,
+       放开收缩并限制最大宽度后,内部 inline-block 的按钮才会自己折行。 */
+    margin-inline-start: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   6. 暗色模式补正
+   ══════════════════════════════════════════════════════════ */
+[data-theme='dark'] {
+  /* 与 theme.tsx 暗色 colorBgLayout/colorText 同值:「灯下夜账」的暖墨棕,
+     不是旧主题的冷蓝黑——两套主题色族必须连续 */
+  background-color: #1c1914;
+  color: #ece4d0;
+}
+
+[data-theme='dark'] body {
+  background-color: #1c1914;
+}
+
+[data-theme='dark'] .quick-tile {
+  border-color: var(--bd-border);
+}
+
+/* 预算编制矩阵:覆盖历史内联浅色值,确保暗色模式下编辑区与主题一致 */
+[data-theme='dark'] .matrix-container table th,
+[data-theme='dark'] .matrix-container table td {
+  border-color: var(--bd-border) !important;
+  color: var(--bd-text) !important;
+}
+[data-theme='dark'] .matrix-container table td,
+[data-theme='dark'] .matrix-container table tr,
+[data-theme='dark'] .matrix-container table input {
+  background-color: var(--bd-bg-container) !important;
+}
+[data-theme='dark'] .matrix-container table input:focus {
+  background-color: var(--bd-bg-elevated) !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   6b. Segmented 多选段 chip 化(可折行)
+   ────────────────────────────────────────────────────────────
+   antd Segmented 根节点是 inline-block,外层 style={{ flexWrap: 'wrap' }}
+   不生效 —— 真正的 flex 容器是内层 .ant-segmented-group。
+   选项多(如 9 种洞察类型)塞进不换行的轨道会溢出 520px 弹窗右缘。
+   这里让 group 换行、轨道背景透明、item 变独立圆角 chip,自然折成多行。
+   颜色全走 CSS 变量,明暗两套主题都不需要分叉。 */
+.bd-segmented-chips.ant-segmented {
+  display: block;
+}
+
+.bd-segmented-chips .ant-segmented-group {
+  flex-wrap: wrap;
+  gap: 4px;
+  background: transparent;
+  padding: 0;
+}
+
+.bd-segmented-chips .ant-segmented-item {
+  border-radius: 6px;
+  border: 1px solid var(--bd-border);
+  background: var(--bd-fill);
+  position: relative;
+  overflow: hidden;
+}
+
+.bd-segmented-chips .ant-segmented-item-selected {
+  border-color: rgba(var(--bd-primary-rgb), 0.45);
+  background: var(--bd-primary-bg);
+  color: var(--bd-primary);
+}
+
+/* antd 的选中滑块(thumb)在换行后定位失真,chip 化后由 item 自身底色承担选中态 */
+.bd-segmented-chips .ant-segmented-thumb {
+  display: none;
+}
+
+.bd-segmented-chips .ant-segmented-item-input:focus-visible + .ant-segmented-item-label {
+  outline: 2px solid var(--bd-primary);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+/* ══════════════════════════════════════════════════════════
+   7. AI 助手「小澧助手」
+   ────────────────────────────────────────────────────────────
+   参考火山方舟控制台的助手面板:右侧无遮罩抽屉、能力卡 + 推荐问题、
+   一体化圆角输入器、圆形发送键、底部免责声明。
+   AI 相关界面是全站唯一允许出现紫调渐变的地方(--bd-ai-*),
+   用它把「AI 生成」与「后端确定性数据」在视觉上区分开。
+   z-index 取 antd Drawer 默认 1000,高于全屏覆盖层(900)。
+   ══════════════════════════════════════════════════════════ */
+/* 小窗里的表格按 12px 排版,允许横向滚动而不撑破面板 */
+.bd-assistant-dock .assistant-markdown table {
+  font-size: 12px;
+}
+
+/* ── 右下悬浮入口:AI 紫签名圆球,全站常驻,z-index 低于 Drawer(1000) 高于内容 ── */
+.bd-ai-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 990;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 22px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--bd-ai-primary), var(--bd-ai-primary-deep));
+  box-shadow: 0 6px 16px -4px rgba(139, 92, 246, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bd-ai-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 10px 24px -6px rgba(139, 92, 246, 0.6);
+}
+
+/* ── 悬浮小窗:400×600 右下角锚定,从按钮位置 morphing 展开/收回 ── */
+.bd-ai-float {
+  position: fixed;
+  right: 24px;
+  bottom: 84px;
+  z-index: 990;
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  height: 600px;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+  border: 1px solid var(--bd-border-subtle);
+  border-radius: 16px;
+  background: var(--bd-bg-container);
+  box-shadow: var(--bd-shadow-overlay);
+  /* 变换原点对准悬浮球中心(球在面板右下缘外 24px、下方 36px 处) */
+  transform-origin: calc(100% - 24px) calc(100% + 36px);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bd-ai-float-hidden {
+  transform: scale(0.3) translateY(40px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bd-ai-float-narrow {
+  right: 16px;
+  bottom: 84px;
+  width: calc(100vw - 32px);
+  height: min(600px, calc(100vh - 120px));
+}
+
+.bd-ai-float-head {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 14px 12px 10px 16px;
+}
+
+.bd-ai-float-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--bd-text);
+}
+
+.bd-ai-float-conv {
+  font-size: 12px;
+  color: var(--bd-text-tertiary);
+  white-space: nowrap;
+}
+
+.bd-ai-float-fullpage {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--bd-primary);
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.bd-ai-float-fullpage:hover {
+  background: var(--bd-primary-bg);
+}
+
+.bd-ai-float-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-height: 0;
+  padding: 0 16px;
+}
+
+.bd-ai-float-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.bd-ai-float-foot {
+  flex: 0 0 auto;
+  padding: 4px 16px 12px;
+}
+
+/* ── 输入框边框流光引导:仅空状态(无消息且未聚焦)生效,是全站唯一的循环动画 ── */
+@property --bd-ai-glow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.bd-ai-glow-wrap {
+  padding: 1px;
+  border-radius: 13px;
+  background: var(--bd-border);
+  transition: background 0.3s ease, box-shadow 0.15s ease;
+}
+
+/* 外层承担边框后,输入器自己的边框与焦点环退场,避免双线 */
+.bd-ai-glow-wrap .bd-ai-composer {
+  border: none;
+}
+
+.bd-ai-glow-wrap .bd-ai-composer:focus-within {
+  box-shadow: none;
+}
+
+.bd-ai-glow-wrap.bd-ai-glow-active:not(:focus-within) {
+  background: conic-gradient(from var(--bd-ai-glow-angle), transparent 70%, var(--bd-ai-glow) 85%, var(--bd-ai-primary) 100%);
+  animation: bdAiGlowSpin 3s linear infinite;
+}
+
+.bd-ai-glow-wrap:focus-within {
+  background: var(--bd-primary);
+  box-shadow: 0 0 0 3px rgba(var(--bd-primary-rgb), 0.10);
+}
+
+@keyframes bdAiGlowSpin {
+  to {
+    --bd-ai-glow-angle: 360deg;
+  }
+}
+
+/* ── 分区小标题:「我能帮您做」「您是否想问」:等宽档签,与眉题同一语言,不进正文 ── */
+.bd-ai-section-label {
+  margin: 0 0 10px;
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--bd-text-tertiary);
+}
+
+/* ── 范围条:每轮都在的元信息,设为 12px 芯片,不与回答抢注意力 ── */
+.bd-ai-scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.bd-ai-scope-key,
+.bd-ai-scope-val {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.bd-ai-scope-key {
+  font-weight: 500;
+  color: var(--bd-primary);
+  background: var(--bd-primary-bg);
+}
+
+.bd-ai-scope-key-accent {
+  color: var(--bd-accent);
+  background: rgba(var(--bd-accent-rgb), 0.12);
+}
+
+.bd-ai-scope-key-warn {
+  color: #c08a00;
+  background: rgba(192, 138, 0, 0.10);
+}
+
+[data-theme='dark'] .bd-ai-scope-key-warn {
+  color: #e0b64f;
+  background: rgba(224, 182, 79, 0.12);
+}
+
+.bd-ai-scope-val {
+  color: var(--bd-text-tertiary);
+  background: var(--bd-fill);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-ai-scope-val-strong {
+  color: var(--bd-text-secondary);
+}
+
+/* ── 回答里的元信息标签:统一 12px,无边框 ── */
+.bd-ai-meta.ant-tag {
+  margin-inline-end: 0;
+  padding-inline: 6px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* ── 能力卡:左图标 + 标题 + 一行说明,整块可点 ── */
+.bd-ai-skill {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  background: var(--bd-ai-tile-bg);
+  transition: background 0.15s ease;
+}
+
+.bd-ai-skill:hover {
+  background: var(--bd-ai-tile-bg-hover);
+}
+
+.bd-ai-skill-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  font-size: 18px;
+  color: var(--bd-text-secondary);
+}
+
+.bd-ai-skill-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 22px;
+  color: var(--bd-text);
+}
+
+.bd-ai-skill-desc {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--bd-text-tertiary);
+}
+
+/* 主推能力卡:紫调渐变底,把 AI 生成能力和确定性查询区分开 */
+.bd-ai-skill-primary {
+  background: var(--bd-ai-card-bg);
+}
+
+.bd-ai-skill-primary:hover {
+  background: var(--bd-ai-card-bg-hover);
+}
+
+.bd-ai-skill-primary .bd-ai-skill-title {
+  color: var(--bd-ai-card-title);
+}
+
+.bd-ai-skill-primary .bd-ai-skill-desc {
+  color: var(--bd-ai-card-desc);
+}
+
+.bd-ai-skill-primary .bd-ai-skill-icon {
+  color: var(--bd-accent);
+}
+
+/* ── 推荐问题:一个描边容器里若干行,行尾 chevron,悬停整行变主色 ── */
+.bd-ai-recommend {
+  display: flex;
+  flex-direction: column;
+  row-gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--bd-border);
+  border-radius: 12px;
+}
+
+.bd-ai-recommend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--bd-text);
+  transition: color 0.15s ease;
+}
+
+.bd-ai-recommend-row > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-ai-recommend-row .anticon {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: var(--bd-text-tertiary);
+  transition: color 0.15s ease;
+}
+
+.bd-ai-recommend-row:hover,
+.bd-ai-recommend-row:hover .anticon {
+  color: var(--bd-primary);
+}
+
+.bd-ai-recommend-row:focus-visible {
+  outline: 2px solid var(--bd-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── 一体化输入器:文本域 + 底部工具条包在同一个圆角框里 ── */
+.bd-ai-composer {
+  border: 1px solid var(--bd-border);
+  border-radius: 12px;
+  background: var(--bd-bg-container);
+  padding: 10px 12px 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bd-ai-composer:focus-within {
+  border-color: var(--bd-primary);
+  box-shadow: 0 0 0 3px rgba(var(--bd-primary-rgb), 0.10);
+}
+
+/* 输入框本体去掉自己的边框/底色/焦点环,交给外层容器统一表达 */
+.bd-ai-composer .ant-input,
+.bd-ai-composer .ant-input:focus,
+.bd-ai-composer .ant-input-focused {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  resize: none;
+}
+
+.bd-ai-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 圆形发送键:参考站是方形圆角图标键,这里用圆形以呼应品牌胶囊 */
+.bd-ai-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  color: #fff;
+  background: var(--bd-primary);
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.bd-ai-send:hover:not(:disabled) {
+  background: var(--bd-primary);
+  filter: brightness(1.08);
+}
+
+.bd-ai-send:disabled {
+  cursor: not-allowed;
+  color: var(--bd-text-tertiary);
+  background: var(--bd-fill);
+}
+
+.bd-ai-send-stop {
+  background: #9c2f2f;
+}
+
+/* ── 底部免责声明:居中极小灰字 ── */
+.bd-ai-disclaimer {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--bd-text-tertiary);
+}
+
+/* ── 对话气泡 ── */
+.bd-ai-bubble-user {
+  max-width: 86%;
+  padding: 8px 12px;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--bd-primary);
+  color: #fff;
+  font-size: 13px;
+  line-height: 21px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bd-ai-bubble-ai {
+  padding: 12px 14px;
+  border-radius: 4px 12px 12px 12px;
+  background: var(--bd-bg-subtle);
+  border: 1px solid var(--bd-border-subtle);
+  font-size: 13px;
+}
+
+/* ══════════════════════════════════════════════════════════
+   7b. AI 助手独立页布局
+   ────────────────────────────────────────────────────────────
+   聊天是「上面工具行 + 中间滚动区 + 下面输入器」的经典三段式:
+   三段都固定在视口内,页面本身不滚动;消息再多也只是中间那块滚,
+   输入器永远在手边。侧栏与聊天区各自独立滚动,高度都撑到视口底。
+   ══════════════════════════════════════════════════════════ */
+.bd-assistant-page {
+  /* 顶栏 54 + Content 上下外边距 32 + 页脚约 42;与 .bd-content 的取值保持一致 */
+  height: calc(100vh - 54px - 32px - 42px);
+  min-height: 420px;
+}
+
+.bd-assistant-body {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+}
+
+.bd-assistant-sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.bd-assistant-sidebar > .ant-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.bd-assistant-sidebar > .ant-card > .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Tabs 撑满卡片:列表是主体,不是标签头 */
+.bd-assistant-sidebar .ant-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.bd-assistant-sidebar .ant-tabs-nav {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 12px;
+}
+
+.bd-assistant-sidebar .ant-tabs-content-holder {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 0;
+  overflow-y: auto;
+  padding: 0 4px 8px;
+}
+
+.bd-assistant-sidebar .ant-tabs-content {
+  min-height: 0;
+}
+
+/* ── 折叠态竖条:只留展开/新会话与两类计数,把宽度全让给聊天区 ── */
+.bd-assistant-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 10px 0;
+  border-radius: 12px;
+  background: var(--bd-bg-container);
+  border: 1px solid var(--bd-island-border);
+}
+
+.bd-assistant-rail-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bd-text-tertiary);
+  background: var(--bd-fill);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.bd-assistant-rail-count:hover {
+  color: var(--bd-primary);
+  background: var(--bd-primary-bg);
+}
+
+/* ── 拖拽手柄:4px 命中区居中一条 2px 线,拖到时才显形为主色 ── */
+.bd-assistant-resizer {
+  flex: 0 0 auto;
+  width: 8px;
+  margin-inline: -1px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 1;
+}
+
+.bd-assistant-resizer::after {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.bd-assistant-resizer:hover::after,
+.bd-assistant-resizer:focus-visible::after,
+.bd-assistant-resizer-active::after {
+  background: var(--bd-primary);
+}
+
+.bd-assistant-resizer:focus-visible {
+  outline: none;
+}
+
+.bd-assistant-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── 对话列收窄居中:文本气泡/输入框 760px,含表格/事实的回答块放宽到 960px;
+   左右留白随窗口自适应,最小 24px ── */
+.bd-assistant-col {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+  padding-inline: 24px;
+  box-sizing: border-box;
+}
+
+.bd-assistant-col-wide {
+  max-width: 960px;
+}
+
+.bd-assistant-chat-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 消息区是唯一滚动的块:滚动条贴右缘会压住气泡,留 8px */
+.bd-assistant-messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.bd-assistant-composer {
+  flex: 0 0 auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--bd-border-subtle);
+  margin-top: 4px;
+}
+
+/* ── 工具行:默认折叠的口径筛选摘要在左,流式开关在右 ── */
+.bd-ai-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  flex: 0 0 auto;
+  margin-bottom: 10px;
+}
+
+.bd-ai-toolbar-filters,
+.bd-ai-toolbar-side {
+  min-width: 0;
+}
+
+/* 折叠态的口径摘要:一行可点击的灰字,展开后才是四个选择器 */
+.bd-ai-toolbar-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--bd-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bd-ai-toolbar-summary:hover {
+  background: var(--bd-primary-bg);
+  color: var(--bd-primary);
+}
+
+/* ── 附带信息三层:建议(展开) / 引用与依据(折叠) / 耗时(右对齐灰字) ── */
+.bd-ai-suggestions {
+  margin-top: 10px;
+}
+
+.bd-ai-action-row {
+  margin-top: 8px;
+}
+
+/* 第二层折叠条:一行摘要,点击展开为面板;样式对齐事实展开条的轻量感 */
+.bd-ai-evidence {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--bd-border-subtle);
+}
+
+.bd-ai-evidence-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  color: var(--bd-text-secondary);
+  background: transparent;
+  transition: color 0.15s ease;
+}
+
+.bd-ai-evidence-toggle:hover {
+  color: var(--bd-primary);
+}
+
+/* 折叠条恒为单行:标签不换行,摘要超宽时收缩成省略号(小窗 400px 也不会把标签挤折行) */
+.bd-ai-evidence-toggle > span {
+  white-space: nowrap;
+}
+
+.bd-ai-evidence-toggle .bd-ai-evidence-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-ai-evidence-toggle .ri {
+  font-size: 14px;
+  color: var(--bd-text-tertiary);
+}
+
+.bd-ai-evidence-summary {
+  color: var(--bd-text-tertiary);
+}
+
+/* 带警告(降级/后端提示/数值核对未通过)的折叠条:警示图标走状态色,hover 保持同色 */
+.bd-ai-evidence-warn-icon {
+  font-size: 13px;
+  color: #c08a00;
+}
+
+[data-theme='dark'] .bd-ai-evidence-warn-icon {
+  color: #e0b64f;
+}
+
+.bd-ai-evidence-warn .bd-ai-evidence-toggle:hover {
+  color: #c08a00;
+}
+
+[data-theme='dark'] .bd-ai-evidence-warn .bd-ai-evidence-toggle:hover {
+  color: #e0b64f;
+}
+
+.bd-ai-evidence-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 第三层:耗时降级为 12px 灰字,右对齐放消息末尾 */
+.bd-ai-turn-metrics-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.bd-ai-turn-metrics {
+  display: inline-block;
+  margin-top: 6px;
+  cursor: help;
+  font-size: 12px;
+  color: var(--bd-text-tertiary);
+}
+
+/* ── 欢迎区:空会话时填满首屏,用户不用滚动就知道能问什么 ── */
+.bd-assistant-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 0 8px;
+  text-align: center;
+}
+
+.bd-assistant-welcome-title {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--bd-text);
+}
+
+.bd-assistant-welcome-sub {
+  margin: 0 0 16px;
+  max-width: 560px;
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--bd-text-secondary);
+}
+
+.bd-assistant-welcome-sub strong {
+  font-weight: 500;
+  color: var(--bd-text);
+}
+
+/* 2×2 能力网格:窄屏自动降成一列,不然标题会被挤成两行还截断
+   使用容器查询：当欢迎区容器 < 480px(如 992px 视口下侧栏展开、对话列仅 ~280px 时)自动回退单列 */
+.bd-assistant-welcome {
+  container-type: inline-size;
+}
+
+.bd-ai-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@container (max-width: 480px) {
+  .bd-ai-skill-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bd-ai-recommend-two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.bd-ai-skill-grid-item {
+  height: 100%;
+}
+
+/* 推荐问题两列:单列时 9 条太长,两列刚好一屏放完 */
+.bd-ai-recommend-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 20px;
+}
+
+/* ── 会话/洞察列表:行内操作悬停或聚焦才显形 ──
+   删除是危险动作,常驻在最显眼处既吵又容易误点;键盘用户靠 :focus-within 拿到。 */
+.bd-ai-list-row {
+  position: relative;
+  padding-inline: 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.bd-ai-list-row-active {
+  font-weight: 500;
+}
+
+.bd-ai-list-row .bd-ai-list-actions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.bd-ai-list-row:hover .bd-ai-list-actions,
+.bd-ai-list-row:focus-within .bd-ai-list-actions {
+  opacity: 1;
+}
+
+/* 触摸设备没有 hover:操作键必须常驻,否则手机上删不掉会话 */
+@media (hover: none) {
+  .bd-ai-list-row .bd-ai-list-actions {
+    opacity: 1;
+  }
+}
+
+/* ── 头部工具键组:与主按钮之间留一道细分隔,说明它们是另一类操作 ── */
+.bd-assistant-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 6px;
+  margin-left: 2px;
+  border-left: 1px solid var(--bd-border);
+}
+
+/* ── 窄屏堆叠:侧栏变成上方一块自适应高度的区块,拖拽手柄已由组件隐藏 ── */
+.bd-assistant-page-stacked {
+  height: auto;
+  min-height: 0;
+}
+
+.bd-assistant-page-stacked > .bd-assistant-body {
+  flex-direction: column;
+  height: auto;
+  gap: 12px;
+}
+
+.bd-assistant-page-stacked .bd-assistant-sidebar {
+  max-height: 320px;
+}
+
+.bd-assistant-page-stacked .bd-assistant-chat-card {
+  /* 堆叠时没有外层视口可依赖,自己按视口高度固定,保证聊天区仍然独立滚动 */
+  height: calc(100vh - 54px - 32px - 42px - 344px);
+  min-height: 420px;
+}
+
+/* ══════════════════════════════════════════════════════════
+   8. 全屏覆盖层
+   z-index 统一取 900:高于页面框架(Header 20)、低于 antd 浮层基线
+   (Modal 1000 / message 1010 / Dropdown 1050 / Tooltip 1070),
+   否则全屏态下弹窗、右键菜单与所有提示都会被覆盖层盖住而看不见。
+   ══════════════════════════════════════════════════════════ */
+.bd-table-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: var(--bd-bg-container);
+  padding: 16px;
+  overflow: auto;
+}
+.bd-table-fullscreen .ant-table-wrapper { min-width: min-content; }
+
+/* 编制/实际数矩阵的页面级全屏:工具栏(含退出全屏按钮)、公式栏、查找栏、状态栏
+   与表格一起进入覆盖层,避免退出入口被覆盖层自身遮住。表格占据剩余高度并独立滚动。 */
+.bd-grid-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+  background: var(--bd-bg-container);
+  overflow: hidden;
+}
+.bd-grid-fullscreen > * { flex: 0 0 auto; }
+.bd-grid-fullscreen > .matrix-container { flex: 1 1 auto; min-height: 0; }
+
+/* ══════════════════════════════════════════════════════════
+   9. 登录页:墨账封面 + 朱红光斑 + 单张纸卡
+   ══════════════════════════════════════════════════════════ */
+.bd-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(720px 480px at 82% -10%, rgba(156, 47, 47, 0.16), transparent 65%),
+    linear-gradient(135deg, #efe9dc 0%, #e2d9c6 100%);
+}
+
+[data-theme='dark'] .bd-login {
+  background:
+    radial-gradient(720px 480px at 82% -10%, rgba(217, 138, 138, 0.10), transparent 65%),
+    linear-gradient(135deg, #171410 0%, #221e17 100%);
+}
+
+.bd-login-card {
+  width: 400px;
+  max-width: 100%;
+  padding: 40px 36px 32px;
+  border-radius: 12px;
+  background: var(--bd-bg-container);
+  border: 1px solid var(--bd-border-subtle);
+  box-shadow: var(--bd-shadow-overlay);
+}
+
+/* ══════════════════════════════════════════════════════════
+   9b. 侧栏「小澧助手」分区 / Remix 图标尺寸 / 首页深色带与收窄 / 骨架屏
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Remix 图标全站对齐与尺寸梯度(方案四.3):文本里与 antd 图标同一基线;
+   侧栏导航 16px、卡片标题 15px、按钮内 14px ── */
+.ri,
+[class^='ri-'],
+[class*=' ri-'] {
+  vertical-align: -0.125em;
+}
+
+.bd-sider .ant-menu-item-icon .ri,
+.bd-sider .ant-menu-submenu-title .ant-menu-item-icon .ri {
+  font-size: 16px;
+}
+
+.ant-btn .ri {
+  font-size: 14px;
+}
+
+.ant-card-head-title .ri {
+  font-size: 15px;
+}
+
+.bd-sider .ant-menu .bd-icon-ai,
+.bd-icon-ai {
+  color: var(--bd-accent);
+}
+
+/* ── 侧栏会话动态项微调 ── */
+.ant-menu-inline .ant-menu-item[data-menu-id*="ai-view-all"] {
+  height: 32px;
+  line-height: 32px;
+  opacity: 0.85;
+}
+
+.ant-menu-inline .ant-menu-item[data-menu-id*="ai-view-all"]:hover {
+  opacity: 1;
+}
+
+/* ── 首页内容宽幅:放宽至 1480px 居中,消除两侧过大留白,与全站报表页平滑过渡 ── */
+.bd-page-narrow {
+  width: 100%;
+  max-width: 1480px;
+  margin-inline: auto;
+  padding: 12px 0 32px;
+}
+
+/* ── 首页总览汇总栏:「总目行」——纸面 + 发丝线,朱红顶签 + 迷你走势线 ── */
+.bd-hero-band {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 24px 36px;
+  overflow: hidden;
+  padding: 28px 32px !important;
+  border-radius: 12px;
+  background: var(--bd-bg-container) !important;
+  border: 1px solid var(--bd-island-border) !important;
+  box-shadow: none;
+}
+
+[data-theme='dark'] .bd-hero-band {
+  background: var(--bd-bg-container) !important;
+  border: 1px solid var(--bd-island-border) !important;
+  box-shadow: none;
+}
+
+.bd-hero-item {
+  position: relative;
+  min-width: 0;
+  padding-top: 10px;
+}
+
+/* KPI 顶签:每格顶部 2px 朱红短线,账册「条目画重点」签名;
+   异常格由 Dashboard 标记 data-tone 换赭金/绛红,预警在纸面上升格 */
+.bd-hero-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 36px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--bd-accent);
+}
+
+/* 异常格 data-tone 的顶签必须与普通格的朱红 accent 明显分档:
+   warn=赭金,bad=比点缀朱红更深一档的绛红(#7a1f1f)——同是红色,靠明度降档表态 */
+.bd-hero-item[data-tone='warn']::before {
+  background: #c08a00;
+}
+
+.bd-hero-item[data-tone='bad']::before {
+  background: #7a1f1f;
+}
+
+[data-theme='dark'] .bd-hero-item[data-tone='warn']::before {
+  background: #e0b64f;
+}
+
+[data-theme='dark'] .bd-hero-item[data-tone='bad']::before {
+  background: #b04848;
+}
+
+/* 可跳转的主数字块(如「异常预警 12」→ 执行分析):
+   整块可点,只给光标与 hover 底色反馈,不改字号与分隔线,避免抢走数字本身。 */
+.bd-hero-item-action {
+  cursor: pointer;
+}
+
+.bd-hero-item-action:focus-visible {
+  /* 焦点环走朱红 accent 而非近黑 primary:亮底上 45% 透明度的墨框会读成错误态,
+     与发丝边框体系冲突;暗色下 accent 已提亮,同样成立 */
+  outline: 2px solid rgba(var(--bd-accent-rgb), 0.55);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.bd-hero-label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--bd-text-secondary);
+}
+
+[data-theme='dark'] .bd-hero-label {
+  color: var(--bd-text-secondary);
+}
+
+.bd-hero-num {
+  margin-top: 8px;
+  font-family: 'Fraunces', 'IBM Plex Sans', Roboto, 'PingFang SC', 'Songti SC', 'SimSun', serif;
+  font-size: 36px !important;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  /* 大数字颜色归一为主题令牌,不再单写一套字面量 */
+  color: var(--bd-text);
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.bd-hero-unit {
+  font-size: 13px !important;
+  font-weight: 400;
+  color: var(--bd-text-tertiary);
+}
+
+[data-theme='dark'] .bd-hero-unit {
+  color: var(--bd-text-tertiary);
+}
+
+.bd-hero-sub {
+  margin-top: 6px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--bd-text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .bd-hero-sub {
+  color: var(--bd-text-tertiary);
+}
+
+/* ── 加载骨架屏(用 antd Skeleton 拼装的表格/卡片轮廓) ── */
+.bd-skeleton-table {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.bd-skeleton-table-head,
+.bd-skeleton-table-row {
+  display: grid;
+  gap: 16px;
+}
+
+.bd-skeleton-card {
+  padding: 4px 0;
+}
+
+/* ══════════════════════════════════════════════════════════
+   9c. 排版工具组与数据组件组(方案《界面细节提升方案-排版工具与数据组件》)
+   ────────────────────────────────────────────────────────────
+   排版工具:等宽眉题 / 竖线引述 / 幽灵数字 / 排行列 / 标题换行均衡
+   —— 纯字体与细节,不动色彩纪律;
+   数据组件:月度执行状态矩阵 / 构成排行行 / 状态圆图标 / KPI 迷你走势线 /
+   bento 发丝线 / 紧凑日志行 —— 颜色全部取自既有令牌(STATUS_COLOR /
+   chartTheme / 主色变量)或其透明度派生,不引入新的独立色相。
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 区块眉题:等宽小号 + 字距,账册页码档签(「01 / 月度执行覆盖」) ── */
+.bd-eyebrow {
+  margin: 0 0 6px;
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--bd-text-tertiary);
+}
+
+/* ── 竖线引述块:一句话级摘要/结论/口径说明的视觉收边 ──
+   竖线 2px(1px 在 13px 中文行高下过细),上下各收缩 4px,不与行高等高 */
+.bd-quote {
+  position: relative;
+  padding-left: 12px;
+  color: var(--bd-text-secondary);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.bd-quote::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--bd-primary);
+}
+
+/* AI 语境用助手紫,与「紫=AI」纪律一致 */
+.bd-quote-ai::before {
+  background: var(--bd-accent);
+}
+
+/* 助手回答的 Markdown 引用块与首句摘要同套引述样式 */
+.assistant-markdown blockquote {
+  position: relative;
+  margin: 8px 0;
+  padding: 2px 4px 2px 12px;
+  border: none;
+  color: var(--bd-text-secondary);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.assistant-markdown blockquote::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--bd-accent);
+}
+
+/* ── 幽灵数字:步骤/能力卡角落的超大低透明度编号;宿主卡需 .bd-ghost-host ── */
+.bd-ghost-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.bd-ghost-num {
+  position: absolute;
+  right: 14px;
+  bottom: 6px;
+  font-family: 'Fraunces', 'IBM Plex Sans', Roboto, 'Songti SC', 'SimSun', serif;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  color: color-mix(in srgb, var(--bd-primary) 7%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
+
+[data-theme='dark'] .bd-ghost-num {
+  color: color-mix(in srgb, var(--bd-primary) 12%, transparent);
+}
+
+/* 能力网格卡的小号变体:右上角 36px,避免与主推卡渐变冲突 */
+.bd-ghost-num-sm {
+  top: 4px;
+  bottom: auto;
+  right: 10px;
+  font-size: 36px;
+}
+
+/* ── 排行/序号列:居中 + 降色 + tnum,金额与完成率等信息列不动 ── */
+.bd-col-rank {
+  text-align: center;
+  color: var(--bd-text-tertiary);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 标题换行均衡:两行以内的标题不出现「孤字尾行」,不支持时静默忽略 ── */
+.ant-card-head-title,
+.bd-assistant-welcome-title,
+.bd-page-title {
+  text-wrap: balance;
+}
+
+/* ── 总览带 bento 发丝线:≥1200px(与 bd-page-narrow 同宽,此时四格不折行)才启用;
+   窄屏整体关闭,折行后行首不会残留线段 ── */
+@media (min-width: 1200px) {
+  .bd-hero-item + .bd-hero-item {
+    border-left: 1px solid var(--bd-border-subtle);
+    padding-left: 24px;
+  }
+
+  [data-theme='dark'] .bd-hero-item + .bd-hero-item {
+    border-left: 1px solid var(--bd-border-subtle);
+  }
+}
+
+/* ── 总览带图注位:右上角常驻小注(如「主数据结构检查通过」) ── */
+.bd-hero-note {
+  position: absolute;
+  /* 与 12px 圆角外弧和 24px 内边距对齐,留出安全边距不贴边 */
+  top: 16px;
+  right: 24px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--bd-text-tertiary);
+}
+
+[data-theme='dark'] .bd-hero-note {
+  color: var(--bd-text-tertiary);
+}
+
+.bd-hero-note .bd-hero-note-icon.bd-status-icon {
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+  color: #3e7d3e;
+  background: rgba(62, 125, 62, 0.10);
+  border: 1px solid rgba(62, 125, 62, 0.25);
+}
+
+[data-theme='dark'] .bd-hero-note .bd-hero-note-icon.bd-status-icon {
+  color: #7db87d;
+  background: rgba(125, 184, 125, 0.14);
+  border: 1px solid rgba(125, 184, 125, 0.30);
+}
+
+/* ── KPI 迷你走势线:放置在数字与副文案之间(高度 22px,左右微出血),不遮挡底部文案 ── */
+.bd-hero-spark {
+  position: relative;
+  margin-top: 4px;
+  margin-bottom: -2px;
+  height: 22px;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.bd-hero-item > *:not(.bd-hero-spark) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── 月度执行状态矩阵:一行 12 格 + 横轴小字 + 图例 ──
+   语义映射严格遵守「红绿只表达好坏」:已覆盖=主色(正向事实不表态),
+   应录未录=红(异常),进行中=主色 30%,未来=斜纹,年度冻结=中性灰实心 */
+.bd-month-strip {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.bd-month-cell {
+  height: 14px;
+  border-radius: 3px;
+  transition: transform var(--bd-dur-lift, 0.22s) var(--bd-ease-out, ease);
+}
+
+.bd-month-cell:hover {
+  transform: scale(1.15);
+}
+
+/* UX-28:月度格可聚焦(tabIndex),焦点环与全站主色环同一语言 */
+.bd-month-cell:focus-visible {
+  outline: 2px solid var(--bd-primary);
+  outline-offset: 1px;
+}
+
+/* 已覆盖档降为 60%:全饱和的 8~12 格连排会被读作一块色块阵列。
+   三档梯度 已覆盖 60% / 进行中 30% / 未来 斜纹,亮暗双主题下均须并排可辨。 */
+.bd-month-cell-covered {
+  background: color-mix(in srgb, var(--bd-primary) 60%, transparent);
+}
+
+.bd-month-cell-miss {
+  background: #9c2f2f;
+}
+
+[data-theme='dark'] .bd-month-cell-miss {
+  background: #d98a8a;
+}
+
+.bd-month-cell-current {
+  background: color-mix(in srgb, var(--bd-primary) 30%, transparent);
+}
+
+.bd-month-cell-future {
+  background: repeating-linear-gradient(-45deg, #d3d7de 0 2px, transparent 2px 5px);
+  border: 1px solid #e1e4ea;
+}
+
+/* 暗色下 --bd-fill(#2f2f31) 与卡底(#232324) 仅约 1.2:1,斜纹近乎隐形;
+   单独提亮纹色并放宽间距,达到可辨识水平 */
+[data-theme='dark'] .bd-month-cell-future {
+  background: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.20) 0 2px, transparent 2px 6px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bd-month-cell-frozen {
+  background: var(--bd-fill);
+}
+
+.bd-month-axis {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 12px;
+  /* 12px 小字用二级色,满足 WCAG AA */
+  color: var(--bd-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bd-month-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--bd-text-tertiary);
+}
+
+.bd-month-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bd-month-legend-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+/* ── 状态圆图标:同一语义色派生三档(图标本色 / 10% 底 / 20% 描边)──
+   色值全部取自 STATUS_COLOR 三色(亮 #3e7d3e/#c08a00/#9c2f2f,
+   暗 #7db87d/#e0b64f/#d98a8a),只加透明度变体 */
+.bd-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex: none;
+  font-size: 14px;
+}
+
+.bd-status-icon-ok {
+  color: #3e7d3e;
+  background: rgba(62, 125, 62, 0.10);
+  border: 1px solid rgba(62, 125, 62, 0.20);
+}
+
+.bd-status-icon-warn {
+  color: #c08a00;
+  background: rgba(192, 138, 0, 0.10);
+  border: 1px solid rgba(192, 138, 0, 0.20);
+}
+
+.bd-status-icon-bad {
+  color: #9c2f2f;
+  background: rgba(156, 47, 47, 0.10);
+  border: 1px solid rgba(156, 47, 47, 0.20);
+}
+
+[data-theme='dark'] .bd-status-icon-ok {
+  color: #7db87d;
+  background: rgba(125, 184, 125, 0.10);
+  border-color: rgba(125, 184, 125, 0.20);
+}
+
+[data-theme='dark'] .bd-status-icon-warn {
+  color: #e0b64f;
+  background: rgba(224, 182, 79, 0.10);
+  border-color: rgba(224, 182, 79, 0.20);
+}
+
+[data-theme='dark'] .bd-status-icon-bad {
+  color: #d98a8a;
+  background: rgba(217, 138, 138, 0.10);
+  border-color: rgba(217, 138, 138, 0.20);
+}
+
+/* ── 核验条:数据自检结论的承载位 ──
+   此前「实际数已逐分勾稽」这类通过态结论被渲染成 Alert —— 绿色大色块加三行金额,
+   只为说一句「没事」。Alert 的语义是「这里有情况,你要处理」,用它承载通过态,
+   等于每次进页面都要用最高视觉权重读一遍不含信息的结论,并把下方数据挤出首屏。
+   这里:通过项 = 12px 徽标(与正文同高的单行,不占块级空间);
+   异常项 = 才升格为 Alert,成为页面唯一的那一块颜色;明细金额收进 Popover。 */
+.bd-verify-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 4px;
+}
+
+.bd-verify-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--bd-text-secondary);
+  border: 1px solid var(--bd-border);
+  background: var(--bd-bg-subtle);
+  cursor: default;
+  user-select: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+/* 可跳转的核验项(如「12 个科目超支」→ 执行分析)才给指针与 hover 反馈 */
+.bd-verify-badge[role='button'] {
+  cursor: pointer;
+}
+
+.bd-verify-badge[role='button']:hover,
+.bd-verify-badge[role='button']:focus-visible {
+  border-color: var(--bd-primary);
+  background: var(--bd-bg-container);
+}
+
+.bd-verify-badge:focus-visible {
+  outline: 2px solid rgba(var(--bd-primary-rgb), 0.24);
+  outline-offset: 1px;
+}
+
+/* 有明细可展开时才出现的小箭头 */
+.bd-verify-caret {
+  margin-left: 1px;
+  margin-right: -3px;
+  font-size: 12px;
+  color: var(--bd-text-tertiary);
+}
+
+/* ── 紧凑日志行:发丝线分隔,主行 13px,meta 行 11px 两端对齐 ── */
+.bd-log-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bd-border-subtle);
+}
+
+.bd-log-row:last-child {
+  border-bottom: none;
+}
+
+.bd-log-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.bd-log-row-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--bd-text-tertiary);
+}
+
+/* ── 构成排行行:色样 + 名称 + 数值 + 百分比 + 下方细轨道条 ── */
+.bd-rank-row {
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition:
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.bd-rank-row:hover {
+  background: var(--bd-bg-subtle);
+  /* 边框一档加深用 inset 描边表达,不用 border 以免行高跳动 */
+  box-shadow: inset 0 0 0 1px var(--bd-border);
+}
+
+.bd-rank-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bd-rank-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.bd-rank-label {
+  flex: 1 1 auto;
+  /* 最小宽度兜底:极窄容器里宁可溢出换档,也不许被 flex 压到 0 宽整名消失 */
+  min-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--bd-text-secondary);
+}
+
+.bd-rank-value {
+  flex: 0 0 auto;
+  font-family: Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  color: var(--bd-text);
+}
+
+.bd-rank-share {
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bd-text-tertiary);
+}
+
+.bd-rank-track {
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--bd-fill);
+  overflow: hidden;
+}
+
+.bd-rank-bar {
+  height: 100%;
+  border-radius: 999px;
+  width: calc(var(--rank-share, 0) * 100%);
+  transition: width 0.2s ease;
+}
+
+/* ── AI 助手欢迎空状态网格底纹:全站唯一破例面(方案四)
+   空状态是品牌展示区,不是数据工作区;透明度压到 0.05 近乎不可见,
+   网格色用主色 RGB 变量,亮暗主题自动适配;mask 从中心向外淡出贴合居中构图 ── */
+.bd-assistant-welcome {
+  position: relative;
+}
+
+.bd-assistant-welcome::before {
+  content: '';
+  position: absolute;
+  inset: -24px -32px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--bd-primary) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--bd-primary) 5%, transparent) 1px, transparent 1px);
+  background-size: 40px 40px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 75%);
+}
+
+.bd-assistant-welcome > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 小窗(bd-assistant-dock)不铺网格:400px 宽面板里网格只会是噪点 */
+
+/* ══════════════════════════════════════════════════════════
+   10. 无障碍:尊重「减少动态效果」系统偏好
+   ══════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  /* 全局兜底(UX-28):上面逐条规则只覆盖 bd-* 自有动效;antd 组件自身的
+     展开/淡入/波纹动画由这条压到近乎瞬时。保留极短时长而非置 0,
+     让依赖 transitionend/animationend 事件的组件仍能收到回调。 */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .page-fade {
+    animation: none !important;
+  }
+
+  /* 悬浮小窗的 morphing 退化为简单淡入淡出 */
+  .bd-ai-float {
+    transform: none;
+    transition: opacity 0.15s ease;
+  }
+
+  .bd-ai-float-hidden {
+    transform: none;
+  }
+
+  /* 输入框流光引导不循环 */
+  .bd-ai-glow-wrap.bd-ai-glow-active {
+    animation: none !important;
+  }
+
+  /* hover 微位移关闭,只保留底色/边框变化 */
+  .quick-tile:hover,
+  .ant-card-hoverable:hover,
+  .bd-ai-fab:hover {
+    transform: none;
+  }
+
+  /* 方案《排版工具与数据组件》全部新增动效一并关闭:
+     月度格 hover 缩放、排行条宽度过渡、排行行 hover 反馈;走势线不设入场动画 */
+  .bd-month-cell,
+  .bd-rank-row,
+  .bd-rank-bar {
+    transition: none !important;
+  }
+
+  .bd-month-cell:hover {
+    transform: none;
+  }
+}
+
+/* 屏幕阅读器专用文本(视觉隐藏,保留在无障碍树中) */
+.bd-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── 工作范围条(UX-04):「年度 · 组织 · 版本/状态 · 实际截至 · 金额单位」一行元信息。
+     用发丝分隔符与 12px 灰阶文字,不占块级空间;失效/待提交才用语义色。 */
+.bd-scope-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--bd-text-tertiary);
+}
+
+.bd-scope-bar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bd-scope-bar-sep {
+  color: var(--bd-border);
+}
+
+.bd-scope-bar-label {
+  color: var(--bd-text-tertiary);
+}
+
+.bd-scope-bar-value {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--bd-text-secondary);
+  font-weight: 500;
+}
+
+.bd-scope-bar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  color: var(--bd-text-secondary);
+  background: var(--bd-fill);
+}
+
+.bd-scope-bar-status-invalid {
+  color: #c08a00;
+  background: rgba(192, 138, 0, 0.10);
+}
+
+.bd-scope-bar-status-readonly {
+  color: var(--bd-text-tertiary);
+}
+
+[data-theme='dark'] .bd-scope-bar-status-invalid {
+  color: #e0b64f;
+  background: rgba(224, 182, 79, 0.12);
+}
+
+/* 待提交截止日与「实际截至(来源)」分色:accent 底纹表达「这是本次保存的目标,不是已有数据」 */
+.bd-scope-bar-pending {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-weight: 500;
+  color: var(--bd-accent);
+  background: rgba(var(--bd-accent-rgb), 0.10);
+}
+
+/* ── 警示条视觉优化:淡黄底 #FEF3C7 + 3px 琥珀左强调线,温和不刺眼 ── */
+.ant-alert {
+  border-radius: 6px !important;
+  border-width: 1px 1px 1px 3px !important;
+  padding: 10px 16px !important;
+}
+
+.ant-alert-warning {
+  background-color: #fef3c7 !important;
+  border-color: #e8d9a8 #e8d9a8 #e8d9a8 #c08a00 !important;
+  color: #92400e !important;
+}
+
+.ant-alert-warning .ant-alert-message {
+  color: #78350f !important;
+  font-weight: 500 !important;
+}
+
+.ant-alert-warning .ant-alert-description {
+  color: #92400e !important;
+}
+
+/* ── 全站标签/Badge 胶囊化:圆角 12px、无硬边框、微底色 ── */
+.ant-tag {
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 3px 12px !important;
+  font-size: 12px !important;
+  line-height: 18px !important;
+  /* 与 theme.tsx 的 Tag token 对齐(--bd-fill / --bd-text-secondary):
+     原先此处另写一档独立灰值,同一组件两套色值,暗色下不换挡。 */
+  background: var(--bd-fill) !important;
+  color: var(--bd-text-secondary) !important;
+  font-weight: 400 !important;
+}
+
+.ant-tag-green {
+  background: #ecfdf5 !important;
+  color: #065f46 !important;
+}
+
+.ant-tag-red {
+  background: #fef2f2 !important;
+  color: #991b1b !important;
+}
+
+.ant-tag-blue {
+  background: #eff6ff !important;
+  color: #1e40af !important;
+}
+
+.ant-tag-orange {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+.ant-tag-purple {
+  background: #f5f3ff !important;
+  color: #5b21b6 !important;
+}
+
+[data-theme='dark'] .ant-tag {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #e5e7eb !important;
+}
+
+[data-theme='dark'] .ant-tag-green {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #6ee7b7 !important;
+}
+
+[data-theme='dark'] .ant-tag-red {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #fca5a5 !important;
+}
+
+[data-theme='dark'] .ant-tag-blue {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #93c5fd !important;
+}
+
+[data-theme='dark'] .ant-tag-orange {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #fcd34d !important;
+}
+
+[data-theme='dark'] .ant-tag-purple {
+  background: rgba(168, 85, 247, 0.15) !important;
+  color: #d8b4fe !important;
+}
+
+.ant-alert-error {
+  background-color: #fef2f2 !important;
+  border-color: #fee2e2 #fee2e2 #fee2e2 #ef4444 !important;
+  color: #991b1b !important;
+}
+
+.ant-alert-error .ant-alert-message {
+  color: #7f1d1d !important;
+  font-weight: 500 !important;
+}
+
+.ant-alert-error .ant-alert-description {
+  color: #991b1b !important;
+}
+
+.ant-alert-info {
+  background-color: #f2ece0 !important;
+  border-color: #e0d5bd #e0d5bd #e0d5bd #9c2f2f !important;
+  color: #7a2424 !important;
+}
+
+.ant-alert-info .ant-alert-message {
+  color: #6b1f1f !important;
+  font-weight: 500 !important;
+}
+
+/* ── 暗色主题下 Alert 内链接对比度提升与背景适配 ── */
+[data-theme='dark'] .ant-alert-warning {
+  background-color: rgba(224, 182, 79, 0.10) !important;
+  border-color: rgba(224, 182, 79, 0.2) rgba(224, 182, 79, 0.2) rgba(224, 182, 79, 0.2) #e0b64f !important;
+  color: #ecd28a !important;
+}
+
+[data-theme='dark'] .ant-alert-warning .ant-alert-message {
+  color: #f0dca0 !important;
+}
+
+[data-theme='dark'] .ant-alert-warning .ant-alert-description {
+  color: #ecd28a !important;
+}
+
+[data-theme='dark'] .ant-alert-error {
+  background-color: rgba(217, 138, 138, 0.10) !important;
+  border-color: rgba(217, 138, 138, 0.2) rgba(217, 138, 138, 0.2) rgba(217, 138, 138, 0.2) #d98a8a !important;
+  color: #e8b4b4 !important;
+}
+
+[data-theme='dark'] .ant-alert-error .ant-alert-message {
+  color: #ecc7c7 !important;
+}
+
+[data-theme='dark'] .ant-alert-error .ant-alert-description {
+  color: #e8b4b4 !important;
+}
+
+[data-theme='dark'] .ant-alert-info {
+  background-color: rgba(217, 138, 138, 0.08) !important;
+  border-color: rgba(217, 138, 138, 0.18) rgba(217, 138, 138, 0.18) rgba(217, 138, 138, 0.18) #d98a8a !important;
+  color: #e0a8a8 !important;
+}
+
+[data-theme='dark'] .ant-alert-info .ant-alert-message {
+  color: #e8bbbb !important;
+}
+
+[data-theme='dark'] .ant-alert-error .ant-btn-link,
+[data-theme='dark'] .ant-alert-warning .ant-btn-link {
+  color: #69b1ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+[data-theme='dark'] .ant-alert-error .ant-btn-link:hover,
+[data-theme='dark'] .ant-alert-warning .ant-btn-link:hover {
+  color: #91caff;
+}
+
+/* ── UX-03 跨页定位高亮:预警/证据下钻的目标行(分析页科目表/组织表) ── */
+.bd-row-locate > td {
+  background: var(--bd-primary-bg) !important;
+  box-shadow: inset 3px 0 0 var(--bd-primary);
+}
+
+

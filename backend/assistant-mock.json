@@ -1,0 +1,1169 @@
+{
+  "chat": {
+    "conversationId": 1,
+    "text": "预算执行事实查询：版本「V1」（2026 年，locked），实际取数 current，截至 2026-06-30。收入预算 1500.00 / 实际 700.00 万元，完成率 46.7%。时间进度 49.6%（均匀自然日口径，仅用于节奏对比）。逐组织、逐科目明细与差异方向见引用来源。",
+    "facts": [
+      {
+        "type": "execution",
+        "data": {
+          "versionId": 3,
+          "actualBatchId": 18,
+          "asOfDate": "2026-06-30"
+        },
+        "source": {
+          "year": 2026,
+          "budgetVersionId": 3,
+          "actualSnapshotId": 18,
+          "asOf": "2026-06-30"
+        }
+      }
+    ],
+    "citations": [
+      {
+        "source": "execution",
+        "asOf": "2026-06-30",
+        "year": 2026,
+        "budgetVersionId": 3,
+        "actualSnapshotId": 18
+      }
+    ],
+    "suggestions": [
+      "按组织和科目逐层展开差异归因",
+      "运行异常与质量检查（七类规则）",
+      "导出当前口径的完成情况"
+    ],
+    "action": null,
+    "navigation": null,
+    "resolvedContext": {
+      "year": 2026,
+      "budgetVersionId": 3
+    },
+    "resolution": [
+      {
+        "field": "year",
+        "value": 2026,
+        "origin": "message",
+        "reason": "命中年度「2026 年」"
+      },
+      {
+        "field": "budgetVersionId",
+        "value": 3,
+        "origin": "default",
+        "reason": "2026 年当前生效预算版本",
+        "label": "V1"
+      }
+    ],
+    "routing": "rules",
+    "model": "template",
+    "intents": {
+      "read": [
+        "execution"
+      ],
+      "write": [],
+      "suppressed": [],
+      "inheritedRead": []
+    },
+    "modelError": null,
+    "contextStatus": "aligned",
+    "effectiveContext": {
+      "pageKey": "analysis",
+      "pageLabel": "预算执行分析",
+      "year": 2026,
+      "budgetVersionId": 3,
+      "actualSnapshotId": 18,
+      "view": {
+        "sheetKey": "all",
+        "threshold": 20
+      }
+    },
+    "contextSummary": "预算执行分析 · 2026 年 · V1 · 截至 2026-06-30",
+    "contextTrace": {
+      "used": [
+        {
+          "field": "year",
+          "value": 2026,
+          "origin": "page",
+          "reason": "页面已生效年度"
+        }
+      ],
+      "overrides": [],
+      "warnings": []
+    },
+    "capability": "execution",
+    "draftApplied": null
+  },
+  "preview": {
+    "id": 12,
+    "conversationId": 1,
+    "type": "bulk_adjustment",
+    "status": "pending",
+    "expiresAt": "2026-08-27T16:15:00.000Z",
+    "confirmationToken": "replace-with-preview-token",
+    "preview": {
+      "versionId": 3,
+      "changeCount": 1,
+      "changes": []
+    },
+    "result": null
+  },
+  "sse": [
+    "event: open",
+    "data: {\"ok\":true}",
+    "",
+    "event: token",
+    "data: {\"text\":\"上海\"}",
+    "",
+    "event: token",
+    "data: {\"text\":\"公司收入未达预算是主要原因。\"}",
+    "",
+    "event: done",
+    "data: {\"conversationId\":2,\"text\":\"上海公司收入未达预算是主要原因。\",\"routing\":\"model\",\"model\":\"gpt-4o-mini\",\"contextStatus\":\"aligned\",\"contextSummary\":\"预算执行分析 · 2026 年 · V1 · 上海公司\",\"capability\":\"execution\",\"draftApplied\":null,\"done\":true}",
+    ""
+  ],
+  "attribution": {
+    "version": {
+      "id": 1,
+      "year": 2026,
+      "name": "2026 年度预算 V1",
+      "status": "draft",
+      "is_current": 0,
+      "org_tree_snapshot_id": 1,
+      "account_tree_snapshot_id": 2,
+      "source_version_id": null,
+      "note": "",
+      "created_at": "2026-08-27T18:01:34.761Z",
+      "updated_at": "2026-08-27T18:01:34.769Z",
+      "locked_at": null,
+      "kind": "budget",
+      "generation_json": "{\"baseFrom\":null,\"baseYear\":null,\"baseSnapshotId\":null,\"growthRate\":0}"
+    },
+    "asOfDate": "2026-06-30",
+    "timeProgressValue": 0.4958904109589041,
+    "actualSource": "current",
+    "actualBatchId": 1,
+    "treeBasis": {
+      "org": "预算:版本绑定组织树快照 #1;实际:当前组织树",
+      "account": "预算:版本绑定科目树快照 #2;实际:当前科目树"
+    },
+    "scopeBasis": {
+      "sheetKey": "all",
+      "sheetName": "全部科目",
+      "orgScopeId": null,
+      "accountScopeId": null,
+      "summaryLevel": null
+    },
+    "params": {
+      "maxDepth": 3,
+      "topN": 10,
+      "direction": "unfavorable"
+    },
+    "totals": {
+      "budgetCents": 700000000,
+      "actualCents": 530000000,
+      "varianceCents": -170000000,
+      "favorable": "unfavorable"
+    },
+    "byOrg": [
+      {
+        "dimension": "org",
+        "id": 1,
+        "parentId": null,
+        "code": "GROUP",
+        "name": "集团",
+        "level": 0,
+        "isLeaf": false,
+        "budgetCents": 700000000,
+        "actualCents": 530000000,
+        "varianceCents": -170000000,
+        "favorable": "unfavorable",
+        "rate": 0.7571428571428571,
+        "rateSpecial": null,
+        "progressDeviation": 0.261252446183953,
+        "pace": "ahead",
+        "shareOfParent": null,
+        "shareOfTotal": -1,
+        "childrenVarianceCents": -170000000,
+        "reconciled": true,
+        "hiddenChildCount": 0,
+        "hiddenVarianceCents": 0,
+        "children": [
+          {
+            "dimension": "org",
+            "id": 2,
+            "parentId": 1,
+            "code": "EAST",
+            "name": "华东大区",
+            "level": 1,
+            "isLeaf": false,
+            "budgetCents": 700000000,
+            "actualCents": 530000000,
+            "varianceCents": -170000000,
+            "favorable": "unfavorable",
+            "rate": 0.7571428571428571,
+            "rateSpecial": null,
+            "progressDeviation": 0.261252446183953,
+            "pace": "ahead",
+            "shareOfParent": -1,
+            "shareOfTotal": -1,
+            "childrenVarianceCents": -170000000,
+            "reconciled": true,
+            "hiddenChildCount": 0,
+            "hiddenVarianceCents": 0,
+            "children": []
+          }
+        ]
+      }
+    ],
+    "byAccount": [
+      {
+        "dimension": "account",
+        "id": 1,
+        "parentId": null,
+        "code": "I",
+        "name": "收入",
+        "level": 0,
+        "isLeaf": false,
+        "type": "income",
+        "budgetCents": 1800000000,
+        "actualCents": 1680000000,
+        "varianceCents": -120000000,
+        "favorable": "unfavorable",
+        "rate": 0.9333333333333333,
+        "rateSpecial": null,
+        "progressDeviation": 0.4374429223744292,
+        "pace": "ahead",
+        "shareOfParent": null,
+        "shareOfTotal": -0.7058823529411765,
+        "childrenVarianceCents": -120000000,
+        "reconciled": true,
+        "hiddenChildCount": 0,
+        "hiddenVarianceCents": 0,
+        "children": [
+          {
+            "dimension": "account",
+            "id": 2,
+            "parentId": 1,
+            "code": "I01",
+            "name": "主营业务收入",
+            "level": 1,
+            "isLeaf": true,
+            "type": "income",
+            "budgetCents": 1800000000,
+            "actualCents": 1680000000,
+            "varianceCents": -120000000,
+            "favorable": "unfavorable",
+            "rate": 0.9333333333333333,
+            "rateSpecial": null,
+            "progressDeviation": 0.4374429223744292,
+            "pace": "ahead",
+            "shareOfParent": -1,
+            "shareOfTotal": -0.7058823529411765,
+            "childrenVarianceCents": 0,
+            "reconciled": true,
+            "hiddenChildCount": 0,
+            "hiddenVarianceCents": 0,
+            "children": []
+          }
+        ]
+      },
+      {
+        "dimension": "account",
+        "id": 5,
+        "parentId": null,
+        "code": "E",
+        "name": "费用",
+        "level": 0,
+        "isLeaf": false,
+        "type": "expense",
+        "budgetCents": -200000000,
+        "actualCents": -250000000,
+        "varianceCents": -50000000,
+        "favorable": "unfavorable",
+        "rate": 1.25,
+        "rateSpecial": null,
+        "progressDeviation": 0.7541095890410958,
+        "pace": "ahead",
+        "shareOfParent": null,
+        "shareOfTotal": -0.29411764705882354,
+        "childrenVarianceCents": -50000000,
+        "reconciled": true,
+        "hiddenChildCount": 0,
+        "hiddenVarianceCents": 0,
+        "children": [
+          {
+            "dimension": "account",
+            "id": 6,
+            "parentId": 5,
+            "code": "E01",
+            "name": "管理费用",
+            "level": 1,
+            "isLeaf": true,
+            "type": "expense",
+            "budgetCents": -200000000,
+            "actualCents": -250000000,
+            "varianceCents": -50000000,
+            "favorable": "unfavorable",
+            "rate": 1.25,
+            "rateSpecial": null,
+            "progressDeviation": 0.7541095890410958,
+            "pace": "ahead",
+            "shareOfParent": -1,
+            "shareOfTotal": -0.29411764705882354,
+            "childrenVarianceCents": 0,
+            "reconciled": true,
+            "hiddenChildCount": 0,
+            "hiddenVarianceCents": 0,
+            "children": []
+          }
+        ]
+      }
+    ],
+    "rankedOrgLeaves": [
+      {
+        "dimension": "org",
+        "id": 3,
+        "code": "SH",
+        "name": "上海公司",
+        "path": "集团 / 华东大区 / 上海公司",
+        "budgetCents": 400000000,
+        "actualCents": 230000000,
+        "varianceCents": -170000000,
+        "favorable": "unfavorable",
+        "rate": 0.575,
+        "rateSpecial": null,
+        "shareOfTotal": -1
+      }
+    ],
+    "rankedAccountLeaves": [
+      {
+        "dimension": "account",
+        "id": 2,
+        "code": "I01",
+        "name": "主营业务收入",
+        "type": "income",
+        "path": "收入 / 主营业务收入",
+        "budgetCents": 1800000000,
+        "actualCents": 1680000000,
+        "varianceCents": -120000000,
+        "favorable": "unfavorable",
+        "rate": 0.9333333333333333,
+        "rateSpecial": null,
+        "shareOfTotal": -0.7058823529411765
+      },
+      {
+        "dimension": "account",
+        "id": 6,
+        "code": "E01",
+        "name": "管理费用",
+        "type": "expense",
+        "path": "费用 / 管理费用",
+        "budgetCents": -200000000,
+        "actualCents": -250000000,
+        "varianceCents": -50000000,
+        "favorable": "unfavorable",
+        "rate": 1.25,
+        "rateSpecial": null,
+        "shareOfTotal": -0.29411764705882354
+      }
+    ],
+    "quantityVariances": [
+      {
+        "accountId": 7,
+        "code": "Q01",
+        "name": "发电量",
+        "unit": "万千瓦时",
+        "budgetQuantity": 12000000,
+        "actualQuantity": 5400000,
+        "varianceQuantity": -6600000,
+        "rate": 0.45
+      }
+    ],
+    "reconciliation": {
+      "orgRootVarianceCents": -170000000,
+      "accountRootVarianceCents": -170000000,
+      "orgLeafVarianceCents": -170000000,
+      "accountLeafVarianceCents": -170000000,
+      "matched": true,
+      "unreconciledNodeCount": 0
+    },
+    "notes": [
+      "差异为带符号利润方向口径(实际-预算,正数有利);占比按差异绝对值计算",
+      "逐层展开每层按差异绝对值降序取前 topN,未展开部分见 hiddenChildCount 与 hiddenVarianceCents",
+      "数量科目不参与金额归因,单独在 quantityVariances 中按缩放整数输出",
+      "组织维度与科目维度的根层差异合计应完全相等,见 reconciliation"
+    ]
+  },
+  "report": {
+    "kind": "monthly_execution",
+    "kindLabel": "预算执行月报",
+    "title": "2026 年度预算 V1 预算执行月报",
+    "generatedAt": "2026-08-27T18:01:34.824Z",
+    "period": {
+      "year": 2026,
+      "asOfDate": "2026-06-30",
+      "timeProgressValue": 0.4958904109589041
+    },
+    "scope": {
+      "versionId": 1,
+      "versionName": "2026 年度预算 V1",
+      "versionStatus": "draft",
+      "targetVersionId": null,
+      "actualSource": "current",
+      "actualBatchId": 1,
+      "orgScopeId": null,
+      "accountScopeId": null,
+      "sheetKey": null,
+      "treeSnapshotIds": {
+        "org": 1,
+        "account": 2
+      }
+    },
+    "sections": [
+      {
+        "key": "overview",
+        "title": "一、总体执行情况",
+        "bullets": [
+          "预算版本:「2026 年度预算 V1」(#1,2026 年,状态 draft)",
+          "实际数据口径:当前累计(快照 #1),截至 2026-06-30",
+          "范围内预算合计 700.00 万元,实际合计 530.00 万元,净差异 -170.00 万元(不利)",
+          "均匀时间进度 49.6%;时间进度仅用于节奏对比,不代表月度预算"
+        ],
+        "citations": [
+          {
+            "source": "report_execution",
+            "asOf": "2026-06-30",
+            "year": 2026,
+            "budgetVersionId": 1,
+            "actualSnapshotId": 1,
+            "treeSnapshotIds": {
+              "org": 1,
+              "account": 2
+            }
+          }
+        ],
+        "data": "<结构化明细已省略,实际接口返回完整对象>"
+      },
+      {
+        "key": "metrics",
+        "title": "二、利润方向指标完成",
+        "bullets": [
+          "毛利(GROSS):预算 900.00 万元,实际 780.00 万元,差异 -120.00 万元,完成率 86.7%"
+        ],
+        "citations": [
+          {
+            "source": "report_execution",
+            "asOf": "2026-06-30",
+            "year": 2026,
+            "budgetVersionId": 1,
+            "actualSnapshotId": 1,
+            "treeSnapshotIds": {
+              "org": 1,
+              "account": 2
+            }
+          }
+        ],
+        "data": "<结构化明细已省略,实际接口返回完整对象>"
+      },
+      {
+        "key": "attribution",
+        "title": "三、差异归因(按方向与金额排序)",
+        "bullets": [
+          "科目「主营业务收入」(I01):差异 -120.00 万元(不利),完成率 93.3%,占总差异 70.6%",
+          "科目「管理费用」(E01):差异 -50.00 万元(不利),完成率 125.0%,占总差异 29.4%",
+          "科目「主营业务成本」(C01):差异 0.00 万元(持平),完成率 100.0%,占总差异 0.0%",
+          "组织「上海公司」(SH):差异 -170.00 万元(不利),完成率 57.5%,占总差异 100.0%",
+          "组织「杭州公司」(HZ):差异 0.00 万元(持平),完成率 100.0%,占总差异 0.0%",
+          "逐层核对:组织维度根层合计 -170.00 万元,科目维度根层合计 -170.00 万元,两维度一致"
+        ],
+        "citations": [
+          {
+            "source": "report_attribution",
+            "asOf": "2026-06-30",
+            "year": 2026,
+            "budgetVersionId": 1,
+            "actualSnapshotId": 1,
+            "treeSnapshotIds": {
+              "org": 1,
+              "account": 2
+            }
+          }
+        ],
+        "data": "<结构化明细已省略,实际接口返回完整对象>"
+      },
+      {
+        "key": "quantity",
+        "title": "四、数量型科目(不参与金额汇总)",
+        "bullets": [
+          "发电量(Q01):预算 1200.0000万千瓦时,实际 540.0000万千瓦时,差异 -660.0000万千瓦时"
+        ],
+        "citations": [
+          {
+            "source": "report_attribution",
+            "asOf": "2026-06-30",
+            "year": 2026,
+            "budgetVersionId": 1,
+            "actualSnapshotId": 1,
+            "treeSnapshotIds": {
+              "org": 1,
+              "account": 2
+            }
+          }
+        ],
+        "data": "<结构化明细已省略,实际接口返回完整对象>"
+      },
+      {
+        "key": "anomalies",
+        "title": "五、异常与质量提示",
+        "bullets": [
+          "共命中 5 条(阈值:完成率偏离 0.2、同比 0.3、同类 0.3)",
+          "完成率偏离阈值:3 条",
+          "收入、成本、费用与利润目标不匹配:1 条",
+          "CALCULATION_RULE_INVALID:1 条",
+          "预算质量:阻塞 0 条,警告 1 条,可定稿"
+        ],
+        "citations": [
+          {
+            "source": "report_anomalies",
+            "asOf": "2026-06-30",
+            "year": 2026,
+            "budgetVersionId": 1,
+            "actualSnapshotId": 1,
+            "treeSnapshotIds": {
+              "org": 1,
+              "account": 2
+            }
+          }
+        ],
+        "data": "<结构化明细已省略,实际接口返回完整对象>"
+      },
+      {
+        "key": "trend",
+        "title": "六、年内完成率趋势",
+        "bullets": [
+          "已有 1 个实际快照时点,最新 2026-06-30",
+          "最新时点完成率 97.6%,时间进度 49.6%"
+        ],
+        "citations": [
+          {
+            "source": "report_execution",
+            "asOf": "2026-06-30",
+            "year": 2026,
+            "budgetVersionId": 1,
+            "actualSnapshotId": 1,
+            "treeSnapshotIds": {
+              "org": 1,
+              "account": 2
+            }
+          }
+        ],
+        "data": "<结构化明细已省略,实际接口返回完整对象>"
+      }
+    ],
+    "facts": [
+      {
+        "type": "report_execution",
+        "source": {
+          "year": 2026,
+          "budgetVersionId": 1,
+          "actualSnapshotId": 1,
+          "asOf": "2026-06-30",
+          "treeSnapshotIds": {
+            "org": 1,
+            "account": 2
+          }
+        },
+        "data": "<结构化明细已省略>"
+      },
+      {
+        "type": "report_attribution",
+        "source": {
+          "year": 2026,
+          "budgetVersionId": 1,
+          "actualSnapshotId": 1,
+          "asOf": "2026-06-30",
+          "treeSnapshotIds": {
+            "org": 1,
+            "account": 2
+          }
+        },
+        "data": "<结构化明细已省略>"
+      },
+      {
+        "type": "report_anomalies",
+        "source": {
+          "year": 2026,
+          "budgetVersionId": 1,
+          "actualSnapshotId": 1,
+          "asOf": "2026-06-30",
+          "treeSnapshotIds": {
+            "org": 1,
+            "account": 2
+          }
+        },
+        "data": "<结构化明细已省略>"
+      },
+      {
+        "type": "report_trend",
+        "source": {
+          "year": 2026,
+          "budgetVersionId": 1,
+          "actualSnapshotId": 1,
+          "asOf": "2026-06-30",
+          "treeSnapshotIds": {
+            "org": 1,
+            "account": 2
+          }
+        },
+        "data": "<结构化明细已省略>"
+      }
+    ],
+    "suggestions": [
+      "优先复核不利方向金额最大的科目,确认是时间性差异还是口径差异",
+      "按异常清单逐条核实,必要时在测算依据中补充说明",
+      "如需对外使用,请连同引用来源一并导出"
+    ],
+    "notes": [
+      "差异为带符号利润方向口径(实际-预算,正数有利);完成率为无符号展示口径",
+      "金额按万元两位小数展示(百元精度),原始值为整数分",
+      "数量型科目单独成节,不参与金额汇总与指标",
+      "要点均由后端确定性计算,叙述文字可由模型改写但数字不变"
+    ],
+    "citations": [
+      {
+        "source": "report_execution",
+        "asOf": "2026-06-30",
+        "year": 2026,
+        "budgetVersionId": 1,
+        "actualSnapshotId": 1,
+        "treeSnapshotIds": {
+          "org": 1,
+          "account": 2
+        }
+      },
+      {
+        "source": "report_attribution",
+        "asOf": "2026-06-30",
+        "year": 2026,
+        "budgetVersionId": 1,
+        "actualSnapshotId": 1,
+        "treeSnapshotIds": {
+          "org": 1,
+          "account": 2
+        }
+      },
+      {
+        "source": "report_anomalies",
+        "asOf": "2026-06-30",
+        "year": 2026,
+        "budgetVersionId": 1,
+        "actualSnapshotId": 1,
+        "treeSnapshotIds": {
+          "org": 1,
+          "account": 2
+        }
+      },
+      {
+        "source": "report_trend",
+        "asOf": "2026-06-30",
+        "year": 2026,
+        "budgetVersionId": 1,
+        "actualSnapshotId": 1,
+        "treeSnapshotIds": {
+          "org": 1,
+          "account": 2
+        }
+      }
+    ],
+    "narrative": "# 2026 年度预算 V1 预算执行月报\n\n生成时间:2026-08-27T18:01:34.824Z(报告类型:预算执行月报)\n\n## 一、总体执行情况\n- 预算版本:「2026 年度预算 V1」(#1,2026 年,状态 draft)\n- 实际数据口径:当前累计(快照 #1),截至 2026-06-30\n- 范围内预算合计 700.00 万元,实际合计 530.00 万元,净差异 -170.00 万元(不利)\n- 均匀时间进度 49.6%;时间进度仅用于节奏对比,不代表月度预算\n\n## 二、利润方向指标完成\n- 毛利(GROSS):预算 900.00 万元,实际 780.00 万元,差异 -120.00 万元,完成率 86.7%\n\n## 三、差异归因(按方向与金额排序)\n- 科目「主营业务收入」(I01):差异 -120.00 万元(不利),完成率 93.3%,占总差异 70.6%\n- 科目「管理费用」(E01):差异 -50.00 万元(不利),完成率 125.0%,占总差异 29.4%\n- 科目「主营业务成本」(C01):差异 0.00 万元(持平),完成率 100.0%,占总差异 0.0%\n- 组织「上海公司」(SH):差异 -170.00 万元(不利),完成率 57.5%,占总差异 100.0%\n- 组织「杭州公司」(HZ):差异 0.00 万元(持平),完成率 100.0%,占总差异 0.0%\n- 逐层核对:组织维度根层合计 -170.00 万元,科目维度根层合计 -170.00 万元,两维度一致\n\n## 四、数量型科目(不参与金额汇总)\n- 发电量(Q01):预算 1200.0000万千瓦时,实际 540.0000万千瓦时,差异 -660.0000万千瓦时\n\n## 五、异常与质量提示\n- 共命中 5 条(阈值:完成率偏离 0.2、同比 0.3、同类 0.3)\n- 完成率偏离阈值:3 条\n- 收入、成本、费用与利润目标不匹配:1 条\n- CALCULATION_RULE_INVALID:1 条\n- 预算质量:阻塞 0 条,警告 1 条,可定稿\n\n## 六、年内完成率趋势\n- 已有 1 个实际快照时点,最新 2026-06-30\n- 最新时点完成率 97.6%,时间进度 49.6%\n\n## 建议(AI 生成,仅供参考)\n- 优先复核不利方向金额最大的科目,确认是时间性差异还是口径差异\n- 按异常清单逐条核实,必要时在测算依据中补充说明\n- 如需对外使用,请连同引用来源一并导出\n\n## 口径说明\n- 差异为带符号利润方向口径(实际-预算,正数有利);完成率为无符号展示口径\n- 金额按万元两位小数展示(百元精度),原始值为整数分\n- 数量型科目单独成节,不参与金额汇总与指标\n- 要点均由后端确定性计算,叙述文字可由模型改写但数字不变",
+    "narrativeSource": "template",
+    "model": "template"
+  },
+  "importHelp": {
+    "batch": null,
+    "errorCount": 6,
+    "groups": [
+      {
+        "category": "ORG_CODE_UNKNOWN",
+        "label": "组织编码不存在",
+        "explanation": "文件中的组织编码在当前组织树里找不到。组织编码创建后不可变更,拼写差一位就无法匹配。",
+        "fix": "核对下方候选组织并改用正确编码;确属新组织时先在「组织管理」中建立,再重新导入。",
+        "count": 2,
+        "rows": [
+          3,
+          4
+        ],
+        "samples": [
+          {
+            "row": 3,
+            "field": "orgCode",
+            "message": "组织编码不存在: SH1"
+          },
+          {
+            "row": 4,
+            "field": "orgCode",
+            "message": "组织编码不存在: SH1"
+          }
+        ]
+      },
+      {
+        "category": "ACCOUNT_CODE_UNKNOWN",
+        "label": "科目编码不存在",
+        "explanation": "文件中的科目编码在当前科目树里找不到,可能是手误或该科目已被删除。",
+        "fix": "核对下方候选科目并改用正确编码;确属新科目时先在「科目管理」中建立,再重新导入。",
+        "count": 1,
+        "rows": [
+          5
+        ],
+        "samples": [
+          {
+            "row": 5,
+            "field": "accountCode",
+            "message": "科目编码不存在: I011"
+          }
+        ]
+      },
+      {
+        "category": "AMOUNT_FORMAT",
+        "label": "金额格式不正确",
+        "explanation": "金额必须是十进制数字。界面与模板口径为万元两位小数(对应百元精度);允许负数表示冲减或冲回。",
+        "fix": "去掉千分位、货币符号与单位文字,保留两位小数后重新填写。",
+        "count": 1,
+        "rows": [
+          7
+        ],
+        "samples": [
+          {
+            "row": 7,
+            "field": "amount",
+            "message": "金额格式不正确: 1,200.00(最多两位小数)"
+          }
+        ]
+      },
+      {
+        "category": "DUPLICATE_ROW",
+        "label": "重复行",
+        "explanation": "同一组合(年度 + 截止日期 + 组织 + 科目)在文件中出现了多次,系统无法判断应采用哪一行。",
+        "fix": "合并重复行后只保留一行;若确实需要分笔记录,请在填报前自行合计。",
+        "count": 1,
+        "rows": [
+          6
+        ],
+        "samples": [
+          {
+            "row": 6,
+            "field": "accountCode",
+            "message": "与第 5 行重复(同组织科目组合)"
+          }
+        ]
+      },
+      {
+        "category": "ORG_NOT_LEAF",
+        "label": "组织不是叶子节点",
+        "explanation": "只有叶子组织可以填报数据,上级组织的数值由系统按组织树汇总得出。",
+        "fix": "把金额拆到该组织下的各个叶子组织分别填报,不要在汇总组织上直接填数。",
+        "count": 1,
+        "rows": [
+          9
+        ],
+        "samples": [
+          {
+            "row": 9,
+            "field": "orgCode",
+            "message": "组织 EAST 不是叶子组织"
+          }
+        ]
+      }
+    ],
+    "unmatched": {
+      "org": [
+        {
+          "kind": "org",
+          "code": "SH1",
+          "rows": [
+            3,
+            4
+          ],
+          "candidates": [
+            {
+              "id": 3,
+              "code": "SH",
+              "name": "上海公司",
+              "isLeaf": true,
+              "status": "active",
+              "score": 0.92,
+              "reason": "编码前缀一致;可填报的末级节点"
+            }
+          ]
+        }
+      ],
+      "account": [
+        {
+          "kind": "account",
+          "code": "I011",
+          "rows": [
+            5
+          ],
+          "candidates": [
+            {
+              "id": 2,
+              "code": "I01",
+              "name": "主营业务收入",
+              "isLeaf": true,
+              "status": "active",
+              "type": "income",
+              "score": 0.92,
+              "reason": "编码前缀一致;可填报的末级节点"
+            },
+            {
+              "id": 1,
+              "code": "I",
+              "name": "收入",
+              "isLeaf": false,
+              "status": "active",
+              "type": "income",
+              "score": 0.9,
+              "reason": "编码前缀一致;汇总节点,不可直接填报"
+            },
+            {
+              "id": 4,
+              "code": "C01",
+              "name": "主营业务成本",
+              "isLeaf": true,
+              "status": "active",
+              "type": "cost",
+              "score": 0.52,
+              "reason": "编码相似度 50%;可填报的末级节点"
+            }
+          ]
+        }
+      ]
+    },
+    "duplicates": [
+      {
+        "row": 6,
+        "field": "accountCode",
+        "message": "与第 5 行重复(同组织科目组合)",
+        "firstRow": 5
+      }
+    ],
+    "nextSteps": [
+      "先处理 1 个未匹配组织编码与 1 个未匹配科目编码,按候选建议逐个确认",
+      "合并 1 处重复行后重新导入",
+      "按万元两位小数(金额)与四位小数(数量)修正格式,去掉千分位与单位文字"
+    ],
+    "notes": [
+      "错误解释与处理建议为后端固化口径,模型不可用时同样可用",
+      "匹配建议基于当前组织树/科目树的编码与名称相似度,仅为建议,需人工确认后再改文件",
+      "导入只有在预览通过并人工确认后才写入;全部错误行都会阻止本次导入,不存在半成功写入",
+      "金额界面口径为万元两位小数(百元精度),数量最多四位小数"
+    ]
+  },
+  "pageContextExamples": {
+    "alignedRequest": {
+      "message": "这个页面的完成情况怎么样",
+      "pageContext": {
+        "schemaVersion": 2,
+        "snapshotId": "ctx-demo-aligned",
+        "pageKey": "analysis",
+        "routeInstanceId": "route-analysis-demo",
+        "contextVersion": 4,
+        "scope": {
+          "year": 2026,
+          "budgetVersionId": 3,
+          "actualSnapshotId": 18,
+          "orgScopeId": 7
+        },
+        "view": {
+          "sheetKey": "all",
+          "summaryLevel": "all",
+          "threshold": 20
+        },
+        "surfaces": [],
+        "focus": null,
+        "selection": null,
+        "draft": null
+      }
+    },
+    "explicitOverrideResponse": {
+      "contextStatus": "explicit_override",
+      "effectiveContext": {
+        "pageKey": "analysis",
+        "pageLabel": "预算执行分析",
+        "year": 2025,
+        "budgetVersionId": 8,
+        "view": {
+          "sheetKey": "all"
+        }
+      },
+      "contextSummary": "预算执行分析 · 2025 年 · 2025 年预算 V2",
+      "contextTrace": {
+        "used": [
+          {
+            "field": "year",
+            "value": 2025,
+            "origin": "message",
+            "reason": "命中年度「2025 年」"
+          }
+        ],
+        "overrides": [
+          {
+            "field": "year",
+            "from": 2026,
+            "to": 2025,
+            "reason": "问题明确指定 2025 年"
+          }
+        ],
+        "warnings": []
+      },
+      "capability": "execution",
+      "draftApplied": null
+    },
+    "verificationFocusRequest": {
+      "message": "这个核验为什么没通过",
+      "pageContext": {
+        "schemaVersion": 2,
+        "snapshotId": "ctx-demo-verification",
+        "pageKey": "structure",
+        "routeInstanceId": "route-structure-demo",
+        "contextVersion": 7,
+        "scope": {
+          "year": 2026,
+          "budgetVersionId": 3,
+          "actualSnapshotId": 18
+        },
+        "view": {
+          "sheetKey": "all",
+          "summaryLevel": "all",
+          "basisMode": "budget"
+        },
+        "focus": {
+          "kind": "fact",
+          "factType": "verification",
+          "ownerKey": "structure:root",
+          "factKey": "subtotal"
+        }
+      },
+      "note": "客户端不发送或不信任核验 label、level、details 和展示金额；后端按 ownerKey/factKey 重取 verificationFacts。"
+    },
+    "draftRequest": {
+      "message": "按未保存修改重新算利润影响",
+      "pageContext": {
+        "schemaVersion": 2,
+        "snapshotId": "ctx-demo-draft",
+        "pageKey": "budget_edit",
+        "routeInstanceId": "route-budget-3",
+        "contextVersion": 12,
+        "scope": {
+          "year": 2026,
+          "budgetVersionId": 3
+        },
+        "view": {
+          "sheetKey": "profit"
+        },
+        "draft": {
+          "kind": "budget_grid",
+          "base": {
+            "versionId": 3,
+            "revision": 12
+          },
+          "changes": [
+            {
+              "orgId": 7,
+              "accountId": 21,
+              "amount": "125.00"
+            }
+          ]
+        }
+      }
+    },
+    "draftResponseExcerpt": {
+      "contextStatus": "aligned",
+      "capability": "budget",
+      "draftApplied": {
+        "kind": "budget_grid",
+        "baseline": "版本 #3 · 修订 12",
+        "changeCount": 1,
+        "issueCount": 0
+      },
+      "facts": [
+        {
+          "type": "draft_impact",
+          "data": {
+            "totalDeltaCents": 2500000,
+            "accountDeltas": [
+              {
+                "accountId": 21,
+                "deltaCents": 2500000
+              }
+            ],
+            "metricDeltas": []
+          }
+        }
+      ],
+      "privacy": "响应、模型输入、ai_message 和 operation_log 中不包含原始 draft.changes 或 changedCells。"
+    },
+    "capabilityNoticeExcerpt": {
+      "contextStatus": "aligned",
+      "capability": "master_data",
+      "notices": [
+        "当前页面不提供执行分析能力，请前往「本年执行」页面后再提问。"
+      ]
+    }
+  },
+  "v2Errors": {
+    "contextInvalid": {
+      "status": 400,
+      "body": {
+        "code": "CONTEXT_INVALID",
+        "message": "预算版本 #99999 不存在",
+        "details": {
+          "snapshotId": "ctx-demo-error",
+          "field": "budgetVersionId",
+          "reason": "客户端传入的版本 ID 未通过数据库核验"
+        }
+      }
+    },
+    "contextStale": {
+      "status": 409,
+      "body": {
+        "code": "CONTEXT_STALE",
+        "message": "单元格焦点属于版本 #2，当前页面是版本 #3",
+        "details": {
+          "snapshotId": "ctx-demo-error",
+          "field": "focus",
+          "reason": "焦点与当前页面范围不一致"
+        }
+      }
+    },
+    "contextConflict": {
+      "status": 409,
+      "body": {
+        "code": "CONTEXT_CONFLICT",
+        "message": "页面年度 2026 与实际快照 #11(2025 年)不一致",
+        "details": {
+          "snapshotId": "ctx-demo-error",
+          "field": "actualSnapshotId",
+          "reason": "年度与快照年度冲突"
+        }
+      }
+    },
+    "contextTooLarge": {
+      "status": 413,
+      "body": {
+        "code": "CONTEXT_TOO_LARGE",
+        "message": "选区引用超过 500 项，请改用 bounds 或 query 表达"
+      }
+    },
+    "draftStale": {
+      "status": 409,
+      "body": {
+        "code": "DRAFT_STALE",
+        "message": "预算草稿基线已变化，请刷新页面后重试"
+      }
+    }
+  },
+  "chatWithModelRouting": {
+    "conversationId": 2,
+    "text": "上海公司收入未达预算是主要原因，差异 -170.00 万元。",
+    "facts": [
+      {
+        "type": "tool:calculate_attribution",
+        "data": {
+          "totals": {
+            "varianceCents": -1700000,
+            "favorable": "unfavorable"
+          }
+        },
+        "source": {
+          "year": 2026,
+          "budgetVersionId": 3,
+          "actualSnapshotId": 18,
+          "asOf": "2026-06-30"
+        }
+      }
+    ],
+    "citations": [
+      {
+        "source": "tool:calculate_attribution",
+        "asOf": "2026-06-30",
+        "year": 2026,
+        "budgetVersionId": 3,
+        "actualSnapshotId": 18
+      }
+    ],
+    "suggestions": [
+      "生成执行月报(含归因与异常)",
+      "把本次分析结果保存为洞察"
+    ],
+    "action": null,
+    "navigation": null,
+    "resolvedContext": {
+      "year": 2026,
+      "budgetVersionId": 3
+    },
+    "resolution": [
+      {
+        "field": "budgetVersionId",
+        "value": 3,
+        "origin": "conversation",
+        "reason": "沿用上一轮的版本",
+        "label": "V1"
+      }
+    ],
+    "routing": "model",
+    "intents": {
+      "read": [
+        "attribution"
+      ],
+      "write": [],
+      "suppressed": [
+        "execution"
+      ]
+    },
+    "modelError": null
+  },
+  "chatWithProposedAction": {
+    "conversationId": 3,
+    "text": "可以把版本 #3 复制成 2027 年草案并整体增长 5%。已生成参数建议，确认后才会写入。",
+    "facts": [],
+    "citations": [],
+    "suggestions": [
+      "以上一版预算或实际为基准生成草案（需确认）"
+    ],
+    "action": {
+      "type": "copy_budget",
+      "params": {
+        "sourceVersionId": 3,
+        "targetYear": 2027,
+        "name": "2027 年草案",
+        "growthRate": 0.05
+      },
+      "source": "model",
+      "previewable": true,
+      "reason": "用户要求复制 V2 到 2027 并整体增长 5%"
+    },
+    "navigation": null,
+    "resolvedContext": {
+      "year": 2026,
+      "budgetVersionId": 3
+    },
+    "resolution": [
+      {
+        "field": "budgetVersionId",
+        "value": 3,
+        "origin": "request",
+        "reason": "前端显式传入",
+        "label": "V2"
+      }
+    ],
+    "routing": "model",
+    "intents": {
+      "read": [],
+      "write": [
+        "copy_budget"
+      ],
+      "suppressed": []
+    },
+    "modelError": null
+  }
+}

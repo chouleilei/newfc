@@ -1,0 +1,60 @@
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+server.log
+
+# Dependency directories
+node_modules/
+
+# Build artifacts
+dist/
+build/
+backend/dist/
+frontend/dist/
+*.tsbuildinfo
+gui-test-screenshots/
+frontend/test-results/
+frontend/playwright-report/
+backend/test-results/
+
+# ZCode 会话内部产物(计划文件等)
+.zcode/
+
+# SQLite Databases & Data
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+backend/data/
+data/
+backups/
+
+# 真实财务导出原件只留本地,不入库(测试夹具在 backend/tests/fixtures/ 下不受影响)
+/*.xlsx
+
+# 本地临时体验产物,不入库
+/*.html
+/示例图片.png
+
+# Local Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+design-previews/
+.e2e-dist/
+dist.new/
+dist.old/

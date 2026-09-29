@@ -1,0 +1,7 @@
+import fs from 'fs';
+import { args,database,required } from './finance-cli';
+import { getSourceProfileByCode } from '../src/modules/finance-import/source-profile.service';
+import { adapterFor } from '../src/modules/finance-import/parser/fixed-finance-system';
+
+async function main(){const a=args(),db=database(a),profile=getSourceProfileByCode(db,required(a,'profile'));const file=fs.readFileSync(required(a,'file'));const year=Number(required(a,'year')),snapshotDate=required(a,'snapshot-date'),config=JSON.parse(profile.config_json),adapter=adapterFor(profile.adapter_type),context={year,snapshotDate,config};const rows=await adapter.parseBalance(file,context);const uniqueAccounts=[...new Map(rows.map(r=>[`${r.accountCode}|${r.accountName}`,{code:r.accountCode,name:r.accountName,auxiliaryKeys:Object.keys(r.auxiliary)}])).values()];const uniqueOrgs=[...new Map(rows.map(r=>[`${r.bookCode}|${r.orgCode}|${r.orgName}`,{bookCode:r.bookCode,orgCode:r.orgCode,orgName:r.orgName}])).values()];const journalVerification=a.journal&&adapter.verifyJournal?await adapter.verifyJournal(fs.readFileSync(a.journal),rows,context):undefined;console.log(JSON.stringify({adapterType:profile.adapter_type,year,snapshotDate,sheetNames:[...new Set(rows.map(r=>r.sourceSheet))],rowCount:rows.length,sourceAccounts:uniqueAccounts,organizations:uniqueOrgs,...(journalVerification?{journalVerification}:{})},null,2));db.close();}
+main().catch(e=>{console.error(e instanceof Error?e.message:e);process.exit(1);});

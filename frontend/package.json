@@ -1,0 +1,41 @@
+{
+  "name": "budget-frontend",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "test:fast": "vitest run src/utils src/hooks",
+    "build:e2e": "tsc -b && vite build --outDir .e2e-dist --emptyOutDir",
+    "e2e": "playwright test --workers=1",
+    "e2e:smoke": "playwright test --workers=1 finance-import navigation-expansion fullscreen grid-interaction analysis-functional",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/fraunces": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@tanstack/react-query": "^5.59.0",
+    "antd": "^5.21.0",
+    "dayjs": "^1.11.13",
+    "echarts": "^6.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.3",
+    "remixicon": "^4.9.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@testing-library/react": "^14.3.1",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.9"
+  }
+}
