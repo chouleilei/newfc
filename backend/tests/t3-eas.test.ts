@@ -180,8 +180,15 @@ describe('T-3 EAS 导入与原件', () => {
     expect(body.code).toBe('EAS_COMPANY_UNRESOLVED');
     expect(body.details.candidates).toEqual([{ code: 'SH', name: '上海公司' }]);
 
+    // 登记 eas 来源映射后,同一名称按映射解析
+    const map = await post(base, admin, '/api/master/mappings', { sourceSystem: 'eas', entityType: 'org', matchKind: 'name', sourceKey: '上海', targetId: fx.orgIds.shanghai });
+    expect(map.status, await map.clone().text()).toBe(201);
+    const mapped = await importFile(base, admin, 'voucher', voucher({ company: '上海' }), 'v.csv');
+    expect(mapped.status).toBe(201);
+    expect((await mapped.json() as any).orgId).toBe(fx.orgIds.shanghai);
+
     // 按组织编码导入、以及页面所选组织不一致
-    expect((await importFile(base, admin, 'voucher', voucher({ company: 'SH' }), 'v.csv')).status).toBe(201);
+    expect((await importFile(base, admin, 'voucher', voucher({ company: 'SH', fee: '2.00' }), 'v.csv')).status).toBe(201);
     const mismatch = await importFile(base, admin, 'voucher', voucher({ company: 'SH', fee: '1.00' }), 'v2.csv', { orgId: String(fx.orgIds.hangzhou) });
     expect((await mismatch.json() as any).code).toBe('EAS_ORG_MISMATCH');
   });

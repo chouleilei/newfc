@@ -101,7 +101,7 @@ T-2 实施要点：
 规则：
 - 解析支持 CSV（UTF-8/BOM）与 xlsx，按表头别名定位列。先全量校验：
   - 必填列；
-  - 公司通过 `resolveEntity(org, sourceSystem='EAS')` 唯一解析；
+  - 公司通过 `resolveEntity(org, sourceSystem='eas')` 唯一解析；
   - 单一公司、单一期间；
   - 凭证日期与期间一致；
   - 凭证只能单边记账，同一凭证借贷平衡；

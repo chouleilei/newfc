@@ -21,10 +21,11 @@ import type {
   EasDataType, EasImportForm, EasLockRequest, EasPeriodLockDto, EasPeriodStatusDto, EasPrecheckRequest, EasReconResultDto,
   EasReconSetDto, EasRuleStatus,
 } from '../../contracts/eas';
-import { onEasCompanyUnresolved, onEasPrecheck } from './eas.hooks';
 
 const nowIso = () => new Date().toISOString();
 const TOLERANCE = 1n;
+/** 主数据映射的来源系统标识(映射要求小写)。 */
+export const EAS_SOURCE_SYSTEM = 'eas';
 const REQUIRED_TYPES: EasDataType[] = ['voucher', 'balance', 'auxiliary'];
 const PENDING_CORRECTION = ['submitted', 'candidate_import', 'pending_review'];
 
@@ -149,13 +150,13 @@ function currentSetRow(db: DB, orgId: number, period: string): SetRow | undefine
 
 /* ================= 导入 ================= */
 
-/** EAS 公司 → 组织:只接受精确编码、精确名称或显式映射(sourceSystem=EAS);去后缀的模糊匹配不自动采用。 */
+/** EAS 公司 → 组织:只接受精确编码、精确名称或显式映射(sourceSystem=eas);去后缀的模糊匹配不自动采用。 */
 export function resolveEasCompany(db: DB, company: string): { orgId: number } {
-  const result = resolveEntity(db, 'org', { code: company, name: company, sourceSystem: 'EAS' });
+  const result = resolveEntity(db, 'org', { code: company, name: company, sourceSystem: EAS_SOURCE_SYSTEM });
   if (result.targetId && ['exact_code', 'mapping_code', 'exact_name', 'mapping_name'].includes(result.matchedBy)) return { orgId: result.targetId };
   const candidates = result.candidates.length ? result.candidates : result.targetId ? [{ id: result.targetId, code: result.targetCode ?? '', name: result.targetName ?? '' }] : [];
   throw new AppError('EAS_COMPANY_UNRESOLVED',
-    `文件中的公司“${company}”无法唯一确定组织:请在主数据映射中为来源系统 EAS 登记该名称,或使用组织编码`, 422, undefined,
+    `文件中的公司“${company}”无法唯一确定组织:请在主数据映射中为来源系统 eas 登记该名称,或使用组织编码`, 422, undefined,
     { company, matchedBy: result.matchedBy, candidates: candidates.map((c) => ({ code: c.code, name: c.name })) });
 }
 
@@ -164,13 +165,7 @@ export interface EasImportInput { content: Buffer; fileName: string; contentType
 export async function importEasFile(db: DB, store: ObjectStore, input: EasImportInput): Promise<EasBatchDto> {
   const table = await readTable(input.content, input.fileName);
   const parsed = parseEasTable(table, input.form.dataType);
-  let orgId: number;
-  try {
-    orgId = resolveEasCompany(db, parsed.company).orgId;
-  } catch (err) {
-    onEasCompanyUnresolved(db, { company: parsed.company, period: parsed.period, dataType: parsed.dataType, fileName: input.fileName });
-    throw err;
-  }
+  const { orgId } = resolveEasCompany(db, parsed.company);
   if (!orgInScope(scope(db), orgId)) {
     throw new AppError('SCOPE_RESTRICTED', '文件中的公司不在当前账号的授权组织范围内', 403);
   }
@@ -407,9 +402,7 @@ function precheckInTx(db: DB, orgId: number, period: string, batchIds: number[] 
       .run(setId, status === 'passed' ? 'pending_review' : 'candidate_import', correction.id);
   }
   writeLog(db, 'eas.precheck', 'eas_recon_set', setId, { orgId, period, status, errorCount, warningCount, correctionId: correction?.id ?? null });
-  const row = db.prepare('SELECT * FROM eas_recon_set WHERE id = ?').get(setId) as SetRow;
-  onEasPrecheck(db, row, results);
-  return row;
+  return db.prepare('SELECT * FROM eas_recon_set WHERE id = ?').get(setId) as SetRow;
 }
 
 export function precheck(db: DB, input: EasPrecheckRequest): EasReconSetDto {
