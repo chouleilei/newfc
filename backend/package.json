@@ -23,7 +23,8 @@
     "migrate:dist": "node dist/db/migrate-cli.js",
     "admin:create": "node dist/modules/security/admin-cli.js create",
     "admin:reset-password": "node dist/modules/security/admin-cli.js reset-password",
-    "admin:create:dev": "ts-node src/modules/security/admin-cli.ts create"
+    "admin:create:dev": "ts-node src/modules/security/admin-cli.ts create",
+    "resource:baseline": "node -r ts-node/register/transpile-only scripts/resource-baseline.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
