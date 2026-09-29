@@ -24,6 +24,7 @@ import { MAX_RECENTS } from '../utils/userPrefs';
 import { relativeTime } from '../utils/relativeTime';
 import type { ScopeIssue } from '../utils/workspaceScope';
 import { buildNextActions, type NextAction } from './dashboard/nextActions';
+import { StatementSummaryCard } from './dashboard/StatementSummaryCard';
 import type { ChartSemanticClick } from '../components/EChart';
 
 /**
@@ -847,6 +848,9 @@ export default function Dashboard() {
         batches={monthBatches}
         loading={monthBatchesLoading || year == null}
       />
+
+      {/* 财报摘要(T-3):有财报读权限且存在当前批次时显示 */}
+      <StatementSummaryCard />
 
       {/* 页头:年度切换与数据口径 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>

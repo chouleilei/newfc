@@ -46,6 +46,11 @@ const SecurityAdmin = lazyWithRetry(() => import('./pages/SecurityAdmin'));
 const SettingsBusiness = lazyWithRetry(() => import('./pages/SettingsBusiness'));
 const MasterEntities = lazyWithRetry(() => import('./pages/MasterEntities'));
 const JobsCenter = lazyWithRetry(() => import('./pages/JobsCenter'));
+const EasWorkspace = lazyWithRetry(() => import('./pages/financeData/EasWorkspace'));
+const Governance = lazyWithRetry(() => import('./pages/financeData/Governance'));
+const Statements = lazyWithRetry(() => import('./pages/financeData/Statements'));
+const ManagementAccounting = lazyWithRetry(() => import('./pages/ManagementAccounting'));
+const StandardReports = lazyWithRetry(() => import('./pages/StandardReports'));
 
 const { Sider, Header, Content, Footer } = Layout;
 
@@ -58,7 +63,7 @@ const DEFAULT_OPEN = ['grp-plan', 'grp-actual', 'grp-analysis', 'grp-fav'];
  * 「一条图标列 + 一条文字列」。折叠成图标栏时子菜单走浮层,纯文字子项不受影响。
  * 分组结构、路由与 dataMenuKey 逻辑保持不变(本方案只做对齐,不再分组)。
  */
-const menuItems: MenuProps['items'] = [
+export const menuItems: MenuProps['items'] = [
   { key: '/', icon: <i className="ri-dashboard-line" aria-hidden />, label: '首页' },
   {
     key: 'grp-ai',
@@ -109,6 +114,19 @@ const menuItems: MenuProps['items'] = [
     ],
   },
   {
+    key: 'grp-finance',
+    icon: <i className="ri-bank-line" aria-hidden />,
+    label: '财务数据',
+    /* T-3(AC-F05/F06/F10):EAS 原始事实、数据治理与财务报表;与预算实际数(「实际」组)是两条事实链。 */
+    children: [
+      { key: '/eas', label: 'EAS 工作区' },
+      { key: '/governance', label: '数据治理' },
+      { key: '/statements', label: '财务报表' },
+    ],
+  },
+  { key: '/mgmt', icon: <i className="ri-scales-3-line" aria-hidden />, label: '管理会计' },
+  { key: '/standard-reports', icon: <i className="ri-file-list-3-line" aria-hidden />, label: '标准报表' },
+  {
     key: 'grp-master',
     icon: <i className="ri-organization-chart" aria-hidden />,
     label: '主数据',
@@ -157,6 +175,11 @@ export const MENU_PERMISSION: Record<string, string> = {
   '/metric-trend': 'analysis:read',
   '/history': 'analysis:read',
   '/compare': 'analysis:read',
+  '/eas': 'eas:read',
+  '/governance': 'governance:read',
+  '/statements': 'statements:read',
+  '/mgmt': 'mgmt:read',
+  '/standard-reports': 'report:read',
   '/org': 'master:read',
   '/account': 'master:read',
   '/metric': 'master:read',
@@ -262,7 +285,7 @@ export function selectedKey(pathname: string, search: string): string {
     return '/';
   }
   if (seg === '/data') return dataMenuKey(new URLSearchParams(search).get('tab'));
-  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs'];
+  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs', '/eas', '/governance', '/statements', '/mgmt', '/standard-reports'];
   return leaves.includes(seg) ? seg : '/';
 }
 
@@ -837,6 +860,11 @@ function getRouter() {
       { path: 'settings/business', element: <SettingsBusiness /> },
       { path: 'master-entities', element: <MasterEntities /> },
       { path: 'jobs', element: <JobsCenter /> },
+      { path: 'eas', element: <EasWorkspace /> },
+      { path: 'governance', element: <Governance /> },
+      { path: 'statements', element: <Statements /> },
+      { path: 'mgmt', element: <ManagementAccounting /> },
+      { path: 'standard-reports', element: <StandardReports /> },
       { path: 'org', element: <OrgManage /> },
       { path: 'account', element: <AccountManage /> },
       { path: 'metric', element: <MetricManage /> },
