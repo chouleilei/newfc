@@ -59,6 +59,7 @@ import { registerEasRoutes } from './modules/eas/routes';
 import { registerGovernanceRoutes } from './modules/governance/routes';
 import { registerStatementRoutes } from './modules/statements/routes';
 import { registerMgmtRoutes } from './modules/mgmt/routes';
+import { registerStandardReportRoutes } from './modules/standard-reports/routes';
 import { ObjectStore } from './modules/files/object-store';
 import { currentCellOrgId, currentOrgScopeId, orgInScope, resolveOrgScope } from './modules/security/scope';
 import { insertModelCall } from './modules/jobs/model-calls';
@@ -261,6 +262,7 @@ export async function createApp(opts: ServerOptions) {
   registerGovernanceRoutes(app, db, wrap);
   registerStatementRoutes(app, db, wrap, () => objectStore);
   registerMgmtRoutes(app, db, wrap);
+  registerStandardReportRoutes(app, db, wrap);
   app.get('/api/settings/business', wrap((_req, res) => res.json({ items: listBusinessSettings(db()) })));
   app.put('/api/settings/business', wrap((req, res) => res.json({ items: saveBusinessSettings(db(), req.body) })));
 

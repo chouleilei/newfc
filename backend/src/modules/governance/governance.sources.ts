@@ -28,7 +28,7 @@ export function sha256Json(value: unknown): string {
 
 const issueKey = (...parts: (string | number | null)[]) => sha256Json(parts.map((p) => (p === null ? '' : String(p))));
 
-const RULE_LABELS: Record<string, string> = {
+export const RULE_LABELS: Record<string, string> = {
   required_files: '三类文件齐全', voucher_balance_movement: '凭证与余额发生额一致', period_continuity: '跨期连续', auxiliary_requirements: '辅助核算要求',
 };
 

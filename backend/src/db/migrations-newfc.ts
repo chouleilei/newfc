@@ -849,4 +849,42 @@ CREATE TRIGGER trg_ma_perf_score_original_u BEFORE UPDATE OF scheme_id, scheme_v
 BEGIN SELECT RAISE(ABORT, '绩效原始评分不可修改'); END;
 `,
   },
+  {
+    version: 48,
+    name: 'standard_reports',
+    sql: `
+/* standard_reports(AC-F19,T-3):生成时冻结列、行、摘要与来源引用,此后页面与导出只读冻结内容。
+   org_id 为空表示全组织口径。冻结内容由触发器保护,复核只改 status/review_*。 */
+CREATE TABLE std_report (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_type TEXT NOT NULL CHECK (report_type IN ('budget_execution','statement_summary','eas_recon')),
+  title TEXT NOT NULL,
+  org_id INTEGER REFERENCES org(id),
+  period TEXT NOT NULL,
+  params_json TEXT NOT NULL,
+  columns_json TEXT NOT NULL,
+  rows_json TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  sources_json TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'generated' CHECK (status IN ('generated','reviewed')),
+  generated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  generated_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1))
+);
+CREATE INDEX idx_std_report_type ON std_report(report_type, period);
+CREATE INDEX idx_std_report_org ON std_report(org_id);
+CREATE TRIGGER trg_std_report_frozen_u BEFORE UPDATE OF report_type, title, org_id, period, params_json, columns_json, rows_json, summary_json,
+  sources_json, content_sha256, generated_by_user_id, generated_at ON std_report
+BEGIN SELECT RAISE(ABORT, '标准报表冻结内容不可修改'); END;
+CREATE TRIGGER trg_std_report_review_once BEFORE UPDATE OF status ON std_report
+WHEN NOT (OLD.status = 'generated' AND NEW.status = 'reviewed')
+BEGIN SELECT RAISE(ABORT, '标准报表只能复核一次'); END;
+CREATE TRIGGER trg_std_report_d BEFORE DELETE ON std_report BEGIN SELECT RAISE(ABORT, '标准报表不可删除'); END;
+`,
+  },
 ];
