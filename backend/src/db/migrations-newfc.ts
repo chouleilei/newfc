@@ -240,4 +240,13 @@ CREATE INDEX idx_ai_action_owner ON ai_action(owner_user_id);
 CREATE INDEX idx_ai_insight_owner ON ai_insight(owner_user_id);
 `,
   },
+  {
+    version: 43,
+    name: 'import_batch_operator',
+    sql: `
+/* AC-X05 / data-contracts「导入预览绑定操作者」:预览记录创建人,确认时核对。
+   迁移前的遗留预览(为空)不做核对;删除用户时置空。 */
+ALTER TABLE import_batch ADD COLUMN created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL;
+`,
+  },
 ];

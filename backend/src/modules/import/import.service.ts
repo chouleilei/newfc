@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { DB } from '../../db/connection';
-import { Errors } from '../../core/errors';
+import { AppError, Errors } from '../../core/errors';
+import { currentAuth } from '../../core/request-context';
 import { centsToYuanString, isQuantityType, scaledToQuantityString, signOfType, type AccountType } from '../../core/money';
 import * as budget from '../budget/budget.service';
 import * as actual from '../actual/actual.service';
@@ -30,6 +31,8 @@ export interface ImportBatchRow {
   after_json: string;
   result_json: string;
   created_at: string;
+  /** V43:预览创建人;迁移前遗留批次为空 */
+  created_by_user_id?: number | null;
   committed_at: string | null;
   rolled_back_at: string | null;
 }
@@ -93,9 +96,9 @@ export function createBatch(
   db.transaction(() => {
     const res = db.prepare(
       `INSERT INTO import_batch
-        (kind, status, target_version_id, history, original_name, sha256, file_blob, payload_json, summary_json, cleaning_plan_json, created_at)
-       VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(input.kind, input.targetVersionId ?? null, input.history ? 1 : 0, input.originalName.slice(0, 255), digest, input.file, JSON.stringify(input.payload), JSON.stringify({ ...input.summary, previewBaseline, ...(input.preview ? { unifiedPreview: input.preview.summary } : {}) }), JSON.stringify(input.cleaningPlan ?? {}), now);
+        (kind, status, target_version_id, history, original_name, sha256, file_blob, payload_json, summary_json, cleaning_plan_json, created_at, created_by_user_id)
+       VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(input.kind, input.targetVersionId ?? null, input.history ? 1 : 0, input.originalName.slice(0, 255), digest, input.file, JSON.stringify(input.payload), JSON.stringify({ ...input.summary, previewBaseline, ...(input.preview ? { unifiedPreview: input.preview.summary } : {}) }), JSON.stringify(input.cleaningPlan ?? {}), now, currentAuth()?.userId ?? null);
     info.id = Number(res.lastInsertRowid);
     if (input.preview) insertPreviewDetails(db, info.id, input.preview.details, now);
     writeLog(db, 'import.preview', 'import_batch', info.id, { kind: input.kind, sha256: digest, originalName: input.originalName, ...input.summary });
@@ -181,9 +184,21 @@ function financeBaseline(db: DB, payload: ActualPayload): string {
   return crypto.createHash('sha256').update(JSON.stringify(rows.filter((row) => keys.has(`${row.year}:${row.org_id}:${row.account_id}`)))).digest('hex');
 }
 
+/**
+ * 预览绑定操作者:别人的预览不能代为确认或取消(文件、范围与基线是按预览人的授权核对的)。
+ * 无身份的系统调用(过期清理、CLI)与迁移前无创建人的遗留批次不受限。
+ */
+function assertPreviewOwner(batch: ImportBatchRow, action: string): void {
+  const auth = currentAuth();
+  if (auth && batch.created_by_user_id != null && batch.created_by_user_id !== auth.userId) {
+    throw new AppError('PREVIEW_OWNER_MISMATCH', `该导入预览由其他用户创建,只能由创建人${action};请自行上传并预览`, 409);
+  }
+}
+
 export function commitBatch(db: DB, id: number): ImportBatchRow {
   const batch = getBatch(db, id);
   if (batch.status !== 'pending') throw Errors.conflict(`导入批次状态为 ${batch.status},不能重复确认`);
+  assertPreviewOwner(batch, '确认');
   const now = new Date().toISOString();
   let before: unknown[] = [];
   let after: unknown[] = [];
@@ -357,6 +372,7 @@ export function rollbackBatch(db: DB, id: number): ImportBatchRow {
 export function cancelBatch(db: DB, id: number): void {
   const batch = getBatch(db, id);
   if (batch.status !== 'pending') throw Errors.conflict('只有待确认的导入预览可以取消');
+  assertPreviewOwner(batch, '取消');
   db.transaction(() => {
     db.prepare('DELETE FROM import_cleaning_preview_row WHERE import_batch_id = ?').run(id);
     // 统一预览明细遵循同一清理政策:取消即删除明细,批次摘要与审计保留
