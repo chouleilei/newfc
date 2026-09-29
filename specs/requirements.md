@@ -34,12 +34,12 @@
 |---|---|---|---|---|
 | `platform_auth` | 改造继承登录为用户会话、Cookie/CSRF 与权限上下文 | 1 | AC-F01 | 基础通过（T-1） |
 | `platform_health` | 新服务存活与就绪检查 | 0 | AC-F02 | 通过（T-0） |
-| `dashboard` | 扩展 newbd 工作台 | 2，逐域补齐至 6 | AC-F03 | 未实现/未验证 |
+| `dashboard` | 扩展 newbd 工作台 | 2，逐域补齐至 6 | AC-F03 | 基础通过（T-2），逐域补齐中 |
 | `contract_import` | 扩展文件上传、预览与合同导入 | 4 | AC-F04 | 未实现/未验证 |
 | `eas_workspace` | 财务转换基础上补原始批次、期间和更正 | 3 | AC-F05 | 未实现/未验证 |
 | `data_governance` | 扩展质量问题、处置与复核 | 3 | AC-F06 | 未实现/未验证 |
 | `master_data` | 复用组织/科目，补项目、供应商及映射 | 1，逐域扩展 | AC-F07 | 基础通过（T-1），逐域扩展中 |
-| `operating_budget` | 复用预算、实际快照与预实分析 | 2 | AC-F08 | 未实现/未验证 |
+| `operating_budget` | 复用预算、实际快照与预实分析 | 2 | AC-F08 | 通过（T-2） |
 | `project_budget` | 新增独立项目预算域 | 4 | AC-F09 | 未实现/未验证 |
 | `financial_statements` | 新增三大财报与分析 | 3 | AC-F10 | 未实现/未验证 |
 | `finance_forecast` | 补工作簿、计算版本与结果 | 5 | AC-F11 | 未实现/未验证 |
@@ -51,11 +51,11 @@
 | `risk_workflow` | 扩展异常到风险处理闭环 | 5 | AC-F17 | 未实现/未验证 |
 | `ai_reports` | 扩展洞察草稿到审核与发布 | 5 | AC-F18 | 未实现/未验证 |
 | `standard_reports` | 新增标准报告与导出 | 3 | AC-F19 | 未实现/未验证 |
-| `xiaoli_assistant` | 复用助手并接入新增领域工具 | 2，逐域扩展 | AC-F20 | 未实现/未验证 |
+| `xiaoli_assistant` | 复用助手并接入新增领域工具 | 2，逐域扩展 | AC-F20 | 基础通过（T-2），逐域接入工具 |
 | `agent_observability` | 扩展任务与模型调用记录 | 1，逐域扩展 | AC-F21 | 基础通过（T-1），逐域扩展中 |
 | `expense_audit` | 新增原生费用审核与人工复核 | 4 | AC-F22 | 未实现/未验证 |
 | `system_settings` | 复用模型渠道并扩展业务设置 | 1，逐域扩展 | AC-F23 | 基础通过（T-1），逐域扩展中 |
-| `security_administration` | 新增用户、角色与组织授权 | 1 | AC-F24 | 基础通过（T-1）；预算/看板/助手按组织裁剪待 T-2 |
+| `security_administration` | 新增用户、角色与组织授权 | 1 | AC-F24 | 基础通过（T-1）；预算/看板/下载/助手按组织裁剪已在 T-2 完成 |
 | `audit_log` | 扩展现有操作日志 | 1，逐域扩展 | AC-F25 | 通过（T-1），逐域追加动作 |
 | `cross_domain_search` | 新增有权限的跨域检索 | 6 | AC-F26 | 未实现/未验证 |
 
