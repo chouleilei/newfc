@@ -31,7 +31,8 @@
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "jszip": "^3.10.1",
-    "multer": "^2.3.0"
+    "multer": "^2.3.0",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
@@ -40,8 +41,7 @@
     "@types/node": "^20.14.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0",
-    "zod": "3.25.76"
+    "vitest": "^2.1.0"
   },
   "overrides": {
     "exceljs": {
