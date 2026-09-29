@@ -253,8 +253,8 @@ export function assertCleanBaseline(db: Database.Database): void {
 
 /** 直接运行时的门槛:默认目标是真实库,必须显式确认(E2E 夹具脚本走导出函数,不受影响)。 */
 function requireExplicitConfirm(dbPath: string): void {
-  if (process.env.BUDGET_SEED_CONFIRM !== '我确认注入模拟数据') {
-    throw new Error(`seed:simulation 将向 ${dbPath} 写入 ${YEAR} 年全组织模拟预算与实际快照。\n这是面向演示/开发库的操作。确认请设置 BUDGET_SEED_CONFIRM=我确认注入模拟数据 后重试。`);
+  if (process.env.NEWFC_SEED_CONFIRM !== '我确认注入模拟数据') {
+    throw new Error(`seed:simulation 将向 ${dbPath} 写入 ${YEAR} 年全组织模拟预算与实际快照。\n这是面向演示/开发库的操作。确认请设置 NEWFC_SEED_CONFIRM=我确认注入模拟数据 后重试。`);
   }
 }
 
@@ -267,9 +267,9 @@ export function applicableCellCount(orgs: OrgRow[], accounts: AccountRow[]): num
 }
 
 function main(): void {
-  const dbPath = process.env.BUDGET_DATA_DIR
-    ? path.join(process.env.BUDGET_DATA_DIR, 'budget.sqlite')
-    : path.join(process.cwd(), 'data', 'budget.sqlite');
+  const dbPath = process.env.NEWFC_DATA_DIR
+    ? path.join(process.env.NEWFC_DATA_DIR, 'newfc.sqlite')
+    : path.join(process.cwd(), 'data', 'newfc.sqlite');
   requireExplicitConfirm(dbPath);
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');

@@ -348,10 +348,10 @@ const TYPE_BY_PREFIX = { I: 'income', C: 'cost', E: 'expense' };
 async function main() {
   /* ---------- 登录 ---------- */
   const cfg = {
-    username: process.env.BUDGET_ACCESS_USER,
-    password: process.env.BUDGET_ACCESS_PASSWORD,
+    username: process.env.NEWFC_ACCESS_USER,
+    password: process.env.NEWFC_ACCESS_PASSWORD,
   };
-  if (!cfg.username || !cfg.password) fail('请先设置 BUDGET_ACCESS_USER 和 BUDGET_ACCESS_PASSWORD');
+  if (!cfg.username || !cfg.password) fail('请先设置 NEWFC_ACCESS_USER 和 NEWFC_ACCESS_PASSWORD');
   const loginRes = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg),
   });

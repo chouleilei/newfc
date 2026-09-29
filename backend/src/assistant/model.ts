@@ -23,9 +23,9 @@ export interface ChatModel {
 export function aiConfigurationIssue(): string | undefined {
   const baseUrl = (process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || '').trim();
   const apiKey = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
-  const accessPassword = (process.env.BUDGET_ACCESS_PASSWORD || '').trim();
+  const accessPassword = (process.env.NEWFC_ACCESS_PASSWORD || '').trim();
   if (apiKey && accessPassword && apiKey === accessPassword) {
-    return 'AI_API_KEY 不得与 BUDGET_ACCESS_PASSWORD 使用同一密钥';
+    return 'AI_API_KEY 不得与 NEWFC_ACCESS_PASSWORD 使用同一密钥';
   }
   if (!baseUrl) return undefined;
   let parsed: URL;

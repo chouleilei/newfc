@@ -4,8 +4,8 @@ import { applyMigrations, dbInitialized, pendingMigrations } from './migrations'
 import { backupDirOf, createBackup } from '../modules/backup/backup.service';
 
 async function main(): Promise<void> {
-  const dataDir = process.env.BUDGET_DATA_DIR || path.join(process.cwd(), 'data');
-  const dbPath = path.join(dataDir, 'budget.sqlite');
+  const dataDir = process.env.NEWFC_DATA_DIR || path.join(process.cwd(), 'data');
+  const dbPath = path.join(dataDir, 'newfc.sqlite');
   const db = openDatabase(dbPath);
   try {
     const pending = pendingMigrations(db);

@@ -263,7 +263,7 @@ event: done      data: {...完整结构化响应, "done":true}
 
 > 只有 POST 一个流式入口。曾经并存的 `GET /api/assistant/chat/stream` 已删除：它会创建会话、
 > 写消息与操作日志并消耗模型额度，却是个 GET——鉴权开启时浏览器 `EventSource` 无法附带
-> `x-access-token` 根本用不了，而 `BUDGET_DISABLE_AUTH=1` 的本机模式下任意站点都能用
+> `x-access-token` 根本用不了，而 `NEWFC_DISABLE_AUTH=1` 的本机模式下任意站点都能用
 > `new EventSource(...)` 跨站触发这些副作用（简单 GET 无预检，CORS 只挡读取不挡副作用）。
 > 客户端一律用 `fetch` + `ReadableStream` 读 POST 流。
 

@@ -5,20 +5,20 @@ import { ACCESS_PASSWORD, ACCESS_USER } from './tests/e2e/access';
 /**
  * E2E 需要两套互不兼容的运行环境，因此起两个后端实例、分两个 project 跑：
  *
- * - `finance`(3750,关鉴权,`finance-e2e` 夹具)：财务转换、AI 助手、表格全屏三组用例。
+ * - `finance`(3761,关鉴权,`finance-e2e` 夹具)：财务转换、AI 助手、表格全屏三组用例。
  *   它们自己用公开 API 备数据、且不走登录页，关鉴权是它们能跑通的前提。
- * - `simulation`(3751,开鉴权,全覆盖模拟夹具)：可视化审计、执行分析、深度功能审计。
+ * - `simulation`(3762,开鉴权,全覆盖模拟夹具)：可视化审计、执行分析、深度功能审计。
  *   它们从登录页真登录，并断言 26 组织 / 239 科目 / 2022–2026 五年 × 2402 单元格的完整模拟数据。
  *
  * 过去只有一个实例(关鉴权 + 最小财务夹具),后一组用例既等不到登录框、也找不到模拟数据，
  * 5 个用例长期红着且不是代码回归。数据目录都是一次性夹具，seed 时会整体重建。
  */
-const FINANCE_URL = process.env.E2E_FINANCE_BASE_URL ?? 'http://127.0.0.1:3750';
-const SIMULATION_URL = process.env.E2E_SIMULATION_BASE_URL ?? 'http://127.0.0.1:3751';
+const FINANCE_URL = process.env.E2E_FINANCE_BASE_URL ?? 'http://127.0.0.1:3761';
+const SIMULATION_URL = process.env.E2E_SIMULATION_BASE_URL ?? 'http://127.0.0.1:3762';
 const useExistingServer = process.env.E2E_USE_EXISTING_SERVER === '1';
 
 /**
- * 测试服务托管的前端产物目录。默认 frontend/dist 与 3748 生产服务共用——在此构建即等于发布。
+ * 测试服务托管的前端产物目录。默认 frontend/dist 与 3760 生产服务共用——在此构建即等于发布。
  * 验证未发布的改动时先 `npm run build:e2e`(输出到 .e2e-dist)再设 E2E_FRONTEND_DIST=.e2e-dist。
  */
 const FRONTEND_DIST = JSON.stringify(path.resolve(process.env.E2E_FRONTEND_DIST ?? 'dist'));
@@ -26,7 +26,7 @@ const FRONTEND_DIST = JSON.stringify(path.resolve(process.env.E2E_FRONTEND_DIST 
 /**
  * 现有服务器模式没有任何夹具保护:测试会对其指向的库创建/修改/删除数据(assistant 系
  * 列还会锁定版本且不清理)。误指真实服务就是生产事故,因此要求再显式声明一次
- * 「我确认目标是可丢弃的测试库」;默认 URL(3750/3751)是本仓库测试专用端口,免确认。
+ * 「我确认目标是可丢弃的测试库」;默认 URL(3761/3762)是本仓库测试专用端口,免确认。
  */
 if (useExistingServer && !process.env.E2E_TARGET_IS_DISPOSABLE) {
   const financeCustom = process.env.E2E_FINANCE_BASE_URL != null;
@@ -84,14 +84,14 @@ export default defineConfig({
   ],
   webServer: useExistingServer ? undefined : [
     {
-      command: `cd ../backend && npm run seed:finance:e2e && BUDGET_ACCESS_USER=e2e BUDGET_DISABLE_AUTH=1 BUDGET_PORT=3750 BUDGET_DATA_DIR="$PWD/data/finance-e2e" BUDGET_FRONTEND_DIST=${FRONTEND_DIST} node dist/index.js`,
+      command: `cd ../backend && npm run seed:finance:e2e && NEWFC_ACCESS_USER=e2e NEWFC_DISABLE_AUTH=1 NEWFC_PORT=3761 NEWFC_DATA_DIR="$PWD/data/finance-e2e" NEWFC_FRONTEND_DIST=${FRONTEND_DIST} node dist/index.js`,
       url: `${FINANCE_URL}/api/health`,
       reuseExistingServer: false,
       timeout: 120_000,
       env: deterministicModelEnv,
     },
     {
-      command: `cd ../backend && npm run seed:e2e:simulation && BUDGET_PORT=3751 BUDGET_DATA_DIR="$PWD/data/e2e-simulation" BUDGET_FRONTEND_DIST=${FRONTEND_DIST} node dist/index.js`,
+      command: `cd ../backend && npm run seed:e2e:simulation && NEWFC_PORT=3762 NEWFC_DATA_DIR="$PWD/data/e2e-simulation" NEWFC_FRONTEND_DIST=${FRONTEND_DIST} node dist/index.js`,
       url: `${SIMULATION_URL}/api/health`,
       reuseExistingServer: false,
       // 夹具要现建 2022–2026 五年 × 2402 单元格的预算与 20 份快照，比财务夹具慢得多。
@@ -99,9 +99,9 @@ export default defineConfig({
       env: {
         ...deterministicModelEnv,
         // 与用例共用 tests/e2e/access.ts 的默认凭据，无需任何环境变量即可跑通登录。
-        BUDGET_ACCESS_USER: ACCESS_USER,
-        BUDGET_ACCESS_PASSWORD: ACCESS_PASSWORD,
-        BUDGET_DISABLE_AUTH: '',
+        NEWFC_ACCESS_USER: ACCESS_USER,
+        NEWFC_ACCESS_PASSWORD: ACCESS_PASSWORD,
+        NEWFC_DISABLE_AUTH: '',
       },
     },
   ],

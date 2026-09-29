@@ -311,7 +311,7 @@ describe('UX-16 清洗预览恢复 HTTP 契约', () => {
   it('上传→预览→恢复→重复恢复→重新分析→全新预览闭环,旧批次不能确认', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleaning-reopen-http-'));
     tempDirs.push(dir);
-    const { app, holder, cleaningUploads } = await createApp({ dbPath: path.join(dir, 'budget.sqlite'), auth: { username: '', password: '' } });
+    const { app, holder, cleaningUploads } = await createApp({ dbPath: path.join(dir, 'newfc.sqlite'), auth: { username: '', password: '' } });
     buildFixture(holder.getDb());
     const version = budget.createVersion(holder.getDb(), { year: 2026, name: 'HTTP 恢复预算' });
     const server = app.listen(0);

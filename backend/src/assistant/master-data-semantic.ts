@@ -118,7 +118,7 @@ export async function masterDataSemanticNames(db: DB): Promise<SemanticNameRepor
     promptVersion: PROMPT_VERSION.masterDataSemantic,
   };
   if (!masterDataAiEnabled()) {
-    return { ...base, semanticAvailable: false, note: '语义命名相似建议已由 BUDGET_MASTER_DATA_AI=0 关闭,体检报告其余部分完整可用', pairs: [] };
+    return { ...base, semanticAvailable: false, note: '语义命名相似建议已由 NEWFC_MASTER_DATA_AI=0 关闭,体检报告其余部分完整可用', pairs: [] };
   }
   if (!modelConfigured()) {
     return { ...base, semanticAvailable: false, note: '未配置模型,语义命名相似建议不可用;体检报告其余部分完整可用', pairs: [] };

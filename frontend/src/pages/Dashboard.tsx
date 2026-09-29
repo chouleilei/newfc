@@ -692,7 +692,7 @@ export default function Dashboard() {
             description={[...dash.structure.org.problems, ...dash.structure.account.problems].join(';')} />
         )}
         <Card>
-          <Typography.Title level={4} style={{ marginTop: 0 }}>欢迎使用年度预算管理系统</Typography.Title>
+          <Typography.Title level={4} style={{ marginTop: 0 }}>欢迎使用 newfc 水利财务分析</Typography.Title>
           <Typography.Paragraph type="secondary">
             尚未设置任何「当前采用」的预算版本。完成必要步骤后,仪表盘将展示年度执行总览;标注「非当前前提」的配置可在需要时再处理。
           </Typography.Paragraph>

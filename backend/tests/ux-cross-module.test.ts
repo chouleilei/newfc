@@ -423,7 +423,7 @@ describe('V35 旧库迁移到最新(V38):数据保留与三类新表结构', () 
 
   it('升级只补 V36/V37/V38;旧业务数据完整;三类新表列/约束/索引正确;迁移后新链路立即可用', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ux29-migration-'));
-    const db = openDatabase(path.join(dir, 'budget.sqlite'));
+    const db = openDatabase(path.join(dir, 'newfc.sqlite'));
     try {
       applyThrough(db, 35);
       // 旧库业务数据(raw SQL,V35 列集):主数据、树快照、预算明细、实际当前与快照、已提交导入批次

@@ -13,7 +13,7 @@ async function api(
   route: string,
   data?: unknown,
 ) {
-  // 相对路径走 project 的 baseURL：写死 127.0.0.1:3748 时这套「会创建/删除数据」的用例
+  // 相对路径走 project 的 baseURL：写死 127.0.0.1:3760 时这套「会创建/删除数据」的用例
   // 会打到本机常驻实例的真实库上，而不是 harness 起的一次性夹具。
   const response = await request.fetch(`/api${route}`, {
     method,

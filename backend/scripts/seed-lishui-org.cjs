@@ -8,7 +8,7 @@
  *  4. 调用本机 API 登录并按序创建 26 个预算组织
  *  5. 校验树结构与结构检查接口
  *
- * 用法: 先导出 BUDGET_ACCESS_USER/BUDGET_ACCESS_PASSWORD，再在 backend 目录运行本脚本。
+ * 用法: 先导出 NEWFC_ACCESS_USER/NEWFC_ACCESS_PASSWORD，再在 backend 目录运行本脚本。
  * 幂等性: 若目标编码已存在则中止,不重复创建。
  */
 const path = require('path');
@@ -16,8 +16,8 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const BASE = 'http://127.0.0.1:3748';
-const DATA_DIR = process.env.BUDGET_DATA_DIR || path.join(__dirname, '..', 'data');
-const DB_PATH = path.join(DATA_DIR, 'budget.sqlite');
+const DATA_DIR = process.env.NEWFC_DATA_DIR || path.join(__dirname, '..', 'data');
+const DB_PATH = path.join(DATA_DIR, 'newfc.sqlite');
 
 /* 组织编码:层级式数字码,每级 2 位;sort_order 取码的数值,天然保序 */
 const ORG_TREE = [
@@ -61,10 +61,10 @@ function fail(msg) { console.error('FATAL: ' + msg); process.exit(1); }
 async function main() {
   /* 登录必须先于任何备份/清理操作；凭据只读取进程环境，不猜测启动脚本文本。 */
   const cfg = {
-    username: process.env.BUDGET_ACCESS_USER,
-    password: process.env.BUDGET_ACCESS_PASSWORD,
+    username: process.env.NEWFC_ACCESS_USER,
+    password: process.env.NEWFC_ACCESS_PASSWORD,
   };
-  if (!cfg.username || !cfg.password) fail('请先设置 BUDGET_ACCESS_USER 和 BUDGET_ACCESS_PASSWORD');
+  if (!cfg.username || !cfg.password) fail('请先设置 NEWFC_ACCESS_USER 和 NEWFC_ACCESS_PASSWORD');
   const loginRes = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(cfg),

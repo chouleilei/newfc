@@ -109,7 +109,7 @@ describe('阶段六:变化类型 kind 后端判别', () => {
 describe('阶段六:迁移 V31 小结与 provenance 列', () => {
   it('V30 库升级后存量记录行保留,小结列默认未生成;升级前备份保持旧 schema(回滚依据)', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'checkpoint-v31-'));
-    const dbPath = path.join(dir, 'budget.sqlite');
+    const dbPath = path.join(dir, 'newfc.sqlite');
     const db = openDatabase(dbPath);
     try {
       applyThrough(db, 30);
@@ -222,7 +222,7 @@ describe('阶段六:小结模板与异步生成', () => {
     vi.unstubAllGlobals();
     process.env.AI_BASE_URL = '';
     process.env.AI_API_KEY = '';
-    process.env.BUDGET_CHECKPOINT_AI = '';
+    process.env.NEWFC_CHECKPOINT_AI = '';
     resetNarrativeCache();
   });
 
@@ -329,11 +329,11 @@ describe('阶段六:小结模板与异步生成', () => {
     db2.close();
   });
 
-  it('BUDGET_CHECKPOINT_AI=0 时即使配置了模型也只产出模板稿', async () => {
+  it('NEWFC_CHECKPOINT_AI=0 时即使配置了模型也只产出模板稿', async () => {
     const { db, checkpointId } = checkpointWithChanges();
     process.env.AI_BASE_URL = 'http://model.test/v1';
     process.env.AI_API_KEY = 'test';
-    process.env.BUDGET_CHECKPOINT_AI = '0';
+    process.env.NEWFC_CHECKPOINT_AI = '0';
     const fetchSpy = vi.fn(async () => { throw new Error('不应调用模型'); });
     vi.stubGlobal('fetch', fetchSpy);
     scheduleCheckpointSummary(db, checkpointId);
@@ -376,7 +376,7 @@ describe('阶段六:异步任务抢占、恢复与配额', () => {
     vi.unstubAllGlobals();
     process.env.AI_BASE_URL = '';
     process.env.AI_API_KEY = '';
-    process.env.BUDGET_CHECKPOINT_AI = '';
+    process.env.NEWFC_CHECKPOINT_AI = '';
     process.env.AI_NARRATIVE_TASK_STALE_MS = '';
     process.env.AI_NARRATIVE_TASK_RETRY_MS = '';
     process.env.AI_NARRATIVE_RATE_LIMIT_PER_MIN = '';

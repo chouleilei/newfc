@@ -626,7 +626,7 @@ describe('清洗导入 HTTP 契约', () => {
   it('上传—区域—分析—持久预览—确认、source、模板和别名 API 形成闭环，confirm 拒绝 entries', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleaning-http-test-'));
     tempDirs.push(dir);
-    const dbPath = path.join(dir, 'budget.sqlite');
+    const dbPath = path.join(dir, 'newfc.sqlite');
     const { app, holder, cleaningUploads } = await createApp({ dbPath, auth: { username: '', password: '' } });
     const fx = buildFixture(holder.getDb());
     const version = budget.createVersion(holder.getDb(), { year: 2026, name: 'HTTP 预算' });
@@ -725,9 +725,9 @@ describe('清洗导入 HTTP 契约', () => {
   });
 });
 
-describe('BUDGET_CLEANING_AI 开关', () => {
+describe('NEWFC_CLEANING_AI 开关', () => {
   // CLEANING_AI_ENABLED 在 backend/src/modules/io/import-limits.ts 模块加载时读取
-  // process.env.BUDGET_CLEANING_AI 并缓存为顶层常量，用例内改 env 对已加载模块无效。
+  // process.env.NEWFC_CLEANING_AI 并缓存为顶层常量，用例内改 env 对已加载模块无效。
   // 因此每个用例先 vi.resetModules() 再动态 import，让开关在新模块图里按当前 env 重新求值；
   // 本文件其余用例的静态 import 绑定不受 resetModules 影响。
   function restoreEnv(key: string, oldValue: string | undefined): void {
@@ -736,9 +736,9 @@ describe('BUDGET_CLEANING_AI 开关', () => {
   }
 
   it('开关关闭时 AI 结构建议返回不可用且零模型调用（即使模型端点已配置）', async () => {
-    const oldFlag = process.env.BUDGET_CLEANING_AI;
+    const oldFlag = process.env.NEWFC_CLEANING_AI;
     const oldBaseUrl = process.env.AI_BASE_URL;
-    process.env.BUDGET_CLEANING_AI = '0';
+    process.env.NEWFC_CLEANING_AI = '0';
     // 配置一个本机 stub 端点使 modelConfigured() 为 true，确保拦截只能来自开关而非「未配置模型」。
     process.env.AI_BASE_URL = 'http://127.0.0.1:9';
     // 模型调用最终走全局 fetch（EnvChatModel.post）；spy 即可跨模块图断言零调用。
@@ -756,15 +756,15 @@ describe('BUDGET_CLEANING_AI 开关', () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       fetchSpy.mockRestore();
-      restoreEnv('BUDGET_CLEANING_AI', oldFlag);
+      restoreEnv('NEWFC_CLEANING_AI', oldFlag);
       restoreEnv('AI_BASE_URL', oldBaseUrl);
     }
   });
 
   it('对照组：开关开启且模型端点已配置时真实发起一次模型调用并采纳合法建议', async () => {
-    const oldFlag = process.env.BUDGET_CLEANING_AI;
+    const oldFlag = process.env.NEWFC_CLEANING_AI;
     const oldBaseUrl = process.env.AI_BASE_URL;
-    process.env.BUDGET_CLEANING_AI = '1';
+    process.env.NEWFC_CLEANING_AI = '1';
     process.env.AI_BASE_URL = 'http://127.0.0.1:9';
     const modelPayload = {
       sheet: '预算', headerRow: 1, dataStartRow: 2,
@@ -789,14 +789,14 @@ describe('BUDGET_CLEANING_AI 开关', () => {
       expect(String(fetchSpy.mock.calls[0][0])).toBe('http://127.0.0.1:9/chat/completions');
     } finally {
       fetchSpy.mockRestore();
-      restoreEnv('BUDGET_CLEANING_AI', oldFlag);
+      restoreEnv('NEWFC_CLEANING_AI', oldFlag);
       restoreEnv('AI_BASE_URL', oldBaseUrl);
     }
   });
 
   it('开关关闭时确定性手工流程 analyze→手工映射→preview→confirm 完整可用', async () => {
-    const oldFlag = process.env.BUDGET_CLEANING_AI;
-    process.env.BUDGET_CLEANING_AI = '0';
+    const oldFlag = process.env.NEWFC_CLEANING_AI;
+    process.env.NEWFC_CLEANING_AI = '0';
     try {
       vi.resetModules();
       const { CLEANING_AI_ENABLED } = await import('../src/modules/io/import-limits');
@@ -829,7 +829,7 @@ describe('BUDGET_CLEANING_AI 开关', () => {
         .get(version.id, fx.orgIds.shanghai, fx.accIds.incomeMain) as { amount_cents: number }).amount_cents).toBe(10_000);
       db.close();
     } finally {
-      restoreEnv('BUDGET_CLEANING_AI', oldFlag);
+      restoreEnv('NEWFC_CLEANING_AI', oldFlag);
     }
   });
 });

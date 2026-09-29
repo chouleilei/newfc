@@ -72,17 +72,17 @@ describe('.env 加载', () => {
   it('未加引号值的行内注释被剥离,引号内的 # 与紧贴值的 # 保留', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'env-test-'));
     const file = writeEnv(dir, '.env', [
-      'BUDGET_ACCESS_PASSWORD=secret # 密码后写注释不再把注释当成密码',
+      'NEWFC_ACCESS_PASSWORD=secret # 密码后写注释不再把注释当成密码',
       'AI_MODEL=gpt-4 #多空格注释',
       'HASH_IN_VALUE=abc#def',
       'QUOTED_HASH="va # lue"',
     ].join('\n'));
-    const keys = ['BUDGET_ACCESS_PASSWORD', 'AI_MODEL', 'HASH_IN_VALUE', 'QUOTED_HASH'];
+    const keys = ['NEWFC_ACCESS_PASSWORD', 'AI_MODEL', 'HASH_IN_VALUE', 'QUOTED_HASH'];
     const saved = keys.map((key) => [key, process.env[key]] as const);
     for (const key of keys) delete process.env[key];
     try {
       loadEnvFiles([file], { allowInTest: true });
-      expect(process.env.BUDGET_ACCESS_PASSWORD).toBe('secret');
+      expect(process.env.NEWFC_ACCESS_PASSWORD).toBe('secret');
       expect(process.env.AI_MODEL).toBe('gpt-4');
       expect(process.env.HASH_IN_VALUE).toBe('abc#def');
       expect(process.env.QUOTED_HASH).toBe('va # lue');

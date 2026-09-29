@@ -64,7 +64,7 @@ const EXPECTED_ACCOUNTS = 239;
 
 function resetDataDir(dir: string): string {
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'budget.sqlite');
+  const file = path.join(dir, 'newfc.sqlite');
   for (const suffix of ['', '-shm', '-wal']) {
     const target = file + suffix;
     if (fs.existsSync(target)) fs.rmSync(target);
@@ -161,7 +161,7 @@ function seedMetrics(db: ReturnType<typeof openDatabase>, accountIdByCode: Map<s
 
 function main(): void {
   // 固定夹具目录(与 seed-finance-e2e 同样的做法)：这个脚本会删库重建，
-  // 绝不能被 BUDGET_DATA_DIR 之类的环境变量牵着走——一旦宿主环境指向真实数据目录就是灾难。
+  // 绝不能被 NEWFC_DATA_DIR 之类的环境变量牵着走——一旦宿主环境指向真实数据目录就是灾难。
   const dir = path.join(process.cwd(), 'data', 'e2e-simulation');
   const file = resetDataDir(dir);
   const db = openDatabase(file);

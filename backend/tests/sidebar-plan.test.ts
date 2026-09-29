@@ -207,8 +207,8 @@ describe('阶段五:LLM 渠道管理', () => {
 
   it('CRUD 校验:非法 URL、公网 http 限制、key 与访问密码相同', () => {
     const db = testDb();
-    const savedPassword = process.env.BUDGET_ACCESS_PASSWORD;
-    process.env.BUDGET_ACCESS_PASSWORD = 'topsecret';
+    const savedPassword = process.env.NEWFC_ACCESS_PASSWORD;
+    process.env.NEWFC_ACCESS_PASSWORD = 'topsecret';
     try {
       expect(() => aiChannels.createChannel(db, { name: 'A', baseUrl: 'not-a-url' })).toThrow(/合法 URL/);
       expect(() => aiChannels.createChannel(db, { name: 'A', baseUrl: 'http://8.8.8.8/v1' })).toThrow(/https/);
@@ -224,7 +224,7 @@ describe('阶段五:LLM 渠道管理', () => {
       aiChannels.createChannel(db, { name: 'B', baseUrl: 'https://b.example.com/v1' });
       expect(() => aiChannels.createChannel(db, { name: 'B', baseUrl: 'https://c.example.com/v1' })).toThrow(/已存在/);
     } finally {
-      if (savedPassword !== undefined) process.env.BUDGET_ACCESS_PASSWORD = savedPassword; else delete process.env.BUDGET_ACCESS_PASSWORD;
+      if (savedPassword !== undefined) process.env.NEWFC_ACCESS_PASSWORD = savedPassword; else delete process.env.NEWFC_ACCESS_PASSWORD;
     }
     db.close();
   });

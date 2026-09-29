@@ -1,0 +1,33 @@
+# newfc systemd 单元模板(独立服务，不修改也不复用原项目的服务单元)。
+# 安装:  cp deploy/newfc.service /etc/systemd/system/newfc.service
+#        install -d -m 700 /data/newfc-data && cp .env.example /data/newfc-data/newfc.env (填写后 chmod 600)
+#        systemctl daemon-reload && systemctl enable --now newfc.service
+# 日常发布走 scripts/deploy.sh:构建失败不替换运行产物;重启进程不触发安装或构建。
+[Unit]
+Description=newfc finance analysis service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/newfc/backend
+EnvironmentFile=/data/newfc-data/newfc.env
+Environment=NODE_ENV=production
+Environment=NEWFC_DATA_DIR=/data/newfc-data
+Environment=NEWFC_HOST=127.0.0.1
+Environment=NEWFC_PORT=3760
+# 固定 Node 24.21.0(better-sqlite3 ABI 与 backend/node_modules 一致,见 .nvmrc);不使用系统 /usr/bin/node(v20)。
+ExecStart=/root/.nvm/versions/node/v24.21.0/bin/node /root/newfc/backend/dist/index.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGTERM
+# 隔离:整个文件系统只读,仅本实例数据目录可写;不能写入 newbd/lishui 的代码或数据目录。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/data/newfc-data
+MemoryMax=1536M
+
+[Install]
+WantedBy=multi-user.target

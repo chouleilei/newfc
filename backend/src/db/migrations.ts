@@ -1389,7 +1389,7 @@ function importEnvDefaultChannel(db: DB): void {
   // 与 assistant/model.ts aiConfigurationIssue() 同款规则;该校验在 service 内重复实现,
   // 迁移文件不反向 import assistant 层,此处内联同口径判定(注释声明同源)。
   const apiKey = (process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
-  const accessPassword = (process.env.BUDGET_ACCESS_PASSWORD || '').trim();
+  const accessPassword = (process.env.NEWFC_ACCESS_PASSWORD || '').trim();
   if (apiKey && accessPassword && apiKey === accessPassword) return;
   const issue = envBaseUrlIssue(baseUrl);
   if (issue) return; // 非法配置不导入,保持无渠道状态,运行时回退 env→模板降级路径

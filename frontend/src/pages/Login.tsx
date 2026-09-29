@@ -74,7 +74,7 @@ export default function Login({ onSuccess }: { onSuccess: (username: string) => 
           type="secondary"
           style={{ display: 'block', textAlign: 'center', fontSize: 12, marginTop: 24, opacity: 0.7 }}
         >
-          集团多组织年度预算管理系统
+          newfc 水利财务分析
         </Typography.Text>
       </div>
     </div>

@@ -2,14 +2,14 @@
  * `.env` 加载(零依赖)。
  *
  * 为什么需要：README 与 `.env.example` 都说「在 `.env` 里设置 `AI_BASE_URL` …」，
- * 但后端进程从来没有读过 `.env`——只有 `start.sh` 会 `export $(grep …)`。
+ * 但后端进程从来没有读过 `.env`——只有旧启动脚本会 `export $(grep …)`。
  * 于是 README 自己给出的另外两种启动方式(`npm start` / `npm run dev`)按文档配置
  * 完全不生效，模型明明配好了却一直走确定性兜底。
  *
  * 约定：
- * - 查找顺序为 `backend/.env` → 仓库根 `.env`(BUDGET_DATA_DIR 之类的运维变量通常放根)；
+ * - 查找顺序为 `backend/.env` → 仓库根 `.env`(NEWFC_DATA_DIR 之类的运维变量通常放根)；
  *   同名变量以先出现者为准。
- * - **绝不覆盖已存在的环境变量**(包括空字符串)：显式 export 的值、`start.sh` 注入的值、
+ * - **绝不覆盖已存在的环境变量**(包括空字符串)：显式 export 的值、systemd 注入的值、
  *   以及测试里刻意置空的 `AI_*` 都必须优先，否则测试隔离会被 `.env` 破坏。
  * - 测试环境(`VITEST`/`NODE_ENV=test`)直接跳过，避免本机 `.env` 影响用例。
  * - 解析规则：忽略空行与 `#` 注释行；`export KEY=VALUE` 前缀可选；

@@ -1,6 +1,6 @@
 /**
  * 多年趋势叙述层(AI 功能增强计划 §四.阶段五.AI 薄层)验收:
- * - BUDGET_TREND_AI=0 时年度复盘保留模板稿(含「年度节奏对比」确定性要点);
+ * - NEWFC_TREND_AI=0 时年度复盘保留模板稿(含「年度节奏对比」确定性要点);
  * - 模型改写改变事实 token(数字/编码)时 narrativeNumbersIntact 守卫回退模板;
  * - 叙述开关只影响 annual_review,其余报告类型不受影响;
  * - 同步路径零模型调用(改写只在 reportDraft 的异步叙述阶段)。
@@ -38,14 +38,14 @@ describe('年度节奏对比叙述层(AI 薄层)', () => {
     vi.unstubAllGlobals();
     process.env.AI_BASE_URL = '';
     process.env.AI_API_KEY = '';
-    delete process.env.BUDGET_TREND_AI;
+    delete process.env.NEWFC_TREND_AI;
     resetNarrativeCache();
   });
 
-  it('BUDGET_TREND_AI=0 时年度复盘保留模板稿,章节完整', async () => {
+  it('NEWFC_TREND_AI=0 时年度复盘保留模板稿,章节完整', async () => {
     const db = testDb();
     setupAnnual(db);
-    process.env.BUDGET_TREND_AI = '0';
+    process.env.NEWFC_TREND_AI = '0';
     process.env.AI_BASE_URL = 'http://model.test/v1';
     process.env.AI_API_KEY = 'test';
     const fetchSpy = vi.fn();
@@ -78,7 +78,7 @@ describe('年度节奏对比叙述层(AI 薄层)', () => {
   it('叙述开关只影响 annual_review,其余报告类型照常改写', async () => {
     const db = testDb();
     const { version } = setupAnnual(db);
-    process.env.BUDGET_TREND_AI = '0';
+    process.env.NEWFC_TREND_AI = '0';
     process.env.AI_BASE_URL = 'http://model.test/v1';
     process.env.AI_API_KEY = 'test';
     let calls = 0;

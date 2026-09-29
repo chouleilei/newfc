@@ -45,7 +45,7 @@ const STATUS_META: Record<string, { status: 'success' | 'warning' | 'error' | 'd
 
 /**
  * AI 渠道设置:库内渠道优先,AI_* 环境变量降级为无渠道记录时的部署级默认。
- * apiKey 明文存储于本地数据库(budget.sqlite),请勿外发该文件;列表只显示脱敏预览。
+ * apiKey 明文存储于本地数据库(newfc.sqlite),请勿外发该文件;列表只显示脱敏预览。
  */
 export default function SettingsAi() {
   const { message } = AntdApp.useApp();
@@ -149,7 +149,7 @@ export default function SettingsAi() {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="渠道配置明文存储于本地数据库(budget.sqlite),请勿外发该文件;未绑定渠道的功能回退到 AI_* 环境变量(模板降级兜底不变)。"
+        message="渠道配置明文存储于本地数据库(newfc.sqlite),请勿外发该文件;未绑定渠道的功能回退到 AI_* 环境变量(模板降级兜底不变)。"
       />
       <Space style={{ marginBottom: 12 }}>
         <Typography.Text strong>模型渠道</Typography.Text>

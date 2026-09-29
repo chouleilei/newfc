@@ -39,9 +39,9 @@ export interface AiFeatureBindingRow {
 export function channelConfigurationIssue(input: { baseUrl: string; apiKey?: string }): string | undefined {
   const baseUrl = input.baseUrl.trim();
   const apiKey = (input.apiKey ?? '').trim();
-  const accessPassword = (process.env.BUDGET_ACCESS_PASSWORD || '').trim();
+  const accessPassword = (process.env.NEWFC_ACCESS_PASSWORD || '').trim();
   if (apiKey && accessPassword && apiKey === accessPassword) {
-    return 'apiKey 不得与 BUDGET_ACCESS_PASSWORD 使用同一密钥';
+    return 'apiKey 不得与 NEWFC_ACCESS_PASSWORD 使用同一密钥';
   }
   let parsed: URL;
   try { parsed = new URL(baseUrl); } catch { return 'baseUrl 不是合法 URL'; }

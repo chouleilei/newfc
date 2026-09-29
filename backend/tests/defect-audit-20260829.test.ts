@@ -24,7 +24,7 @@ async function closeServer(server: ReturnType<import('express').Express['listen'
 describe('2026-08-29 缺陷复核：HTTP 鉴权与输入边界', () => {
   it('鉴权先于大 JSON 解析，令牌登录/会话/登出形成完整闭环', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-auth-audit-'));
-    const dbPath = path.join(dir, 'budget.sqlite');
+    const dbPath = path.join(dir, 'newfc.sqlite');
     const { app, holder } = await createApp({
       dbPath,
       auth: { username: 'audit-user', password: 'correct horse battery' },
@@ -84,7 +84,7 @@ describe('2026-08-29 缺陷复核：HTTP 鉴权与输入边界', () => {
 
   it('数组、对象和非数值查询参数稳定返回 400，备份创建带进程内冷却', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'budget-query-audit-'));
-    const dbPath = path.join(dir, 'budget.sqlite');
+    const dbPath = path.join(dir, 'newfc.sqlite');
     const { app, holder } = await createApp({ dbPath, auth: { username: '', password: '' } });
     const server = app.listen(0);
     const port = (server.address() as { port: number }).port;
@@ -474,12 +474,12 @@ describe('2026-08-29 缺陷复核：完成率与指标边界', () => {
 
 describe('2026-08-29 缺陷复核：AI 出境边界', () => {
   it('远程明文 HTTP 或复用登录口令时停用模型，但确定性助手仍可工作', () => {
-    const keys = ['AI_BASE_URL', 'AI_API_KEY', 'BUDGET_ACCESS_PASSWORD', 'AI_ALLOW_INSECURE_HTTP'] as const;
+    const keys = ['AI_BASE_URL', 'AI_API_KEY', 'NEWFC_ACCESS_PASSWORD', 'AI_ALLOW_INSECURE_HTTP'] as const;
     const previous = new Map(keys.map((key) => [key, process.env[key]]));
     try {
       process.env.AI_BASE_URL = 'https://model.example.com/v1';
       process.env.AI_API_KEY = 'same-secret';
-      process.env.BUDGET_ACCESS_PASSWORD = 'same-secret';
+      process.env.NEWFC_ACCESS_PASSWORD = 'same-secret';
       expect(aiConfigurationIssue()).toMatch(/不得与/);
       expect(modelConfig().baseUrl).toBeUndefined();
 

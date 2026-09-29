@@ -1,11 +1,11 @@
 {
-  "name": "budget-backend",
-  "version": "0.3.0",
-  "description": "集团多组织年度预算管理系统 - 后端",
+  "name": "newfc-backend",
+  "version": "0.1.0",
+  "description": "newfc 水利财务分析 - 后端",
   "private": true,
   "main": "dist/index.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=24.21.0 <25"
   },
   "scripts": {
     "build": "tsc",
@@ -19,7 +19,8 @@
     "seed:history": "ts-node scripts/seed-historical-simulation.ts",
     "fixtures:finance": "ts-node scripts/generate-finance-fixtures.ts",
     "seed:finance:e2e": "node --expose-gc -r ts-node/register/transpile-only scripts/seed-finance-e2e.ts",
-    "seed:e2e:simulation": "node --expose-gc -r ts-node/register/transpile-only scripts/seed-e2e-simulation.ts"
+    "seed:e2e:simulation": "node --expose-gc -r ts-node/register/transpile-only scripts/seed-e2e-simulation.ts",
+    "migrate:dist": "node dist/db/migrate-cli.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

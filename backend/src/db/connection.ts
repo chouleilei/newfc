@@ -10,7 +10,9 @@ export function openDatabase(dbPath: string): DB {
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
   db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
+  // 正式财务写入优先持久性(specs/data-contracts.md):WAL + FULL 在每次提交时 fsync WAL,
+  // 断电不丢已提交事务。代价在资源基线中实测记录。
+  db.pragma('synchronous = FULL');
   db.pragma('busy_timeout = 5000');
   return db;
 }

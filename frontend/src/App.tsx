@@ -636,7 +636,7 @@ function PageInner({ username, onLogout }: { username: string; onLogout: () => v
         </Content>
         {/* 「金额单位:万元」在顶栏芯片已常驻,这里不再重复;只留系统名与符号口径 */}
         <Footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 12, color: token.colorTextTertiary, background: 'transparent' }}>
-          集团多组织年度预算管理系统 · 收入为正，成本费用界面展示为正数
+          newfc 水利财务分析 · 收入为正，成本费用界面展示为正数
         </Footer>
       </Layout>
       <AssistantDock />

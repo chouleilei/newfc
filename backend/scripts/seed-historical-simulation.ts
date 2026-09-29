@@ -74,15 +74,15 @@ export function seedHistoricalYears(db: Database.Database) {
 }
 
 function main(): void {
-  const dbPath = process.env.BUDGET_DATA_DIR
-    ? path.join(process.env.BUDGET_DATA_DIR, 'budget.sqlite')
-    : path.join(process.cwd(), 'data', 'budget.sqlite');
-  // 直接运行时默认目标是真实库(与 start.sh 同一默认 data 目录)。为防止一次手滑
+  const dbPath = process.env.NEWFC_DATA_DIR
+    ? path.join(process.env.NEWFC_DATA_DIR, 'newfc.sqlite')
+    : path.join(process.cwd(), 'data', 'newfc.sqlite');
+  // 直接运行时默认目标是真实库(与服务同一默认 data 目录)。为防止一次手滑
   // 静默写坏生产数据:整库已有任何业务数据直接拒绝;空库也要求显式确认。
   // E2E 夹具路径不受影响(seed-e2e-simulation 直接调用导出函数)。
-  const confirmEnv = process.env.BUDGET_SEED_CONFIRM;
+  const confirmEnv = process.env.NEWFC_SEED_CONFIRM;
   if (require.main === module && confirmEnv !== '我确认注入模拟数据') {
-    throw new Error(`seed:history 将向 ${dbPath} 写入 2022–2025 四年模拟数据并锁定/冻结年度。\n这是面向演示/开发库的操作。确认请设置 BUDGET_SEED_CONFIRM=我确认注入模拟数据 后重试。`);
+    throw new Error(`seed:history 将向 ${dbPath} 写入 2022–2025 四年模拟数据并锁定/冻结年度。\n这是面向演示/开发库的操作。确认请设置 NEWFC_SEED_CONFIRM=我确认注入模拟数据 后重试。`);
   }
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');

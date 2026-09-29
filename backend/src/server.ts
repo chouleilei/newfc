@@ -71,6 +71,12 @@ export interface ServerOptions {
   backupCronHours?: number;
   /** 可信反向代理跳数；直连部署必须保持 false（默认）。 */
   trustProxy?: false | number;
+  /**
+   * 已初始化的库存在待执行迁移时是否在启动时自动应用(先自动备份)。
+   * 测试/开发默认 true；生产入口 index.ts 传 false，要求部署步骤显式执行 `npm run migrate:dist`。
+   * 全新空库始终直接建表(无业务数据可丢失)。
+   */
+  autoMigrate?: boolean;
 }
 
 export async function createApp(opts: ServerOptions) {
@@ -82,6 +88,10 @@ export async function createApp(opts: ServerOptions) {
   // 写审计日志会因 operation_log 尚未创建而崩溃,导致新部署无法首次启动
   const pending = pendingMigrations(db());
   if (pending.length > 0 && dbInitialized(db())) {
+    if (opts.autoMigrate === false) {
+      throw new Error(`数据库存在 ${pending.length} 个待执行迁移(V${pending.map((m) => m.version).join(', V')})；`
+        + '请先执行显式迁移步骤 `npm run migrate:dist`(会先备份)再启动服务');
+    }
     await backup.createBackup(db(), backup.backupDirOf(opts.dbPath), 'pre-migrate-auto');
   }
   applyMigrations(db());
@@ -115,7 +125,7 @@ export async function createApp(opts: ServerOptions) {
     next();
   });
   // 直连默认不信任任何转发头，避免客户端伪造 X-Forwarded-For 绕开按 IP 限流。
-  // start.sh 的单层 nginx 拓扑会显式传 1；其他部署必须按真实代理层数配置。
+  // 单层 nginx 反代部署应显式设 1；其他部署必须按真实代理层数配置。
   app.set('trust proxy', opts.trustProxy ?? false);
 
   const wrap = (fn: (req: Request, res: Response) => Promise<unknown> | unknown) =>
@@ -244,7 +254,7 @@ export async function createApp(opts: ServerOptions) {
     next();
   };
   /**
-   * 禁用认证模式(BUDGET_DISABLE_AUTH=1)的写保护:此时任何能触达端口的进程都能调用,
+   * 禁用认证模式(NEWFC_DISABLE_AUTH=1)的写保护:此时任何能触达端口的进程都能调用,
    * 但浏览器跨站表单/fetch 不应能触发写库副作用(multipart/form-data 无预检)。
    * - Host 必须等于监听地址(防 DNS rebinding);0.0.0.0 绑定不做 Host 限制;
    * - 浏览器跨站请求必带 Origin/Referer,带则要求与 Host 同源;不带(脚本/curl)放行。
@@ -262,7 +272,7 @@ export async function createApp(opts: ServerOptions) {
       if (listenHost === '127.0.0.1') names.add('localhost');
       if (listenHost === 'localhost') names.add('127.0.0.1');
       // 端口以实际监听 socket 为准(app.listen(0) 的测试与派生端口部署不能被误伤)
-      const effectivePort = req.socket?.localPort ?? opts.port ?? 3748;
+      const effectivePort = req.socket?.localPort ?? opts.port ?? 3760;
       const portOk = hostPort == null || hostPort === effectivePort;
       if (!names.has(hostName) || !portOk) {
         res.status(403).json({ code: 'FORBIDDEN', message: '禁用认证模式仅接受指向监听地址的请求(Host 不匹配)' });
@@ -291,6 +301,40 @@ export async function createApp(opts: ServerOptions) {
     }
     next();
   };
+  /* ============ 存活/就绪检查(公开，不含业务数据) ============ */
+  // 存活:进程可响应即可。就绪:本实例数据库可查询、schema 为最新、数据目录可写。
+  // 模型是否配置不影响就绪(确定性业务不依赖模型)。
+  app.get('/api/health/live', (_req, res) => {
+    res.json({ ok: true, status: 'live', uptimeSeconds: Math.round(process.uptime()) });
+  });
+  app.get('/api/health/ready', (_req, res) => {
+    const checks: Record<string, { ok: boolean; detail?: string }> = {};
+    try {
+      const row = db().prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migration').get() as { version: number };
+      const latest = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
+      checks.database = { ok: true };
+      checks.schema = row.version === latest
+        ? { ok: true, detail: `V${row.version}` }
+        : { ok: false, detail: `当前 V${row.version}，期望 V${latest}` };
+    } catch {
+      checks.database = { ok: false, detail: '数据库不可查询' };
+      checks.schema = { ok: false, detail: '无法读取 schema 版本' };
+    }
+    if (opts.dbPath === ':memory:') {
+      checks.storage = { ok: true, detail: 'memory' };
+    } else {
+      try {
+        fs.accessSync(path.dirname(opts.dbPath), fs.constants.W_OK);
+        checks.storage = { ok: true };
+      } catch {
+        checks.storage = { ok: false, detail: '数据目录不可写' };
+      }
+    }
+    if (restoreInFlight) checks.restore = { ok: false, detail: '备份恢复进行中' };
+    const ok = Object.values(checks).every((c) => c.ok);
+    res.status(ok ? 200 : 503).json({ ok, status: ok ? 'ready' : 'not_ready', checks });
+  });
+
   app.use('/api', requireAuth);
   app.use('/api', disableAuthWriteGuard);
   // 认证通过后才解析普通 API 的大请求体，避免匿名请求占用 JSON 解析 CPU/内存。
@@ -340,7 +384,7 @@ export async function createApp(opts: ServerOptions) {
   });
 
   const cleaningUploadDirectory = opts.dbPath === ':memory:'
-    ? path.join(os.tmpdir(), 'budget-cleaning-uploads-memory')
+    ? path.join(os.tmpdir(), 'newfc-cleaning-uploads-memory')
     : path.join(path.dirname(opts.dbPath), 'cleaning-uploads');
   const cleaningUploads = registerCleaningRoutes(app, db, wrap, { uploadDirectory: cleaningUploadDirectory });
 
@@ -1359,7 +1403,7 @@ export async function createApp(opts: ServerOptions) {
   }));
 
   /* ============ 前端静态文件(单机部署:React 构建产物由本服务托管) ============ */
-  const distDir = process.env.BUDGET_FRONTEND_DIST || path.join(__dirname, '../../frontend/dist');
+  const distDir = process.env.NEWFC_FRONTEND_DIST || path.join(__dirname, '../../frontend/dist');
   if (fs.existsSync(distDir)) {
     app.use(express.static(distDir));
     app.get(/^\/(?!api).*/, (_req, res) => {
@@ -1393,7 +1437,7 @@ export async function createApp(opts: ServerOptions) {
 
 /** 独立启动入口 */
 export async function startServer(opts: ServerOptions) {
-  const port = opts.port ?? 3748;
+  const port = opts.port ?? 3760;
   const host = opts.host ?? '127.0.0.1';
   // 先做无副作用的端口探测，避免重复启动时先迁移/备份生产库，最后才因 EADDRINUSE 崩溃。
   await new Promise<void>((resolve, reject) => {
@@ -1411,7 +1455,7 @@ export async function startServer(opts: ServerOptions) {
       resolve();
     });
   });
-  console.log(`预算管理系统后端已启动: http://${host}:${port}`);
+  console.log(`newfc 后端已启动: http://${host}:${port}`);
   server.on('error', (error) => console.error('[server]', error));
   // 定时自动备份(方案十三.1:每天一次;重启即重置,个人系统足够)
   const backupHours = opts.backupCronHours ?? 24;
@@ -1419,5 +1463,23 @@ export async function startServer(opts: ServerOptions) {
     backup.createBackup(holder.getDb(), backup.backupDirOf(opts.dbPath)).catch((e) => console.error('[backup]', e));
   }, backupHours * 3600 * 1000);
   timer.unref();
+  // 优雅停止:停止接收新连接、关闭数据库(WAL 检查点)后退出;超时强停交给 systemd TimeoutStopSec,
+  // 下次启动由各恢复逻辑识别中断任务。
+  let stopping = false;
+  const shutdown = (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`[shutdown] 收到 ${signal}，停止接收新请求`);
+    clearInterval(timer);
+    server.close(() => {
+      try { holder.getDb().close(); } catch (error) { console.error('[shutdown] 关闭数据库失败', error); }
+      console.log('[shutdown] 已关闭数据库，退出');
+      process.exit(0);
+    });
+    // 长连接(SSE)不会自行结束:给在途请求短暂收尾时间后强制断开
+    setTimeout(() => server.closeAllConnections?.(), 5000).unref();
+  };
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
   return server;
 }

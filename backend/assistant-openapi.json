@@ -7,7 +7,7 @@
  },
  "servers": [
   {
-   "url": "http://127.0.0.1:3748"
+   "url": "http://127.0.0.1:3760"
   }
  ],
  "security": [
@@ -638,7 +638,7 @@
   "/api/assistant/quality-advice": {
    "post": {
     "summary": "定稿质量门禁「解释 + 修复建议」(只读)",
-    "description": "输入预算版本,返回该版本质量门禁的归并统计、处理顺序与最小修复路径建议。确定性模板先行;模型可用且 BUDGET_QUALITY_AI 未关闭时仅改写行文,数字守卫失败或模型不可用时 advice 回退模板稿(source=template)。不写任何业务数据。叙述生成走独立限流桶(AI_NARRATIVE_RATE_LIMIT_PER_MIN,默认 10)。",
+    "description": "输入预算版本,返回该版本质量门禁的归并统计、处理顺序与最小修复路径建议。确定性模板先行;模型可用且 NEWFC_QUALITY_AI 未关闭时仅改写行文,数字守卫失败或模型不可用时 advice 回退模板稿(source=template)。不写任何业务数据。叙述生成走独立限流桶(AI_NARRATIVE_RATE_LIMIT_PER_MIN,默认 10)。",
     "requestBody": {
      "required": true,
      "content": {
@@ -679,7 +679,7 @@
   "/api/assistant/master-data-semantic-names": {
    "post": {
     "summary": "主数据「语义命名相似」候选对(只读建议)",
-    "description": "找出字面距离远但语义可能重名/同义的组织或科目节点对。输入仅为编码+名称清单,不涉金额;输出经白名单校验(编码必须存在于清单),结果永远标记为建议(source=model),不产生任何写入。模型未配置、BUDGET_MASTER_DATA_AI=0 或调用失败时 semanticAvailable=false 且 pairs 为空,体检报告其余部分完整可用。叙述生成走独立限流桶(AI_NARRATIVE_RATE_LIMIT_PER_MIN,默认 10)。",
+    "description": "找出字面距离远但语义可能重名/同义的组织或科目节点对。输入仅为编码+名称清单,不涉金额;输出经白名单校验(编码必须存在于清单),结果永远标记为建议(source=model),不产生任何写入。模型未配置、NEWFC_MASTER_DATA_AI=0 或调用失败时 semanticAvailable=false 且 pairs 为空,体检报告其余部分完整可用。叙述生成走独立限流桶(AI_NARRATIVE_RATE_LIMIT_PER_MIN,默认 10)。",
     "responses": {
      "200": {
       "description": "语义相似候选对",

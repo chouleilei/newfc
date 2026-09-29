@@ -24,7 +24,7 @@ describe('主数据语义命名相似(AI 薄层)', () => {
     vi.unstubAllGlobals();
     process.env.AI_BASE_URL = '';
     process.env.AI_API_KEY = '';
-    delete process.env.BUDGET_MASTER_DATA_AI;
+    delete process.env.NEWFC_MASTER_DATA_AI;
   });
 
   it('模型未配置时不可用,pairs 为空且报告完整可用', async () => {
@@ -42,17 +42,17 @@ describe('主数据语义命名相似(AI 薄层)', () => {
     db.close();
   });
 
-  it('BUDGET_MASTER_DATA_AI=0 独立关闭', async () => {
+  it('NEWFC_MASTER_DATA_AI=0 独立关闭', async () => {
     const db = testDb();
     buildFixture(db);
-    process.env.BUDGET_MASTER_DATA_AI = '0';
+    process.env.NEWFC_MASTER_DATA_AI = '0';
     process.env.AI_BASE_URL = 'http://model.test/v1';
     process.env.AI_API_KEY = 'test';
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     const result = await masterDataSemanticNames(db);
     expect(result.semanticAvailable).toBe(false);
-    expect(result.note).toContain('BUDGET_MASTER_DATA_AI');
+    expect(result.note).toContain('NEWFC_MASTER_DATA_AI');
     expect(fetchSpy).not.toHaveBeenCalled();
     db.close();
   });

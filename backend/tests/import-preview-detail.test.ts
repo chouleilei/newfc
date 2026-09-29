@@ -492,7 +492,7 @@ describe('批次详情与冻结明细 HTTP 契约', () => {
   it('创建预览→只读详情→分页明细→确认→结果与冻结读取全链路', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'import-detail-http-'));
     tempDirs.push(dir);
-    const { app, holder } = await createApp({ dbPath: path.join(dir, 'budget.sqlite'), auth: { username: '', password: '' } });
+    const { app, holder } = await createApp({ dbPath: path.join(dir, 'newfc.sqlite'), auth: { username: '', password: '' } });
     const fx = buildFixture(holder.getDb());
     const version = budget.createVersion(holder.getDb(), { year: 2026, name: 'HTTP 导入预算' });
     const server = app.listen(0);

@@ -184,7 +184,7 @@ export interface NarrativeRewrite {
 /**
  * 模板稿改写的唯一入口。
  *
- * `enabled` 为功能位独立开关(调用方传入,如 BUDGET_QUALITY_AI !== '0');
+ * `enabled` 为功能位独立开关(调用方传入,如 NEWFC_QUALITY_AI !== '0');
  * 未配置模型或开关关闭时直接返回模板稿,不发生任何网络调用。
  * `feature` 决定走哪个渠道绑定(默认 narrative);记录点小结等独立绑定的功能
  * 必须显式传入,否则设置页里对该功能的渠道配置不会生效。

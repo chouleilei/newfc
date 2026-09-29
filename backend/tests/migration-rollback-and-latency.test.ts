@@ -57,7 +57,7 @@ function seedLegacyRows(db: DB): void {
 describe('AI 计划迁移(V29–V33)的备份与回滚验证', () => {
   it('升级前自动备份可校验、停留在旧 schema、数据完整;用它恢复不丢数据并如实报告补迁移', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-plan-rollback-'));
-    const dbPath = path.join(dir, 'budget.sqlite');
+    const dbPath = path.join(dir, 'newfc.sqlite');
     let db = openDatabase(dbPath);
     try {
       applyThrough(db, PRE_AI_PLAN_VERSION);
@@ -123,7 +123,7 @@ describe('AI 计划迁移(V29–V33)的备份与回滚验证', () => {
 
   it('损坏的备份文件被拒绝,不会替换现有库', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-plan-bad-backup-'));
-    const dbPath = path.join(dir, 'budget.sqlite');
+    const dbPath = path.join(dir, 'newfc.sqlite');
     const db = openDatabase(dbPath);
     try {
       applyMigrations(db);
@@ -142,7 +142,7 @@ describe('AI 计划迁移(V29–V33)的备份与回滚验证', () => {
 
   it('V30 在 CREATE 暂存表后、写版本记录前被中断,重放可续做且数据不丢', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v30-resume-'));
-    const dbPath = path.join(dir, 'budget.sqlite');
+    const dbPath = path.join(dir, 'newfc.sqlite');
     const db = openDatabase(dbPath);
     try {
       // 模拟中断现场:V28 完整库 + V30 只执行到 CREATE 暂存表(重放必然撞 already exists)
@@ -168,7 +168,7 @@ describe('AI 计划迁移(V29–V33)的备份与回滚验证', () => {
 
   it('V30 在 DROP 旧表后中断(仅剩暂存表),续做直接完成改名并保留数据', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v30-resume-drop-'));
-    const dbPath = path.join(dir, 'budget.sqlite');
+    const dbPath = path.join(dir, 'newfc.sqlite');
     const db = openDatabase(dbPath);
     try {
       applyThrough(db, PRE_AI_PLAN_VERSION);
