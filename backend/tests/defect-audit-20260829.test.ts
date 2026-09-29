@@ -313,7 +313,7 @@ describe('2026-08-29 缺陷复核：Excel 输出', () => {
     const sheet = workbook.addWorksheet('超限');
     for (let index = 0; index < 1_012; index++) sheet.addRow([index]);
     const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
-    await expect(assertSafeXlsx(buffer, 10)).rejects.toThrow(/行数超过安全上限 10/);
+    await expect(assertSafeXlsx(buffer, 10)).rejects.toThrow(/数据行超过安全上限 10 行/);
   });
 
   it('结构化与扁平实际导入按明确单位解析，额外“本期金额”不会抢列', async () => {

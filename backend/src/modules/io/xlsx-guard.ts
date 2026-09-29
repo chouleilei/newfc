@@ -54,7 +54,8 @@ export async function assertSafeXlsx(buffer: Buffer, maxDataRows: number, maxWor
     }, (count) => {
       worksheetRows += count;
       rows += count;
-      if (worksheetRows > maxDataRows) throw Errors.validation(`Excel 单个工作表行数超过安全上限 ${maxDataRows}`);
+      // 上限按数据行计,另留 1 行表头:否则恰好 maxDataRows 行数据的标准模板会被误拒(与解析层口径不一致)
+      if (worksheetRows > maxDataRows + 1) throw Errors.validation(`Excel 单个工作表数据行超过安全上限 ${maxDataRows} 行(不含表头)`);
       if (rows > rowLimit) throw Errors.validation(`Excel 工作簿总行数超过安全上限 ${maxDataRows * maxWorksheets}`);
     });
   }
