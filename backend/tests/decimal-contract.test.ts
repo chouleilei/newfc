@@ -7,7 +7,7 @@ import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 import {
-  allocateCents, centsToDecimalOrNull, centsToDecimalString, centsToSafeNumber, formatScaled, INT64_MAX, INT64_MIN,
+  allocateCents, allocateCentsTail, centsToDecimalOrNull, centsToDecimalString, centsToSafeNumber, formatScaled, INT64_MAX, INT64_MIN,
   mulCents, parseDecimalToCents, parseScaled, ratioString, ratioToPercentText, sumCents, toCentsBig,
 } from '../src/core/decimal';
 
@@ -93,6 +93,16 @@ describe('定点乘法、分摊与比率', () => {
     expect(parts[4]).toBe(0n);
     expect(() => allocateCents(10n, [0n, 0n])).toThrow(expect.objectContaining({ code: 'ALLOCATION_BASIS_EMPTY' }));
     expect(() => allocateCents(10n, [-1n, 2n])).toThrow();
+  });
+
+  it('尾项吸收分摊:前项截断、最后一个正权重项吸收尾差,合计守恒', () => {
+    expect(allocateCentsTail(100000n, [3n, 1n])).toEqual([75000n, 25000n]);
+    expect(allocateCentsTail(10000n, [1n, 1n, 1n])).toEqual([3333n, 3333n, 3334n]);
+    expect(allocateCentsTail(100n, [1n, 1n, 0n])).toEqual([50n, 50n, 0n]);
+    expect(allocateCentsTail(-100n, [1n, 1n, 1n])).toEqual([-33n, -33n, -34n]);
+    const parts = allocateCentsTail(999999999999999999n, [17n, 29n, 31n, 1n, 1000003n]);
+    expect(parts.reduce((a, b) => a + b, 0n)).toBe(999999999999999999n);
+    expect(() => allocateCentsTail(10n, [0n, 0n])).toThrow(expect.objectContaining({ code: 'ALLOCATION_BASIS_EMPTY' }));
   });
 
   it('比率为 0～1 口径字符串;分母为零返回 null 而非 0;百分数只做展示', () => {

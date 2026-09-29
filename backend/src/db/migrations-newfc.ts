@@ -588,4 +588,265 @@ CREATE TRIGGER trg_stmt_fact_immutable_u BEFORE UPDATE ON stmt_fact BEGIN SELECT
 CREATE TRIGGER trg_stmt_fact_immutable_d BEFORE DELETE ON stmt_fact BEGIN SELECT RAISE(ABORT, '财务报表事实不可删除'); END;
 `,
   },
+  {
+    version: 47,
+    name: 'management_accounting',
+    sql: `
+/* management_accounting(AC-F14,T-3):维度、指标与计算快照、成本分摊及调整、预算调整、预警、绩效。
+   快照只追加:数值与证据不可改,失效只改 status/invalidated_*。金额为整数分,比率为 10^6 缩放整数。 */
+CREATE TABLE ma_dimension (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  member_type TEXT NOT NULL CHECK (member_type IN ('org','project','account','custom')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE ma_dimension_member (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dimension_id INTEGER NOT NULL REFERENCES ma_dimension(id),
+  code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  ref_type TEXT NOT NULL CHECK (ref_type IN ('org','project','account','custom')),
+  ref_id INTEGER,
+  org_id INTEGER REFERENCES org(id),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (dimension_id, code)
+);
+
+CREATE TABLE ma_metric (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL CHECK (unit IN ('money','ratio')),
+  calculator TEXT NOT NULL CHECK (calculator IN ('budget_amount','actual_amount','execution_rate','eas_balance','statement_item','allocated_cost')),
+  params_json TEXT NOT NULL DEFAULT '{}',
+  thresholds_json TEXT NOT NULL DEFAULT '{}',
+  builtin INTEGER NOT NULL DEFAULT 0 CHECK (builtin IN (0,1)),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO ma_metric (code, name, unit, calculator, builtin, created_at, updated_at)
+VALUES ('ALLOCATED_COST', '分摊成本', 'money', 'allocated_cost', 1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
+CREATE TABLE ma_calc_run (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK (kind IN ('calc','allocation')),
+  period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  request_json TEXT NOT NULL DEFAULT '{}',
+  snapshot_count INTEGER NOT NULL DEFAULT 0,
+  unavailable_count INTEGER NOT NULL DEFAULT 0,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE ma_metric_snapshot (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES ma_calc_run(id),
+  metric_id INTEGER NOT NULL REFERENCES ma_metric(id),
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  period TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('valid','unavailable','invalidated')),
+  value_cents INTEGER,
+  value_scaled INTEGER,
+  compare_cents INTEGER,
+  reasons_json TEXT NOT NULL DEFAULT '[]',
+  evidence_json TEXT NOT NULL DEFAULT '{}',
+  alloc_run_id INTEGER,
+  adjustment_id INTEGER,
+  invalidated_at TEXT,
+  invalidated_reason TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_ma_snapshot_lookup ON ma_metric_snapshot(metric_id, org_id, period, status);
+CREATE INDEX idx_ma_snapshot_run ON ma_metric_snapshot(run_id);
+CREATE INDEX idx_ma_snapshot_alloc ON ma_metric_snapshot(alloc_run_id);
+CREATE TRIGGER trg_ma_snapshot_immutable_u BEFORE UPDATE OF run_id, metric_id, org_id, period, value_cents, value_scaled, compare_cents,
+  reasons_json, evidence_json, alloc_run_id, adjustment_id, created_at ON ma_metric_snapshot
+BEGIN SELECT RAISE(ABORT, '指标快照数值不可修改'); END;
+CREATE TRIGGER trg_ma_snapshot_status_u BEFORE UPDATE OF status ON ma_metric_snapshot
+WHEN NOT (OLD.status = 'valid' AND NEW.status = 'invalidated')
+BEGIN SELECT RAISE(ABORT, '指标快照只能从有效变为失效'); END;
+CREATE TRIGGER trg_ma_snapshot_immutable_d BEFORE DELETE ON ma_metric_snapshot BEGIN SELECT RAISE(ABORT, '指标快照不可删除'); END;
+
+CREATE TABLE ma_cost_pool (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  total_cents INTEGER NOT NULL CHECK (total_cents > 0),
+  note TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_ma_cost_pool_org ON ma_cost_pool(org_id, period);
+
+CREATE TABLE ma_alloc_rule (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pool_id INTEGER NOT NULL REFERENCES ma_cost_pool(id),
+  target_org_id INTEGER NOT NULL REFERENCES org(id),
+  weight_scaled INTEGER NOT NULL CHECK (weight_scaled >= 0),
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  retired_at TEXT
+);
+CREATE UNIQUE INDEX idx_ma_alloc_rule_active ON ma_alloc_rule(pool_id, target_org_id) WHERE retired_at IS NULL;
+
+CREATE TABLE ma_alloc_run (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pool_id INTEGER NOT NULL REFERENCES ma_cost_pool(id),
+  pool_version INTEGER NOT NULL,
+  period TEXT NOT NULL,
+  total_cents INTEGER NOT NULL,
+  calc_run_id INTEGER REFERENCES ma_calc_run(id),
+  status TEXT NOT NULL CHECK (status IN ('confirmed','voided')),
+  version INTEGER NOT NULL DEFAULT 1,
+  confirmed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  confirmed_at TEXT NOT NULL,
+  voided_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  voided_at TEXT,
+  void_reason TEXT
+);
+CREATE UNIQUE INDEX idx_ma_alloc_run_confirmed ON ma_alloc_run(pool_id) WHERE status = 'confirmed';
+
+CREATE TABLE ma_alloc_result (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES ma_alloc_run(id),
+  rule_id INTEGER REFERENCES ma_alloc_rule(id),
+  target_org_id INTEGER NOT NULL REFERENCES org(id),
+  weight_scaled INTEGER NOT NULL,
+  base_cents INTEGER NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  sort_order INTEGER NOT NULL
+);
+CREATE INDEX idx_ma_alloc_result_run ON ma_alloc_result(run_id);
+CREATE TRIGGER trg_ma_alloc_result_base_u BEFORE UPDATE OF run_id, rule_id, target_org_id, weight_scaled, base_cents, sort_order ON ma_alloc_result
+BEGIN SELECT RAISE(ABORT, '分摊结果基数不可修改'); END;
+CREATE TRIGGER trg_ma_alloc_result_d BEFORE DELETE ON ma_alloc_result BEGIN SELECT RAISE(ABORT, '分摊结果不可删除'); END;
+
+CREATE TABLE ma_alloc_adjustment (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES ma_alloc_run(id),
+  from_result_id INTEGER NOT NULL REFERENCES ma_alloc_result(id),
+  to_result_id INTEGER NOT NULL REFERENCES ma_alloc_result(id),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1)),
+  CHECK (from_result_id <> to_result_id)
+);
+CREATE INDEX idx_ma_alloc_adjustment_run ON ma_alloc_adjustment(run_id, status);
+
+CREATE TABLE ma_budget_adjustment (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_version_id INTEGER NOT NULL REFERENCES budget_version(id),
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  account_id INTEGER NOT NULL REFERENCES account(id),
+  before_cents INTEGER NOT NULL,
+  after_cents INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','effective','rejected')),
+  new_version_id INTEGER REFERENCES budget_version(id),
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1))
+);
+CREATE UNIQUE INDEX idx_ma_budget_adjustment_pending ON ma_budget_adjustment(source_version_id, org_id, account_id) WHERE status = 'pending';
+
+CREATE TABLE ma_alert (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  metric_id INTEGER NOT NULL REFERENCES ma_metric(id),
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  period TEXT NOT NULL,
+  alert_type TEXT NOT NULL CHECK (alert_type IN ('upper','lower','deviation')),
+  level TEXT NOT NULL CHECK (level IN ('warning','critical')),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','acknowledged','closed')),
+  snapshot_id INTEGER NOT NULL REFERENCES ma_metric_snapshot(id),
+  run_id INTEGER NOT NULL REFERENCES ma_calc_run(id),
+  value_text TEXT NOT NULL,
+  threshold_text TEXT NOT NULL,
+  message TEXT NOT NULL,
+  hit_count INTEGER NOT NULL DEFAULT 1,
+  cause_category TEXT,
+  ack_note TEXT,
+  acknowledged_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  acknowledged_at TEXT,
+  close_note TEXT,
+  closed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  closed_at TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_ma_alert_open ON ma_alert(metric_id, org_id, period, alert_type) WHERE status <> 'closed';
+
+CREATE TABLE ma_perf_scheme (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE ma_perf_item (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scheme_id INTEGER NOT NULL REFERENCES ma_perf_scheme(id),
+  metric_id INTEGER NOT NULL REFERENCES ma_metric(id),
+  weight_scaled INTEGER NOT NULL CHECK (weight_scaled > 0),
+  target_text TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('higher_better','lower_better')),
+  sort_order INTEGER NOT NULL,
+  UNIQUE (scheme_id, metric_id)
+);
+
+CREATE TABLE ma_perf_score (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scheme_id INTEGER NOT NULL REFERENCES ma_perf_scheme(id),
+  scheme_version INTEGER NOT NULL,
+  run_id INTEGER NOT NULL REFERENCES ma_calc_run(id),
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  period TEXT NOT NULL,
+  score_scaled INTEGER NOT NULL,
+  details_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'scored' CHECK (status IN ('scored','reviewed')),
+  review_action TEXT CHECK (review_action IN ('confirm','adjust')),
+  adjusted_score_scaled INTEGER,
+  adjust_reason TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1)),
+  scored_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  scored_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT
+);
+CREATE INDEX idx_ma_perf_score_org ON ma_perf_score(org_id, period);
+CREATE TRIGGER trg_ma_perf_score_original_u BEFORE UPDATE OF scheme_id, scheme_version, run_id, org_id, period, score_scaled, details_json, scored_by_user_id, scored_at ON ma_perf_score
+BEGIN SELECT RAISE(ABORT, '绩效原始评分不可修改'); END;
+`,
+  },
 ];

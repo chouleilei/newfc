@@ -164,6 +164,21 @@ export function allocateCents(total: bigint, weights: readonly bigint[]): bigint
   return neg ? shares.map((s) => -s) : shares;
 }
 
+/**
+ * 按权重分摊,前几项向零截断,最后一个正权重项吸收尾差(管理会计成本分摊口径:
+ * 100.00 按 1:1:1 → 33.33/33.33/33.34)。截断保证吸收项不小于其精确份额,合计严格等于总额。
+ */
+export function allocateCentsTail(total: bigint, weights: readonly bigint[]): bigint[] {
+  if (weights.some((w) => w < 0n)) throw new DecimalFormatError(weights.join(','), '分摊权重不可为负');
+  const weightSum = weights.reduce((a, b) => a + b, 0n);
+  if (weightSum === 0n) throw new AppError('ALLOCATION_BASIS_EMPTY', '分摊基数合计为零,无法分摊', 422);
+  let tail = -1;
+  weights.forEach((w, i) => { if (w > 0n) tail = i; });
+  const shares = weights.map((w, i) => (i === tail ? 0n : (total * w) / weightSum));
+  shares[tail] = total - shares.reduce((a, b) => a + b, 0n);
+  return shares;
+}
+
 /* ---------------- 比率 ---------------- */
 
 /** 比率默认 6 位小数(0.123456 = 12.3456%);分母为零返回 null(不可计算,不等于 0)。 */
