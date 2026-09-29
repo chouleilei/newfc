@@ -7,7 +7,7 @@
 | 金额 money | `INTEGER` 整数分，列名以 `_cents` 结尾 | `bigint`（`core/decimal.ts`），64 位溢出检查 | 两位小数十进制字符串，如 `"-1234.50"`；同时给出币种/单位字段（默认 `CNY`/元） | 输入默认拒绝超两位小数；乘除/分摊在明确步骤 `half-up` |
 | 数量 quantity | `INTEGER` 缩放值，scale 在字段定义中声明（继承科目数量 scale=4） | 缩放 `bigint` | 去尾零十进制字符串 | 同上 |
 | 单价 price | `INTEGER`，分的 4 位小数（scale=4 over cents） | `mulCents` 回到分 | 十进制字符串 | 回到分时 `half-up` |
-| 比率 ratio | 不持久化或以 scale=6 缩放整数 | `ratioScaled` | 0～1 口径字符串（`"0.123456"`），不是百分数；分母为零为 `null` | `half-up`，6 位 |
+| 比率 ratio | 不持久化或以 scale=6 缩放整数 | `ratioScaled` | 0～1 口径字符串，固定 6 位小数（`"0.123456"`、`"0.420000"`），不是百分数；分母为零为 `null` | `half-up`，6 位 |
 
 规则：
 

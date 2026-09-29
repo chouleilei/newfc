@@ -98,9 +98,9 @@ describe('定点乘法、分摊与比率', () => {
   it('比率为 0～1 口径字符串;分母为零返回 null 而非 0;百分数只做展示', () => {
     expect(ratioString(1, 3)).toBe('0.333333');
     expect(ratioString(2, 3)).toBe('0.666667');
-    expect(ratioString(-1, 8)).toBe('-0.125');
+    expect(ratioString(-1, 8)).toBe('-0.125000');
     expect(ratioString(5, 0)).toBeNull();
-    expect(ratioString(0, 5)).toBe('0');
+    expect(ratioString(0, 5)).toBe('0.000000');
     expect(ratioToPercentText('0.123456')).toBe('12.35%');
     expect(ratioToPercentText(null)).toBeNull();
     expect(formatScaled(1234500n, 4, false)).toBe('123.45');

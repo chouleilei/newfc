@@ -176,10 +176,10 @@ export function ratioScaled(numerator: bigint | number, denominator: bigint | nu
   return roundDiv(n * 10n ** BigInt(scale), d, 'half-up');
 }
 
-/** 比率字符串(0～1 口径,不是百分数)。 */
+/** 比率字符串(0～1 口径,不是百分数),固定 scale 位小数(与金额固定两位一致,如 "0.420000")。 */
 export function ratioString(numerator: bigint | number, denominator: bigint | number, scale = RATIO_SCALE): string | null {
   const r = ratioScaled(numerator, denominator, scale);
-  return r === null ? null : formatScaled(r, scale, false);
+  return r === null ? null : formatScaled(r, scale, true);
 }
 
 /** 显示用百分数字符串:仅用于界面/报告文本,不回写计算。 */

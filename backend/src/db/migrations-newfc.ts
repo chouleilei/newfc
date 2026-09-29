@@ -521,4 +521,71 @@ INSERT OR IGNORE INTO app_role_permission (role_id, permission) SELECT id, 'stat
 INSERT OR IGNORE INTO app_role_permission (role_id, permission) SELECT id, 'mgmt:review' FROM app_role WHERE code IN ('admin','business_reviewer');
 `,
   },
+  {
+    version: 46,
+    name: 'financial_statements',
+    sql: `
+/* AC-F10 财务报表:四表模板解析为表项与事实(整数分)。按 组织 + 期间 + 口径 + sha256 幂等;
+   同一组织期间口径只有一个当前批次;表项与事实不可改。 */
+CREATE TABLE stmt_batch (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  scope TEXT NOT NULL CHECK (scope IN ('parent','subsidiary','consolidated')),
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  file_sha256 TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  template_version TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'imported' CHECK (status IN ('imported','active','superseded','voided')),
+  is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),
+  item_count INTEGER NOT NULL,
+  fact_count INTEGER NOT NULL,
+  warning_count INTEGER NOT NULL DEFAULT 0,
+  checks_json TEXT NOT NULL DEFAULT '[]',
+  sheets_json TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  activated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  activated_at TEXT,
+  voided_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  voided_at TEXT,
+  void_reason TEXT
+);
+CREATE UNIQUE INDEX idx_stmt_batch_idem ON stmt_batch(org_id, period, scope, file_sha256);
+CREATE UNIQUE INDEX idx_stmt_batch_current ON stmt_batch(org_id, period, scope) WHERE is_current = 1;
+
+CREATE TABLE stmt_item (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL REFERENCES stmt_batch(id),
+  sheet_code TEXT NOT NULL CHECK (sheet_code IN ('balance_sheet','income_statement','cash_flow_statement','equity_change_statement')),
+  side TEXT CHECK (side IN ('asset','liability_equity')),
+  row_no INTEGER NOT NULL,
+  line_no TEXT,
+  item_name TEXT NOT NULL,
+  semantic_key TEXT,
+  item_type TEXT NOT NULL CHECK (item_type IN ('total','subtotal','detail'))
+);
+CREATE INDEX idx_stmt_item_batch ON stmt_item(batch_id, sheet_code);
+
+CREATE TABLE stmt_fact (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL REFERENCES stmt_batch(id),
+  item_id INTEGER NOT NULL REFERENCES stmt_item(id),
+  field_key TEXT NOT NULL,
+  field_name TEXT NOT NULL,
+  amount_cents INTEGER,
+  text_value TEXT,
+  formula_text TEXT,
+  source_cell TEXT NOT NULL
+);
+CREATE INDEX idx_stmt_fact_item ON stmt_fact(item_id);
+CREATE INDEX idx_stmt_fact_batch ON stmt_fact(batch_id);
+
+CREATE TRIGGER trg_stmt_item_immutable_u BEFORE UPDATE ON stmt_item BEGIN SELECT RAISE(ABORT, '财务报表表项不可修改'); END;
+CREATE TRIGGER trg_stmt_item_immutable_d BEFORE DELETE ON stmt_item BEGIN SELECT RAISE(ABORT, '财务报表表项不可删除'); END;
+CREATE TRIGGER trg_stmt_fact_immutable_u BEFORE UPDATE ON stmt_fact BEGIN SELECT RAISE(ABORT, '财务报表事实不可修改'); END;
+CREATE TRIGGER trg_stmt_fact_immutable_d BEFORE DELETE ON stmt_fact BEGIN SELECT RAISE(ABORT, '财务报表事实不可删除'); END;
+`,
+  },
 ];
