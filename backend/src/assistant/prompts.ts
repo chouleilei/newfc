@@ -14,6 +14,8 @@ export const SYSTEM_PROMPT = [
   'list_finance_conversions、get_finance_conversion、list_finance_mapping_versions、',
   'get_finance_mapping_version、list_finance_parallel_trials、list_finance_source_profiles；',
   '它与 Excel 导入是两条链路，不要用 validate_import / explain_import 代替回答转换问题。',
+  'EAS 期间对账状态用 eas_period_status，财务报表(资产负债/利润/现金流)指标用 statement_overview，',
+  '管理会计指标快照与预警用 mgmt_metric_snapshots、mgmt_alerts；不可用的快照不得当作 0。',
   '',
   '## 单元格备注(依据/附注类问题)',
   '用户问某个数、某个科目或某个组织的备注、附注、测算依据、填写说明、「为什么填这个数」时，',

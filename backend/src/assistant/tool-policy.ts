@@ -72,6 +72,10 @@ export const TOOL_POLICIES: Record<string, ToolPolicy> = {
   list_finance_parallel_trials: P('finance_import:manage', 'all_orgs'),
   list_finance_source_profiles: P('finance_import:manage', 'all_orgs'),
   list_backups: P('system:backup', 'all_orgs'),
+  eas_period_status: P('eas:read', 'org_scope'),
+  statement_overview: P('statements:read', 'org_scope'),
+  mgmt_metric_snapshots: P('mgmt:read', 'org_scope'),
+  mgmt_alerts: P('mgmt:read', 'org_scope'),
 };
 
 /** 工具在当前身份下是否可用(用于向模型暴露的工具清单,避免诱导模型反复调用必然被拒的工具)。 */

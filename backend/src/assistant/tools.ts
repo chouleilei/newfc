@@ -34,6 +34,8 @@ import {
 } from './finance';
 import { budgetCellEvidence, actualCellEvidence, metricEvidence } from '../modules/evidence/evidence.service';
 import { insightRowsFilter } from './ownership';
+import type { StatementScope } from '../contracts/statements';
+import { easPeriodStatusView, mgmtAlertsView, mgmtSnapshotsView, statementOverviewView } from './finance-data';
 import { authorizeToolCall, orgTreeFilter } from './tool-policy';
 
 const rawTools = {
@@ -138,6 +140,14 @@ const rawTools = {
   list_sheets: (db: DB) => sheet.listSheets(db),
   /** 备份文件列表(只读):名称/大小/时间;创建与恢复不是助手能力 */
   list_backups: (db: DB) => backup.listBackups(backup.backupDirOf(db.name)),
+  /** T-3 EAS 期间状态:当前对账集合、规则结果、锁定与更正(AC-F05) */
+  eas_period_status: (db: DB, input: Parameters<typeof easPeriodStatusView>[1]) => easPeriodStatusView(db, input),
+  /** T-3 财务报表总览:当前批次语义指标与比率(AC-F10) */
+  statement_overview: (db: DB, input: Parameters<typeof statementOverviewView>[1]) => statementOverviewView(db, input),
+  /** T-3 管理会计有效指标快照(AC-F14) */
+  mgmt_metric_snapshots: (db: DB, input: Parameters<typeof mgmtSnapshotsView>[1]) => mgmtSnapshotsView(db, input),
+  /** T-3 管理会计预警(缺省未关闭) */
+  mgmt_alerts: (db: DB, input: Parameters<typeof mgmtAlertsView>[1]) => mgmtAlertsView(db, input),
 };
 
 /**
@@ -244,6 +254,10 @@ const schemas: Record<string, any> = {
   get_year_states: { type: 'object', additionalProperties: false },
   list_sheets: { type: 'object', additionalProperties: false },
   list_backups: { type: 'object', additionalProperties: false },
+  eas_period_status: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID;受限账号只有一个授权组织时可省略' }, period: { type: 'string', description: '期间 YYYY-MM' } }, required: ['period'], additionalProperties: false },
+  statement_overview: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'] }, period: { type: ['string', 'null'], description: '期间 YYYY-MM,缺省取最新当前批次' }, scope: { type: ['string', 'null'], enum: ['parent', 'subsidiary', 'consolidated'] } }, additionalProperties: false },
+  mgmt_metric_snapshots: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, period: { type: ['string', 'null'], description: '期间 YYYY 或 YYYY-MM' }, metricId: { type: ['integer', 'null'] } }, additionalProperties: false },
+  mgmt_alerts: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, status: { type: ['string', 'null'], enum: ['unclosed', 'open', 'acknowledged', 'closed'] }, period: { type: ['string', 'null'] } }, additionalProperties: false },
 };
 
 /**
@@ -334,6 +348,10 @@ const TOOL_LABELS: Record<string, string> = {
   get_year_states: '查询年度状态',
   list_sheets: '读取工作表目录',
   list_backups: '查询备份列表',
+  eas_period_status: '查询 EAS 期间对账状态',
+  statement_overview: '读取财务报表总览',
+  mgmt_metric_snapshots: '读取管理会计指标快照',
+  mgmt_alerts: '查询管理会计预警',
 };
 
 export function toolLabel(name: string): string {
@@ -374,6 +392,17 @@ export function executeTool(db: DB, name: string, args: any = {}) {
   const oneOf = (value: unknown, label: string, allowed: string[]): string => {
     const text = typeof value === 'string' ? value.trim() : '';
     if (!allowed.includes(text)) throw new Error(`${label}必须是 ${allowed.join('、')} 之一`);
+    return text;
+  };
+  /** 期间:YYYY-MM;allowYear 时也接受 YYYY(管理会计年度期间)。 */
+  const periodArg = (value: unknown, required: boolean, allowYear: boolean): string | undefined => {
+    if (value == null || value === '') {
+      if (required) throw new Error('period必须是 YYYY-MM');
+      return undefined;
+    }
+    const text = typeof value === 'string' ? value.trim() : '';
+    const ok = /^\d{4}-(0[1-9]|1[0-2])$/.test(text) || (allowYear && /^\d{4}$/.test(text));
+    if (!ok) throw new Error(allowYear ? 'period必须是 YYYY 或 YYYY-MM' : 'period必须是 YYYY-MM');
     return text;
   };
   /**
@@ -555,6 +584,26 @@ export function executeTool(db: DB, name: string, args: any = {}) {
       if (args.mappingKind != null) filter.mappingKind = oneOf(args.mappingKind, 'mappingKind', ['org', 'account']) as 'org' | 'account';
       return fn(db, filter);
     }
+    // T-3 财务数据只读工具:期间格式与枚举显式校验,orgScopeId 由 tool-policy 按身份改写。
+    case 'eas_period_status': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      period: periodArg(args.period, true, false)!,
+    });
+    case 'statement_overview': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      period: periodArg(args.period, false, false),
+      scope: args.scope == null ? undefined : oneOf(args.scope, 'scope', ['parent', 'subsidiary', 'consolidated']) as StatementScope,
+    });
+    case 'mgmt_metric_snapshots': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      period: periodArg(args.period, false, true),
+      metricId: args.metricId == null ? undefined : integer(args.metricId, 'metricId'),
+    });
+    case 'mgmt_alerts': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      status: args.status == null ? undefined : oneOf(args.status, 'status', ['unclosed', 'open', 'acknowledged', 'closed']),
+      period: periodArg(args.period, false, true),
+    });
     default:
       /* 不默认透传模型给的任意 JSON 给业务 service:schemas 只用于模型侧声明,
          后端不据此校验,`default: return fn(db, args)` 意味着「新增工具忘了写 case
