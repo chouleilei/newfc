@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import { EnhancedTable as Table } from '../components/EnhancedTable';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, can } from '../api/client';
+import { api, can, getSession } from '../api/client';
 import { centsToYuan, formatRate, formatRateOrReason, formatProgress, RATE_SPECIAL_TEXT } from '../utils/money';
 import MoneyText from '../components/MoneyText';
 import { escapeHtml } from '../utils/escapeHtml';
@@ -674,14 +674,18 @@ export default function Dashboard() {
      都不是开始编制的前提,避免首次使用者误以为要全部配完才能动手。
      已有草稿或定稿未采用时,在指引下方直接给出可继续的工作。 */
   if (dash.currentVersions.length === 0) {
+    /* 初始化步骤是全组织的维护动作:只授权部分组织或没有写权限的账号只看进度,不给入口
+       (点进去也会被 SCOPE_RESTRICTED/403 拒绝),改为提示联系维护人员。 */
+    const allOrgs = getSession()?.user.allOrgs ?? true;
     const steps = [
-      { icon: <i className="ri-organization-chart" aria-hidden />, title: '建立组织树', desc: `已建 ${dash.counts.orgs} 个组织节点`, path: '/org', done: dash.counts.orgs > 0, optional: false },
-      { icon: <i className="ri-node-tree" aria-hidden />, title: '建立科目树', desc: `已建 ${dash.counts.accounts} 个科目节点`, path: '/account', done: dash.counts.accounts > 0, optional: false },
-      { icon: <i className="ri-functions" aria-hidden />, title: '配置报表指标', desc: `已配 ${dash.counts.metrics} 个(如毛利);不是开始编制的前提`, path: '/metric', done: dash.counts.metrics > 0, optional: true },
-      { icon: <i className="ri-edit-box-line" aria-hidden />, title: '创建预算版本', desc: '编制→记录→定稿→设为当前采用', path: '/budget', done: dash.counts.versions > 0, optional: false },
-    ];
-    const draft = dash.workState.recentDraft;
-    const gaps = dash.workState.pendingAdoption;
+      { icon: <i className="ri-organization-chart" aria-hidden />, title: '建立组织树', desc: `已建 ${dash.counts.orgs} 个组织节点`, path: '/org', permission: 'master:write', done: dash.counts.orgs > 0, optional: false },
+      { icon: <i className="ri-node-tree" aria-hidden />, title: '建立科目树', desc: `已建 ${dash.counts.accounts} 个科目节点`, path: '/account', permission: 'master:write', done: dash.counts.accounts > 0, optional: false },
+      { icon: <i className="ri-functions" aria-hidden />, title: '配置报表指标', desc: `已配 ${dash.counts.metrics} 个(如毛利);不是开始编制的前提`, path: '/metric', permission: 'master:write', done: dash.counts.metrics > 0, optional: true },
+      { icon: <i className="ri-edit-box-line" aria-hidden />, title: '创建预算版本', desc: '编制→记录→定稿→设为当前采用', path: '/budget', permission: 'budget:write', done: dash.counts.versions > 0, optional: false },
+    ].map((step) => ({ ...step, actionable: allOrgs && can(step.permission) }));
+    const canContinue = allOrgs && can('budget:write');
+    const draft = canContinue ? dash.workState.recentDraft : null;
+    const gaps = canContinue ? dash.workState.pendingAdoption : [];
     return (
       <div className="bd-page-narrow">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -697,12 +701,13 @@ export default function Dashboard() {
           <Typography.Title level={4} style={{ marginTop: 0 }}>欢迎使用 newfc 水利财务分析</Typography.Title>
           <Typography.Paragraph type="secondary">
             尚未设置任何「当前采用」的预算版本。完成必要步骤后,仪表盘将展示年度执行总览;标注「非当前前提」的配置可在需要时再处理。
+            {steps.some((step) => !step.done && !step.actionable) && ' 部分步骤需要预算维护人员(全组织授权)完成,请联系管理员。'}
           </Typography.Paragraph>
           <Row gutter={[16, 16]}>
             {steps.map((s, i) => (
               <Col xs={24} sm={12} lg={6} key={s.title}>
                 {/* 幽灵数字承担「第几步」的视觉张力,标题里不再写 "1." 前缀 */}
-                <Card size="small" className="quick-tile bd-ghost-host" {...clickableProps(() => navigate(s.path), `${s.title}:${s.desc}`)}
+                <Card size="small" className={s.actionable ? 'quick-tile bd-ghost-host' : 'bd-ghost-host'} {...(s.actionable ? clickableProps(() => navigate(s.path), `${s.title}:${s.desc}`) : {})}
                   styles={{ body: { padding: 18 } }}>
                   <span className="bd-ghost-num" aria-hidden>{i + 1}</span>
                   <Space align="start" size={12}>
