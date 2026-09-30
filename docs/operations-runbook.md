@@ -42,14 +42,34 @@ curl -fsS http://127.0.0.1:3760/api/health/ready
 
 ## 代码回退
 
-- 无 schema 变化：`mv backend/dist backend/dist.bad && mv backend/dist.old backend/dist`（前端同理）后重启。
-- 有 schema 变化：旧代码不保证兼容新 schema。先停服，从 `backups/` 中该次发布的 `pre-migrate-*` 备份恢复（见下），再换回旧产物。若新版本已有新增业务写入，先导出这些记录并确定对账方案，不能只换 URL 宣布无损回退。
+`scripts/rollback.sh [--restore-backup <备份文件名>] [--accept-data-loss] [--no-restart]`（AC-X08）：
+
+- 仅当 `backend/dist.old` 与 `frontend/dist.old` 都存在时执行；产物互换，被回退的版本留在 `dist.old`（再次执行即换回）。
+- 无 schema 变化：直接 `scripts/rollback.sh`，停服 → 换产物 → 启动 → 就绪检查。
+- 有 schema 变化：当前库版本高于旧代码支持的最高版本时脚本拒绝（退出码 4，不停服）并列出 `pre-migrate-*` 备份。
+  用 `scripts/rollback.sh --restore-backup pre-migrate-cli-budget-backup-….sqlite` 恢复（不做迁移，保持旧 schema）：
+  - 备份之后的写入（审计日志中非备份/迁移动作）先按动作列出，未加 `--accept-data-loss` 时拒绝（退出码 3，服务按原版本重新启动）；
+  - 确认后当前库先备份为 `pre-rollback-*`，补齐备份包中的附件对象，再替换库、换回旧产物并启动。
+  - 丢弃的写入需按列出的动作与时间补录或对账，不能宣布无损回退。
+- 演练：`scripts/release-drill.sh [空目录]` 在临时副本中用真实 deploy/rollback 脚本演练构建失败、迁移失败、schema 变化发布与回退（伪 systemctl 只管副本进程，端口默认 3769）。`deploy.sh`/`rollback.sh` 的 `NEWFC_ROOT`、`NEWFC_DATA_DIR`、`NEWFC_SERVICE`、`NEWFC_SYSTEMCTL`、`NEWFC_SKIP_INSTALL` 仅供演练覆盖，生产保持默认。
 
 ## 备份与恢复
 
-- 自动：每 24 小时及迁移前在线备份（SQLite backup API）到 `/data/newfc-data/backups/`。
-- 页面：系统设置 → 备份，可创建、校验、恢复。
-- 附件对象与数据库的一致性备份、独立目录恢复演练：见阶段 6 记录（AC-X07）。
+- **备份包**：每 24 小时及迁移前在线备份（SQLite backup API）到 `/data/newfc-data/backups/`。每个备份 = 库文件 + `<名>.manifest.json`（库 sha256、schema 版本、引用对象列表）+ 被引用对象（`backups/objects/sha256/…`，多个备份共享，按保留清单回收）。
+- **校验**：页面“备份与迁移”→ 校验，逐项显示库完整性/外键、清单、库摘要、对象列表、对象摘要，并核对运行对象目录（缺失/损坏/可从该备份补齐的数量）。
+- **页面恢复**：先校验备份包 → 当前库备份为 `pre-restore-*` → 补齐运行对象 → 替换库 → 旧 schema 自动升级。无清单的旧格式备份只在不登记任何文件对象时可恢复。
+- **恢复演练**：`npm run restore:drill -- --backup <备份文件> --target <空目录> [--source <原库>]`。在空目录还原库与对象、执行迁移检查、逐表比对行数/金额列合计/状态分布，用随机端口启动临时实例做存活/就绪与关键只读查询，输出 JSON 耗时报告（`<target>/restore-drill-report.json`）。拒绝非空目录、运行数据目录与 newbd/lishui 路径。建议每季度及每次大版本发布后执行一次。
+- **恢复窗口（OPEN-04）**：RPO ≤ 24 小时（自动备份间隔；迁移前另有备份）。RTO 以演练实测为准，见验收记录 T-6。
+
+## newbd 数据迁入
+
+`npm run import:newbd -- --source <newbd 快照.sqlite> --target <数据目录> [--replace]`：
+
+- 来源只接受运维复制出的离线快照（先停 newbd 或用 SQLite 在线备份复制），工具拒绝 `/root/newbd`、`/data/newbd` 下的路径。
+- 来源 schema 须为 newfc 继承迁移（V1～V38）的前缀，否则列出差异并拒绝。
+- 结果目录含 `newfc.sqlite`、`newbd-import-report.json`（核对报告）与 `id-map.csv`（身份映射）；核对未通过时不换入目标。
+- 不迁入口令/会话、不创建账号：迁入后执行 `npm run admin:create`。
+- 重跑须 `--replace`（旧目标改名保留为 `<目标>.replaced-<时间>`）；目标库在迁入后已有业务写入时拒绝。
 
 ## 初始化管理员与账号恢复
 

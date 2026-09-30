@@ -5,13 +5,16 @@
 # - 只操作本仓库目录与 NEWFC_DATA_DIR;不触碰 newbd/lishui。
 #
 # 用法: scripts/deploy.sh [--skip-tests] [--no-restart]
+# 演练覆盖(scripts/release-drill.sh 使用,生产保持默认):NEWFC_ROOT 仓库根、NEWFC_DATA_DIR 数据目录、
+# NEWFC_SERVICE 服务名、NEWFC_SYSTEMCTL 服务控制命令、NEWFC_SKIP_INSTALL=1 跳过依赖安装。
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${NEWFC_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 NODE_VERSION="$(cat "$ROOT/.nvmrc")"
 NODE_BIN="${NEWFC_NODE_BIN:-/root/.nvm/versions/node/v${NODE_VERSION}/bin}"
 DATA_DIR="${NEWFC_DATA_DIR:-/data/newfc-data}"
-SERVICE="newfc.service"
+SERVICE="${NEWFC_SERVICE:-newfc.service}"
+SYSTEMCTL="${NEWFC_SYSTEMCTL:-systemctl}"
 PORT="${NEWFC_PORT:-3760}"
 SKIP_TESTS=0
 RESTART=1
@@ -42,8 +45,10 @@ install_if_changed() {
   (cd "$dir" && npm ci --no-audit --no-fund)
   echo "$sum" > "$stamp"
 }
-install_if_changed "$ROOT/backend"
-install_if_changed "$ROOT/frontend"
+if [[ "${NEWFC_SKIP_INSTALL:-0}" != "1" ]]; then
+  install_if_changed "$ROOT/backend"
+  install_if_changed "$ROOT/frontend"
+fi
 
 if [[ $SKIP_TESTS -eq 0 ]]; then
   echo "[deploy] 运行测试"
@@ -57,9 +62,9 @@ rm -rf "$ROOT/backend/dist.new" "$ROOT/frontend/dist.new"
 (cd "$ROOT/frontend" && npx tsc -b && npx vite build --outDir dist.new --emptyOutDir)
 [[ -f "$ROOT/backend/dist.new/index.js" && -f "$ROOT/frontend/dist.new/index.html" ]] || { echo "构建产物不完整,中止" >&2; exit 1; }
 
-if [[ $RESTART -eq 1 ]] && systemctl is-active --quiet "$SERVICE"; then
+if [[ $RESTART -eq 1 ]] && "$SYSTEMCTL" is-active --quiet "$SERVICE"; then
   echo "[deploy] 停止 $SERVICE"
-  systemctl stop "$SERVICE"
+  "$SYSTEMCTL" stop "$SERVICE"
 fi
 
 echo "[deploy] 迁移(先备份) $DATA_DIR"
@@ -79,7 +84,7 @@ swap "$ROOT/frontend"
 echo "[deploy] 产物已替换(上一版保留在 dist.old,可用于代码回退)"
 
 if [[ $RESTART -eq 1 ]]; then
-  systemctl start "$SERVICE"
+  "$SYSTEMCTL" start "$SERVICE"
   for _ in $(seq 1 30); do
     if curl -fsS "http://127.0.0.1:$PORT/api/health/ready" >/dev/null 2>&1; then
       echo "[deploy] 就绪检查通过"
