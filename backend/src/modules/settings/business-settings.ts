@@ -10,8 +10,10 @@ import type { DB } from '../../db/connection';
 import { AppError, Errors } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { writeLog } from '../audit/log';
+import { parseScaled, RATIO_SCALE } from '../../core/decimal';
 
-type SettingType = 'string' | 'int' | 'bool' | 'enum' | 'url' | 'secret';
+/** ratio:0～1 的十进制字符串,最多 6 位小数(缩放 bigint 校验,不经浮点) */
+type SettingType = 'string' | 'int' | 'bool' | 'enum' | 'url' | 'secret' | 'ratio';
 
 export interface SettingDef {
   key: string;
@@ -36,6 +38,11 @@ export const BUSINESS_SETTINGS: readonly SettingDef[] = [
   },
   { key: 'display.amount_decimals', label: '默认金额小数位', group: '显示', type: 'int', default: 2, min: 0, max: 4 },
   { key: 'jobs.retention_days', label: '任务记录保留天数', group: '任务', type: 'int', default: 90, min: 7, max: 3650, description: '服务启动时清理超期的已结束任务及其步骤' },
+  // T-6:投资控制默认偏差阈值(对比请求未指定时取用,快照记录实际使用的阈值)与预测运行超时
+  { key: 'investment.ic_threshold_normal', label: '投资偏差“正常”上限', group: '投资控制', type: 'ratio', default: '0.03', description: '偏差率不超过该值为正常(0～1,如 0.03 表示 3%)' },
+  { key: 'investment.ic_threshold_attention', label: '投资偏差“关注”上限', group: '投资控制', type: 'ratio', default: '0.08', description: '超过正常上限且不超过该值为关注' },
+  { key: 'investment.ic_threshold_warning', label: '投资偏差“预警”上限', group: '投资控制', type: 'ratio', default: '0.10', description: '超过关注上限且不超过该值为预警,再高为超限;三者须单调不减' },
+  { key: 'forecast.timeout_seconds', label: '预测运行超时(秒)', group: '财务预测', type: 'int', default: 30, min: 5, max: 120, description: '单次预测重算的最长计算时间,超时记为失败' },
   { key: 'integration.ocr_base_url', label: 'OCR 服务地址', group: '集成', type: 'url', default: '', maxLength: 300 },
   { key: 'integration.ocr_api_key', label: 'OCR 服务密钥', group: '集成', type: 'secret', default: null, maxLength: 500 },
 ];
@@ -71,6 +78,14 @@ function validate(def: SettingDef, raw: unknown): string | number | boolean | nu
       if (!Number.isSafeInteger(n)) throw fail('必须是整数');
       if ((def.min !== undefined && n < def.min) || (def.max !== undefined && n > def.max)) throw fail(`取值范围 ${def.min}～${def.max}`);
       return n;
+    }
+    case 'ratio': {
+      if (typeof raw !== 'string') throw fail('必须是十进制字符串');
+      const v = raw.trim();
+      let scaled: bigint;
+      try { scaled = parseScaled(v, RATIO_SCALE, { label: def.label }); } catch { throw fail(`须为 0～1 之间最多 ${RATIO_SCALE} 位小数的数字`); }
+      if (scaled < 0n || scaled > 10n ** BigInt(RATIO_SCALE)) throw fail('取值范围 0～1');
+      return v;
     }
     case 'bool':
       if (typeof raw !== 'boolean') throw fail('必须是布尔值');
@@ -124,6 +139,26 @@ export function getSetting<T extends string | number | boolean | null>(db: DB, k
   return (row ? JSON.parse(row.value_json) : def.default) as T;
 }
 
+const IC_THRESHOLD_KEYS = ['investment.ic_threshold_normal', 'investment.ic_threshold_attention', 'investment.ic_threshold_warning'] as const;
+
+/** 跨项校验:保存后的投资偏差阈值(本次提交 + 已存值/默认值)须满足 正常 ≤ 关注 ≤ 预警。 */
+function crossCheck(db: DB, parsed: [SettingDef, string | number | boolean | null][]): { row: number; field: string; message: string }[] {
+  if (!parsed.some(([d]) => (IC_THRESHOLD_KEYS as readonly string[]).includes(d.key))) return [];
+  const next = new Map(parsed.map(([d, v]) => [d.key, v]));
+  const eff = IC_THRESHOLD_KEYS.map((k) => {
+    const v = next.has(k) ? next.get(k) ?? DEFS.get(k)!.default : getSetting<string>(db, k);
+    return parseScaled(String(v), RATIO_SCALE);
+  });
+  if (eff[0] <= eff[1] && eff[1] <= eff[2]) return [];
+  return [{ row: 0, field: 'investment.ic_threshold_attention', message: '投资偏差阈值须满足 正常 ≤ 关注 ≤ 预警' }];
+}
+
+/** 投资控制默认阈值(对比请求未指定时使用)。 */
+export function icDefaultThresholds(db: DB): { normal: string; attention: string; warning: string } {
+  const [normal, attention, warning] = IC_THRESHOLD_KEYS.map((k) => getSetting<string>(db, k));
+  return { normal, attention, warning };
+}
+
 /**
  * 批量保存:{ key: value }。value 为 null 表示恢复默认(secret 为清除)。
  * secret 传 undefined/省略表示不修改;前端不会拿到明文,因此无法“原样回传”。
@@ -147,6 +182,7 @@ export function saveBusinessSettings(db: DB, input: unknown): PublicSetting[] {
       else throw err;
     }
   }
+  if (!errors.length) errors.push(...crossCheck(db, parsed));
   if (errors.length) throw new AppError('VALIDATION_FAILED', '设置校验未通过', 400, errors);
 
   const auth = currentAuth();

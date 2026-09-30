@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App as AntdApp, Button, Card, Descriptions, Drawer, Popconfirm, Progress, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import { App as AntdApp, Button, Card, Descriptions, Drawer, Popconfirm, Progress, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { api, can, errorText } from '../api/client';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
@@ -10,6 +10,8 @@ type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | '
 interface JobItem {
   id: number;
   kind: string;
+  /** 服务端给出的中文类型名;未登记类型等于 kind */
+  kindLabel?: string;
   title: string;
   status: JobStatus;
   progress: { permille: number; message: string };
@@ -105,7 +107,7 @@ function JobsTab() {
         columns={[
           { title: 'ID', dataIndex: 'id', width: 70 },
           { title: '任务', dataIndex: 'title', render: (v: string, j) => <a onClick={() => setOpenId(j.id)}>{v}</a> },
-          { title: '类型', dataIndex: 'kind', render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
+          { title: '类型', dataIndex: 'kind', render: (v: string, r: JobItem) => (r.kindLabel && r.kindLabel !== v ? <Tooltip title={v}>{r.kindLabel}</Tooltip> : <Typography.Text code>{v}</Typography.Text>) },
           { title: '状态', dataIndex: 'status', width: 100, render: (v: JobStatus) => <Tag color={JOB_STATUS_META[v].color}>{JOB_STATUS_META[v].label}</Tag> },
           {
             title: '进度', width: 200,

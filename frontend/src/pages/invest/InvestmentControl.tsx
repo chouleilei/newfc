@@ -216,7 +216,7 @@ function CompareModal({ project, open, onClose, onDone }: { project: IcProjectDe
         <Form.Item name="targetVersionId" label="目标版本" rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, x) => (x && x === getFieldValue('baseVersionId') ? Promise.reject(new Error('基准与目标不能相同')) : Promise.resolve()) })]}>
           <Select options={options} />
         </Form.Item>
-        <Typography.Text type="secondary">偏差率阈值(可选,缺省 0.03 / 0.08 / 0.10)</Typography.Text>
+        <Typography.Text type="secondary">偏差率阈值(可选,缺省取业务设置「投资控制」中的默认阈值;快照记录实际使用值)</Typography.Text>
         <Row gutter={8}>
           <Col span={8}><Form.Item name="normal" label="正常 ≤" rules={[ratioRule]}><Input placeholder="0.03" /></Form.Item></Col>
           <Col span={8}><Form.Item name="attention" label="关注 ≤" rules={[ratioRule]}><Input placeholder="0.08" /></Form.Item></Col>

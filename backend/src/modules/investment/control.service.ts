@@ -18,6 +18,7 @@ import { currentOrgScope, notVisible, orgInScope, scopeFilterSql } from '../secu
 import { storeFile, type ObjectStore } from '../files/object-store';
 import { readTable } from '../io/table-reader';
 import { amountCents, CellError, findHeader, headerKey, headerUnit } from '../io/cell-values';
+import { icDefaultThresholds } from '../settings/business-settings';
 import {
   IC_VERSION_TYPE_LABELS, type IcChainItemDto, type IcComparisonRowDto, type IcComparisonSummaryDto, type IcLevel, type IcVersionType,
 } from '../../contracts/investment-control';
@@ -26,6 +27,7 @@ const nowIso = () => new Date().toISOString();
 const conflict = (code: string, message: string, details?: unknown) => new AppError(code, message, 409, undefined, details);
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const MAX_ITEMS = 5000;
+/** 出厂默认阈值,与业务设置 investment.ic_threshold_* 的默认值一致;实际取值见 icDefaultThresholds。 */
 export const IC_DEFAULT_THRESHOLDS = { normal: '0.03', attention: '0.08', warning: '0.10' };
 
 interface ProjectRow {
@@ -521,7 +523,7 @@ export function createIcComparison(db: DB, input: { baseVersionId: number; targe
   const { version: target } = visibleVersion(db, input.targetVersionId);
   if (target.project_id !== base.project_id) throw Errors.validation('基准与目标版本必须属于同一项目');
   for (const v of [base, target]) if (v.status !== 'confirmed') throw conflict('IC_VERSION_STATE', `版本“${v.name}”未确认或已作废,不能对比`);
-  const thresholds = input.thresholds ?? IC_DEFAULT_THRESHOLDS;
+  const thresholds = input.thresholds ?? icDefaultThresholds(db);
   const t = {
     normal: parseScaled(thresholds.normal, RATIO_SCALE), attention: parseScaled(thresholds.attention, RATIO_SCALE), warning: parseScaled(thresholds.warning, RATIO_SCALE),
   };

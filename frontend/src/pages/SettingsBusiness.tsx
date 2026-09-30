@@ -8,7 +8,7 @@ import { shortTime } from '../utils/relativeTime';
 type Value = string | number | boolean | null;
 
 interface SettingItem {
-  key: string; label: string; group: string; type: 'string' | 'int' | 'bool' | 'enum' | 'url' | 'secret';
+  key: string; label: string; group: string; type: 'string' | 'int' | 'bool' | 'enum' | 'url' | 'secret' | 'ratio';
   description?: string; min?: number; max?: number; maxLength?: number; options?: { value: string; label: string }[];
   value: Value; defaultValue: Value; isDefault: boolean; configured?: boolean; preview?: string | null; updatedAt: string | null;
 }

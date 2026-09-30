@@ -17,7 +17,8 @@ import { submitJob } from '../jobs/job.service';
 import { storeFile, type ObjectStore } from '../files/object-store';
 import type { ForecastDiagnostic, ForecastOutput, ForecastParam, WorkbookJsonInput } from '../../contracts/finance-forecast';
 import { diagnoseWorkbook, hasErrors, workbookFromXlsx } from './forecast-workbook';
-import { runForecastInWorker } from './forecast-runner';
+import { forecastLimits, runForecastInWorker } from './forecast-runner';
+import { getSetting } from '../settings/business-settings';
 import type { CellInput, WorkbookJson } from './formula/engine';
 
 const nowIso = () => new Date().toISOString();
@@ -347,7 +348,7 @@ export function startForecastRun(db: () => DB, versionId: number, input: { kind:
       overrides[p.cell] = value;
     }
     const outputs = (JSON.parse(version.outputs_json) as ForecastOutput[]).map((o) => ({ key: o.key, ref: o.ref }));
-    const out = await runForecastInWorker({ workbook: JSON.parse(version.workbook_json), overrides, outputs, maxSteps: MAX_STEPS });
+    const out = await runForecastInWorker({ workbook: JSON.parse(version.workbook_json), overrides, outputs, maxSteps: MAX_STEPS }, forecastLimits(getSetting<number>(db(), 'forecast.timeout_seconds')));
     return finish(out);
   });
   d.prepare('UPDATE ff_run SET job_id = ? WHERE id = ? AND status IN (\'queued\',\'running\')').run(job.id, runId);

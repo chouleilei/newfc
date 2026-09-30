@@ -17,13 +17,14 @@ export const activeForecastWorkers = () => active;
 
 export interface RunnerLimits { timeoutMs: number; maxOldGenerationSizeMb: number }
 
-export function forecastLimits(): RunnerLimits {
+/** 超时:环境变量 NEWFC_FORECAST_TIMEOUT_MS 优先(测试用);否则取业务设置 forecast.timeout_seconds。 */
+export function forecastLimits(timeoutSeconds = 30): RunnerLimits {
   const num = (v: string | undefined, dflt: number, min: number, max: number) => {
     const n = Number(v);
     return Number.isSafeInteger(n) && n >= min && n <= max ? n : dflt;
   };
   return {
-    timeoutMs: num(process.env.NEWFC_FORECAST_TIMEOUT_MS, 30_000, 10, 600_000),
+    timeoutMs: num(process.env.NEWFC_FORECAST_TIMEOUT_MS, timeoutSeconds * 1000, 10, 600_000),
     maxOldGenerationSizeMb: num(process.env.NEWFC_FORECAST_MEMORY_MB, 512, 32, 4096),
   };
 }

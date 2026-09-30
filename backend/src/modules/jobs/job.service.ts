@@ -58,9 +58,18 @@ export interface JobStepRow {
   created_at: string;
 }
 
+/** 任务类型中文名(任务中心、助手展示);未登记的类型原样显示编码。 */
+export const JOB_KIND_LABELS: Record<string, string> = {
+  'expense.audit': '费用审核',
+  'investment.sensitivity': '敏感性分析',
+  'forecast.recalc': '预测重算',
+  'report.publish': '报告发布',
+};
+
 export interface PublicJob {
   id: number;
   kind: string;
+  kindLabel: string;
   title: string;
   status: JobStatus;
   progress: { permille: number; message: string };
@@ -79,6 +88,7 @@ export interface PublicJob {
 }
 
 const TERMINAL: ReadonlySet<JobStatus> = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
+const RETRYABLE: ReadonlySet<JobStatus> = new Set(['failed', 'cancelled', 'interrupted']);
 const nowIso = () => new Date().toISOString();
 
 function parseJson(text: string | null): unknown {
@@ -96,6 +106,7 @@ export function toPublicJob(row: JobRow): PublicJob {
   return {
     id: row.id,
     kind: row.kind,
+    kindLabel: JOB_KIND_LABELS[row.kind] ?? row.kind,
     title: row.title,
     status: row.status,
     progress: { permille: row.progress_permille, message: row.progress_message },
@@ -203,7 +214,9 @@ export function createJob(db: DB, input: CreateJobInput): { job: PublicJob; crea
   const tx = db.transaction(() => {
     if (key) {
       const existing = db.prepare('SELECT * FROM app_job WHERE kind = ? AND created_by IS ? AND idempotency_key = ?').get(input.kind, userId, key) as JobRow | undefined;
-      if (existing) return { row: existing, created: false };
+      // 幂等只合并进行中或已成功的任务;失败/取消/重启中断的任务释放幂等键(保留历史),重新提交即可重跑
+      if (existing && !RETRYABLE.has(existing.status)) return { row: existing, created: false };
+      if (existing) db.prepare('UPDATE app_job SET idempotency_key = NULL, updated_at = ? WHERE id = ?').run(nowIso(), existing.id);
     }
     const now = nowIso();
     const id = Number(db.prepare(`INSERT INTO app_job (kind, title, status, created_by, org_scope_id, request_id, idempotency_key, input_json, created_at, updated_at)
