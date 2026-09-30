@@ -54,6 +54,7 @@ const StandardReports = lazyWithRetry(() => import('./pages/StandardReports'));
 const ProjectBudget = lazyWithRetry(() => import('./pages/project/ProjectBudget'));
 const PlanExecution = lazyWithRetry(() => import('./pages/project/PlanExecution'));
 const Contracts = lazyWithRetry(() => import('./pages/project/Contracts'));
+const ProjectProfile = lazyWithRetry(() => import('./pages/project/ProjectProfile'));
 const ContractImport = lazyWithRetry(() => import('./pages/project/ContractImport'));
 const ExpenseClaims = lazyWithRetry(() => import('./pages/expense/ExpenseClaims'));
 const ExpensePolicies = lazyWithRetry(() => import('./pages/expense/ExpensePolicies'));
@@ -302,6 +303,7 @@ function leafLabel(key: string): string {
 
 export function pageTitle(pathname: string, search: string, selected: string): string {
   if (pathname === '/search') return '跨域检索';
+  if (pathname.startsWith('/projects/')) return '项目档案';
   if (pathname.split('/')[1] === 'data') {
     const tab = new URLSearchParams(search).get('tab');
     if (tab === 'calculations') return '测算模板';
@@ -349,6 +351,7 @@ export function selectedKey(pathname: string, search: string): string {
     return '/';
   }
   if (seg === '/data') return dataMenuKey(new URLSearchParams(search).get('tab'));
+  if (seg === '/projects') return '/master-entities'; // 项目档案归属主数据菜单
   if (pathname.startsWith('/contracts/import')) return '/contracts/import';
   if (pathname.startsWith('/expense/policies')) return '/expense/policies';
   const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs', '/eas', '/governance', '/statements', '/mgmt', '/standard-reports', '/project-budget', '/plan', '/contracts', '/expense', '/feasibility', '/investment-control', '/forecast', '/risk', '/analysis-reports'];
@@ -931,6 +934,7 @@ function getRouter() {
       { path: 'settings/security', element: <SecurityAdmin /> },
       { path: 'settings/business', element: <SettingsBusiness /> },
       { path: 'master-entities', element: <MasterEntities /> },
+      { path: 'projects/:id', element: <ProjectProfile /> },
       { path: 'jobs', element: <JobsCenter /> },
       { path: 'eas', element: <EasWorkspace /> },
       { path: 'governance', element: <Governance /> },

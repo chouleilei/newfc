@@ -275,3 +275,4 @@ E2E 运行前提：webServer 直接跑 `backend/dist/index.js`，必须先在 ba
 | 风险规则 | V61 重建 `risk_rule`（`detector`/`builtin`/`org_id`，来源增加 `eas`），新增 8 条内置规则：付款超前形象进度、完成投资逼近概算、计划明细未关联项目、已支付缺凭证号、供应商大额集中付款、大额凭证缺项目、预付/暂估/挂账、预算执行与 EAS 入账差异；阈值按比率/金额分别校验 | `t7-risk-rules.test.ts` 用例 1 |
 | 自定义规则 | 全组织 `risk:review` 新增；复用内置计算器，可设阈值、等级、适用组织（含下级）；编码冲突 409；内置规则不可改名 | 同上 |
 | 风险解释、整改清单 | 解释为确定性模板 + 可选模型改写（`risk-explain.v1`），`risk_ai_note` 只追加、不改风险状态，需 `risk:handle`；清单按来源与证据生成缺失材料与建议下一状态，范围外 404 | `t7-risk-rules.test.ts` 用例 2 |
+| 项目档案 | `GET /api/master/projects/:id/profile` + `/projects/:id` 页面：主数据与各域同源汇总；分区按该域读权限裁剪（无权限为 null），行按组织范围过滤，范围外项目 404；EAS 凭证按项目编码及有效编码映射匹配；检索结果与风险详情链接到档案 | `t7-project-profile.test.ts` |

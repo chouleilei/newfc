@@ -17,6 +17,7 @@ describe('侧栏高亮与归并(阶段一)', () => {
     expect(selectedKey('/settings/security', '')).toBe('/settings/security');
     expect(selectedKey('/settings/business', '')).toBe('/settings/business');
     expect(selectedKey('/master-entities', '')).toBe('/master-entities');
+    expect(selectedKey('/projects/12', '')).toBe('/master-entities');
     expect(selectedKey('/jobs', '')).toBe('/jobs');
     // 既有行为不变
     expect(selectedKey('/assistant', '')).toBe('/assistant');

@@ -45,6 +45,7 @@ addRouteRules([
   R('WRITE', /^\/(org|account|metrics|sheets)(\/|$)/, 'master:write', true),
   // 主数据扩展(AC-F07):项目按组织范围裁剪;映射影响全局解析,写入限全组织用户;解析预览只读
   R('GET', /^\/master\/(projects|suppliers|mappings)(\/\d+)?$/, 'master:read'),
+  R('GET', /^\/master\/projects\/\d+\/profile$/, 'master:read'),
   R('WRITE', /^\/master\/resolve$/, 'master:read'),
   R('WRITE', /^\/master\/mappings(\/\d+\/retire)?$/, 'master:write', true),
   R('WRITE', /^\/master\/(projects|suppliers)(\/\d+)?$/, 'master:write'),

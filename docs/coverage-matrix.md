@@ -15,7 +15,7 @@
 | AC-F04 | `contract_import` | `/contracts/import` | `/api/contracts/imports/*` | 新：预览→确认、幂等、PREVIEW_STALE、失败整体回滚 | `t4-contract-import.test.ts`、`project-contract.spec.ts` | 通过 |
 | AC-F05 | `eas_workspace` | `/eas` | `/api/eas/import|batches|precheck|sets|locks|corrections|aux-requirements|period-status` | 新：原始批次、预检、集合激活、锁期、更正复核 | `t3-eas.test.ts`、`finance-data.spec.ts` | 通过 |
 | AC-F06 | `data_governance` | `/governance` | `/api/governance/scan|issues|dispositions` | 新：扫描去重/重开、三种处置、复核、生效证明 | `t3-governance.test.ts` | 通过 |
-| AC-F07 | `master_data` | `/org`、`/account`、`/metric`、`/master-entities`、`/master-health` | `/api/org`、`/api/account`、`/api/metrics`、`/api/master/projects|suppliers|mappings|resolve` | 继：组织/科目/指标树与快照；新：项目、供应商、编码映射 | `master-settings.test.ts`、`master-data-health.test.ts`、`unit.services.test.ts` | 通过 |
+| AC-F07 | `master_data` | `/org`、`/account`、`/metric`、`/master-entities`、`/projects/:id`、`/master-health` | `/api/org`、`/api/account`、`/api/metrics`、`/api/master/projects|suppliers|mappings|resolve`、`/api/master/projects/:id/profile` | 继：组织/科目/指标树与快照；新：项目、供应商、编码映射；T-7 项目档案（预算、计划、合同付款、EAS 凭证、风险、投资控制/可研、相关报告、日志，分区按权限裁剪） | `master-settings.test.ts`、`master-data-health.test.ts`、`unit.services.test.ts`、`t7-project-profile.test.ts` | 通过 |
 | AC-F08 | `operating_budget` | `/budget`、`/actual`、`/analysis`、`/compare` 等 | `/api/versions`、`/api/actual/*`、`/api/io/*`、`/api/report/*` | 继：版本、实际快照、预实分析；扩：组织范围裁剪与审计 | `t2-budget-loop.test.ts`、`integration.test.ts`、`analysis-functional.spec.ts` | 通过 |
 | AC-F09 | `project_budget` | `/project-budget` | `/api/project-budget/preview|import|batches|summary` | 新：独立项目预算域，不读写经营预算事实 | `t4-project-budget.test.ts` | 通过 |
 | AC-F10 | `financial_statements` | `/statements` | `/api/statements/preview|import|batches|overview` | 新：三大报表导入、激活、作废、指标 | `t3-statements.test.ts`、`finance-data.spec.ts` | 通过 |
@@ -34,8 +34,7 @@
 | AC-F23 | `system_settings` | `/settings/ai`、`/settings/business` | `/api/settings/ai-channels|ai-feature-bindings|business` | 继：模型渠道（凭据不回显）；扩：业务设置注册表（T-6 加投资控制阈值与预测超时） | `ai-channel-fallback.test.ts`、`master-settings.test.ts`、`t6-settings.test.ts` | 通过 |
 | AC-F24 | `security_administration` | `/settings/security` | `/api/security/users|roles|permissions` | 新：用户、角色、组织授权；授权对页面/API/下载/工具/检索生效 | `security.test.ts`、`scope-restricted.spec.ts`、`platform-admin.spec.ts`、`t6-search.test.ts` | 通过 |
 | AC-F25 | `audit_log` | `/data?tab=logs` | `/api/logs` | 继：操作日志；扩：操作人/来源/结果/请求 ID、凭据脱敏、各域动作 | `security.test.ts` 及各域测试的日志断言 | 通过 |
-| AC-F26 | `risk_workflow` 规则 | `scan.py` 硬编码规则；自定义规则只存元数据、不参与扫描 | 规则 = 计算器 + 阈值/等级/组织；自定义规则复用内置计算器并真正参与扫描 | lishui `PROJECT_CODE_MISSING` → `PLAN_PROJECT_UNMAPPED`（newfc 预算行必须关联项目，缺口只在计划明细）；`CONTRACT_CODE_MISSING` → `CONTRACT_PAY_NO_VOUCHER`（合同编号必填，追溯断点落在付款缺凭证号）；`CONTRACT_OVERPAY` 由数据库约束阻断，保留 `CONTRACT_PAY_OVER_CAP` |
-| `cross_domain_search` | 顶栏检索框、`/search` | `/api/search` | 新：十一类对象关键词检索、按权限与组织裁剪、结果路径可打开 | `t6-search.test.ts`、`Search.test.ts`、`App.test.ts`、`cross-domain.spec.ts` | 通过 |
+| AC-F26 | `cross_domain_search` | 顶栏检索框、`/search` | `/api/search` | 新：十一类对象关键词检索、按权限与组织裁剪、结果路径可打开 | `t6-search.test.ts`、`Search.test.ts`、`App.test.ts`、`cross-domain.spec.ts` | 通过 |
 
 ## 跨域验收
 
@@ -62,6 +61,7 @@
 | `expense_audit` | 平台 OCR/模型 | 可配置 OCR/模型渠道，未配置时明确记录并转人工复核 | OPEN-05 已定：模型 SiliconFlow（OpenAI 兼容）；OCR 走适配契约（lishui 由 Dify 承担）；制度样本为 lishui 首版规则 `deploy/expense-policy-lishui.json`。超阈值严重度为高（lishui 为中），同类多行按合计比较阈值（lishui 按单据合计与逐行） |
 | `finance_forecast` | Univer 在线工作簿编辑 + 独立 Node 计算服务、What-if 滑块 | 上传工作簿（JSON 保存）、内置受限公式引擎（Worker 隔离、超时与内存上限）、参数/输出配置、情景运行与基准对比；不提供在线单元格编辑 | 不引入 Univer 计算服务与 MinIO（specs/implementation.md 预测定位）；编辑在 Excel 中完成后导入为新草稿，情景参数替代滑块 |
 | 历史数据 | MySQL/MinIO 运行数据 | newbd 快照用 `import:newbd` 迁入；lishui 业务数据经各域标准文件导入 | 不引入 MySQL；审批流水、会话、模型日志不迁入（OPEN-03 已定） |
+| `risk_workflow` 规则 | `scan.py` 硬编码规则；自定义规则只存元数据、不参与扫描 | 规则 = 计算器 + 阈值/等级/组织；自定义规则复用内置计算器并真正参与扫描 | lishui `PROJECT_CODE_MISSING` → `PLAN_PROJECT_UNMAPPED`（newfc 预算行必须关联项目，缺口只在计划明细）；`CONTRACT_CODE_MISSING` → `CONTRACT_PAY_NO_VOUCHER`（合同编号必填，追溯断点落在付款缺凭证号）；`CONTRACT_OVERPAY` 由数据库约束阻断，保留 `CONTRACT_PAY_OVER_CAP` |
 | `cross_domain_search` | 无独立路由 | 关键词检索（精确 → 前缀 → 包含），非语义检索 | 结果须可解释且与各页权限同口径 |
 
 ## 未决事项（不属于退出范围）

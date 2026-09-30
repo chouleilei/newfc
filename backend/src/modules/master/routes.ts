@@ -6,6 +6,7 @@ import {
   createProject, createSupplier, getProject, getSupplier, listMappings, listProjects, listSuppliers, resolvePreview,
   retireMapping, updateProject, updateSupplier, upsertMapping, type MasterEntityType,
 } from './master.service';
+import { getProjectProfile } from './project-profile.service';
 
 function id(value: unknown): number {
   const n = Number(value);
@@ -31,6 +32,8 @@ export function registerMasterRoutes(app: Express, db: () => DB, wrap: Wrap): vo
     res.json(listProjects(db(), { status: q(req.query.status), keyword: q(req.query.keyword), orgId: orgId ? id(orgId) : undefined }));
   }));
   app.get('/api/master/projects/:id', wrap((req, res) => { res.json(getProject(db(), id(req.params.id))); }));
+  /** 项目档案:各分区按该域读权限与组织范围裁剪。 */
+  app.get('/api/master/projects/:id/profile', wrap((req, res) => { res.json(getProjectProfile(db(), id(req.params.id))); }));
   app.post('/api/master/projects', wrap((req, res) => { res.status(201).json(createProject(db(), body(req.body))); }));
   app.patch('/api/master/projects/:id', wrap((req, res) => { res.json(updateProject(db(), id(req.params.id), body(req.body))); }));
 

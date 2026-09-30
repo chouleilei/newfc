@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, TreeSelect, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -84,7 +84,7 @@ function ProjectsTab({ initialKeyword = '' }: { initialKeyword?: string }) {
       <Table<Project>
         rowKey="id" loading={list.isLoading} dataSource={list.data ?? []} pagination={{ pageSize: 20, showSizeChanger: false }}
         columns={[
-          { title: '编码', dataIndex: 'code', width: 140 },
+          { title: '编码', dataIndex: 'code', width: 140, render: (v: string, r: Project) => <Link to={`/projects/${r.id}`} title="项目档案">{v}</Link> },
           { title: '名称', dataIndex: 'name' },
           { title: '类型', dataIndex: 'projectType', width: 120 },
           { title: '归属组织', dataIndex: 'orgName', width: 160 },

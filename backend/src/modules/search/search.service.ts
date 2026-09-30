@@ -58,7 +58,7 @@ function collect(db: DB, type: SearchType, k: string): Candidate[] {
     case 'project':
       return listProjects(db, { keyword: k }).map((p) => ({
         id: p.id, code: p.code, title: p.name, subtitle: p.projectType, orgName: p.orgName, status: ACTIVE_LABEL[p.status] ?? p.status,
-        path: `/master-entities?tab=projects&keyword=${enc(p.code)}`, updatedAt: p.updatedAt,
+        path: `/projects/${p.id}`, updatedAt: p.updatedAt,
       }));
     case 'supplier':
       return listSuppliers(db, { keyword: k }).map((s) => ({

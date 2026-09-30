@@ -131,7 +131,7 @@ function RiskDrawer({ id, onClose }: { id: number | null; onClose: () => void })
             <Descriptions.Item label="等级">{statusTag(RISK_LEVEL, e.level)}</Descriptions.Item>
             <Descriptions.Item label="状态">{statusTag(RISK_STATUS, e.status)}</Descriptions.Item>
             <Descriptions.Item label="组织">{e.orgName}</Descriptions.Item>
-            <Descriptions.Item label="项目">{e.projectCode ? `${e.projectCode} ${e.projectName ?? ''}` : '—'}</Descriptions.Item>
+            <Descriptions.Item label="项目">{e.projectCode && e.projectId ? <Link to={`/projects/${e.projectId}`}>{e.projectCode} {e.projectName ?? ''}</Link> : '—'}</Descriptions.Item>
             <Descriptions.Item label="涉及金额(元)"><Money value={e.amount} /></Descriptions.Item>
             <Descriptions.Item label="指标">{e.metric ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="责任人">{e.handlerName ?? '—'}</Descriptions.Item>
