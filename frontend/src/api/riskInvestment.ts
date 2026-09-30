@@ -8,7 +8,9 @@ import type {
   FeasCheckDto, FeasIndicatorDto, FeasibilityAssumptionsInput, FeasResultDto, FeasSensitivityItemDto, SensitivityCode,
 } from '@contracts/investment-feasibility';
 import type { IcComparisonRowDto, IcComparisonSummaryDto, IcLevel, IcVersionType } from '@contracts/investment-control';
-import type { ForecastDiagnostic, ForecastOutput, ForecastParam } from '@contracts/finance-forecast';
+import type {
+  FfBaselineTimelineDto, FfInsightDto, FfPublicationDto, FfReviewStatus, FfVersionReviewDto, ForecastDiagnostic, ForecastOutput, ForecastParam,
+} from '@contracts/finance-forecast';
 import type {
   RiskChecklistDto, RiskCommand, RiskEventDetailDto, RiskEventDto, RiskExplanationDto, RiskLevel, RiskListQuery, RiskRuleCreate, RiskRuleDto, RiskRuleUpdate, RiskScanDto,
   RiskSummaryDto,
@@ -148,13 +150,14 @@ export const icApi = {
 /* ---------------- 财务预测(AC-F11) ---------------- */
 
 export interface FfModelDto {
-  id: number; name: string; orgId: number; orgName: string; baseYear: number; horizonYears: number; description: string; status: 'active' | 'archived'; version: number;
+  id: number; name: string; folder: string; orgId: number; orgName: string; baseYear: number; horizonYears: number; description: string; status: 'active' | 'archived'; version: number;
   versionCount: number; frozenCount: number; createdAt: string; updatedAt: string; createdBy: string | null;
 }
 export interface FfVersionDto {
   id: number; modelId: number; versionNo: number; status: 'draft' | 'frozen'; note: string; contentHash: string; sourceFileName: string | null;
   sheets: { name: string; cellCount: number }[]; cellCount: number; params: ForecastParam[]; outputs: ForecastOutput[]; errorCount: number; warningCount: number;
   baselineRunId: number | null; version: number; createdAt: string; createdBy: string | null; frozenAt: string | null; frozenBy: string | null;
+  reviewStatus: FfReviewStatus | null; review: FfVersionReviewDto | null;
   diagnostics?: ForecastDiagnostic[];
 }
 export interface FfModelDetailDto extends FfModelDto { versions: FfVersionDto[] }
@@ -163,6 +166,7 @@ export interface FfRunDto {
   id: number; versionId: number; kind: 'baseline' | 'scenario'; scenarioName: string | null; params: Record<string, string>;
   status: 'queued' | 'running' | 'succeeded' | 'failed'; outputs: Record<string, string[]> | null; errorCode: string | null; errorMessage: string | null;
   diagnostics: unknown[]; jobId: number | null; durationMs: number | null; createdAt: string; finishedAt: string | null; createdBy: string | null;
+  publicationId: number | null;
 }
 export interface FfCompareDto {
   runId: number; baselineRunId: number; scenarioName: string | null; params: Record<string, string>;
@@ -170,8 +174,8 @@ export interface FfCompareDto {
 }
 
 export const forecastApi = {
-  models: (q: { orgId?: number; status?: string; keyword?: string }) => api.get<{ items: FfModelDto[] }>(`/forecast/models${qs(q)}`),
-  createModel: (body: { name: string; orgId: number; baseYear: number; horizonYears: number; description?: string }) => api.post<FfModelDto>('/forecast/models', body),
+  models: (q: { orgId?: number; status?: string; keyword?: string; folder?: string }) => api.get<{ items: FfModelDto[] }>(`/forecast/models${qs(q)}`),
+  createModel: (body: { name: string; orgId: number; baseYear: number; horizonYears: number; description?: string; folder?: string }) => api.post<FfModelDto>('/forecast/models', body),
   model: (id: number) => api.get<FfModelDetailDto>(`/forecast/models/${id}`),
   updateModel: (id: number, body: Record<string, unknown> & { expectedVersion: number }) => api.patch<FfModelDto>(`/forecast/models/${id}`, body),
   importVersion: (modelId: number, file: File, note?: string) => api.post<FfVersionDto>(`/forecast/models/${modelId}/imports`, form(file, { note })),
@@ -186,6 +190,15 @@ export const forecastApi = {
     api.post<FfRunDto>(`/forecast/versions/${versionId}/runs`, body),
   run: (id: number) => api.get<FfRunDto>(`/forecast/runs/${id}`),
   compare: (id: number) => api.get<FfCompareDto>(`/forecast/runs/${id}/compare`),
+  folders: () => api.get<{ items: { path: string; name: string; depth: number; modelCount: number; totalCount: number }[] }>('/forecast/folders'),
+  baselines: (modelId: number) => api.get<FfBaselineTimelineDto>(`/forecast/models/${modelId}/baselines`),
+  review: (id: number, body: { expectedVersion: number; decision: 'approve' | 'return'; comment?: string; exceptionReason?: string }) =>
+    api.post<FfVersionDto>(`/forecast/versions/${id}/review`, body),
+  publish: (runId: number, body: { title?: string; note?: string }) => api.post<FfPublicationDto>(`/forecast/runs/${runId}/publish`, body),
+  publications: (q: { orgId?: number; modelId?: number; includeWithdrawn?: '1' }) => api.get<{ items: FfPublicationDto[] }>(`/forecast/publications${qs(q)}`),
+  withdraw: (id: number, reason: string) => api.post<FfPublicationDto>(`/forecast/publications/${id}/withdraw`, { reason }),
+  insights: (runId: number) => api.get<{ items: FfInsightDto[] }>(`/forecast/runs/${runId}/insights`),
+  generateInsight: (runId: number) => api.post<FfInsightDto>(`/forecast/runs/${runId}/insights`, {}),
 };
 
 /* ---------------- 风险闭环(AC-F17) ---------------- */

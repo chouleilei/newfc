@@ -8,15 +8,21 @@ import type { ObjectStore } from '../files/object-store';
 import { memoryUpload, uploadName } from '../files/http';
 import { id as idSchema } from '../../contracts/common';
 import {
-  ffImportForm, ffModelCreate, ffModelListQuery, ffModelUpdate, ffRunRequest, ffVersionCommand, ffVersionCreate, ffVersionUpdate,
+  ffImportForm, ffModelCreate, ffModelListQuery, ffModelUpdate, ffPublicationListQuery, ffPublicationWithdraw, ffRunPublish, ffRunRequest, ffVersionCommand,
+  ffVersionCreate, ffVersionReview, ffVersionUpdate,
 } from '../../contracts/finance-forecast';
 import { formFields, queryFields } from '../project-budget/routes';
 import {
   compareForecastRun, copyForecastVersion, createForecastModel, createForecastVersion, freezeForecastVersion, getForecastModel, getForecastRun, getForecastSheet,
-  getForecastVersion, importForecastVersion, listForecastModels, listForecastRuns, startForecastRun, updateForecastModel, updateForecastVersion,
+  getForecastVersion, importForecastVersion, listForecastFolders, listForecastModels, listForecastRuns, startForecastRun, updateForecastModel, updateForecastVersion,
 } from './forecast.service';
+import {
+  forecastBaselineTimeline, generateForecastInsight, listForecastInsights, listForecastPublications, publishForecastRun, reviewForecastVersion,
+  withdrawForecastPublication,
+} from './forecast-workflow.service';
 
 addRouteRules([
+  { method: 'WRITE', pattern: /^\/forecast\/(versions\/\d+\/review|publications\/\d+\/withdraw)$/, permission: 'forecast:review' },
   { method: 'GET', pattern: /^\/forecast(\/|$)/, permission: 'forecast:read' },
   { method: 'WRITE', pattern: /^\/forecast(\/|$)/, permission: 'forecast:write' },
 ]);
@@ -53,4 +59,14 @@ export function registerForecastRoutes(app: Express, db: () => DB, wrap: Wrap, s
   }));
   app.get(`${base}/runs/:id`, wrap((req, res) => { res.json(getForecastRun(db(), id(req.params.id))); }));
   app.get(`${base}/runs/:id/compare`, wrap((req, res) => { res.json(compareForecastRun(db(), id(req.params.id))); }));
+
+  // T-7:目录、复核、发布、基准时间线、洞察
+  app.get(`${base}/folders`, wrap((_req, res) => { res.json(listForecastFolders(db())); }));
+  app.get(`${base}/models/:id/baselines`, wrap((req, res) => { res.json(forecastBaselineTimeline(db(), id(req.params.id))); }));
+  app.post(`${base}/versions/:id/review`, wrap((req, res) => { res.json(reviewForecastVersion(db(), id(req.params.id), parseInput(ffVersionReview, req.body))); }));
+  app.post(`${base}/runs/:id/publish`, wrap((req, res) => { res.status(201).json(publishForecastRun(db(), id(req.params.id), parseInput(ffRunPublish, req.body ?? {}))); }));
+  app.get(`${base}/publications`, wrap((req, res) => { res.json(listForecastPublications(db(), parseInput(ffPublicationListQuery, queryFields(req)))); }));
+  app.post(`${base}/publications/:id/withdraw`, wrap((req, res) => { res.json(withdrawForecastPublication(db(), id(req.params.id), parseInput(ffPublicationWithdraw, req.body).reason)); }));
+  app.get(`${base}/runs/:id/insights`, wrap((req, res) => { res.json(listForecastInsights(db(), id(req.params.id))); }));
+  app.post(`${base}/runs/:id/insights`, wrap(async (req, res) => { res.status(201).json(await generateForecastInsight(db(), id(req.params.id))); }));
 }

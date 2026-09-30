@@ -15,7 +15,7 @@ import { writeLog } from '../audit/log';
 import { currentOrgScope, notVisible, orgInScope, scopeFilterSql } from '../security/scope';
 import { submitJob } from '../jobs/job.service';
 import { storeFile, type ObjectStore } from '../files/object-store';
-import type { ForecastDiagnostic, ForecastOutput, ForecastParam, WorkbookJsonInput } from '../../contracts/finance-forecast';
+import type { FfReviewStatus, FfVersionReviewDto, ForecastDiagnostic, ForecastOutput, ForecastParam, WorkbookJsonInput } from '../../contracts/finance-forecast';
 import { diagnoseWorkbook, hasErrors, workbookFromXlsx } from './forecast-workbook';
 import { forecastLimits, runForecastInWorker } from './forecast-runner';
 import { getSetting } from '../settings/business-settings';
@@ -26,37 +26,37 @@ const conflict = (code: string, message: string, details?: unknown) => new AppEr
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const MAX_STEPS = 50_000_000;
 
-interface ModelRow {
-  id: number; name: string; org_id: number; base_year: number; horizon_years: number; description: string; status: 'active' | 'archived'; version: number;
+export interface ModelRow {
+  id: number; name: string; folder: string; org_id: number; base_year: number; horizon_years: number; description: string; status: 'active' | 'archived'; version: number;
   created_by_user_id: number | null; created_at: string; updated_at: string;
 }
-interface VersionRow {
+export interface VersionRow {
   id: number; model_id: number; version_no: number; status: 'draft' | 'frozen'; workbook_json: string; params_json: string; outputs_json: string; diagnostics_json: string;
   content_hash: string; source_file_object_id: number | null; source_file_name: string | null; note: string; version: number; created_by_user_id: number | null;
   created_at: string; updated_at: string; frozen_by_user_id: number | null; frozen_at: string | null;
 }
-interface RunRow {
+export interface RunRow {
   id: number; version_id: number; kind: 'baseline' | 'scenario'; scenario_name: string; params_json: string; status: 'queued' | 'running' | 'succeeded' | 'failed';
   outputs_json: string | null; error_code: string | null; error_message: string | null; diagnostics_json: string | null; job_id: number | null; duration_ms: number | null;
   created_by_user_id: number | null; created_at: string; finished_at: string | null;
 }
 
-const userName = (db: DB, id: number | null): string | null =>
+export const userName = (db: DB, id: number | null): string | null =>
   id == null ? null : ((db.prepare('SELECT COALESCE(NULLIF(display_name, \'\'), username) AS n FROM app_user WHERE id = ?').get(id) as { n: string } | undefined)?.n ?? null);
 
-function visibleModel(db: DB, id: number): ModelRow {
+export function visibleModel(db: DB, id: number): ModelRow {
   const m = db.prepare('SELECT * FROM ff_model WHERE id = ?').get(id) as ModelRow | undefined;
   if (!m || !orgInScope(currentOrgScope(db), m.org_id)) throw notVisible('预测模型');
   return m;
 }
-function visibleVersion(db: DB, id: number): { version: VersionRow; model: ModelRow } {
+export function visibleVersion(db: DB, id: number): { version: VersionRow; model: ModelRow } {
   const v = db.prepare('SELECT * FROM ff_version WHERE id = ?').get(id) as VersionRow | undefined;
   if (!v) throw notVisible('预测版本');
   const model = db.prepare('SELECT * FROM ff_model WHERE id = ?').get(v.model_id) as ModelRow;
   if (!orgInScope(currentOrgScope(db), model.org_id)) throw notVisible('预测版本');
   return { version: v, model };
 }
-function assertActive(m: ModelRow): void {
+export function assertActive(m: ModelRow): void {
   if (m.status !== 'active') throw conflict('FORECAST_VERSION_STATE', '模型已归档,不能修改或运行');
 }
 function assertDraft(v: VersionRow, expectedVersion: number): void {
@@ -69,42 +69,61 @@ function assertDraft(v: VersionRow, expectedVersion: number): void {
 function modelDto(db: DB, m: ModelRow) {
   const counts = db.prepare("SELECT COUNT(*) AS n, SUM(status = 'frozen') AS frozen FROM ff_version WHERE model_id = ?").get(m.id) as { n: number; frozen: number | null };
   return {
-    id: m.id, name: m.name, orgId: m.org_id, orgName: (db.prepare('SELECT name FROM org WHERE id = ?').get(m.org_id) as { name: string } | undefined)?.name ?? '',
+    id: m.id, name: m.name, folder: m.folder, orgId: m.org_id, orgName: (db.prepare('SELECT name FROM org WHERE id = ?').get(m.org_id) as { name: string } | undefined)?.name ?? '',
     baseYear: m.base_year, horizonYears: m.horizon_years, description: m.description, status: m.status, version: m.version,
     versionCount: counts.n, frozenCount: counts.frozen ?? 0, createdAt: m.created_at, updatedAt: m.updated_at, createdBy: userName(db, m.created_by_user_id),
   };
 }
 
-export function listForecastModels(db: DB, q: { orgId?: number; status?: 'active' | 'archived'; keyword?: string }) {
+export function listForecastModels(db: DB, q: { orgId?: number; status?: 'active' | 'archived'; keyword?: string; folder?: string }) {
   const f = scopeFilterSql(currentOrgScope(db), 'org_id');
   const where = [f.sql];
   const params: unknown[] = [...f.params];
   if (q.orgId) { where.push('org_id = ?'); params.push(q.orgId); }
   if (q.status) { where.push('status = ?'); params.push(q.status); }
   if (q.keyword) { where.push('name LIKE ?'); params.push(`%${q.keyword}%`); }
-  const rows = db.prepare(`SELECT * FROM ff_model WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT 500`).all(...params) as ModelRow[];
+  if (q.folder) { where.push("(folder = ? OR substr(folder, 1, ?) = ?)"); params.push(q.folder, q.folder.length + 1, `${q.folder}/`); }
+  const rows = db.prepare(`SELECT * FROM ff_model WHERE ${where.join(' AND ')} ORDER BY folder, id DESC LIMIT 500`).all(...params) as ModelRow[];
   return { items: rows.map((m) => modelDto(db, m)) };
 }
 
-export function createForecastModel(db: DB, input: { name: string; orgId: number; baseYear: number; horizonYears: number; description?: string }) {
+/** 模型目录树(lishui 模型文件夹):按可见模型汇总,含各级上级目录;目录随模型存在,无独立生命周期。 */
+export function listForecastFolders(db: DB) {
+  const f = scopeFilterSql(currentOrgScope(db), 'org_id');
+  const rows = db.prepare(`SELECT folder, COUNT(*) AS n FROM ff_model WHERE ${f.sql} AND folder <> '' GROUP BY folder`).all(...f.params) as { folder: string; n: number }[];
+  const counts = new Map<string, { direct: number; total: number }>();
+  for (const r of rows) {
+    const parts = r.folder.split('/');
+    parts.forEach((_, i) => {
+      const path = parts.slice(0, i + 1).join('/');
+      const c = counts.get(path) ?? { direct: 0, total: 0 };
+      c.total += r.n;
+      if (i === parts.length - 1) c.direct += r.n;
+      counts.set(path, c);
+    });
+  }
+  return { items: [...counts.entries()].sort(([a], [b]) => a.localeCompare(b, 'zh-CN')).map(([path, c]) => ({ path, name: path.split('/').pop()!, depth: path.split('/').length - 1, modelCount: c.direct, totalCount: c.total })) };
+}
+
+export function createForecastModel(db: DB, input: { name: string; orgId: number; baseYear: number; horizonYears: number; description?: string; folder?: string }) {
   if (!orgInScope(currentOrgScope(db), input.orgId)) throw notVisible('组织');
   const now = nowIso();
   const id = db.transaction(() => {
-    const mid = Number(db.prepare(`INSERT INTO ff_model (name, org_id, base_year, horizon_years, description, created_by_user_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(input.name, input.orgId, input.baseYear, input.horizonYears, input.description ?? '', currentAuth()?.userId ?? null, now, now).lastInsertRowid);
-    writeLog(db, 'forecast.model.create', 'ff_model', mid, { name: input.name, orgId: input.orgId });
+    const mid = Number(db.prepare(`INSERT INTO ff_model (name, folder, org_id, base_year, horizon_years, description, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.name, input.folder ?? '', input.orgId, input.baseYear, input.horizonYears, input.description ?? '', currentAuth()?.userId ?? null, now, now).lastInsertRowid);
+    writeLog(db, 'forecast.model.create', 'ff_model', mid, { name: input.name, orgId: input.orgId, folder: input.folder ?? '' });
     return mid;
   })();
   return getForecastModel(db, id);
 }
 
-export function updateForecastModel(db: DB, id: number, input: { expectedVersion: number; name?: string; description?: string; status?: 'active' | 'archived' }) {
+export function updateForecastModel(db: DB, id: number, input: { expectedVersion: number; name?: string; description?: string; status?: 'active' | 'archived'; folder?: string }) {
   db.transaction(() => {
     const m = visibleModel(db, id);
     if (m.version !== input.expectedVersion) throw conflict('VERSION_CONFLICT', '模型已被其他人修改,请刷新后重试', { currentVersion: m.version });
-    db.prepare('UPDATE ff_model SET name = ?, description = ?, status = ?, version = version + 1, updated_at = ? WHERE id = ?')
-      .run(input.name ?? m.name, input.description ?? m.description, input.status ?? m.status, nowIso(), id);
-    writeLog(db, 'forecast.model.update', 'ff_model', id, { status: input.status ?? m.status });
+    db.prepare('UPDATE ff_model SET name = ?, description = ?, status = ?, folder = ?, version = version + 1, updated_at = ? WHERE id = ?')
+      .run(input.name ?? m.name, input.description ?? m.description, input.status ?? m.status, input.folder ?? m.folder, nowIso(), id);
+    writeLog(db, 'forecast.model.update', 'ff_model', id, { status: input.status ?? m.status, folder: input.folder ?? m.folder });
   }).immediate();
   return getForecastModel(db, id);
 }
@@ -124,6 +143,7 @@ function versionSummary(db: DB, v: VersionRow) {
   const items = diagnostics.items ?? [];
   const wb = JSON.parse(v.workbook_json) as WorkbookJson;
   const baseline = db.prepare("SELECT id FROM ff_run WHERE version_id = ? AND kind = 'baseline' AND status = 'succeeded'").get(v.id) as { id: number } | undefined;
+  const review = versionReview(db, v.id);
   return {
     id: v.id, modelId: v.model_id, versionNo: v.version_no, status: v.status, note: v.note, contentHash: v.content_hash, sourceFileName: v.source_file_name,
     sheets: wb.sheets.map((s) => ({ name: s.name, cellCount: Object.keys(s.cells).length })), cellCount: cellCount(wb),
@@ -131,7 +151,18 @@ function versionSummary(db: DB, v: VersionRow) {
     errorCount: items.filter((d) => d.severity === 'error').length, warningCount: items.filter((d) => d.severity === 'warning').length,
     baselineRunId: baseline?.id ?? null, version: v.version, createdAt: v.created_at, createdBy: userName(db, v.created_by_user_id),
     frozenAt: v.frozen_at, frozenBy: userName(db, v.frozen_by_user_id),
+    reviewStatus: reviewStatusOf(v, review), review,
   };
+}
+
+export function versionReview(db: DB, versionId: number): FfVersionReviewDto | null {
+  const r = db.prepare('SELECT * FROM ff_version_review WHERE version_id = ?').get(versionId) as
+    { decision: 'approve' | 'return'; comment: string; exception_reason: string | null; self_review: number; reviewer_user_id: number | null; created_at: string } | undefined;
+  return r ? { decision: r.decision, comment: r.comment, exceptionReason: r.exception_reason, selfReview: r.self_review === 1, reviewer: userName(db, r.reviewer_user_id), createdAt: r.created_at } : null;
+}
+export function reviewStatusOf(v: Pick<VersionRow, 'status'>, review: FfVersionReviewDto | null): FfReviewStatus | null {
+  if (v.status !== 'frozen') return null;
+  return !review ? 'pending' : review.decision === 'approve' ? 'approved' : 'returned';
 }
 
 export function getForecastVersion(db: DB, id: number) {
@@ -258,12 +289,13 @@ export function copyForecastVersion(db: DB, id: number, note?: string) {
 
 // ---------------- 运行 ----------------
 
-function runDto(db: DB, r: RunRow) {
+export function runDto(db: DB, r: RunRow) {
   return {
     id: r.id, versionId: r.version_id, kind: r.kind, scenarioName: r.scenario_name, params: JSON.parse(r.params_json) as Record<string, string>, status: r.status,
     outputs: r.outputs_json ? JSON.parse(r.outputs_json) as Record<string, string[]> : null, errorCode: r.error_code, errorMessage: r.error_message,
     diagnostics: r.diagnostics_json ? JSON.parse(r.diagnostics_json) as unknown[] : [], jobId: r.job_id, durationMs: r.duration_ms,
     createdAt: r.created_at, finishedAt: r.finished_at, createdBy: userName(db, r.created_by_user_id),
+    publicationId: (db.prepare('SELECT id FROM ff_run_publication WHERE run_id = ? AND withdrawn_at IS NULL').get(r.id) as { id: number } | undefined)?.id ?? null,
   };
 }
 

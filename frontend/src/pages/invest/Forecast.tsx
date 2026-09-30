@@ -1,21 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Alert, App as AntdApp, Button, Col, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tabs, Tag, Typography, Upload,
+  Alert, App as AntdApp, AutoComplete, Button, Card, Col, Descriptions, Drawer, Empty, Form, Input, InputNumber, List, Modal, Row, Select, Space, Table, Tabs, Tag, Typography, Upload,
 } from 'antd';
-import { ApiError, can, errorText } from '../../api/client';
+import { ApiError, can, errorText, getSession } from '../../api/client';
 import {
-  forecastApi, type FfCell, type FfModelDto, type FfRunDto, type FfVersionDto, type ForecastDiagnostic, type ForecastOutput, type ForecastParam,
+  forecastApi, type FfCell, type FfModelDto, type FfPublicationDto, type FfRunDto, type FfVersionDto, type ForecastDiagnostic, type ForecastOutput, type ForecastParam,
 } from '../../api/riskInvestment';
+import { Markdown } from '../../components/assistant/Markdown';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { useUrlId } from '../../hooks/useUrlId';
+import { formatRatioPercent } from '../../utils/decimal';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, defaultOrgId, OrgSelect, statusTag, usePrompt } from '../financeData/shared';
-import { Dec, FF_RUN_STATUS, FF_VERSION_STATUS } from './shared';
+import { Dec, FF_REVIEW_STATUS, FF_RUN_STATUS, FF_VERSION_STATUS } from './shared';
 
 /**
  * AC-F11 财务预测:模型 → 导入 .xlsx 工作簿(受限公式诊断)→ 草稿编辑单元格/参数/输出 → 冻结 → 基准运行 → 情景运行(覆盖参数)→ 与基准对比。
  * 运行在 Worker 中执行,页面轮询运行状态;冻结版本不可改,修改请复制为新草稿。
+ * T-7:模型目录;冻结即提交复核(他人复核一次);复核通过版本的成功运行可发布/撤回;基准时间线逐版对比;运行洞察(模板 + 可选模型改写,只追加)。
  */
 
 const DECIMAL = /^-?\d{1,15}(\.\d{1,12})?$/;
@@ -170,8 +173,11 @@ function MappingEditor({ version, editable, onSaved }: { version: FfVersionDto; 
 
 function OutputsTable({ version, run }: { version: FfVersionDto; run: FfRunDto }) {
   if (!run.outputs) return null;
-  const len = Math.max(0, ...Object.values(run.outputs).map((v) => v.length));
-  const rows = version.outputs.map((o) => ({ key: o.key, name: o.name, unit: o.unit, values: run.outputs![o.key] ?? [] }));
+  return <OutputsGrid outputs={version.outputs.map((o) => ({ key: o.key, name: o.name, unit: o.unit, values: run.outputs![o.key] ?? [] }))} />;
+}
+
+function OutputsGrid({ outputs: rows }: { outputs: { key: string; name: string; unit: string; values: string[] }[] }) {
+  const len = Math.max(0, ...rows.map((r) => r.values.length));
   return (
     <Table rowKey="key" size="small" pagination={false} scroll={{ x: 200 + len * 130 }} dataSource={rows} columns={[
       { title: '输出', key: 'name', width: 200, fixed: 'left', render: (_: unknown, r) => `${r.name}${r.unit ? `(${r.unit})` : ''}` },
@@ -204,12 +210,43 @@ function CompareModal({ runId, onClose }: { runId: number | null; onClose: () =>
   );
 }
 
+function InsightModal({ runId, canWrite, onClose }: { runId: number | null; canWrite: boolean; onClose: () => void }) {
+  const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['ff-insights', runId], queryFn: () => forecastApi.insights(runId!), enabled: runId != null });
+  const gen = useMutation({
+    mutationFn: () => forecastApi.generateInsight(runId!),
+    onSuccess: (n) => { message.success(n.source === 'model' ? '已生成洞察(模型改写)' : '已生成洞察(模板)'); void qc.invalidateQueries({ queryKey: ['ff-insights', runId] }); },
+    onError: (e) => message.error(errorText(e)),
+  });
+  const items = q.data?.items ?? [];
+  return (
+    <Modal open={runId != null} onCancel={onClose} footer={null} width={820} destroyOnClose title={`运行 #${runId ?? ''} 洞察`}>
+      <Space direction="vertical" style={{ width: '100%' }}>
+        {canWrite && <Button type="primary" loading={gen.isPending} onClick={() => gen.mutate()}>{items.length ? '重新生成' : '生成洞察'}</Button>}
+        {q.error ? <QueryErrorResult title="洞察加载失败" error={q.error} refetch={q.refetch} /> : items.length === 0 ? <Empty description="尚未生成洞察;洞察仅作辅助参考" /> : (
+          <List dataSource={items} renderItem={(n, i) => (
+            <List.Item>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Typography.Text type="secondary">{i === 0 ? '最新 · ' : ''}{n.source === 'model' ? `模型改写(${n.model})` : '确定性模板'} · {n.createdBy ?? '—'} · {shortTime(n.createdAt)}</Typography.Text>
+                {i === 0 ? <Markdown text={n.content} /> : <Typography.Paragraph ellipsis={{ rows: 2, expandable: true }} style={{ whiteSpace: 'pre-wrap' }}>{n.content}</Typography.Paragraph>}
+              </Space>
+            </List.Item>
+          )} />
+        )}
+      </Space>
+    </Modal>
+  );
+}
+
 function RunsPanel({ version }: { version: FfVersionDto }) {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [scenarioOpen, setScenarioOpen] = useState(false);
   const [detail, setDetail] = useState<FfRunDto | null>(null);
   const [compareId, setCompareId] = useState<number | null>(null);
+  const [insightId, setInsightId] = useState<number | null>(null);
+  const [prompt, holder] = usePrompt();
   const [form] = Form.useForm<{ scenarioName: string; params: Record<string, string | undefined> }>();
   const runs = useQuery({
     queryKey: ['ff-runs', version.id], queryFn: () => forecastApi.runs(version.id),
@@ -223,6 +260,19 @@ function RunsPanel({ version }: { version: FfVersionDto }) {
     onSuccess: () => { message.success('已提交运行'); setScenarioOpen(false); void qc.invalidateQueries({ queryKey: ['ff-runs', version.id] }); },
     onError: (e) => message.error(errorText(e)),
   });
+  const canPublish = can('forecast:write') && version.reviewStatus === 'approved';
+  const publish = async (r: FfRunDto) => {
+    const v = await prompt({
+      title: `发布运行 #${r.id}`, description: '发布后在“已发布”中供查阅;同一运行只发布一次,撤回须由复核人填写原因。',
+      fields: [{ name: 'title', label: '标题(留空自动生成)' }, { name: 'note', label: '说明', multiline: true }],
+    });
+    if (!v) return;
+    try {
+      await forecastApi.publish(r.id, compact({ title: v.title, note: v.note }));
+      message.success('已发布');
+      void qc.invalidateQueries({ queryKey: ['ff-runs', version.id] }); void qc.invalidateQueries({ queryKey: ['ff-publications'] });
+    } catch (e) { message.error(errorText(e)); }
+  };
   const submitScenario = async () => {
     const v = await form.validateFields();
     const params = Object.fromEntries(Object.entries(v.params ?? {}).filter(([, x]) => x != null && x.trim() !== '').map(([k, x]) => [k, x!.trim()]));
@@ -231,7 +281,9 @@ function RunsPanel({ version }: { version: FfVersionDto }) {
   };
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
+      {holder}
       {version.status !== 'frozen' && <Alert type="info" showIcon message="冻结后才能正式运行;草稿可继续修改单元格和映射" />}
+      {version.reviewStatus === 'pending' && <Alert type="info" showIcon message="版本待复核:可以运行,复核通过后才能发布运行结果" />}
       {writable && (
         <Space>
           <Button type="primary" disabled={hasBaseline} loading={start.isPending} onClick={() => start.mutate({ kind: 'baseline' })}>{hasBaseline ? '已有基准结果' : '运行基准'}</Button>
@@ -248,11 +300,13 @@ function RunsPanel({ version }: { version: FfVersionDto }) {
           { title: '耗时', dataIndex: 'durationMs', width: 80, render: (x: number | null) => (x == null ? '—' : `${x} ms`) },
           { title: '提交', dataIndex: 'createdAt', width: 150, render: (x: string, r) => `${r.createdBy ?? ''} ${shortTime(x)}` },
           {
-            title: '操作', key: 'op', width: 140,
+            title: '操作', key: 'op', width: 260,
             render: (_: unknown, r) => (
-              <Space size={0}>
+              <Space size={0} wrap>
                 {(r.status === 'succeeded' || r.status === 'failed') && <Button type="link" size="small" onClick={() => setDetail(r)}>{r.status === 'failed' ? '原因' : '结果'}</Button>}
                 {r.kind === 'scenario' && r.status === 'succeeded' && <Button type="link" size="small" onClick={() => setCompareId(r.id)}>对比</Button>}
+                {r.status === 'succeeded' && <Button type="link" size="small" onClick={() => setInsightId(r.id)}>洞察</Button>}
+                {r.publicationId ? <Tag color="success">已发布</Tag> : r.status === 'succeeded' && canPublish && <Button type="link" size="small" onClick={() => void publish(r)}>发布</Button>}
               </Space>
             ),
           },
@@ -275,6 +329,7 @@ function RunsPanel({ version }: { version: FfVersionDto }) {
         {detail?.status === 'succeeded' && <OutputsTable version={version} run={detail} />}
       </Modal>
       <CompareModal runId={compareId} onClose={() => setCompareId(null)} />
+      <InsightModal runId={insightId} canWrite={can('forecast:write')} onClose={() => setInsightId(null)} />
     </Space>
   );
 }
@@ -288,13 +343,28 @@ function VersionDrawer({ id, modelActive, onClose, onOpen }: { id: number | null
   const onSaved = (nv: FfVersionDto) => { qc.setQueryData(['ff-version', id], nv); void qc.invalidateQueries({ queryKey: ['ff-model'] }); };
   const freeze = useMutation({
     mutationFn: () => forecastApi.freeze(v!.id, v!.version),
-    onSuccess: (nv) => { message.success('已冻结,可以运行基准'); onSaved(nv); },
+    onSuccess: (nv) => { message.success('已冻结并提交复核,可以运行基准'); onSaved(nv); },
     onError: (e) => {
       const d = e instanceof ApiError ? (e.body.details as { diagnostics?: ForecastDiagnostic[] } | undefined) : undefined;
       if (d?.diagnostics?.length) modal.error({ title: errorText(e), width: 720, content: <Diagnostics items={d.diagnostics} /> });
       else message.error(errorText(e));
     },
   });
+  const [prompt, holder] = usePrompt();
+  const review = async (decision: 'approve' | 'return') => {
+    if (!v) return;
+    const self = v.frozenBy != null && v.frozenBy === (getSession()?.user.displayName || getSession()?.user.username);
+    const r = await prompt({
+      title: decision === 'approve' ? `复核通过第 ${v.versionNo} 版` : `退回第 ${v.versionNo} 版`, danger: decision === 'return',
+      description: decision === 'return' ? '退回后该版本不可再改,请复制为新草稿修改后重新冻结。' : '复核通过后,该版本的成功运行可以发布。',
+      fields: [
+        { name: 'comment', label: '意见', multiline: true, required: decision === 'return' },
+        ...(self ? [{ name: 'exceptionReason', label: '例外原因(管理员复核本人冻结的版本)', required: true }] : []),
+      ],
+    });
+    if (!r) return;
+    try { onSaved(await forecastApi.review(v.id, { expectedVersion: v.version, decision, ...compact({ comment: r.comment, exceptionReason: r.exceptionReason }) })); message.success('已复核'); } catch (e) { message.error(errorText(e)); }
+  };
   const copy = useMutation({
     mutationFn: () => forecastApi.copy(v!.id),
     onSuccess: (nv) => { message.success(`已复制为第 ${nv.versionNo} 版草稿`); void qc.invalidateQueries({ queryKey: ['ff-model'] }); onOpen(nv.id); },
@@ -302,12 +372,19 @@ function VersionDrawer({ id, modelActive, onClose, onOpen }: { id: number | null
   });
   return (
     <Drawer open={id != null} onClose={onClose} width={1100} destroyOnClose title={v ? `第 ${v.versionNo} 版` : '预测版本'}
-      extra={v && can('forecast:write') && modelActive && (
+      extra={v && modelActive && (
         <Space>
-          {editable && <Button type="primary" loading={freeze.isPending} onClick={() => freeze.mutate()}>冻结</Button>}
-          <Button loading={copy.isPending} onClick={() => copy.mutate()}>复制为新草稿</Button>
+          {v.reviewStatus === 'pending' && can('forecast:review') && (
+            <>
+              <Button type="primary" onClick={() => void review('approve')}>复核通过</Button>
+              <Button danger onClick={() => void review('return')}>退回</Button>
+            </>
+          )}
+          {can('forecast:write') && editable && <Button type="primary" loading={freeze.isPending} onClick={() => freeze.mutate()}>冻结并提交复核</Button>}
+          {can('forecast:write') && <Button loading={copy.isPending} onClick={() => copy.mutate()}>复制为新草稿</Button>}
         </Space>
       )}>
+      {holder}
       {q.error ? <QueryErrorResult title="版本加载失败" error={q.error} refetch={q.refetch} /> : !v ? null : (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Descriptions size="small" column={4} bordered>
@@ -317,6 +394,10 @@ function VersionDrawer({ id, modelActive, onClose, onOpen }: { id: number | null
             <Descriptions.Item label="诊断">{v.errorCount ? <Tag color="error">{v.errorCount} 错误</Tag> : <Tag color="success">无错误</Tag>}{v.warningCount > 0 && <Tag color="warning">{v.warningCount} 警告</Tag>}</Descriptions.Item>
             <Descriptions.Item label="说明" span={2}>{v.note || '—'}</Descriptions.Item>
             <Descriptions.Item label="冻结" span={2}>{v.frozenAt ? `${v.frozenBy ?? ''} ${shortTime(v.frozenAt)}` : '—'}</Descriptions.Item>
+            <Descriptions.Item label="复核">{v.reviewStatus ? statusTag(FF_REVIEW_STATUS, v.reviewStatus) : '—'}</Descriptions.Item>
+            <Descriptions.Item label="复核意见" span={3}>
+              {v.review ? `${v.review.reviewer ?? ''} ${shortTime(v.review.createdAt)}:${v.review.comment || '(无)'}${v.review.selfReview ? `;例外:${v.review.exceptionReason ?? ''}` : ''}` : '—'}
+            </Descriptions.Item>
           </Descriptions>
           <Tabs defaultActiveKey={v.status === 'frozen' ? 'runs' : 'diag'} items={[
             { key: 'diag', label: `诊断(${v.diagnostics?.length ?? 0})`, children: <Diagnostics items={v.diagnostics ?? []} /> },
@@ -327,6 +408,40 @@ function VersionDrawer({ id, modelActive, onClose, onOpen }: { id: number | null
         </Space>
       )}
     </Drawer>
+  );
+}
+
+function BaselineTimeline({ modelId }: { modelId: number }) {
+  const q = useQuery({ queryKey: ['ff-baselines', modelId], queryFn: () => forecastApi.baselines(modelId) });
+  if (q.error) return <QueryErrorResult title="基准时间线加载失败" error={q.error} refetch={q.refetch} />;
+  const items = q.data?.items ?? [];
+  if (!items.length) return null;
+  const keys = items[items.length - 1].outputs.map((o) => ({ key: o.key, name: o.name, unit: o.unit }));
+  return (
+    <Card size="small" title="基准时间线(各冻结版本基准运行的输出合计,逐版对比)">
+      <Table rowKey="versionId" size="small" pagination={false} dataSource={items} scroll={{ x: true }} columns={[
+        { title: '版本', dataIndex: 'versionNo', width: 70, fixed: 'left', render: (x: number) => `第 ${x} 版` },
+        { title: '复核', dataIndex: 'reviewStatus', width: 90, render: (x: string) => statusTag(FF_REVIEW_STATUS, x) },
+        { title: '运行完成', dataIndex: 'finishedAt', width: 130, render: (x: string | null) => shortTime(x) },
+        ...keys.map((k) => ({
+          title: `${k.name}${k.unit ? `(${k.unit})` : ''}`, key: k.key, align: 'right' as const,
+          render: (_: unknown, it: (typeof items)[number]) => {
+            const o = it.outputs.find((x) => x.key === k.key);
+            if (!o) return '—';
+            return (
+              <Space direction="vertical" size={0} style={{ alignItems: 'flex-end' }}>
+                <Dec value={o.total} />
+                {o.change != null && (
+                  <Typography.Text type={o.change.startsWith('-') ? 'danger' : 'success'} style={{ fontSize: 12 }}>
+                    {o.change.startsWith('-') ? '' : '+'}<Dec value={o.change} />{o.changeRate != null ? `(${formatRatioPercent(o.changeRate)})` : ''}
+                  </Typography.Text>
+                )}
+              </Space>
+            );
+          },
+        })),
+      ]} />
+    </Card>
   );
 }
 
@@ -347,9 +462,18 @@ function ModelDrawer({ id, onClose }: { id: number | null; onClose: () => void }
   });
   const edit = async () => {
     if (!m) return;
-    const v = await prompt({ title: '编辑模型', fields: [{ name: 'name', label: '名称', required: true, initial: m.name }, { name: 'description', label: '说明', multiline: true, initial: m.description }] });
+    const v = await prompt({
+      title: '编辑模型', fields: [
+        { name: 'name', label: '名称', required: true, initial: m.name },
+        { name: 'folder', label: '目录(用 / 分级,留空为根目录)', initial: m.folder, placeholder: '如 水务/2026' },
+        { name: 'description', label: '说明', multiline: true, initial: m.description },
+      ],
+    });
     if (!v) return;
-    try { await forecastApi.updateModel(m.id, { expectedVersion: m.version, name: v.name, description: v.description }); refresh(); } catch (e) { message.error(errorText(e)); }
+    try {
+      await forecastApi.updateModel(m.id, { expectedVersion: m.version, name: v.name, folder: (v.folder ?? '').trim(), description: v.description });
+      refresh(); void qc.invalidateQueries({ queryKey: ['ff-folders'] });
+    } catch (e) { message.error(errorText(e)); }
   };
   const toggle = async () => {
     if (!m) return;
@@ -370,6 +494,7 @@ function ModelDrawer({ id, onClose }: { id: number | null; onClose: () => void }
             <Descriptions.Item label="组织">{m.orgName}</Descriptions.Item>
             <Descriptions.Item label="基准年">{m.baseYear}</Descriptions.Item>
             <Descriptions.Item label="预测期">{m.horizonYears} 年</Descriptions.Item>
+            <Descriptions.Item label="目录" span={3}>{m.folder || '(根目录)'}</Descriptions.Item>
             <Descriptions.Item label="说明" span={3}>{m.description || '—'}</Descriptions.Item>
           </Descriptions>
           {active && can('forecast:write') && (
@@ -385,12 +510,14 @@ function ModelDrawer({ id, onClose }: { id: number | null; onClose: () => void }
             onRow={(v) => ({ onClick: () => setVersionId(v.id), style: { cursor: 'pointer' } })} columns={[
               { title: '版本', dataIndex: 'versionNo', width: 70, render: (x: number) => `第 ${x} 版` },
               { title: '状态', dataIndex: 'status', width: 80, render: (x: string) => statusTag(FF_VERSION_STATUS, x) },
+              { title: '复核', dataIndex: 'reviewStatus', width: 90, render: (x: string | null) => (x ? statusTag(FF_REVIEW_STATUS, x) : '—') },
               { title: '说明', dataIndex: 'note' },
               { title: '来源', dataIndex: 'sourceFileName', width: 180, render: (x: string | null) => x ?? '—' },
               { title: '诊断', key: 'diag', width: 110, render: (_: unknown, v) => (v.errorCount ? <Tag color="error">{v.errorCount} 错误</Tag> : v.warningCount ? <Tag color="warning">{v.warningCount} 警告</Tag> : <Tag color="success">通过</Tag>) },
               { title: '基准', dataIndex: 'baselineRunId', width: 70, render: (x: number | null) => (x ? <Tag color="success">有</Tag> : '—') },
               { title: '创建', dataIndex: 'createdAt', width: 150, render: (x: string, v) => `${v.createdBy ?? ''} ${shortTime(x)}` },
             ]} />
+          <BaselineTimeline modelId={m.id} />
         </Space>
       )}
       <VersionDrawer id={versionId} modelActive={!!active} onClose={() => setVersionId(null)} onOpen={setVersionId} />
@@ -400,9 +527,11 @@ function ModelDrawer({ id, onClose }: { id: number | null; onClose: () => void }
 
 function CreateModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (m: FfModelDto) => void }) {
   const { message } = AntdApp.useApp();
-  const [form] = Form.useForm<{ name: string; orgId: number; baseYear: number; horizonYears: number; description?: string }>();
+  type Values = { name: string; orgId: number; baseYear: number; horizonYears: number; folder?: string; description?: string };
+  const [form] = Form.useForm<Values>();
+  const folders = useQuery({ queryKey: ['ff-folders'], queryFn: () => forecastApi.folders(), enabled: open });
   const save = useMutation({
-    mutationFn: (v: { name: string; orgId: number; baseYear: number; horizonYears: number; description?: string }) => forecastApi.createModel(compact(v) as typeof v),
+    mutationFn: (v: Values) => forecastApi.createModel(compact({ ...v, folder: v.folder?.trim() }) as Values),
     onSuccess: (m) => { message.success('模型已创建,请导入工作簿'); onDone(m); onClose(); },
     onError: (e) => message.error(errorText(e)),
   });
@@ -415,25 +544,90 @@ function CreateModal({ open, onClose, onDone }: { open: boolean; onClose: () => 
           <Col span={12}><Form.Item name="baseYear" label="基准年" rules={[{ required: true }]}><InputNumber min={2000} max={2100} precision={0} style={{ width: '100%' }} /></Form.Item></Col>
           <Col span={12}><Form.Item name="horizonYears" label="预测期(年)" rules={[{ required: true }]}><InputNumber min={1} max={30} precision={0} style={{ width: '100%' }} /></Form.Item></Col>
         </Row>
+        <Form.Item name="folder" label="目录" extra="用 / 分级,如 水务/2026;留空为根目录">
+          <AutoComplete allowClear options={(folders.data?.items ?? []).map((f) => ({ value: f.path }))} filterOption={(input, o) => String(o?.value ?? '').includes(input)} />
+        </Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={2} maxLength={1000} /></Form.Item>
       </Form>
     </Modal>
   );
 }
 
-export default function Forecast() {
+function PublicationsTab() {
+  const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
+  const [prompt, holder] = usePrompt();
   const [orgId, setOrgId] = useState<number>();
+  const [includeWithdrawn, setIncludeWithdrawn] = useState(false);
+  const [detail, setDetail] = useState<FfPublicationDto | null>(null);
+  const query = compact({ orgId, includeWithdrawn: includeWithdrawn ? ('1' as const) : undefined });
+  const list = useQuery({ queryKey: ['ff-publications', query], queryFn: () => forecastApi.publications(query) });
+  const withdraw = async (p: FfPublicationDto) => {
+    const v = await prompt({ title: `撤回发布:${p.title}`, danger: true, okText: '撤回', description: '撤回后不再出现在已发布列表,记录保留可追溯;撤回不可恢复,如需重新发布请重新运行后发布。', fields: [{ name: 'reason', label: '撤回原因', required: true, multiline: true }] });
+    if (!v) return;
+    try { await forecastApi.withdraw(p.id, v.reason); message.success('已撤回'); void qc.invalidateQueries({ queryKey: ['ff-publications'] }); } catch (e) { message.error(errorText(e)); }
+  };
+  return (
+    <div>
+      {holder}
+      <Space wrap style={{ marginBottom: 12 }}>
+        <OrgSelect value={orgId} onChange={setOrgId} />
+        <Select style={{ width: 140 }} value={includeWithdrawn ? 'all' : 'live'} onChange={(x) => setIncludeWithdrawn(x === 'all')}
+          options={[{ value: 'live', label: '仅有效发布' }, { value: 'all', label: '含已撤回' }]} />
+      </Space>
+      {list.error ? <QueryErrorResult title="已发布列表加载失败" error={list.error} refetch={list.refetch} /> : (
+        <Table<FfPublicationDto> rowKey="id" size="small" loading={list.isLoading} dataSource={list.data?.items ?? []}
+          locale={{ emptyText: <Empty description="还没有已发布的预测结果;复核通过版本的成功运行可在运行列表中发布" /> }} columns={[
+            { title: '标题', dataIndex: 'title', render: (x: string, p) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setDetail(p)}>{x}</Button> },
+            { title: '模型', dataIndex: 'modelName', width: 180, render: (x: string, p) => `${x} · 第 ${p.versionNo} 版` },
+            { title: '目录', dataIndex: 'folder', width: 130, render: (x: string) => x || '—' },
+            { title: '组织', dataIndex: 'orgName', width: 120 },
+            { title: '类型', dataIndex: 'kind', width: 110, render: (x: string, p) => (x === 'baseline' ? '基准' : `情景:${p.scenarioName}`) },
+            { title: '发布', dataIndex: 'publishedAt', width: 150, render: (x: string, p) => `${p.publishedBy ?? ''} ${shortTime(x)}` },
+            { title: '状态', key: 'st', width: 160, render: (_: unknown, p) => (p.withdrawnAt ? <Tag title={p.withdrawReason ?? ''}>已撤回 · {p.withdrawnBy ?? ''}</Tag> : <Tag color="success">有效</Tag>) },
+            {
+              title: '操作', key: 'op', width: 80,
+              render: (_: unknown, p) => (!p.withdrawnAt && can('forecast:review') ? <Button type="link" size="small" danger onClick={() => void withdraw(p)}>撤回</Button> : null),
+            },
+          ]} />
+      )}
+      <Modal open={detail != null} onCancel={() => setDetail(null)} footer={null} width={900} destroyOnClose title={detail?.title}>
+        {detail && (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Descriptions size="small" column={2} bordered>
+              <Descriptions.Item label="模型">{detail.modelName} · 第 {detail.versionNo} 版</Descriptions.Item>
+              <Descriptions.Item label="运行">#{detail.runId} {detail.kind === 'baseline' ? '基准' : `情景:${detail.scenarioName}`}</Descriptions.Item>
+              {Object.keys(detail.params).length > 0 && (
+                <Descriptions.Item label="参数覆盖" span={2}>{Object.entries(detail.params).map(([k, v]) => `${k}=${v}`).join(';')}</Descriptions.Item>
+              )}
+              <Descriptions.Item label="说明" span={2}>{detail.note || '—'}</Descriptions.Item>
+              {detail.withdrawnAt && <Descriptions.Item label="撤回" span={2}>{detail.withdrawnBy ?? ''} {shortTime(detail.withdrawnAt)}:{detail.withdrawReason}</Descriptions.Item>}
+            </Descriptions>
+            <OutputsGrid outputs={detail.outputs} />
+          </Space>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function ModelsTab() {
+  const [orgId, setOrgId] = useState<number>();
+  const [folder, setFolder] = useState<string>();
   const [status, setStatus] = useState<'active' | 'archived' | undefined>('active');
   const [keyword, setKeyword] = useState('');
   const [openId, setOpenId] = useUrlId();
   const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
-  const query = compact({ orgId, status, keyword: keyword.trim() });
+  const query = compact({ orgId, status, folder, keyword: keyword.trim() });
   const list = useQuery({ queryKey: ['ff-models', query], queryFn: () => forecastApi.models(query) });
+  const folders = useQuery({ queryKey: ['ff-folders'], queryFn: () => forecastApi.folders() });
   return (
     <div>
       <Space wrap style={{ marginBottom: 12 }}>
         <OrgSelect value={orgId} onChange={setOrgId} />
+        <Select allowClear placeholder="目录(含子目录)" style={{ width: 200 }} value={folder} onChange={setFolder}
+          options={(folders.data?.items ?? []).map((f) => ({ value: f.path, label: `${'\u3000'.repeat(f.depth)}${f.name}(${f.totalCount})` }))} />
         <Select allowClear placeholder="状态" style={{ width: 110 }} value={status} onChange={setStatus} options={[{ value: 'active', label: '使用中' }, { value: 'archived', label: '已归档' }]} />
         <Input.Search allowClear placeholder="名称" style={{ width: 200 }} onSearch={setKeyword} />
         {can('forecast:write') && <Button type="primary" onClick={() => setCreating(true)}>新建模型</Button>}
@@ -443,6 +637,7 @@ export default function Forecast() {
           locale={{ emptyText: <Empty description="还没有预测模型" /> }}
           onRow={(m) => ({ onClick: () => setOpenId(m.id), style: { cursor: 'pointer' } })} columns={[
             { title: '名称', dataIndex: 'name' },
+            { title: '目录', dataIndex: 'folder', width: 140, render: (x: string) => x || '—' },
             { title: '组织', dataIndex: 'orgName', width: 140 },
             { title: '基准年', dataIndex: 'baseYear', width: 80 },
             { title: '预测期', dataIndex: 'horizonYears', width: 80, render: (x: number) => `${x} 年` },
@@ -451,8 +646,12 @@ export default function Forecast() {
             { title: '更新', dataIndex: 'updatedAt', width: 130, render: (x: string) => shortTime(x) },
           ]} />
       )}
-      <CreateModal open={creating} onClose={() => setCreating(false)} onDone={(m) => { void qc.invalidateQueries({ queryKey: ['ff-models'] }); setOpenId(m.id); }} />
+      <CreateModal open={creating} onClose={() => setCreating(false)} onDone={(m) => { void qc.invalidateQueries({ queryKey: ['ff-models'] }); void qc.invalidateQueries({ queryKey: ['ff-folders'] }); setOpenId(m.id); }} />
       <ModelDrawer id={openId} onClose={() => setOpenId(null)} />
     </div>
   );
+}
+
+export default function Forecast() {
+  return <Tabs items={[{ key: 'models', label: '模型', children: <ModelsTab /> }, { key: 'publications', label: '已发布', children: <PublicationsTab /> }]} />;
 }

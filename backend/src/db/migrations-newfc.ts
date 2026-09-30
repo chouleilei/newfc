@@ -1952,4 +1952,65 @@ CREATE TRIGGER trg_risk_ai_note_u BEFORE UPDATE ON risk_ai_note BEGIN SELECT RAI
 CREATE TRIGGER trg_risk_ai_note_d BEFORE DELETE ON risk_ai_note BEGIN SELECT RAISE(ABORT, '风险解释只追加'); END;
 `,
   },
+  {
+    version: 62,
+    name: 'forecast_workflow',
+    sql: `
+/* finance_forecast 补齐 lishui 能力(T-7):模型目录、版本复核、运行发布、运行洞察。
+   冻结版本与已结束运行本身不可修改,因此复核/发布/洞察各自独立成表:复核与洞察只追加;发布只允许撤回一次。 */
+ALTER TABLE ff_model ADD COLUMN folder TEXT NOT NULL DEFAULT '';
+CREATE INDEX idx_ff_model_folder ON ff_model(folder);
+
+CREATE TABLE ff_version_review (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version_id INTEGER NOT NULL REFERENCES ff_version(id),
+  decision TEXT NOT NULL CHECK (decision IN ('approve','return')),
+  comment TEXT NOT NULL DEFAULT '',
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1)),
+  reviewer_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_ff_version_review_once ON ff_version_review(version_id);
+CREATE TRIGGER trg_ff_version_review_u BEFORE UPDATE ON ff_version_review BEGIN SELECT RAISE(ABORT, '版本复核记录不可修改'); END;
+CREATE TRIGGER trg_ff_version_review_d BEFORE DELETE ON ff_version_review BEGIN SELECT RAISE(ABORT, '版本复核记录不可删除'); END;
+
+CREATE TABLE ff_run_publication (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL UNIQUE REFERENCES ff_run(id),
+  model_id INTEGER NOT NULL REFERENCES ff_model(id),
+  title TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  published_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  published_at TEXT NOT NULL,
+  withdrawn_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  withdrawn_at TEXT,
+  withdraw_reason TEXT,
+  CHECK ((withdrawn_at IS NULL) = (withdraw_reason IS NULL))
+);
+CREATE INDEX idx_ff_run_publication_model ON ff_run_publication(model_id, id);
+CREATE TRIGGER trg_ff_run_publication_u BEFORE UPDATE ON ff_run_publication
+  WHEN OLD.withdrawn_at IS NOT NULL OR NEW.run_id <> OLD.run_id OR NEW.model_id <> OLD.model_id OR NEW.title <> OLD.title OR NEW.note <> OLD.note
+    OR NEW.published_at <> OLD.published_at OR NEW.withdrawn_at IS NULL
+BEGIN SELECT RAISE(ABORT, '发布记录只允许撤回一次'); END;
+CREATE TRIGGER trg_ff_run_publication_d BEFORE DELETE ON ff_run_publication BEGIN SELECT RAISE(ABORT, '发布记录不可删除'); END;
+
+CREATE TABLE ff_run_insight (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES ff_run(id),
+  content TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('template','model')),
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_ff_run_insight_run ON ff_run_insight(run_id, id);
+CREATE TRIGGER trg_ff_run_insight_u BEFORE UPDATE ON ff_run_insight BEGIN SELECT RAISE(ABORT, '预测洞察只追加'); END;
+CREATE TRIGGER trg_ff_run_insight_d BEFORE DELETE ON ff_run_insight BEGIN SELECT RAISE(ABORT, '预测洞察只追加'); END;
+
+/* 新权限 forecast:review 授予已存在的业务复核角色(新库由内置角色模板带出)。 */
+INSERT OR IGNORE INTO app_role_permission (role_id, permission) SELECT id, 'forecast:review' FROM app_role WHERE code = 'business_reviewer';
+`,
+  },
 ];

@@ -62,6 +62,7 @@ export const PERMISSION_CATALOG = [
   { code: 'investment:write', label: '维护投资测算与控制', group: '投资与预测' },
   { code: 'forecast:read', label: '查看财务预测', group: '投资与预测' },
   { code: 'forecast:write', label: '维护与重算财务预测', group: '投资与预测' },
+  { code: 'forecast:review', label: '复核预测版本与撤回发布', group: '投资与预测' },
   { code: 'risk:read', label: '查看风险', group: '风险与报告' },
   { code: 'risk:handle', label: '处理风险', group: '风险与报告' },
   { code: 'risk:review', label: '复核风险处理', group: '风险与报告' },
@@ -116,7 +117,7 @@ export const BUILTIN_ROLES: { code: string; name: string; description: string; l
     code: 'business_reviewer', name: '业务复核', description: '费用/合同复核、报告审批、更正与治理复核', locked: false,
     permissions: [...READS, 'contract:review', 'expense:review', 'report:approve', 'report:publish',
       'eas:correction_review', 'governance:review', 'risk:review', 'budget:finalize', 'actual:finalize',
-      'eas:period_lock', 'mgmt:review', 'assistant:use'],
+      'eas:period_lock', 'mgmt:review', 'forecast:review', 'assistant:use'],
   },
   { code: 'viewer', name: '只读查看', description: '只读访问已授权组织的数据', locked: false, permissions: [...READS, 'assistant:use'] },
 ];
