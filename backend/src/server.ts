@@ -62,6 +62,7 @@ import { registerMgmtRoutes } from './modules/mgmt/routes';
 import { registerStandardReportRoutes } from './modules/standard-reports/routes';
 import { registerProjectBudgetRoutes } from './modules/project-budget/routes';
 import { registerPlanRoutes } from './modules/plan-execution/routes';
+import { registerContractRoutes } from './modules/contracts/routes';
 import { ObjectStore, sweepOrphanObjects } from './modules/files/object-store';
 import { currentCellOrgId, currentOrgScopeId, orgInScope, resolveOrgScope } from './modules/security/scope';
 import { insertModelCall } from './modules/jobs/model-calls';
@@ -274,6 +275,7 @@ export async function createApp(opts: ServerOptions) {
   registerStandardReportRoutes(app, db, wrap);
   registerProjectBudgetRoutes(app, db, wrap, () => objectStore);
   registerPlanRoutes(app, db, wrap, () => objectStore);
+  registerContractRoutes(app, db, wrap, () => objectStore);
   app.get('/api/settings/business', wrap((_req, res) => res.json({ items: listBusinessSettings(db()) })));
   app.put('/api/settings/business', wrap((req, res) => res.json({ items: saveBusinessSettings(db(), req.body) })));
 
