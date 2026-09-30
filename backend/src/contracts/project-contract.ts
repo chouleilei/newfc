@@ -64,9 +64,13 @@ export const contractPaymentRequest = z.object({
   nodeName: z.string().trim().min(1).max(100), amount: moneyString, plannedDate: date.nullish(), evidenceDocumentId: id.nullish(),
 });
 export const contractPayRequest = z.object({ paidDate: date, voucherNo: optionalText(64), invoiceDocumentId: id });
+export const CONTRACT_TODOS = ['review', 'change', 'payment', 'pay'] as const;
+export type ContractTodo = (typeof CONTRACT_TODOS)[number];
 export const contractListQuery = z.object({
   status: z.enum(CONTRACT_STATUSES).optional(), stage: z.enum(CONTRACT_STAGES).optional(), orgId: id.optional(), projectId: id.optional(),
   keyword: z.string().trim().max(100).optional(),
+  /** 工作台待办下钻:进行中且有待审核文档 / 待复核变更 / 待复核付款 / 已批准待支付的合同 */
+  todo: z.enum(CONTRACT_TODOS).optional(),
 });
 export type ContractListQuery = z.infer<typeof contractListQuery>;
 

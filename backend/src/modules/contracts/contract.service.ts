@@ -18,7 +18,7 @@ import { currentOrgScope, notVisible, orgInScope, scopeFilterSql } from '../secu
 import { storeFile, type ObjectStore } from '../files/object-store';
 import {
   CONTRACT_DOC_TYPE_LABELS, CONTRACT_STAGE_LABELS, CONTRACT_STAGES, CONTRACT_STATUSES, type BlockerDto, type ContractChangeDto, type ContractCreateRequest,
-  type ContractDetailDto, type ContractDocType, type ContractDocumentDto, type ContractDto, type ContractEventDto, type ContractListQuery, type ContractPaymentDto,
+  type ContractDetailDto, type ContractDocType, type ContractDocumentDto, type ContractDto, type ContractEventDto, type ContractListQuery, type ContractPaymentDto, type ContractTodo,
   type ContractReviewDto, type ContractStage, type ContractStatus, type ContractSummaryDto, type ContractUpdateRequest, type DecisionRequest,
 } from '../../contracts/project-contract';
 
@@ -194,6 +194,14 @@ export function getContract(db: DB, id: number): ContractDto {
   return toDto(db, visibleContract(db, id));
 }
 
+/** 与工作台待办计数(report/todo.service.ts)同口径。 */
+const TODO_EXISTS: Record<ContractTodo, string> = {
+  review: "SELECT 1 FROM ct_review x WHERE x.contract_id = ct_contract.id AND x.status = 'submitted'",
+  change: "SELECT 1 FROM ct_change x WHERE x.contract_id = ct_contract.id AND x.status = 'submitted'",
+  payment: "SELECT 1 FROM ct_payment x WHERE x.contract_id = ct_contract.id AND x.status = 'submitted'",
+  pay: "SELECT 1 FROM ct_payment x WHERE x.contract_id = ct_contract.id AND x.status = 'approved'",
+};
+
 export function listContracts(db: DB, q: ContractListQuery = {}): ContractDto[] {
   const scope = currentOrgScope(db);
   if (q.orgId && !orgInScope(scope, q.orgId)) throw notVisible('组织');
@@ -208,6 +216,7 @@ export function listContracts(db: DB, q: ContractListQuery = {}): ContractDto[] 
   }
   if (q.projectId) { where.push('project_id = ?'); params.push(q.projectId); }
   if (q.keyword) { const k = `%${q.keyword.replace(/[%_]/g, '')}%`; where.push('(contract_no LIKE ? OR name LIKE ?)'); params.push(k, k); }
+  if (q.todo) where.push(`status = 'active' AND EXISTS (${TODO_EXISTS[q.todo]})`);
   return (db.prepare(`SELECT * FROM ct_contract WHERE ${where.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT 500`).safeIntegers(true).all(...params) as Record<string, unknown>[])
     .map((r) => toDto(db, normalizeRow(r)));
 }

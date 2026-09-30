@@ -51,6 +51,12 @@ const Governance = lazyWithRetry(() => import('./pages/financeData/Governance'))
 const Statements = lazyWithRetry(() => import('./pages/financeData/Statements'));
 const ManagementAccounting = lazyWithRetry(() => import('./pages/ManagementAccounting'));
 const StandardReports = lazyWithRetry(() => import('./pages/StandardReports'));
+const ProjectBudget = lazyWithRetry(() => import('./pages/project/ProjectBudget'));
+const PlanExecution = lazyWithRetry(() => import('./pages/project/PlanExecution'));
+const Contracts = lazyWithRetry(() => import('./pages/project/Contracts'));
+const ContractImport = lazyWithRetry(() => import('./pages/project/ContractImport'));
+const ExpenseClaims = lazyWithRetry(() => import('./pages/expense/ExpenseClaims'));
+const ExpensePolicies = lazyWithRetry(() => import('./pages/expense/ExpensePolicies'));
 
 const { Sider, Header, Content, Footer } = Layout;
 
@@ -124,6 +130,27 @@ export const menuItems: MenuProps['items'] = [
       { key: '/statements', label: '财务报表' },
     ],
   },
+  {
+    key: 'grp-project',
+    icon: <i className="ri-building-2-line" aria-hidden />,
+    label: '项目与合同',
+    /* T-4(AC-F09/F15/F16/F04):项目预算与计划执行是项目口径事实,与经营预算(「编制」组)互不读写。 */
+    children: [
+      { key: '/project-budget', label: '项目预算' },
+      { key: '/plan', label: '计划执行' },
+      { key: '/contracts', label: '合同台账' },
+      { key: '/contracts/import', label: '合同导入' },
+    ],
+  },
+  {
+    key: 'grp-expense',
+    icon: <i className="ri-receipt-line" aria-hidden />,
+    label: '费用审核',
+    children: [
+      { key: '/expense', label: '报销单' },
+      { key: '/expense/policies', label: '制度依据' },
+    ],
+  },
   { key: '/mgmt', icon: <i className="ri-scales-3-line" aria-hidden />, label: '管理会计' },
   { key: '/standard-reports', icon: <i className="ri-file-list-3-line" aria-hidden />, label: '标准报表' },
   {
@@ -178,6 +205,12 @@ export const MENU_PERMISSION: Record<string, string> = {
   '/eas': 'eas:read',
   '/governance': 'governance:read',
   '/statements': 'statements:read',
+  '/project-budget': 'project_budget:read',
+  '/plan': 'plan:read',
+  '/contracts': 'contract:read',
+  '/contracts/import': 'contract:import',
+  '/expense': 'expense:read',
+  '/expense/policies': 'expense:read',
   '/mgmt': 'mgmt:read',
   '/standard-reports': 'report:read',
   '/org': 'master:read',
@@ -285,7 +318,9 @@ export function selectedKey(pathname: string, search: string): string {
     return '/';
   }
   if (seg === '/data') return dataMenuKey(new URLSearchParams(search).get('tab'));
-  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs', '/eas', '/governance', '/statements', '/mgmt', '/standard-reports'];
+  if (pathname.startsWith('/contracts/import')) return '/contracts/import';
+  if (pathname.startsWith('/expense/policies')) return '/expense/policies';
+  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs', '/eas', '/governance', '/statements', '/mgmt', '/standard-reports', '/project-budget', '/plan', '/contracts', '/expense'];
   return leaves.includes(seg) ? seg : '/';
 }
 
@@ -865,6 +900,12 @@ function getRouter() {
       { path: 'statements', element: <Statements /> },
       { path: 'mgmt', element: <ManagementAccounting /> },
       { path: 'standard-reports', element: <StandardReports /> },
+      { path: 'project-budget', element: <ProjectBudget /> },
+      { path: 'plan', element: <PlanExecution /> },
+      { path: 'contracts', element: <Contracts /> },
+      { path: 'contracts/import', element: <ContractImport /> },
+      { path: 'expense', element: <ExpenseClaims /> },
+      { path: 'expense/policies', element: <ExpensePolicies /> },
       { path: 'org', element: <OrgManage /> },
       { path: 'account', element: <AccountManage /> },
       { path: 'metric', element: <MetricManage /> },

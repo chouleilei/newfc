@@ -91,6 +91,11 @@ describe('T-4 合同生命周期(AC-F16)', () => {
     // 变更 +20,000:复核后当前金额 120,000
     c = await ok(post(base, maker, `/api/contracts/${c.id}/changes`, { delta: '20000.00', reason: '增加附属工程', evidenceDocumentId: evidence }), 201);
     expect(c.currentAmount).toBe('100000.00');
+    // 工作台待办下钻:todo 过滤与待办计数同口径
+    const todoIds = async (todo: string) => (await ok(get(base, reviewer, `/api/contracts?todo=${todo}`))).map((x: { id: number }) => x.id);
+    expect(await todoIds('change')).toEqual([c.id]);
+    expect(await todoIds('review')).toEqual([]);
+    await fail(get(base, reviewer, '/api/contracts?todo=other'), 400, 'VALIDATION_FAILED');
     c = await ok(post(base, reviewer, `/api/contracts/${c.id}/changes/${c.changes[0].id}/decide`, { decision: 'approve' }));
     expect(c).toMatchObject({ originalAmount: '100000.00', approvedChange: '20000.00', currentAmount: '120000.00' });
 
@@ -108,6 +113,8 @@ describe('T-4 合同生命周期(AC-F16)', () => {
     c = await ok(post(base, maker, `/api/contracts/${c.id}/payments/${p1}/pay`, { paidDate: '2026-04-10', voucherNo: '记-0410-01', invoiceDocumentId: invoice }));
     expect(c.paidAmount).toBe('50000.00');
     const p2 = await pay('70000.00');
+    expect(await todoIds('pay')).toEqual([c.id]);
+    expect(await todoIds('payment')).toEqual([]);
     // 已批准未付 70,000 + 已付 50,000 = 120,000:再申请 0.01 被拒
     await fail(post(base, maker, `/api/contracts/${c.id}/payments`, { nodeName: '尾款', amount: '0.01' }), 409, 'CONTRACT_PAYMENT_EXCEEDS');
     c = await ok(post(base, maker, `/api/contracts/${c.id}/payments/${p2}/pay`, { paidDate: '2026-05-20', invoiceDocumentId: invoice }));

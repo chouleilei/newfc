@@ -25,6 +25,7 @@ import { relativeTime } from '../utils/relativeTime';
 import type { ScopeIssue } from '../utils/workspaceScope';
 import { buildNextActions, type NextAction } from './dashboard/nextActions';
 import { StatementSummaryCard } from './dashboard/StatementSummaryCard';
+import { WorkbenchTodoCard } from './dashboard/WorkbenchTodoCard';
 import type { ChartSemanticClick } from '../components/EChart';
 
 /**
@@ -690,6 +691,8 @@ export default function Dashboard() {
     return (
       <div className="bd-page-narrow">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {/* 待办不依赖预算版本:合同与报销流程可以先于经营预算上线 */}
+        <WorkbenchTodoCard />
         {!structureOk && (
           <Alert
             type="warning"
@@ -848,6 +851,9 @@ export default function Dashboard() {
         batches={monthBatches}
         loading={monthBatchesLoading || year == null}
       />
+
+      {/* 待办(T-4):按权限与组织范围计数的合同与报销待处理事项 */}
+      <WorkbenchTodoCard />
 
       {/* 财报摘要(T-3):有财报读权限且存在当前批次时显示 */}
       <StatementSummaryCard />
