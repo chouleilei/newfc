@@ -42,14 +42,14 @@
 | `operating_budget` | 复用预算、实际快照与预实分析 | 2 | AC-F08 | 通过（T-2） |
 | `project_budget` | 新增独立项目预算域 | 4 | AC-F09 | 通过（T-4） |
 | `financial_statements` | 新增三大财报与分析 | 3 | AC-F10 | 通过（T-3） |
-| `finance_forecast` | 补工作簿、计算版本与结果 | 5 | AC-F11 | 未实现/未验证 |
-| `investment_feasibility` | 移植已核实的标准计算模型 | 5 | AC-F12 | 未实现/未验证 |
-| `investment_control` | 新增投资控制与比较 | 5 | AC-F13 | 未实现/未验证 |
+| `finance_forecast` | 补工作簿、计算版本与结果 | 5 | AC-F11 | 通过（T-5） |
+| `investment_feasibility` | 移植已核实的标准计算模型 | 5 | AC-F12 | 通过（T-5） |
+| `investment_control` | 新增投资控制与比较 | 5 | AC-F13 | 通过（T-5） |
 | `management_accounting` | 扩展指标、责任中心、分摊与绩效 | 3 | AC-F14 | 通过（T-3）；T-4 接入合同已付/付款比例/计划执行率，风险/投资计算器随阶段 5 接入 |
 | `plan_execution` | 新增计划与形象进度域 | 4 | AC-F15 | 通过（T-4） |
 | `project_contract` | 新增合同生命周期 | 4 | AC-F16 | 通过（T-4） |
-| `risk_workflow` | 扩展异常到风险处理闭环 | 5 | AC-F17 | 未实现/未验证 |
-| `ai_reports` | 扩展洞察草稿到审核与发布 | 5 | AC-F18 | 未实现/未验证 |
+| `risk_workflow` | 扩展异常到风险处理闭环 | 5 | AC-F17 | 通过（T-5） |
+| `ai_reports` | 扩展洞察草稿到审核与发布 | 5 | AC-F18 | 通过（T-5） |
 | `standard_reports` | 新增标准报告与导出 | 3 | AC-F19 | 通过（T-3）；合同付款台账 T-4 通过，风险整改台账在阶段 5 |
 | `xiaoli_assistant` | 复用助手并接入新增领域工具 | 2，逐域扩展 | AC-F20 | 基础通过（T-2）；T-3 接入 EAS/财报/管理会计只读工具，T-4 接入项目预算/计划执行/合同/费用审核队列，逐域接入中 |
 | `agent_observability` | 扩展任务与模型调用记录 | 1，逐域扩展 | AC-F21 | 基础通过（T-1），逐域扩展中 |

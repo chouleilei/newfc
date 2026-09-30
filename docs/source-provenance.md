@@ -58,3 +58,6 @@ lishui 只提供业务规则和验收样本，不导入源码。下列样本按�
 | newfc 路径 | lishui 来源（`e50b4b6`） | 用途 |
 |---|---|---|
 | `backend/tests/fixtures/eas-v600/eas_voucher.csv`、`eas_balance.csv`、`eas_auxiliary.csv` | `docs/sample-data/v600/` 同名文件（由 2.2.0 归档 EAS xlsx 派生的示例数据，不含真实凭证） | `tests/t3-eas.test.ts` 的 v600 三件套验收（AC-F05） |
+| `backend/tests/fixtures/investment_feasibility_yichongqiao.json` | `backend/tests/fixtures/investment_feasibility_yichongqiao.json`（宜冲桥脱敏样本，逐字节一致） | `tests/t5-feasibility-calc.test.ts`、`t5-feasibility.test.ts` 与 E2E `risk-investment.spec.ts` 的 standard-1.0 测算验收（AC-F12） |
+
+`backend/tests/fixtures/feasibility-reference.json` 不是 lishui 文件：由会话临时目录中的独立 Python Decimal 参照实现（按 lishui standard-1.0 calculator/financing_schedule 规则重写，schema 以最小替身代替 pydantic）对上述样本及 10 个变体生成，只用于交叉核对，不作为唯一正确依据；lishui 源码未复制进 newfc。
