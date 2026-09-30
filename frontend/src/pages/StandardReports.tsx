@@ -12,6 +12,7 @@ import { compact, defaultOrgId, EXCEPTION_REASON_FIELD, lastPeriod, OrgSelect, P
 
 export const REPORT_TYPE_LABEL: Record<StdReportType, string> = {
   budget_execution: '经营预算执行表', statement_summary: '财务报表摘要', eas_recon: 'EAS 对账结果表', contract_payment_ledger: '合同付款台账',
+  risk_rectification_ledger: '风险整改台账',
 };
 const SCOPE_OPTIONS = [{ value: 'consolidated', label: '合并' }, { value: 'parent', label: '母公司' }, { value: 'subsidiary', label: '子公司' }];
 
@@ -25,13 +26,14 @@ export function renderCell(col: StdColumnDto, v: string | number | null | undefi
 
 function GenerateModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (r: StdReportDto) => void }) {
   const { message } = AntdApp.useApp();
-  const [form] = Form.useForm<{ reportType: StdReportType; year?: number; orgId?: number; period?: string; scope?: string }>();
+  const [form] = Form.useForm<{ reportType: StdReportType; year?: number; orgId?: number; period?: string; scope?: string; includeClosed?: boolean }>();
   const type = Form.useWatch('reportType', form);
   const gen = useMutation({
-    mutationFn: (v: { reportType: StdReportType; year?: number; orgId?: number; period?: string; scope?: string }) => {
+    mutationFn: (v: { reportType: StdReportType; year?: number; orgId?: number; period?: string; scope?: string; includeClosed?: boolean }) => {
       const body = v.reportType === 'budget_execution' ? compact({ reportType: v.reportType, year: v.year, orgId: v.orgId })
         : v.reportType === 'statement_summary' ? compact({ reportType: v.reportType, orgId: v.orgId, period: v.period, scope: v.scope })
-          : compact({ reportType: v.reportType, orgId: v.orgId, period: v.period });
+          : v.reportType === 'risk_rectification_ledger' ? compact({ reportType: v.reportType, orgId: v.orgId, period: v.period, includeClosed: v.includeClosed })
+            : compact({ reportType: v.reportType, orgId: v.orgId, period: v.period });
       // contract_payment_ledger 与 eas_recon 同为 orgId + period;不选组织时为全组织口径
       return stdReportApi.generate(body as StdReportGenerate);
     },
@@ -44,8 +46,8 @@ function GenerateModal({ open, onClose, onDone }: { open: boolean; onClose: () =
       <Form form={form} layout="vertical" preserve={false} initialValues={{ reportType: 'budget_execution', year: new Date().getFullYear(), orgId: defaultOrgId(), period: lastPeriod(), scope: undefined }}>
         <Form.Item name="reportType" label="报表类型"><Select options={Object.entries(REPORT_TYPE_LABEL).map(([value, label]) => ({ value, label }))} /></Form.Item>
         {type === 'budget_execution' && <Form.Item name="year" label="年度" rules={[{ required: true }]}><InputNumber min={1900} max={9999} style={{ width: 140 }} /></Form.Item>}
-        <Form.Item name="orgId" label={type === 'budget_execution' || type === 'contract_payment_ledger' ? `组织${allOrgs ? '(不选为全组织口径)' : ''}` : '组织'}
-          rules={(type === 'budget_execution' || type === 'contract_payment_ledger') && allOrgs ? [] : [{ required: true, message: '请选择组织' }]}>
+        <Form.Item name="orgId" label={type === 'budget_execution' || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger' ? `组织${allOrgs ? '(不选为全组织口径)' : ''}` : '组织'}
+          rules={(type === 'budget_execution' || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger') && allOrgs ? [] : [{ required: true, message: '请选择组织' }]}>
           <OrgSelect onChange={(v) => form.setFieldValue('orgId', v)} width={320} />
         </Form.Item>
         {type !== 'budget_execution' && <Form.Item name="period" label="期间" rules={[{ required: true }]}><PeriodPicker onChange={(v) => form.setFieldValue('period', v)} allowClear={false} /></Form.Item>}
@@ -53,6 +55,7 @@ function GenerateModal({ open, onClose, onDone }: { open: boolean; onClose: () =
       </Form>
       <Typography.Text type="secondary">
         {type === 'budget_execution' ? '取该年当前采用预算与最新实际,复用执行分析口径。' : type === 'statement_summary' ? '取当前财报批次的语义指标与比率。'
+          : type === 'risk_rectification_ledger' ? '冻结风险等级、状态、处理人、期限、逾期与最近动作(缺省不含已关闭与误报)。'
           : type === 'contract_payment_ledger' ? '冻结合同阶段、当前金额、本期与累计已付、付款比例及合同版本(不含作废合同)。' : '取当前 EAS 对账集合的规则结果。'}
         缺少来源时不生成(REPORT_SOURCE_MISSING)。
       </Typography.Text>
