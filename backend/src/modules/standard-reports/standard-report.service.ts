@@ -2,7 +2,7 @@
  * 标准报表(AC-F19):生成时冻结列、行、摘要和来源引用(批次、集合、版本),此后页面与导出只读冻结内容。
  *
  * - 经营预算执行表复用 report/completion 的同一取数(completionReport);财务报表摘要读当前财报批次(statementOverview);
- *   EAS 对账结果表读当前集合的规则结果(periodStatus)。
+ *   EAS 对账结果表读当前集合的规则结果(periodStatus);合同付款台账读合同当前状态与期间内支付,冻结每份合同的版本号。
  * - 复核:report:approve,生成人 ≠ 复核人(管理员同人须写例外原因);只能复核一次(REPORT_ALREADY_REVIEWED)。
  * - 组织范围:报表带组织时按组织裁剪(范围外 404);全组织口径的报表只对全组织用户开放。
  */
@@ -22,6 +22,7 @@ import { statementOverview } from '../statements/statement.service';
 import { periodStatus } from '../eas/eas.service';
 import { RULE_LABELS } from '../governance/governance.sources';
 import { STATEMENT_METRICS, STATEMENT_METRIC_LABELS } from '../../contracts/statements';
+import { CONTRACT_STAGE_LABELS, CONTRACT_STATUS_LABELS, type ContractStage, type ContractStatus } from '../../contracts/project-contract';
 import {
   STD_REPORT_TYPE_LABELS, type StdCellValue, type StdColumnDto, type StdReportDto, type StdReportGenerate, type StdReportListItemDto, type StdReportReview,
   type StdReportType,
@@ -137,6 +138,56 @@ function easRecon(db: DB, input: Extract<StdReportGenerate, { reportType: 'eas_r
   };
 }
 
+function contractPaymentLedger(db: DB, input: Extract<StdReportGenerate, { reportType: 'contract_payment_ledger' }>): Frozen {
+  if (input.orgId) assertOrg(db, input.orgId);
+  else requireCurrentAllOrgs('全组织合同付款台账');
+  const where = ["c.status <> 'voided'"];
+  const params: unknown[] = [];
+  if (input.orgId) {
+    where.push('c.org_id IN (WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT o.id FROM org o JOIN sub ON o.parent_id = sub.id) SELECT id FROM sub)');
+    params.push(input.orgId);
+  }
+  if (input.projectId) { where.push('c.project_id = ?'); params.push(input.projectId); }
+  const rows = db.prepare(`SELECT c.id, c.contract_no, c.name, c.stage, c.status, c.version, c.original_cents, c.approved_change_cents, c.paid_cents,
+      o.name AS org_name, p.code AS project_code, p.name AS project_name, s.name AS supplier_name,
+      (SELECT COALESCE(SUM(amount_cents), 0) FROM ct_payment WHERE contract_id = c.id AND status = 'paid' AND substr(paid_date, 1, 7) = ?) AS period_paid
+    FROM ct_contract c JOIN org o ON o.id = c.org_id LEFT JOIN md_project p ON p.id = c.project_id LEFT JOIN md_supplier s ON s.id = c.supplier_id
+    WHERE ${where.join(' AND ')} ORDER BY c.contract_no`).safeIntegers(true).all(input.period, ...params) as {
+    id: bigint; contract_no: string; name: string; stage: ContractStage; status: ContractStatus; version: bigint; original_cents: bigint; approved_change_cents: bigint;
+    paid_cents: bigint; org_name: string; project_code: string | null; project_name: string | null; supplier_name: string | null; period_paid: bigint;
+  }[];
+  let totalCurrent = 0n; let totalPaid = 0n; let totalPeriod = 0n;
+  const out = rows.map((r) => {
+    const current = r.original_cents + r.approved_change_cents;
+    totalCurrent += current; totalPaid += r.paid_cents; totalPeriod += r.period_paid;
+    return {
+      contractNo: r.contract_no, name: r.name, org: r.org_name, project: r.project_code ? `${r.project_code} ${r.project_name}` : '', supplier: r.supplier_name ?? '',
+      stage: CONTRACT_STAGE_LABELS[r.stage], status: CONTRACT_STATUS_LABELS[r.status], original: centsToDecimalString(r.original_cents),
+      change: centsToDecimalString(r.approved_change_cents), current: centsToDecimalString(current), periodPaid: centsToDecimalString(r.period_paid),
+      paid: centsToDecimalString(r.paid_cents), unpaid: centsToDecimalString(current - r.paid_cents), rate: ratioString(r.paid_cents, current), version: Number(r.version),
+    };
+  });
+  const scopeName = input.orgId ? orgName(db, input.orgId)! : '全组织';
+  return {
+    title: `${input.period} 合同付款台账 · ${scopeName}`, orgId: input.orgId ?? null, period: input.period,
+    params: { period: input.period, orgId: input.orgId ?? null, projectId: input.projectId ?? null },
+    columns: [
+      { key: 'contractNo', label: '合同编号', kind: 'text' }, { key: 'name', label: '合同名称', kind: 'text' }, { key: 'org', label: '组织', kind: 'text' },
+      { key: 'project', label: '项目', kind: 'text' }, { key: 'supplier', label: '供应商', kind: 'text' }, { key: 'stage', label: '阶段', kind: 'text' },
+      { key: 'status', label: '状态', kind: 'text' }, { key: 'original', label: '原始金额', kind: 'money' }, { key: 'change', label: '已批准变更', kind: 'money' },
+      { key: 'current', label: '当前金额', kind: 'money' }, { key: 'periodPaid', label: '本期已付', kind: 'money' }, { key: 'paid', label: '累计已付', kind: 'money' },
+      { key: 'unpaid', label: '未付', kind: 'money' }, { key: 'rate', label: '付款比例', kind: 'ratio' }, { key: 'version', label: '合同版本', kind: 'integer' },
+    ],
+    rows: out,
+    summary: [
+      { label: '合同数', value: String(out.length) }, { label: '当前金额合计', value: centsToDecimalString(totalCurrent) },
+      { label: '本期已付合计', value: centsToDecimalString(totalPeriod) }, { label: '累计已付合计', value: centsToDecimalString(totalPaid) },
+      { label: '整体付款比例', value: ratioString(totalPaid, totalCurrent) ?? '—' }, { label: '组织范围', value: scopeName },
+    ],
+    sources: { contracts: rows.map((r) => ({ id: Number(r.id), version: Number(r.version) })), period: input.period },
+  };
+}
+
 /* ================= 生成 / 查询 / 复核 / 导出 ================= */
 
 interface ReportRow {
@@ -175,7 +226,8 @@ function getRow(db: DB, id: number): ReportRow {
 
 export function generateReport(db: DB, input: StdReportGenerate): StdReportDto {
   // 取数在写事务之外;冻结内容一次性写入
-  const f = input.reportType === 'budget_execution' ? budgetExecution(db, input) : input.reportType === 'statement_summary' ? statementSummary(db, input) : easRecon(db, input);
+  const f = input.reportType === 'budget_execution' ? budgetExecution(db, input) : input.reportType === 'statement_summary' ? statementSummary(db, input)
+    : input.reportType === 'eas_recon' ? easRecon(db, input) : contractPaymentLedger(db, input);
   const content = JSON.stringify({ columns: f.columns, rows: f.rows, summary: f.summary, sources: f.sources });
   const sha = crypto.createHash('sha256').update(content).digest('hex');
   const id = db.transaction(() => {

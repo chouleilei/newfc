@@ -400,12 +400,15 @@ function ratioStringScaled(v: bigint): string {
 }
 
 /** 管理会计计算器 plan_execution_rate:按同年取数规则的年度执行率(投资 + 购置 + 运维 合计,只计同时有计划与实际的行)。 */
-export function planExecutionRate(db: DB, orgId: number | null, period: string): { rate: string | null; batchId: number | null; note: string | null } {
+export function planExecutionRate(db: DB, orgId: number | null, period: string): {
+  rate: string | null; batchId: number | null; note: string | null; annualPlanCents: bigint | null; annualActualCents: bigint | null; rowCount: number;
+} {
   const scope = currentOrgScope(db);
   const year = Number(period.slice(0, 4));
   const { batch } = resolvePlanBatch(db, scope, year, period);
-  if (!batch) return { rate: null, batchId: null, note: `${year} 年截至 ${period} 没有已激活的计划执行批次` };
+  if (!batch) return { rate: null, batchId: null, note: `${year} 年截至 ${period} 没有已激活的计划执行批次`, annualPlanCents: null, annualActualCents: null, rowCount: 0 };
   const rows = loadItems(db, scope, batch.id, { detailOnly: true, orgId: orgId ?? undefined });
   const both = sumBoth(rows, 'annual_plan', 'annual_actual');
-  return { rate: both.n ? ratioString(both.b, both.a) : null, batchId: batch.id, note: both.n ? null : '没有同时具备年度计划与年度累计实际的明细行' };
+  if (!both.n) return { rate: null, batchId: batch.id, note: '没有同时具备年度计划与年度累计实际的明细行', annualPlanCents: null, annualActualCents: null, rowCount: 0 };
+  return { rate: ratioString(both.b, both.a), batchId: batch.id, note: null, annualPlanCents: both.a, annualActualCents: both.b, rowCount: both.n };
 }

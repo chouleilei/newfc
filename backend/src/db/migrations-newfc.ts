@@ -1302,4 +1302,73 @@ CREATE TRIGGER trg_ex_review_u BEFORE UPDATE ON ex_review BEGIN SELECT RAISE(ABO
 CREATE TRIGGER trg_ex_review_d BEFORE DELETE ON ex_review BEGIN SELECT RAISE(ABORT, '复核记录不可删除'); END;
 `,
   },
+  {
+    version: 53,
+    name: 'project_contract_linkage',
+    rebuild: true,
+    sql: `
+/* project_contract_linkage(T-4 联动):CHECK 枚举扩展只能整表重建。
+   - ma_metric.calculator 追加 contract_paid / contract_payment_rate / plan_execution_rate;
+   - std_report.report_type 追加 contract_payment_ledger(合同付款台账)。
+   rebuild 迁移:外键关闭后在单事务内“建新表 → 全量复制 → 删旧表 → 改名 → 重建索引与触发器”,
+   提交前 foreign_key_check;子表 REFERENCES 按表名解析,改名后自然指回新表。 */
+CREATE TABLE ma_metric_v53 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL CHECK (unit IN ('money','ratio')),
+  calculator TEXT NOT NULL CHECK (calculator IN ('budget_amount','actual_amount','execution_rate','eas_balance','statement_item','allocated_cost',
+    'contract_paid','contract_payment_rate','plan_execution_rate')),
+  params_json TEXT NOT NULL DEFAULT '{}',
+  thresholds_json TEXT NOT NULL DEFAULT '{}',
+  builtin INTEGER NOT NULL DEFAULT 0 CHECK (builtin IN (0,1)),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO ma_metric_v53 (id, code, name, unit, calculator, params_json, thresholds_json, builtin, status, version, created_by_user_id, created_at, updated_at)
+  SELECT id, code, name, unit, calculator, params_json, thresholds_json, builtin, status, version, created_by_user_id, created_at, updated_at FROM ma_metric;
+DROP TABLE ma_metric;
+ALTER TABLE ma_metric_v53 RENAME TO ma_metric;
+
+CREATE TABLE std_report_v53 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_type TEXT NOT NULL CHECK (report_type IN ('budget_execution','statement_summary','eas_recon','contract_payment_ledger')),
+  title TEXT NOT NULL,
+  org_id INTEGER REFERENCES org(id),
+  period TEXT NOT NULL,
+  params_json TEXT NOT NULL,
+  columns_json TEXT NOT NULL,
+  rows_json TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  sources_json TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'generated' CHECK (status IN ('generated','reviewed')),
+  generated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  generated_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1))
+);
+INSERT INTO std_report_v53 (id, report_type, title, org_id, period, params_json, columns_json, rows_json, summary_json, sources_json, content_sha256, status,
+    generated_by_user_id, generated_at, reviewed_by_user_id, reviewed_at, review_comment, exception_reason, self_review)
+  SELECT id, report_type, title, org_id, period, params_json, columns_json, rows_json, summary_json, sources_json, content_sha256, status,
+    generated_by_user_id, generated_at, reviewed_by_user_id, reviewed_at, review_comment, exception_reason, self_review FROM std_report;
+DROP TABLE std_report;
+ALTER TABLE std_report_v53 RENAME TO std_report;
+CREATE INDEX idx_std_report_type ON std_report(report_type, period);
+CREATE INDEX idx_std_report_org ON std_report(org_id);
+CREATE TRIGGER trg_std_report_frozen_u BEFORE UPDATE OF report_type, title, org_id, period, params_json, columns_json, rows_json, summary_json,
+  sources_json, content_sha256, generated_by_user_id, generated_at ON std_report
+BEGIN SELECT RAISE(ABORT, '标准报表冻结内容不可修改'); END;
+CREATE TRIGGER trg_std_report_review_once BEFORE UPDATE OF status ON std_report
+WHEN NOT (OLD.status = 'generated' AND NEW.status = 'reviewed')
+BEGIN SELECT RAISE(ABORT, '标准报表只能复核一次'); END;
+CREATE TRIGGER trg_std_report_d BEFORE DELETE ON std_report BEGIN SELECT RAISE(ABORT, '标准报表不可删除'); END;
+`,
+  },
 ];

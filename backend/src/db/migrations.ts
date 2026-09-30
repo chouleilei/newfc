@@ -7,6 +7,11 @@ export interface Migration {
   sql: string;
   /** raw=true:事务外执行(可 PRAGMA foreign_keys=OFF 后重建表;表重建场景延迟外键在 COMMIT 仍会报错) */
   raw?: boolean;
+  /**
+   * rebuild=true:整表重建(扩展 CHECK 枚举等)。外键关闭后在单事务内执行 SQL、foreign_key_check 与版本记录,
+   * 任一步失败整体回滚,不留半重建状态。
+   */
+  rebuild?: boolean;
 }
 
 /**
@@ -1598,7 +1603,21 @@ CREATE TABLE IF NOT EXISTS schema_migration (
   );
   const toApply = MIGRATIONS.filter((m) => !applied.has(m.version)).sort((a, b) => a.version - b.version);
   for (const m of toApply) {
-    if (m.raw) {
+    if (m.rebuild) {
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.transaction(() => {
+          db.exec(m.sql);
+          const violations = db.pragma('foreign_key_check') as unknown[];
+          if (violations.length > 0) {
+            throw new Error(`迁移 V${m.version}(${m.name})重建后 foreign_key_check 发现 ${violations.length} 处违例,已回滚`);
+          }
+          db.prepare('INSERT INTO schema_migration (version, name, applied_at) VALUES (?, ?, ?)').run(m.version, m.name, new Date().toISOString());
+        })();
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    } else if (m.raw) {
       // raw 迁移在事务外自行管理外键开关;无论成败都必须恢复 foreign_keys,
       // 否则失败时当前连接会一直保持外键关闭,后续业务写入失去约束保护
       try {

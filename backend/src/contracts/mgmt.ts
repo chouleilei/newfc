@@ -33,11 +33,14 @@ export interface MaMemberPreviewDto { valid: boolean; previewHash: string; rows:
 
 /* ---------------- 指标 ---------------- */
 
-export const MA_CALCULATORS = ['budget_amount', 'actual_amount', 'execution_rate', 'eas_balance', 'statement_item', 'allocated_cost'] as const;
+export const MA_CALCULATORS = [
+  'budget_amount', 'actual_amount', 'execution_rate', 'eas_balance', 'statement_item', 'allocated_cost', 'contract_paid', 'contract_payment_rate', 'plan_execution_rate',
+] as const;
 export type MaCalculator = (typeof MA_CALCULATORS)[number];
 export const MA_CALCULATOR_LABELS: Record<MaCalculator, string> = {
   budget_amount: '预算金额(当前采用预算)', actual_amount: '实际金额(年度最新实际)', execution_rate: '预算执行率',
   eas_balance: 'EAS 科目余额(当前集合)', statement_item: '财报语义指标(当前批次)', allocated_cost: '已确认分摊成本',
+  contract_paid: '合同本期已付', contract_payment_rate: '合同付款比例(已付/当前金额)', plan_execution_rate: '计划年度执行率(同年取数)',
 };
 export const EAS_BALANCE_FIELDS = ['end_net', 'end_debit', 'end_credit', 'period_debit', 'period_credit'] as const;
 
@@ -48,6 +51,9 @@ export const maMetricParams = z.discriminatedUnion('calculator', [
   z.object({ calculator: z.literal('eas_balance'), accountCode: z.string().trim().min(1).max(64), field: z.enum(EAS_BALANCE_FIELDS) }),
   z.object({ calculator: z.literal('statement_item'), metricKey: z.enum(STATEMENT_METRICS), scope: z.enum(STATEMENT_SCOPES).optional() }),
   z.object({ calculator: z.literal('allocated_cost') }),
+  z.object({ calculator: z.literal('contract_paid') }),
+  z.object({ calculator: z.literal('contract_payment_rate') }),
+  z.object({ calculator: z.literal('plan_execution_rate') }),
 ]);
 export type MaMetricParams = z.infer<typeof maMetricParams>;
 

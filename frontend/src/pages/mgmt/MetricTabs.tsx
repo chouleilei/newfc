@@ -17,6 +17,7 @@ import { lastPeriod, OrgSelect, PeriodPicker, useOrgTree } from '../financeData/
 export const CALCULATOR_LABEL: Record<MaCalculator, string> = {
   budget_amount: '预算金额(当前采用预算)', actual_amount: '实际金额(年度最新实际)', execution_rate: '预算执行率',
   eas_balance: 'EAS 科目余额(当前集合)', statement_item: '财报语义指标(当前批次)', allocated_cost: '已确认分摊成本',
+  contract_paid: '合同本期已付', contract_payment_rate: '合同付款比例(已付/当前金额)', plan_execution_rate: '计划年度执行率(同年取数)',
 };
 const MEMBER_TYPE_LABEL: Record<MaMemberType, string> = { org: '组织', project: '项目', account: '科目', custom: '自定义' };
 const EAS_FIELDS = ['end_net', 'end_debit', 'end_credit', 'period_debit', 'period_credit'] as const;
@@ -192,7 +193,7 @@ function toParams(v: MetricForm): MaMetricParams {
   switch (v.calculator) {
     case 'eas_balance': return { calculator: 'eas_balance', accountCode: v.accountCode!, field: v.field ?? 'end_net' };
     case 'statement_item': return { calculator: 'statement_item', metricKey: v.metricKey!, ...(v.scope ? { scope: v.scope as 'consolidated' } : {}) };
-    case 'allocated_cost': return { calculator: 'allocated_cost' };
+    case 'allocated_cost': case 'contract_paid': case 'contract_payment_rate': case 'plan_execution_rate': return { calculator: v.calculator };
     default: return { calculator: v.calculator, accountCode: v.accountCode! } as MaMetricParams;
   }
 }

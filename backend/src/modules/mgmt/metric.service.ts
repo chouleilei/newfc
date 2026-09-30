@@ -22,6 +22,8 @@ import {
 } from '../../contracts/mgmt';
 import { assertVersion, big, currentUserId, formatValue, money, nowIso, orgName, parseByUnit, scope } from './common';
 import { orgMembersOf } from './dimension.service';
+import { contractPaidInPeriod, contractPaymentTotals } from '../contracts/contract.service';
+import { planExecutionRate } from '../plan-execution/plan.service';
 
 export interface MetricRow {
   id: number; code: string; name: string; unit: 'money' | 'ratio'; calculator: MaCalculator; params_json: string; thresholds_json: string;
@@ -30,6 +32,7 @@ export interface MetricRow {
 
 const UNIT_OF: Record<MaCalculator, 'money' | 'ratio'> = {
   budget_amount: 'money', actual_amount: 'money', execution_rate: 'ratio', eas_balance: 'money', statement_item: 'money', allocated_cost: 'money',
+  contract_paid: 'money', contract_payment_rate: 'ratio', plan_execution_rate: 'ratio',
 };
 
 export function metricDto(r: MetricRow): MaMetricDto {
@@ -228,6 +231,32 @@ export function runCalculator(db: DB, metric: MetricRow, orgId: number, period: 
       if (!rows.length) return unavailable({ code: 'ALLOCATION_MISSING', message: `${period} 没有已确认的分摊结果` });
       const allocRunIds = [...new Set(rows.map((r) => Number(r.run_id)))].sort((a, b) => a - b);
       return { status: 'valid', valueCents: sumCents(rows.map((r) => r.amount_cents)), valueScaled: null, compareCents: null, reasons: [], evidence: { source: 'ma_alloc_run', allocRunIds } };
+    }
+    case 'contract_paid': {
+      // 组织(含下级)期间内登记支付的合同付款;作废合同不计。没有付款时为 0(已付是确定的 0,不是缺数)
+      const orgs = orgSubtreeNow(db, orgId);
+      const paid = contractPaidInPeriod(db, orgs, period);
+      const n = (db.prepare(`SELECT COUNT(*) AS n FROM ct_contract WHERE status <> 'voided' AND org_id IN (${orgs.map(() => '?').join(',')})`).get(...orgs) as { n: number }).n;
+      if (!n) return unavailable({ code: 'CONTRACT_MISSING', message: '组织范围内没有有效合同' });
+      return { status: 'valid', valueCents: paid, valueScaled: null, compareCents: null, reasons: [], evidence: { source: 'ct_payment', period, contractCount: n } };
+    }
+    case 'contract_payment_rate': {
+      // 计算时点的有效合同(进行中/关闭/终止)累计已付 / 当前金额
+      const t = contractPaymentTotals(db, orgSubtreeNow(db, orgId));
+      const r = ratioScaled(t.paid, t.current);
+      if (r === null) return unavailable({ code: 'CONTRACT_MISSING', message: '组织范围内没有当前金额大于 0 的有效合同' });
+      return { status: 'valid', valueCents: null, valueScaled: r, compareCents: null, reasons: [], evidence: { source: 'ct_contract', paid: money(t.paid), current: money(t.current), asOf: nowIso() } };
+    }
+    case 'plan_execution_rate': {
+      // 同年取数:该年截至期间已激活的最新计划执行批次;年度累计实际 / 年度计划
+      const p = planExecutionRate(db, orgId, period);
+      if (p.annualPlanCents === null || p.annualActualCents === null) return unavailable({ code: 'PLAN_MISSING', message: p.note ?? '没有可用的计划执行数据' });
+      const r = ratioScaled(p.annualActualCents, p.annualPlanCents);
+      if (r === null) return unavailable({ code: 'PLAN_ZERO', message: '年度计划为 0,执行率不可计算' });
+      return {
+        status: 'valid', valueCents: null, valueScaled: r, compareCents: null, reasons: [],
+        evidence: { source: 'plan_batch', batchId: p.batchId, annualPlan: money(p.annualPlanCents), annualActual: money(p.annualActualCents), rowCount: p.rowCount },
+      };
     }
   }
 }
