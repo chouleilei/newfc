@@ -39,6 +39,8 @@ import { easPeriodStatusView, mgmtAlertsView, mgmtSnapshotsView, statementOvervi
 import { contractDetailView, contractSummaryView, expenseAuditQueueView, planExecutionOverviewView, projectBudgetSummaryView } from './project-data';
 import { feasibilityResultView, forecastRunsView, investmentComparisonView, reportListView, riskSummaryView } from './risk-investment-data';
 import { RPT_KINDS, type RptKind } from '../contracts/analysis-reports';
+import { crossDomainSearch } from '../modules/search/search.service';
+import { SEARCH_TYPES, type SearchType } from '../contracts/search';
 import { authorizeToolCall, orgTreeFilter } from './tool-policy';
 
 const rawTools = {
@@ -171,6 +173,11 @@ const rawTools = {
   risk_summary: (db: DB, input: Parameters<typeof riskSummaryView>[1]) => riskSummaryView(db, input),
   /** T-5 分析报告:已发布或本人创建的报告列表(AC-F18) */
   report_list: (db: DB, input: Parameters<typeof reportListView>[1]) => reportListView(db, input),
+  /** T-6 跨域检索:与 /api/search 同一 service(逐类型权限与组织范围),助手最多返回 30 条(AC-F26) */
+  cross_search: (db: DB, input: { q: string; types?: SearchType[] }) => {
+    const r = crossDomainSearch(db, { q: input.q, types: input.types, limit: 10 });
+    return { ...r, items: r.items.slice(0, 30), note: '编码/名称关键词匹配,不是语义检索;path 为页面路由,可提示用户打开核对' };
+  },
 };
 
 /**
@@ -291,6 +298,7 @@ const schemas: Record<string, any> = {
   forecast_runs: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, modelId: { type: ['integer', 'null'], description: '预测模型 ID,给出时返回版本与运行' } }, additionalProperties: false },
   risk_summary: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, level: { type: 'string', enum: ['high', 'medium', 'low'], description: '缺省全部等级' } }, additionalProperties: false },
   report_list: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, kind: { type: 'string', enum: [...RPT_KINDS], description: '缺省全部类型' } }, additionalProperties: false },
+  cross_search: { type: 'object', properties: { q: { type: 'string', description: '关键词(编码或名称片段,1-64 字)' }, types: { type: 'array', items: { type: 'string', enum: [...SEARCH_TYPES] }, description: '限定对象类型,缺省全部有权限的类型' } }, required: ['q'], additionalProperties: false },
 };
 
 /**
@@ -395,6 +403,7 @@ const TOOL_LABELS: Record<string, string> = {
   forecast_runs: '读取财务预测运行',
   risk_summary: '读取风险概况',
   report_list: '读取分析报告列表',
+  cross_search: '跨域检索',
 };
 
 export function toolLabel(name: string): string {
@@ -692,6 +701,13 @@ export function executeTool(db: DB, name: string, args: any = {}) {
       orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
       kind: args.kind == null ? undefined : oneOf(args.kind, 'kind', [...RPT_KINDS]) as RptKind,
     });
+    case 'cross_search': {
+      if (typeof args.q !== 'string' || !args.q.trim() || args.q.length > 64) throw new Error('q 须为 1-64 字的关键词');
+      if (args.types != null && !Array.isArray(args.types)) throw new Error('types 须为数组');
+      const types = args.types == null ? undefined
+        : [...new Set((args.types as unknown[]).map((t) => oneOf(t, 'types', [...SEARCH_TYPES]) as SearchType))];
+      return fn(db, { q: args.q, types });
+    }
     default:
       /* 不默认透传模型给的任意 JSON 给业务 service:schemas 只用于模型侧声明,
          后端不据此校验,`default: return fn(db, args)` 意味着「新增工具忘了写 case

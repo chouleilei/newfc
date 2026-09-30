@@ -387,7 +387,7 @@ const CAPABILITY_TOOLS: Record<DomainCapability, string[]> = {
 };
 
 /** 全页面都允许的通用只读工具。 */
-const UNIVERSAL_TOOLS = ['explain_terms', 'get_navigation_catalog', 'list_budget_versions', 'list_actual_snapshots', 'list_metrics', 'list_sheets'];
+const UNIVERSAL_TOOLS = ['explain_terms', 'get_navigation_catalog', 'list_budget_versions', 'list_actual_snapshots', 'list_metrics', 'list_sheets', 'cross_search'];
 
 /** 本轮允许暴露给模型的工具集合(页面能力并集 + 通用工具)。 */
 export function allowedToolsForCapabilities(capabilities: DomainCapability[]): string[] {

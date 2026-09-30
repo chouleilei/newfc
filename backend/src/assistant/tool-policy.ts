@@ -87,6 +87,8 @@ export const TOOL_POLICIES: Record<string, ToolPolicy> = {
   forecast_runs: P('forecast:read', 'org_scope'),
   risk_summary: P('risk:read', 'org_scope'),
   report_list: P('report:read', 'org_scope'),
+  /** 跨域检索:service 内逐类型校验读权限并复用各域列表的组织范围裁剪,与 /api/search 同源 */
+  cross_search: P('assistant:use', 'global'),
 };
 
 /** 工具在当前身份下是否可用(用于向模型暴露的工具清单,避免诱导模型反复调用必然被拒的工具)。 */

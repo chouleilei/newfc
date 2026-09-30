@@ -68,6 +68,7 @@ import { registerInvestmentRoutes } from './modules/investment/routes';
 import { registerForecastRoutes } from './modules/forecast/routes';
 import { registerRiskRoutes } from './modules/risk/routes';
 import { registerAnalysisReportRoutes } from './modules/analysis-reports/routes';
+import { registerSearchRoutes } from './modules/search/routes';
 import { registerExpenseRoutes } from './modules/expense/routes';
 import { ObjectStore, sweepOrphanObjects } from './modules/files/object-store';
 import { currentCellOrgId, currentOrgScopeId, orgInScope, resolveOrgScope } from './modules/security/scope';
@@ -287,6 +288,7 @@ export async function createApp(opts: ServerOptions) {
   registerForecastRoutes(app, db, wrap, () => objectStore);
   registerRiskRoutes(app, db, wrap, () => objectStore);
   registerAnalysisReportRoutes(app, db, wrap, () => objectStore);
+  registerSearchRoutes(app, db, wrap);
   app.get('/api/settings/business', wrap((_req, res) => res.json({ items: listBusinessSettings(db()) })));
   app.put('/api/settings/business', wrap((req, res) => res.json({ items: saveBusinessSettings(db(), req.body) })));
 
