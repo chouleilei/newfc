@@ -1880,4 +1880,13 @@ BEGIN SELECT RAISE(ABORT, '标准报表只能复核一次'); END;
 CREATE TRIGGER trg_std_report_d BEFORE DELETE ON std_report BEGIN SELECT RAISE(ABORT, '标准报表不可删除'); END;
 `,
   },
+  {
+    version: 60,
+    name: 'expense_clause_keyword_min',
+    sql: `
+/* expense_clause_keyword_min(OPEN-05 与 lishui 一致):条款必备材料可设“至少命中 N 项”。
+   NULL = 每个关键词都须命中(原行为);lishui 首版规则为 min(2, 关键词数)。条款仍随制度版本冻结。 */
+ALTER TABLE ex_policy_clause ADD COLUMN keyword_min_matches INTEGER CHECK (keyword_min_matches IS NULL OR keyword_min_matches >= 1);
+`,
+  },
 ];

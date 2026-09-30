@@ -28,6 +28,8 @@
     "restore:drill:dev": "ts-node src/modules/backup/restore-drill-cli.ts",
     "import:newbd": "node dist/modules/backup/newbd-import-cli.js",
     "import:newbd:dev": "ts-node src/modules/backup/newbd-import-cli.ts",
+    "expense:policy:import": "node dist/modules/expense/policy-import-cli.js",
+    "expense:policy:import:dev": "ts-node src/modules/expense/policy-import-cli.ts",
     "resource:baseline": "node -r ts-node/register/transpile-only scripts/resource-baseline.ts"
   },
   "dependencies": {

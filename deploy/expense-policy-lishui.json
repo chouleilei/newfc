@@ -1,0 +1,54 @@
+{
+  "code": "LISHUI-EXPENSE-V1",
+  "title": "费用预审首版规则(与 lishui 一致)",
+  "effectiveFrom": "2020-01-01",
+  "clauses": [
+    {
+      "clauseNo": "1",
+      "clauseText": "差旅费报销制度(POLICY-TRAVEL-001):差旅住宿、交通等费用应提供发票、行程或住宿证明,超标准或材料缺失需人工复核。首版预审阈值 5,000 元。",
+      "expenseTypes": ["travel", "差旅", "差旅费"],
+      "limit": "5000.00",
+      "requiredKeywords": ["发票", "行程", "住宿", "水单"],
+      "keywordMinMatches": 2
+    },
+    {
+      "clauseNo": "2",
+      "clauseText": "差旅费报销制度(POLICY-TRAVEL-001):住宿费应提供发票及住宿证明,金额超过标准时需补充审批依据。首版预审阈值 1,500 元。",
+      "expenseTypes": ["hotel", "住宿", "住宿费"],
+      "limit": "1500.00",
+      "requiredKeywords": ["发票", "水单", "入住", "住宿"],
+      "keywordMinMatches": 2
+    },
+    {
+      "clauseNo": "3",
+      "clauseText": "业务招待费管理办法(POLICY-ENT-001):业务招待费应有事前审批、招待说明和合规发票,异常金额需人工复核。首版预审阈值 3,000 元。",
+      "expenseTypes": ["entertainment", "业务招待", "业务招待费", "招待费"],
+      "limit": "3000.00",
+      "requiredKeywords": ["发票", "审批", "说明"],
+      "keywordMinMatches": 2
+    },
+    {
+      "clauseNo": "4",
+      "clauseText": "培训费报销管理要求(POLICY-TRAINING-001):培训费应提供培训通知、签到或参训证明、发票和审批材料。首版预审阈值 20,000 元。",
+      "expenseTypes": ["training", "培训", "培训费"],
+      "limit": "20000.00",
+      "requiredKeywords": ["通知", "签到", "发票"],
+      "keywordMinMatches": 2
+    },
+    {
+      "clauseNo": "5",
+      "clauseText": "办公费用报销口径(POLICY-OFFICE-001):办公用品和服务费用应说明用途、归属部门和采购依据。首版预审阈值 10,000 元。",
+      "expenseTypes": ["office", "办公", "办公费"],
+      "limit": "10000.00",
+      "requiredKeywords": []
+    },
+    {
+      "clauseNo": "6",
+      "clauseText": "车辆费用报销口径(POLICY-VEHICLE-001):车辆维修、燃油和通行费用应与车辆使用记录、派车或维修材料匹配。首版预审阈值 5,000 元。",
+      "expenseTypes": ["vehicle", "车辆", "车辆费", "车辆费用"],
+      "limit": "5000.00",
+      "requiredKeywords": ["发票", "维修", "派车"],
+      "keywordMinMatches": 2
+    }
+  ]
+}

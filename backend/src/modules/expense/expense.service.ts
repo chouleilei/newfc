@@ -42,6 +42,8 @@ export const normalizeText = (s: string) => s.normalize('NFKC').replace(/\s+/g, 
 
 export interface ClauseRow {
   id: number; policy_id: number; clause_no: string; clause_text: string; expense_types: string[]; limit_cents: bigint | null; required_keywords: string[];
+  /** 必备材料至少命中几项;null = 全部命中。 */
+  keyword_min_matches: number | null;
   policy_code: string; policy_version: number; policy_title: string;
 }
 
@@ -59,7 +61,8 @@ function clauseRows(db: DB, policyIds: number[]): ClauseRow[] {
   return rows.map((r) => ({
     id: Number(r.id), policy_id: Number(r.policy_id), clause_no: String(r.clause_no), clause_text: String(r.clause_text),
     expense_types: parseJson<string[]>(r.expense_types_json as string, []), limit_cents: r.limit_cents === null ? null : BigInt(r.limit_cents as bigint),
-    required_keywords: parseJson<string[]>(r.required_keywords_json as string, []), policy_code: String(r.policy_code),
+    required_keywords: parseJson<string[]>(r.required_keywords_json as string, []),
+    keyword_min_matches: r.keyword_min_matches == null ? null : Number(r.keyword_min_matches), policy_code: String(r.policy_code),
     policy_version: Number(r.policy_version), policy_title: String(r.policy_title),
   }));
 }
@@ -67,6 +70,7 @@ function clauseRows(db: DB, policyIds: number[]): ClauseRow[] {
 const clauseDto = (c: ClauseRow): PolicyClauseDto => ({
   id: c.id, clauseNo: c.clause_no, clauseText: c.clause_text, expenseTypes: c.expense_types,
   limit: c.limit_cents === null ? null : centsToDecimalString(c.limit_cents), requiredKeywords: c.required_keywords,
+  keywordMinMatches: c.keyword_min_matches,
 });
 
 function policyDto(db: DB, p: PolicyRow): PolicyDto {
@@ -99,16 +103,24 @@ export function createPolicy(db: DB, input: PolicyCreateRequest): PolicyDto {
     limitCents: c.limit == null ? null : parseDecimalToCents(c.limit, { label: `条款 ${c.clauseNo} 金额上限` }),
     expenseTypes: [...new Set(c.expenseTypes.map((t) => t.trim()))],
     requiredKeywords: [...new Set(c.requiredKeywords.map((k) => k.trim()))],
+    keywordMinMatches: c.keywordMinMatches ?? null,
     sortOrder: i,
   }));
+  for (const c of clauses) {
+    if (c.keywordMinMatches !== null && c.keywordMinMatches > c.requiredKeywords.length) {
+      throw new AppError('VALIDATION_FAILED', `条款 ${c.clauseNo} 至少命中数 ${c.keywordMinMatches} 大于去重后的关键词数 ${c.requiredKeywords.length}`, 400);
+    }
+  }
   const id = db.transaction(() => {
     const now = nowIso();
     const max = (db.prepare('SELECT MAX(version) AS v FROM ex_policy WHERE code = ?').get(input.code) as { v: number | null }).v ?? 0;
     const pid = Number(db.prepare(`INSERT INTO ex_policy (code, title, version, effective_from, effective_to, status, created_by_user_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`).run(input.code, input.title, max + 1, input.effectiveFrom, input.effectiveTo ?? null, currentAuth()?.userId ?? null, now, now).lastInsertRowid);
-    const ins = db.prepare(`INSERT INTO ex_policy_clause (policy_id, clause_no, clause_text, expense_types_json, limit_cents, required_keywords_json, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`);
-    for (const c of clauses) ins.run(pid, c.clauseNo, c.clauseText, JSON.stringify(c.expenseTypes), c.limitCents, JSON.stringify(c.requiredKeywords), c.sortOrder);
+    const ins = db.prepare(`INSERT INTO ex_policy_clause (policy_id, clause_no, clause_text, expense_types_json, limit_cents, required_keywords_json, keyword_min_matches, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const c of clauses) {
+      ins.run(pid, c.clauseNo, c.clauseText, JSON.stringify(c.expenseTypes), c.limitCents, JSON.stringify(c.requiredKeywords), c.keywordMinMatches, c.sortOrder);
+    }
     writeLog(db, 'expense.policy.create', 'ex_policy', pid, {
       code: input.code, version: max + 1, effectiveFrom: input.effectiveFrom, effectiveTo: input.effectiveTo ?? null, clauseCount: clauses.length,
     });

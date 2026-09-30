@@ -33,7 +33,10 @@ export const policyClauseInput = z.object({
   expenseTypes: z.array(expenseType).max(20).default([]),
   limit: moneyString.refine((v) => !v.startsWith('-'), '金额上限不能为负').nullish(),
   requiredKeywords: z.array(keyword).max(20).default([]),
-});
+  /** 必备材料至少命中几项;空 = 全部命中。lishui 首版规则为 min(2, 关键词数)。 */
+  keywordMinMatches: z.number().int().min(1).max(20).nullish(),
+}).refine((c) => c.keywordMinMatches == null || c.keywordMinMatches <= c.requiredKeywords.length,
+  { message: '至少命中数不能大于关键词数', path: ['keywordMinMatches'] });
 export const policyCreateRequest = z.object({
   code: z.string().trim().min(1).max(50),
   title: z.string().trim().min(1).max(200),
@@ -83,7 +86,7 @@ export const claimReviewRequest = z.object({
 export type ClaimReviewRequest = z.infer<typeof claimReviewRequest>;
 
 export interface PolicyClauseDto {
-  id: number; clauseNo: string; clauseText: string; expenseTypes: string[]; limit: MoneyString | null; requiredKeywords: string[];
+  id: number; clauseNo: string; clauseText: string; expenseTypes: string[]; limit: MoneyString | null; requiredKeywords: string[]; keywordMinMatches: number | null;
 }
 export interface PolicyDto {
   id: number; code: string; title: string; version: number; effectiveFrom: string; effectiveTo: string | null; status: 'active' | 'retired';

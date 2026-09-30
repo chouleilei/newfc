@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Col, DatePicker, Drawer, Form, Input, Modal, Row, Select, Space, Switch, Table, Tag, Typography, Upload } from 'antd';
+import { Alert, App as AntdApp, Button, Col, DatePicker, Drawer, Form, Input, InputNumber, Modal, Row, Select, Space, Switch, Table, Tag, Typography, Upload } from 'antd';
 import dayjs from 'dayjs';
 import { can, download, errorText, getSession } from '../../api/client';
 import { expenseApi, type PolicyClauseDto, type PolicyDto } from '../../api/projectContract';
@@ -33,7 +33,7 @@ function PolicyFormModal({ open, base, onClose }: { open: boolean; base?: Policy
       <Form form={form} layout="vertical" preserve={false}
         initialValues={base ? {
           code: base.code, title: base.title, effectiveFrom: dayjs().format('YYYY-MM-DD'),
-          clauses: base.clauses.map((c) => ({ clauseNo: c.clauseNo, clauseText: c.clauseText, expenseTypes: c.expenseTypes, limit: c.limit ?? undefined, requiredKeywords: c.requiredKeywords })),
+          clauses: base.clauses.map((c) => ({ clauseNo: c.clauseNo, clauseText: c.clauseText, expenseTypes: c.expenseTypes, limit: c.limit ?? undefined, requiredKeywords: c.requiredKeywords, keywordMinMatches: c.keywordMinMatches ?? undefined })),
         } : { effectiveFrom: dayjs().format('YYYY-MM-DD'), clauses: [{}] }}>
         <Row gutter={12}>
           <Col span={6}><Form.Item name="code" label="制度编码" rules={[{ required: true, whitespace: true }]} extra="同编码再次发布即新版本"><Input maxLength={50} disabled={!!base} /></Form.Item></Col>
@@ -48,10 +48,11 @@ function PolicyFormModal({ open, base, onClose }: { open: boolean; base?: Policy
               {fields.map((f) => (
                 <Row key={f.key} gutter={8} style={{ marginTop: 8 }} align="top">
                   <Col span={3}><Form.Item name={[f.name, 'clauseNo']} rules={[{ required: true, whitespace: true, message: '条款号' }]}><Input placeholder="条款号" /></Form.Item></Col>
-                  <Col span={8}><Form.Item name={[f.name, 'clauseText']} rules={[{ required: true, whitespace: true, message: '条款内容' }]}><Input.TextArea rows={1} autoSize placeholder="条款原文" maxLength={2000} /></Form.Item></Col>
+                  <Col span={6}><Form.Item name={[f.name, 'clauseText']} rules={[{ required: true, whitespace: true, message: '条款内容' }]}><Input.TextArea rows={1} autoSize placeholder="条款原文" maxLength={2000} /></Form.Item></Col>
                   <Col span={4}><Form.Item name={[f.name, 'expenseTypes']}><Select mode="tags" placeholder="适用费用类型(空=全部)" tokenSeparators={[',', ',']} /></Form.Item></Col>
                   <Col span={3}><Form.Item name={[f.name, 'limit']} rules={[{ pattern: /^\d{1,13}(\.\d{1,2})?$/, message: '金额' }]}><Input placeholder="金额上限" /></Form.Item></Col>
                   <Col span={5}><Form.Item name={[f.name, 'requiredKeywords']}><Select mode="tags" placeholder="必备材料关键词" tokenSeparators={[',', ',']} /></Form.Item></Col>
+                  <Col span={2}><Form.Item name={[f.name, 'keywordMinMatches']} tooltip="空 = 关键词全部须命中"><InputNumber min={1} max={20} precision={0} placeholder="至少命中" aria-label="至少命中" style={{ width: '100%' }} /></Form.Item></Col>
                   <Col span={1}><Button type="text" danger onClick={() => remove(f.name)} aria-label="删除条款"><i className="ri-delete-bin-line" aria-hidden /></Button></Col>
                 </Row>
               ))}
@@ -69,7 +70,12 @@ const clauseColumns = [
   { title: '内容', dataIndex: 'clauseText' },
   { title: '适用费用类型', dataIndex: 'expenseTypes', width: 160, render: (v: string[]) => (v.length ? v.map((t) => <Tag key={t}>{t}</Tag>) : <Typography.Text type="secondary">全部</Typography.Text>) },
   { title: '金额上限', dataIndex: 'limit', width: 120, align: 'right' as const, render: (v: string | null) => (v == null ? '—' : <Money value={v} />) },
-  { title: '必备材料', dataIndex: 'requiredKeywords', width: 180, render: (v: string[]) => v.map((t) => <Tag key={t} color="purple">{t}</Tag>) },
+  { title: '必备材料', dataIndex: 'requiredKeywords', width: 180, render: (v: string[], c: PolicyClauseDto) => (
+    <>
+      {v.map((t) => <Tag key={t} color="purple">{t}</Tag>)}
+      {c.keywordMinMatches != null && v.length > 0 && <Typography.Text type="secondary">至少 {c.keywordMinMatches} 项</Typography.Text>}
+    </>
+  ) },
 ];
 
 export default function ExpensePolicies() {

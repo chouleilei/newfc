@@ -199,10 +199,23 @@ export function evaluateRules(input: AuditInput): { findings: DraftFinding[]; us
   // 材料齐套:条款关键字对照附件名称、类型提示与 OCR 文本
   const haystack = attachments.map((a) => normalizeText([a.name, a.kind_hint, ocrTexts.get(a.id)?.text ?? ''].join(' ')));
   for (const c of used.values()) {
-    for (const kw of c.required_keywords) {
+    const missing = c.required_keywords.filter((kw) => {
       const k = normalizeText(kw);
-      if (!k || haystack.some((h) => h.includes(k))) continue;
-      add('MATERIAL_MISSING', 'medium', `缺少「${kw}」相关材料(${c.policy_title}第 ${c.clause_no} 条要求)`, [clauseRef(c), ...attachments.map(attachmentRef)], c.id);
+      return k && !haystack.some((h) => h.includes(k));
+    });
+    if (c.keyword_min_matches === null) {
+      for (const kw of missing) {
+        add('MATERIAL_MISSING', 'medium', `缺少「${kw}」相关材料(${c.policy_title}第 ${c.clause_no} 条要求)`, [clauseRef(c), ...attachments.map(attachmentRef)], c.id);
+      }
+      continue;
+    }
+    // 至少命中 N 项(lishui 口径):不足时一条发现,列出已识别与未识别的材料
+    const hit = c.required_keywords.length - missing.length;
+    if (hit < c.keyword_min_matches) {
+      const found = c.required_keywords.filter((kw) => !missing.includes(kw));
+      add('MATERIAL_MISSING', 'medium',
+        `材料不足:${c.policy_title}第 ${c.clause_no} 条要求「${c.required_keywords.join('、')}」至少 ${c.keyword_min_matches} 项,仅识别到 ${found.length ? found.map((k) => `「${k}」`).join('、') : '0 项'}`,
+        [clauseRef(c), ...attachments.map(attachmentRef)], c.id);
     }
   }
   return { findings, usedClauses: [...used.values()] };
@@ -259,7 +272,7 @@ async function runModel(input: AuditInput, usedClauses: ClauseRow[]): Promise<Mo
     },
     lines: input.lines.map((l) => ({ lineNo: l.line_no, expenseType: l.expense_type, amount: centsToDecimalString(l.amount_cents), invoiceNo: l.invoice_no, invoiceDate: l.invoice_date, description: l.description })),
     attachments: input.attachments.map((a) => ({ id: a.id, name: a.name, kindHint: a.kind_hint, ocrExcerpt: (input.ocrTexts.get(a.id)?.text ?? '').slice(0, MODEL_EXCERPT_CHARS) })),
-    clauses: usedClauses.map((c) => ({ id: c.id, policy: `${c.policy_code} v${c.policy_version}`, clauseNo: c.clause_no, text: c.clause_text, limit: c.limit_cents === null ? null : centsToDecimalString(c.limit_cents), requiredKeywords: c.required_keywords })),
+    clauses: usedClauses.map((c) => ({ id: c.id, policy: `${c.policy_code} v${c.policy_version}`, clauseNo: c.clause_no, text: c.clause_text, limit: c.limit_cents === null ? null : centsToDecimalString(c.limit_cents), requiredKeywords: c.required_keywords, keywordMinMatches: c.keyword_min_matches })),
   };
   let text: string;
   try {
