@@ -32,32 +32,32 @@
 
 | 功能 ID | 目标与处理方式 | 首次阶段 | 验收 ID | 实现状态 |
 |---|---|---|---|---|
-| `platform_auth` | 改造继承登录为用户会话、Cookie/CSRF 与权限上下文 | 1 | AC-F01 | 基础通过（T-1） |
+| `platform_auth` | 改造继承登录为用户会话、Cookie/CSRF 与权限上下文 | 1 | AC-F01 | 通过（T-1；T-6 全量覆盖核对） |
 | `platform_health` | 新服务存活与就绪检查 | 0 | AC-F02 | 通过（T-0） |
-| `dashboard` | 扩展 newbd 工作台 | 2，逐域补齐至 6 | AC-F03 | 基础通过（T-2）；T-3 加财报摘要，T-4 加合同与报销待办，逐域补齐中 |
+| `dashboard` | 扩展 newbd 工作台 | 2，逐域补齐至 6 | AC-F03 | 通过（T-2 基础；T-3 财报摘要、T-4/T-5 待办、T-6 业务概况六块按权限出现） |
 | `contract_import` | 扩展文件上传、预览与合同导入 | 4 | AC-F04 | 通过（T-4） |
 | `eas_workspace` | 财务转换基础上补原始批次、期间和更正 | 3 | AC-F05 | 通过（T-3） |
 | `data_governance` | 扩展质量问题、处置与复核 | 3 | AC-F06 | 通过（T-3） |
-| `master_data` | 复用组织/科目，补项目、供应商及映射 | 1，逐域扩展 | AC-F07 | 基础通过（T-1），逐域扩展中 |
+| `master_data` | 复用组织/科目，补项目、供应商及映射 | 1，逐域扩展 | AC-F07 | 通过（T-1 基础；项目/供应商/映射逐域接入至 T-5） |
 | `operating_budget` | 复用预算、实际快照与预实分析 | 2 | AC-F08 | 通过（T-2） |
 | `project_budget` | 新增独立项目预算域 | 4 | AC-F09 | 通过（T-4） |
 | `financial_statements` | 新增三大财报与分析 | 3 | AC-F10 | 通过（T-3） |
 | `finance_forecast` | 补工作簿、计算版本与结果 | 5 | AC-F11 | 通过（T-5） |
 | `investment_feasibility` | 移植已核实的标准计算模型 | 5 | AC-F12 | 通过（T-5） |
 | `investment_control` | 新增投资控制与比较 | 5 | AC-F13 | 通过（T-5） |
-| `management_accounting` | 扩展指标、责任中心、分摊与绩效 | 3 | AC-F14 | 通过（T-3）；T-4 接入合同已付/付款比例/计划执行率，风险/投资计算器随阶段 5 接入 |
+| `management_accounting` | 扩展指标、责任中心、分摊与绩效 | 3 | AC-F14 | 通过（T-3；T-4 合同/计划计算器，T-5 风险/投资计算器） |
 | `plan_execution` | 新增计划与形象进度域 | 4 | AC-F15 | 通过（T-4） |
 | `project_contract` | 新增合同生命周期 | 4 | AC-F16 | 通过（T-4） |
 | `risk_workflow` | 扩展异常到风险处理闭环 | 5 | AC-F17 | 通过（T-5） |
 | `ai_reports` | 扩展洞察草稿到审核与发布 | 5 | AC-F18 | 通过（T-5） |
-| `standard_reports` | 新增标准报告与导出 | 3 | AC-F19 | 通过（T-3）；合同付款台账 T-4 通过，风险整改台账在阶段 5 |
-| `xiaoli_assistant` | 复用助手并接入新增领域工具 | 2，逐域扩展 | AC-F20 | 基础通过（T-2）；T-3 接入 EAS/财报/管理会计只读工具，T-4 接入项目预算/计划执行/合同/费用审核队列，逐域接入中 |
-| `agent_observability` | 扩展任务与模型调用记录 | 1，逐域扩展 | AC-F21 | 基础通过（T-1），逐域扩展中 |
+| `standard_reports` | 新增标准报告与导出 | 3 | AC-F19 | 通过（T-3；T-4 合同付款台账，T-5 风险整改台账） |
+| `xiaoli_assistant` | 复用助手并接入新增领域工具 | 2，逐域扩展 | AC-F20 | 通过（T-2 基础；T-3～T-5 各域只读工具，T-6 跨域检索工具） |
+| `agent_observability` | 扩展任务与模型调用记录 | 1，逐域扩展 | AC-F21 | 通过（T-1 基础；T-6 重启逐类型对账、失败/中断释放幂等键、任务类型中文名） |
 | `expense_audit` | 新增原生费用审核与人工复核 | 4 | AC-F22 | 通过（T-4） |
-| `system_settings` | 复用模型渠道并扩展业务设置 | 1，逐域扩展 | AC-F23 | 基础通过（T-1），逐域扩展中 |
-| `security_administration` | 新增用户、角色与组织授权 | 1 | AC-F24 | 基础通过（T-1）；预算/看板/下载/助手按组织裁剪已在 T-2 完成 |
+| `system_settings` | 复用模型渠道并扩展业务设置 | 1，逐域扩展 | AC-F23 | 通过（T-1 基础；T-6 投资控制阈值与预测超时业务设置） |
+| `security_administration` | 新增用户、角色与组织授权 | 1 | AC-F24 | 通过（T-1 基础；T-2 预算/看板/下载/助手裁剪，T-6 检索权限 search:use） |
 | `audit_log` | 扩展现有操作日志 | 1，逐域扩展 | AC-F25 | 通过（T-1），逐域追加动作 |
-| `cross_domain_search` | 新增有权限的跨域检索 | 6 | AC-F26 | 未实现/未验证 |
+| `cross_domain_search` | 新增有权限的跨域检索 | 6 | AC-F26 | 通过（T-6） |
 
 ## 事实边界
 
