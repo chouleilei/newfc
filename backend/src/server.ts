@@ -60,7 +60,7 @@ import { registerGovernanceRoutes } from './modules/governance/routes';
 import { registerStatementRoutes } from './modules/statements/routes';
 import { registerMgmtRoutes } from './modules/mgmt/routes';
 import { registerStandardReportRoutes } from './modules/standard-reports/routes';
-import { ObjectStore } from './modules/files/object-store';
+import { ObjectStore, sweepOrphanObjects } from './modules/files/object-store';
 import { currentCellOrgId, currentOrgScopeId, orgInScope, resolveOrgScope } from './modules/security/scope';
 import { insertModelCall } from './modules/jobs/model-calls';
 import { registerJobRoutes } from './modules/jobs/routes';
@@ -258,6 +258,13 @@ export async function createApp(opts: ServerOptions) {
   registerMasterRoutes(app, db, wrap);
   // T-3 新领域:原件存放在数据库同目录的 objects/(内存库用临时目录)
   const objectStore = ObjectStore.forDbPath(opts.dbPath);
+  // 落盘后登记失败留下的孤儿对象按 24 小时宽限期回收(启动时一次,运行中随定时备份每天一次);失败不阻止启动。
+  try {
+    const { removed } = sweepOrphanObjects(db(), objectStore);
+    if (removed > 0) console.log(`[startup] 回收无登记文件对象 ${removed} 个`);
+  } catch (error) {
+    console.error('[startup] 回收无登记文件对象失败', error);
+  }
   registerEasRoutes(app, db, wrap, () => objectStore);
   registerGovernanceRoutes(app, db, wrap);
   registerStatementRoutes(app, db, wrap, () => objectStore);
@@ -1409,6 +1416,9 @@ export async function startServer(opts: ServerOptions) {
   const backupHours = opts.backupCronHours ?? 24;
   const timer = setInterval(() => {
     backup.createBackup(holder.getDb(), backup.backupDirOf(opts.dbPath)).catch((e) => console.error('[backup]', e));
+    if (opts.dbPath !== ':memory:') {
+      try { sweepOrphanObjects(holder.getDb(), ObjectStore.forDbPath(opts.dbPath)); } catch (e) { console.error('[objects]', e); }
+    }
   }, backupHours * 3600 * 1000);
   timer.unref();
   // 优雅停止:停止接收新连接、关闭数据库(WAL 检查点)后退出;超时强停交给 systemd TimeoutStopSec,

@@ -69,7 +69,7 @@ describe('T-3 财务报表', () => {
   });
 
   it('并发激活按期望当前批次拒绝后到者;作废须填原因,作废当前批次后总览无数据', async () => {
-    const { base, admin, fx } = await boot();
+    const { base, db, admin, fx } = await boot();
     const a = await json(upload(base, admin, '/api/statements/import', await workbook(), 'a.xlsx', form(fx.orgIds.shanghai)));
     const b = await json(upload(base, admin, '/api/statements/import', await workbook({ netProfit: 61000 }), 'b.xlsx', form(fx.orgIds.shanghai)));
     const [ra, rb] = await Promise.all([
@@ -93,6 +93,13 @@ describe('T-3 财务报表', () => {
     expect(voided).toMatchObject({ status: 'voided', isCurrent: false, voidReason: '报表口径错误' });
     expect((await json(get(base, admin, '/api/statements/overview'))).batch).toBeNull();
     expect((await post(base, admin, `/api/statements/batches/${loserId}/activate`, { expectedCurrentBatchId: null })).status).toBe(409);
+
+    // 审计:导入/激活/作废逐项记录操作人与结果;冲突被拒的激活不记成功
+    const audit = db.prepare("SELECT action, entity_id, actor, result FROM operation_log WHERE action LIKE 'statement.%' AND result = 'success' ORDER BY id").all() as { action: string; entity_id: string; actor: string }[];
+    expect(audit.map((r) => `${r.action}:${r.entity_id}`)).toEqual([
+      `statement.import:${a.id}`, `statement.import:${b.id}`, `statement.activate:${winnerId}`, `statement.activate:${loserId}`, `statement.void:${loserId}`,
+    ]);
+    expect(new Set(audit.map((r) => r.actor))).toEqual(new Set(['test-admin']));
   });
 
   it('公式缺缓存值与不可解析文本告警且不当作 0;括号负数与千分位解析', async () => {

@@ -182,6 +182,10 @@ describe('T-3 管理会计 · 分摊、调整与血缘', () => {
     expect((await post(base, admin, `/api/mgmt/alloc-adjustments/${adj2.id}/review`, { action: 'approve' })).status).toBe(400);
     const adminOk = await json(post(base, admin, `/api/mgmt/alloc-adjustments/${adj2.id}/review`, { action: 'approve', exceptionReason: '单人值守' }));
     expect(adminOk).toMatchObject({ status: 'approved', selfReview: true });
+
+    const audit = db.prepare("SELECT action, detail_json FROM operation_log WHERE action LIKE 'mgmt.adjustment.%' AND result = 'success' ORDER BY id").all() as { action: string; detail_json: string }[];
+    expect(audit.map((r) => r.action)).toEqual(['mgmt.adjustment.submit', 'mgmt.adjustment.review', 'mgmt.adjustment.submit', 'mgmt.adjustment.review']);
+    expect(audit[3].detail_json).toContain('单人值守');
   });
 });
 
