@@ -11,7 +11,14 @@ import {
   feasImportConfirm, feasProjectCreate, feasProjectListQuery, feasProjectUpdate, feasRunRequest, feasScenarioCopy, feasScenarioCreate, feasScenarioUpdate,
   feasSensitivityRequest,
 } from '../../contracts/investment-feasibility';
-import { queryFields } from '../project-budget/routes';
+import {
+  icCompareRequest, icImportConfirm, icImportForm, icMappingUpdate, icProjectCreate, icProjectListQuery, icProjectUpdate, icVersionConfirm, icVersionVoid,
+} from '../../contracts/investment-control';
+import { formFields, queryFields } from '../project-budget/routes';
+import {
+  confirmIcImport, confirmIcVersion, createIcComparison, createIcProject, exportIcComparison, getIcComparison, getIcProject, getIcVersion, icTemplateBuffer,
+  listIcComparisons, listIcProjects, previewIcImport, updateIcMapping, updateIcProject, voidIcVersion,
+} from './control.service';
 import {
   confirmFeasImport, copyFeasScenario, createFeasProject, createFeasScenario, exportFeasRun, exportFeasTemplate, getFeasProject, getFeasRun, getFeasScenario,
   listFeasProjects, listFeasRuns, previewFeasImport, runFeasScenario, startFeasSensitivity, updateFeasProject, updateFeasScenario,
@@ -64,6 +71,38 @@ export function registerInvestmentRoutes(app: Express, db: () => DB, wrap: Wrap,
   app.get(`${base}/runs/:id`, wrap((req, res) => { res.json(getFeasRun(db(), id(req.params.id))); }));
   app.get(`${base}/runs/:id/export`, wrap(async (req, res) => {
     const out = await exportFeasRun(db(), id(req.params.id));
+    sendAttachment(res, out.fileName, XLSX, out.buffer);
+  }));
+
+  const ic = '/api/investment/control';
+  const tableUpload = memoryUpload(['.csv', '.xlsx']);
+  app.get(`${ic}/template`, wrap(async (_req, res) => { sendAttachment(res, '投资科目导入模板.xlsx', XLSX, await icTemplateBuffer()); }));
+  app.get(`${ic}/projects`, wrap((req, res) => { res.json(listIcProjects(db(), parseInput(icProjectListQuery, queryFields(req)))); }));
+  app.post(`${ic}/projects`, wrap((req, res) => { res.status(201).json(createIcProject(db(), parseInput(icProjectCreate, req.body))); }));
+  app.get(`${ic}/projects/:id`, wrap((req, res) => { res.json(getIcProject(db(), id(req.params.id))); }));
+  app.patch(`${ic}/projects/:id`, wrap((req, res) => { res.json(updateIcProject(db(), id(req.params.id), parseInput(icProjectUpdate, req.body))); }));
+  app.post(`${ic}/projects/:id/imports`, tableUpload.single('file'), wrap(async (req, res) => {
+    if (!req.file) throw Errors.validation('请上传投资科目表 .xlsx 或 .csv');
+    const form = parseInput(icImportForm, formFields(req));
+    res.status(201).json(await previewIcImport(db(), store(), id(req.params.id), req.file.buffer, uploadName(req.file.originalname), form));
+  }));
+  app.post(`${ic}/imports/:id/confirm`, wrap(async (req, res) => {
+    res.json(await confirmIcImport(db(), store(), id(req.params.id), parseInput(icImportConfirm, req.body).sha256));
+  }));
+  app.get(`${ic}/versions/:id`, wrap((req, res) => { res.json(getIcVersion(db(), id(req.params.id))); }));
+  app.post(`${ic}/versions/:id/mapping`, wrap((req, res) => { res.json(updateIcMapping(db(), id(req.params.id), parseInput(icMappingUpdate, req.body))); }));
+  app.post(`${ic}/versions/:id/confirm`, wrap((req, res) => {
+    res.json(confirmIcVersion(db(), id(req.params.id), parseInput(icVersionConfirm, req.body).expectedVersion));
+  }));
+  app.post(`${ic}/versions/:id/void`, wrap((req, res) => {
+    const b = parseInput(icVersionVoid, req.body);
+    res.json(voidIcVersion(db(), id(req.params.id), b.expectedVersion, b.reason));
+  }));
+  app.get(`${ic}/projects/:id/comparisons`, wrap((req, res) => { res.json(listIcComparisons(db(), id(req.params.id))); }));
+  app.post(`${ic}/comparisons`, wrap((req, res) => { res.status(201).json(createIcComparison(db(), parseInput(icCompareRequest, req.body))); }));
+  app.get(`${ic}/comparisons/:id`, wrap((req, res) => { res.json(getIcComparison(db(), id(req.params.id))); }));
+  app.get(`${ic}/comparisons/:id/export`, wrap(async (req, res) => {
+    const out = await exportIcComparison(db(), id(req.params.id));
     sendAttachment(res, out.fileName, XLSX, out.buffer);
   }));
 }
