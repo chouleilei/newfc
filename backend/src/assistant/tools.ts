@@ -36,6 +36,7 @@ import { budgetCellEvidence, actualCellEvidence, metricEvidence } from '../modul
 import { insightRowsFilter } from './ownership';
 import type { StatementScope } from '../contracts/statements';
 import { easPeriodStatusView, mgmtAlertsView, mgmtSnapshotsView, statementOverviewView } from './finance-data';
+import { contractDetailView, contractSummaryView, expenseAuditQueueView, planExecutionOverviewView, projectBudgetSummaryView } from './project-data';
 import { authorizeToolCall, orgTreeFilter } from './tool-policy';
 
 const rawTools = {
@@ -148,6 +149,16 @@ const rawTools = {
   mgmt_metric_snapshots: (db: DB, input: Parameters<typeof mgmtSnapshotsView>[1]) => mgmtSnapshotsView(db, input),
   /** T-3 管理会计预警(缺省未关闭) */
   mgmt_alerts: (db: DB, input: Parameters<typeof mgmtAlertsView>[1]) => mgmtAlertsView(db, input),
+  /** T-4 项目预算汇总:当前批次、按项目/组织/资金来源的年度预算与已执行(AC-F09) */
+  project_budget_summary: (db: DB, input: Parameters<typeof projectBudgetSummaryView>[1]) => projectBudgetSummaryView(db, input),
+  /** T-4 计划执行总览:同年取数的当期/累计、年度执行率(AC-F15) */
+  plan_execution_overview: (db: DB, input: Parameters<typeof planExecutionOverviewView>[1]) => planExecutionOverviewView(db, input),
+  /** T-4 合同汇总:按状态/阶段计数、当前金额、已付、付款比例与待办(AC-F16) */
+  contract_summary: (db: DB, input: Parameters<typeof contractSummaryView>[1]) => contractSummaryView(db, input),
+  /** T-4 合同详情:阶段、blocker、变更、付款与事件(范围外 404) */
+  contract_detail: (db: DB, input: Parameters<typeof contractDetailView>[1]) => contractDetailView(db, input),
+  /** T-4 费用审核队列:按状态计数与待复核列表(AC-F22) */
+  expense_audit_queue: (db: DB, input: Parameters<typeof expenseAuditQueueView>[1]) => expenseAuditQueueView(db, input),
 };
 
 /**
@@ -258,6 +269,11 @@ const schemas: Record<string, any> = {
   statement_overview: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'] }, period: { type: ['string', 'null'], description: '期间 YYYY-MM,缺省取最新当前批次' }, scope: { type: ['string', 'null'], enum: ['parent', 'subsidiary', 'consolidated'] } }, additionalProperties: false },
   mgmt_metric_snapshots: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, period: { type: ['string', 'null'], description: '期间 YYYY 或 YYYY-MM' }, metricId: { type: ['integer', 'null'] } }, additionalProperties: false },
   mgmt_alerts: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, status: { type: ['string', 'null'], enum: ['unclosed', 'open', 'acknowledged', 'closed'] }, period: { type: ['string', 'null'] } }, additionalProperties: false },
+  project_budget_summary: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, year: { type: ['integer', 'null'] }, period: { type: ['string', 'null'], description: '期间 YYYY-MM,缺省取最新当前批次' }, projectId: { type: ['integer', 'null'] } }, additionalProperties: false },
+  plan_execution_overview: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, year: { type: 'integer', description: '计划年度' }, asOfPeriod: { type: ['string', 'null'], description: '截至期间 YYYY-MM(须在计划年度内),缺省取该年最新激活批次' }, projectId: { type: ['integer', 'null'] } }, required: ['year'], additionalProperties: false },
+  contract_summary: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, projectId: { type: ['integer', 'null'] } }, additionalProperties: false },
+  contract_detail: { type: 'object', properties: { contractId: { type: 'integer', description: '合同 ID(来自页面或 contract_summary 无法给出时请用户在合同台账中打开)' } }, required: ['contractId'], additionalProperties: false },
+  expense_audit_queue: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' } }, additionalProperties: false },
 };
 
 /**
@@ -352,6 +368,11 @@ const TOOL_LABELS: Record<string, string> = {
   statement_overview: '读取财务报表总览',
   mgmt_metric_snapshots: '读取管理会计指标快照',
   mgmt_alerts: '查询管理会计预警',
+  project_budget_summary: '读取项目预算汇总',
+  plan_execution_overview: '读取计划执行总览',
+  contract_summary: '读取合同汇总',
+  contract_detail: '读取合同详情',
+  expense_audit_queue: '读取费用审核队列',
 };
 
 export function toolLabel(name: string): string {
@@ -604,6 +625,28 @@ export function executeTool(db: DB, name: string, args: any = {}) {
       status: args.status == null ? undefined : oneOf(args.status, 'status', ['unclosed', 'open', 'acknowledged', 'closed']),
       period: periodArg(args.period, false, true),
     });
+    // T-4 项目/合同/费用只读工具:orgScopeId 由 tool-policy 按身份改写;合同详情由 service 按合同组织判定可见性。
+    case 'project_budget_summary': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      year: args.year == null ? undefined : bounded(args.year, 'year', 1900, 9999),
+      period: periodArg(args.period, false, false),
+      projectId: args.projectId == null ? undefined : integer(args.projectId, 'projectId'),
+    });
+    case 'plan_execution_overview': {
+      const year = bounded(args.year, 'year', 1900, 9999);
+      const asOfPeriod = periodArg(args.asOfPeriod, false, false);
+      if (asOfPeriod && !asOfPeriod.startsWith(`${year}-`)) throw new Error('asOfPeriod必须在计划年度内');
+      return fn(db, {
+        orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'), year, asOfPeriod,
+        projectId: args.projectId == null ? undefined : integer(args.projectId, 'projectId'),
+      });
+    }
+    case 'contract_summary': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      projectId: args.projectId == null ? undefined : integer(args.projectId, 'projectId'),
+    });
+    case 'contract_detail': return fn(db, { contractId: integer(args.contractId, 'contractId') });
+    case 'expense_audit_queue': return fn(db, { orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId') });
     default:
       /* 不默认透传模型给的任意 JSON 给业务 service:schemas 只用于模型侧声明,
          后端不据此校验,`default: return fn(db, args)` 意味着「新增工具忘了写 case

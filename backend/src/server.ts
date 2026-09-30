@@ -19,6 +19,7 @@ import * as report from './modules/report/report.service';
 import * as structure from './modules/report/structure.service';
 import { multiYearTrend, MAX_TREND_YEARS } from './modules/report/multi-year';
 import { dashboardOverview } from './modules/report/dashboard.service';
+import { workbenchTodos } from './modules/report/todo.service';
 import * as io from './modules/io/excel';
 import * as exportSvc from './modules/io/export.service';
 import { runConsistencyChecks } from './modules/check/consistency';
@@ -1356,6 +1357,7 @@ export async function createApp(opts: ServerOptions) {
   }));
 
   /* ============ 仪表盘 ============ */
+  app.get('/api/dashboard/todos', wrap((_req, res) => { res.json(workbenchTodos(db())); }));
   app.get('/api/dashboard', wrap((_req, res) => {
     res.json(dashboardOverview(db()));
   }));

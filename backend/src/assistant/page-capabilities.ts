@@ -23,7 +23,8 @@ export type DomainCapability =
   | 'import_conversion'
   | 'evidence'
   | 'operations'
-  | 'finance_data';
+  | 'finance_data'
+  | 'project_data';
 
 /** 通用语义 entity 类型全集(§3.6、§5.5)：行/树节点/卡片/异常/日志/核验闸门等统一为 entity。 */
 export type AssistantEntityType =
@@ -94,7 +95,7 @@ export const PAGE_CAPABILITY_MAP: Record<string, PageCapability> = {
     factTypes: ['verification'],
     draftKinds: [],
     defaultCapability: 'overview',
-    capabilities: ['overview', 'execution', 'evidence', 'finance_data'],
+    capabilities: ['overview', 'execution', 'evidence', 'finance_data', 'project_data'],
   },
   assistant: {
     label: '小澧助手',
@@ -103,7 +104,7 @@ export const PAGE_CAPABILITY_MAP: Record<string, PageCapability> = {
     factTypes: [],
     draftKinds: [],
     defaultCapability: 'assistant_content',
-    capabilities: ['assistant_content', 'execution', 'comparison', 'budget', 'actual', 'master_data', 'import_conversion', 'operations', 'overview', 'evidence', 'finance_data'],
+    capabilities: ['assistant_content', 'execution', 'comparison', 'budget', 'actual', 'master_data', 'import_conversion', 'operations', 'overview', 'evidence', 'finance_data', 'project_data'],
   },
   insights: {
     label: '洞察报告',
@@ -378,6 +379,8 @@ const CAPABILITY_TOOLS: Record<DomainCapability, string[]> = {
   operations: ['get_operation_log', 'validate_import', 'check_consistency', 'list_backups', 'get_year_states'],
   // T-3 财务数据:EAS 对账、财务报表、管理会计(只读,同源 service,org_scope)
   finance_data: ['eas_period_status', 'statement_overview', 'mgmt_metric_snapshots', 'mgmt_alerts'],
+  // T-4 项目、合同与费用(只读,同源 service,org_scope;合同详情由 service 判定可见性)
+  project_data: ['project_budget_summary', 'plan_execution_overview', 'contract_summary', 'contract_detail', 'expense_audit_queue'],
 };
 
 /** 全页面都允许的通用只读工具。 */

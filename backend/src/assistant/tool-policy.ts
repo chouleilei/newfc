@@ -76,6 +76,12 @@ export const TOOL_POLICIES: Record<string, ToolPolicy> = {
   statement_overview: P('statements:read', 'org_scope'),
   mgmt_metric_snapshots: P('mgmt:read', 'org_scope'),
   mgmt_alerts: P('mgmt:read', 'org_scope'),
+  project_budget_summary: P('project_budget:read', 'org_scope'),
+  plan_execution_overview: P('plan:read', 'org_scope'),
+  contract_summary: P('contract:read', 'org_scope'),
+  /** 单合同:service 按合同 org_id 判定可见性(范围外 404),与页面同源 */
+  contract_detail: P('contract:read', 'global'),
+  expense_audit_queue: P('expense:read', 'org_scope'),
 };
 
 /** 工具在当前身份下是否可用(用于向模型暴露的工具清单,避免诱导模型反复调用必然被拒的工具)。 */
