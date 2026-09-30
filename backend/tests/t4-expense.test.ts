@@ -284,7 +284,10 @@ describe('T-4 费用审核(AC-F22)', () => {
     expect(queue.awaitingReview[0]).toMatchObject({ claimNo: 'BX-TEST-1', amount: '900.00', riskLevel: 'high' });
     // 工作台待办:按权限返回项,按组织范围计数
     const todos = async (s: Session) => Object.fromEntries((await ok(get(base, s, '/api/dashboard/todos'))).items.map((i: { key: string; count: number }) => [i.key, i.count]));
-    expect(await todos(reviewer)).toEqual({ contract_review: 0, contract_change: 0, contract_payment_review: 0, expense_review: 1 });
+    // T-5 起业务复核角色另有风险复核与报告审批/发布待办
+    expect(await todos(reviewer)).toEqual({
+      contract_review: 0, contract_change: 0, contract_payment_review: 0, expense_review: 1, risk_review: 0, report_approve: 0, report_publish: 0,
+    });
     expect(await todos(maker)).toEqual({ contract_payment_pay: 0, expense_supplement: 0 });
     expect((await todos(outsider)).expense_review).toBe(0);
 
