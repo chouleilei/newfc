@@ -1331,7 +1331,15 @@ export async function createApp(opts: ServerOptions) {
       throw Errors.validation('scope 必须为 daily 或 monthly');
     }
     const scope = rawScope === 'monthly' ? 'monthly' : 'daily';
-    res.json(backup.verifyBackupFile(backup.resolveBackupFile(backup.backupDirOf(opts.dbPath), file, scope)));
+    const bundle = backup.verifyBackupBundle(backup.resolveBackupFile(backup.backupDirOf(opts.dbPath), file, scope));
+    // 运行对象目录核对:缺失/摘要不符的对象若在该备份清单中,恢复时会先补齐
+    const runtime = opts.dbPath === ':memory:' ? { total: 0, missing: [], corrupt: [] } : backup.checkRuntimeObjects(db(), ObjectStore.forDbPath(opts.dbPath).root);
+    const inBackup = new Set((bundle.manifest?.objects ?? []).map((o) => o.sha256));
+    const broken = [...runtime.missing, ...runtime.corrupt];
+    res.json({
+      ok: bundle.ok, message: bundle.message, checks: bundle.checks,
+      runtime: { total: runtime.total, missing: runtime.missing.length, corrupt: runtime.corrupt.length, recoverableFromBackup: broken.filter((s) => inBackup.has(s)).length },
+    });
   }));
   app.post('/api/backup/restore', wrap(async (req, res) => {
     const { file, scope, confirmed } = req.body ?? {};

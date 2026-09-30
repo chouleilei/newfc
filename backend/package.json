@@ -24,6 +24,8 @@
     "admin:create": "node dist/modules/security/admin-cli.js create",
     "admin:reset-password": "node dist/modules/security/admin-cli.js reset-password",
     "admin:create:dev": "ts-node src/modules/security/admin-cli.ts create",
+    "restore:drill": "node dist/modules/backup/restore-drill-cli.js",
+    "restore:drill:dev": "ts-node src/modules/backup/restore-drill-cli.ts",
     "resource:baseline": "node -r ts-node/register/transpile-only scripts/resource-baseline.ts"
   },
   "dependencies": {

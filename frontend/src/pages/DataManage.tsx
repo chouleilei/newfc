@@ -44,9 +44,9 @@ function BackupsTab() {
     onError: (e) => message.error(errorText(e)),
   });
   const restore = useMutation({
-    mutationFn: (b: { file: string; scope: string }) => api.post('/backup/restore', { file: b.file, scope: b.scope, confirmed: true }),
+    mutationFn: (b: { file: string; scope: string }) => api.post<{ objectsRestored?: number }>('/backup/restore', { file: b.file, scope: b.scope, confirmed: true }),
     // 恢复会影响所有服务端数据，保留全量失效
-    onSuccess: () => { message.success('恢复完成,页面数据将刷新'); qc.invalidateQueries(); },
+    onSuccess: (r) => { message.success(`恢复完成${r?.objectsRestored ? `(已从备份补齐 ${r.objectsRestored} 个文件对象)` : ''},页面数据将刷新`); qc.invalidateQueries(); },
     onError: (e) => message.error(errorText(e)),
   });
 
@@ -74,9 +74,10 @@ function BackupsTab() {
                 <Button size="small" loading={verifying === r.name} onClick={async () => {
                   setVerifying(r.name);
                   try {
-                    const v = await api.get<{ ok: boolean; message: string }>(`/backup/verify?file=${encodeURIComponent(r.name)}&scope=${r.monthly ? 'monthly' : 'daily'}`);
-                    if (v.ok) message.success('备份文件校验通过(integrity_check)');
-                    else modal.error({ title: '备份校验失败', content: v.message });
+                    const v = await api.get<VerifyResult>(`/backup/verify?file=${encodeURIComponent(r.name)}&scope=${r.monthly ? 'monthly' : 'daily'}`);
+                    const content = <VerifyDetail v={v} />;
+                    if (v.ok) modal.success({ title: '备份包校验通过', content, width: 520 });
+                    else modal.error({ title: '备份校验失败', content, width: 520 });
                   } catch (e) {
                     message.error(`备份校验请求失败:${errorText(e)}`);
                   } finally {
@@ -102,6 +103,31 @@ function BackupsTab() {
       />}
       <Modal title="立即备份" open={tagOpen} onCancel={() => setTagOpen(false)} confirmLoading={create.isPending} onOk={() => create.mutate(tag, { onSuccess: () => setTagOpen(false) })}><Input placeholder="备份标签(可留空)" value={tag} onChange={e => setTag(e.target.value)} /></Modal>
     </div>
+  );
+}
+
+interface VerifyResult {
+  ok: boolean; message: string;
+  checks?: { name: string; ok: boolean; detail: string }[];
+  runtime?: { total: number; missing: number; corrupt: number; recoverableFromBackup: number };
+}
+
+const CHECK_LABEL: Record<string, string> = { database: '数据库', manifest: '备份清单', db_sha256: '库文件摘要', object_list: '对象清单', objects: '文件对象' };
+
+/** AC-X07:备份包逐项校验结果 + 运行对象目录核对(缺失对象可由恢复补齐)。 */
+function VerifyDetail({ v }: { v: VerifyResult }) {
+  const rt = v.runtime;
+  return (
+    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+      {(v.checks ?? [{ name: 'database', ok: v.ok, detail: v.message }]).map((c) => (
+        <div key={c.name}><Tag color={c.ok ? 'success' : 'error'}>{c.ok ? '通过' : '失败'}</Tag>{CHECK_LABEL[c.name] ?? c.name}:{c.detail}</div>
+      ))}
+      {rt && (
+        <Typography.Text type={rt.missing || rt.corrupt ? 'warning' : 'secondary'}>
+          运行对象目录:登记 {rt.total} 个{rt.missing || rt.corrupt ? `,缺失 ${rt.missing} 个、摘要不符 ${rt.corrupt} 个,其中 ${rt.recoverableFromBackup} 个可由此备份恢复时补齐` : ',全部存在'}
+        </Typography.Text>
+      )}
+    </Space>
   );
 }
 
