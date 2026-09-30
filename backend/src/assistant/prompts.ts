@@ -71,6 +71,8 @@ export const PROMPT_VERSION = {
   riskExplain: 'risk-explain.v1',
   /** 财务预测运行洞察改写 */
   forecastInsight: 'forecast-insight.v1',
+  /** 投资可行性报告草稿改写 */
+  feasibilityReport: 'feasibility-report.v1',
 } as const;
 
 /* ---------------- 叙述改写类任务说明(rewriteTemplateNarrative 的 task) ---------------- */
@@ -105,6 +107,10 @@ export const RISK_EXPLAIN_REWRITE_TASK = '下面是风险事件的确定性解�
 /** 财务预测运行「洞察」改写(情景与基准对比)。 */
 export const FORECAST_INSIGHT_REWRITE_TASK = '下面是财务预测运行的确定性洞察(Markdown)。'
   + `${REWRITE_ONLY}输出项名称、情景参数与差异方向必须逐字保留。`;
+
+/** 投资可行性报告草稿改写(基于冻结测算运行)。 */
+export const FEASIBILITY_REPORT_REWRITE_TASK = '下面是投资可行性分析报告的确定性草稿(Markdown)。'
+  + `${REWRITE_ONLY}指标名称与数值、模型检查结论、敏感性方向必须逐字保留;保留“## ”章节标题。`;
 
 /* ---------------- 结构化输出类 prompt(JSON,经白名单校验) ---------------- */
 

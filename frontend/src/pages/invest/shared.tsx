@@ -25,6 +25,9 @@ export const SENSITIVITY_LABEL: Record<string, string> = {
 };
 
 export const FF_VERSION_STATUS = { draft: { text: '草稿', color: 'default' }, frozen: { text: '已冻结', color: 'success' } };
+export const FEAS_REPORT_STATUS = {
+  draft: { text: '草稿', color: 'default' }, pending_review: { text: '待复核', color: 'processing' }, approved: { text: '复核通过', color: 'success' }, returned: { text: '已退回', color: 'error' },
+};
 export const FF_REVIEW_STATUS = {
   pending: { text: '待复核', color: 'warning' }, approved: { text: '复核通过', color: 'success' }, returned: { text: '已退回', color: 'error' },
 };

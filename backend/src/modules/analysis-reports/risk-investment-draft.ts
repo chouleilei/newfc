@@ -88,7 +88,7 @@ export function riskInvestmentDraft(db: DB, input: { orgId: number | null; orgNa
   const g = orgFilter('p.org_id');
   const runs = db.prepare(`SELECT r.id, r.parameter_hash, r.result_json, r.all_checks_passed, s.name AS scenario, p.code, p.name FROM if_run r
     JOIN if_scenario s ON s.id = r.scenario_id JOIN if_project p ON p.id = s.project_id
-    WHERE p.status = 'active' AND r.id = (SELECT MAX(id) FROM if_run WHERE scenario_id = s.id AND kind = 'base') AND r.status = 'succeeded' AND ${g.sql} ORDER BY p.code, s.id`).all(...g.params) as
+    WHERE p.status = 'active' AND s.deleted_at IS NULL AND r.id = (SELECT MAX(id) FROM if_run WHERE scenario_id = s.id AND kind = 'base') AND r.status = 'succeeded' AND ${g.sql} ORDER BY p.code, s.id`).all(...g.params) as
     { id: number; parameter_hash: string; result_json: string; all_checks_passed: number | null; scenario: string; code: string; name: string }[];
   const feasData = runs.map((r) => {
     const res = JSON.parse(r.result_json) as FeasResultDto;

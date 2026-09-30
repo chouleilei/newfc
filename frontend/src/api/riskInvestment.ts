@@ -5,7 +5,7 @@
 import { api } from './client';
 import { qs } from './financeData';
 import type {
-  FeasCheckDto, FeasIndicatorDto, FeasibilityAssumptionsInput, FeasResultDto, FeasSensitivityItemDto, SensitivityCode,
+  FeasCheckDto, FeasIndicatorDto, FeasibilityAssumptionsInput, FeasReportDto, FeasReportStatus, FeasResultDto, FeasSensitivityItemDto, SensitivityCode,
 } from '@contracts/investment-feasibility';
 import type { IcComparisonRowDto, IcComparisonSummaryDto, IcLevel, IcVersionType } from '@contracts/investment-control';
 import type {
@@ -58,6 +58,7 @@ export interface FeasProjectDto {
 }
 export interface FeasScenarioDto {
   id: number; projectId: number; code: string; name: string; assumptions: FeasibilityAssumptionsInput; parameterHash: string; sourceFileName: string | null;
+  isBaseline: boolean; reportCount: number;
   version: number; createdAt: string; updatedAt: string; latestRun: FeasRunSummaryDto | null; stale: boolean;
 }
 export interface FeasProjectDetailDto extends FeasProjectDto { scenarios: FeasScenarioDto[] }
@@ -91,6 +92,14 @@ export const feasibilityApi = {
   confirmImport: (importId: number, body: { sha256: string; code: string; name: string }) => api.post<FeasImportDto>(`/investment/feasibility/imports/${importId}/confirm`, body),
   templatePath: (scenarioId?: number) => `/investment/feasibility/template${qs({ scenarioId })}`,
   exportPath: (runId: number) => `/investment/feasibility/runs/${runId}/export`,
+  setBaseline: (id: number, expectedVersion: number) => api.post<FeasScenarioDto>(`/investment/feasibility/scenarios/${id}/baseline`, { expectedVersion }),
+  deleteScenario: (id: number, expectedVersion: number) => api.del<void>(`/investment/feasibility/scenarios/${id}${qs({ expectedVersion })}`),
+  reports: (q: { status?: FeasReportStatus; projectId?: number; scenarioId?: number }) => api.get<{ items: FeasReportDto[] }>(`/investment/feasibility/reports${qs(q)}`),
+  report: (id: number) => api.get<FeasReportDto>(`/investment/feasibility/reports/${id}`),
+  createReport: (scenarioId: number, body: { title?: string }) => api.post<FeasReportDto>(`/investment/feasibility/scenarios/${scenarioId}/reports`, body),
+  submitReport: (id: number, expectedVersion: number) => api.post<FeasReportDto>(`/investment/feasibility/reports/${id}/submit`, { expectedVersion }),
+  reviewReport: (id: number, body: { expectedVersion: number; decision: 'approve' | 'return'; comment?: string; exceptionReason?: string }) =>
+    api.post<FeasReportDto>(`/investment/feasibility/reports/${id}/review`, body),
 };
 
 /* ---------------- 投资控制(AC-F13) ---------------- */

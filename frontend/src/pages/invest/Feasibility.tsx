@@ -3,20 +3,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert, App as AntdApp, Button, Card, Col, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tabs, Tag, Typography, Upload,
 } from 'antd';
-import { api, can, download, errorText } from '../../api/client';
+import { api, can, download, errorText, getSession } from '../../api/client';
 import {
   feasibilityApi, waitJob, type FeasCheckDto, type FeasImportDto, type FeasIndicatorDto, type FeasibilityAssumptionsInput, type FeasProjectDetailDto,
-  type FeasProjectDto, type FeasResultDto, type FeasRunDetailDto, type FeasRunSummaryDto, type FeasScenarioDto, type FeasSensitivityItemDto,
+  type FeasProjectDto, type FeasReportDto, type FeasReportStatus, type FeasResultDto, type FeasRunDetailDto, type FeasRunSummaryDto, type FeasScenarioDto, type FeasSensitivityItemDto,
 } from '../../api/riskInvestment';
+import { Markdown } from '../../components/assistant/Markdown';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { useUrlId } from '../../hooks/useUrlId';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, defaultOrgId, OrgSelect, statusTag, usePrompt } from '../financeData/shared';
-import { Dec, FEAS_INDICATOR_STATUS, RowErrors, SENSITIVITY_LABEL, StaleTag } from './shared';
+import { Dec, FEAS_INDICATOR_STATUS, FEAS_REPORT_STATUS, RowErrors, SENSITIVITY_LABEL, StaleTag } from './shared';
 
 /**
  * AC-F12 投资可行性测算:项目 → 方案(页面编辑或标准模板导入)→ 测算(冻结运行)→ 敏感性分析(后台任务)→ 结果导出。
  * 金额单位万元,比率为小数;所有数值为十进制字符串,页面只做排版。当前结果取最新成功运行,参数变更后提示需重算。
+ * T-7:基准方案(每项目一个)、删除方案(已有报告的不能删)、可行性报告(由参数一致的成功测算生成)提交复核 → 通过/退回。
  */
 
 const decRule = { pattern: /^-?\d{1,12}(\.\d{1,6})?$/, message: '最多 6 位小数' };
@@ -255,6 +257,138 @@ function RunModal({ runId, onClose }: { runId: number | null; onClose: () => voi
   );
 }
 
+/* ---------------- 可行性报告 ---------------- */
+
+function ReportModal({ id, onClose }: { id: number | null; onClose: () => void }) {
+  const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
+  const [prompt, holder] = usePrompt();
+  const q = useQuery({ queryKey: ['feas-report', id], queryFn: () => feasibilityApi.report(id!), enabled: id != null });
+  const r = q.data;
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ['feas-report', id] }); void qc.invalidateQueries({ queryKey: ['feas-reports'] }); };
+  const submit = async () => {
+    if (!r) return;
+    try { await feasibilityApi.submitReport(r.id, r.version); message.success('已提交复核'); refresh(); } catch (e) { message.error(errorText(e)); }
+  };
+  const review = async (decision: 'approve' | 'return') => {
+    if (!r) return;
+    const me = getSession()?.user;
+    const self = !!me && r.submittedBy != null && (r.submittedBy === me.displayName || r.submittedBy === me.username);
+    const v = await prompt({
+      title: decision === 'approve' ? '复核通过' : '退回报告', danger: decision === 'return',
+      description: decision === 'approve' ? '通过后报告冻结,作为可行性结论依据。' : '退回后编制人可重新提交;如需修改正文,请重新测算并生成新报告。',
+      fields: [
+        { name: 'comment', label: '意见', multiline: true, required: decision === 'return' },
+        ...(self ? [{ name: 'exceptionReason', label: '例外原因(管理员复核本人提交的报告)', required: true }] : []),
+      ],
+    });
+    if (!v) return;
+    try {
+      await feasibilityApi.reviewReport(r.id, { expectedVersion: r.version, decision, ...compact({ comment: v.comment, exceptionReason: v.exceptionReason }) });
+      message.success('已复核'); refresh();
+    } catch (e) { message.error(errorText(e)); }
+  };
+  return (
+    <Modal open={id != null} onCancel={onClose} width={900} destroyOnClose title={r?.title ?? '可行性报告'}
+      footer={r && (
+        <Space>
+          {can('investment:write') && (r.status === 'draft' || r.status === 'returned') && <Button type="primary" onClick={() => void submit()}>提交复核</Button>}
+          {can('investment:review') && r.status === 'pending_review' && (
+            <>
+              <Button type="primary" onClick={() => void review('approve')}>复核通过</Button>
+              <Button danger onClick={() => void review('return')}>退回</Button>
+            </>
+          )}
+          <Button onClick={onClose}>关闭</Button>
+        </Space>
+      )}>
+      {holder}
+      {q.error ? <QueryErrorResult title="报告加载失败" error={q.error} refetch={q.refetch} /> : !r ? null : (
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {r.stale && <Alert type="warning" showIcon message="方案参数已修改,本报告依据的测算已过期" />}
+          <Descriptions size="small" column={2} bordered>
+            <Descriptions.Item label="状态">{statusTag(FEAS_REPORT_STATUS, r.status)}</Descriptions.Item>
+            <Descriptions.Item label="依据">{r.projectCode} · {r.scenarioCode} · 运行 #{r.runId}</Descriptions.Item>
+            <Descriptions.Item label="生成">{r.createdBy ?? ''} {shortTime(r.createdAt)} · {r.source === 'model' ? `模型改写(${r.model})` : '确定性模板'}</Descriptions.Item>
+            <Descriptions.Item label="提交">{r.submittedAt ? `${r.submittedBy ?? ''} ${shortTime(r.submittedAt)}` : '—'}</Descriptions.Item>
+            {r.reviewedAt && (
+              <Descriptions.Item label="复核" span={2}>
+                {r.reviewer ?? ''} {shortTime(r.reviewedAt)}:{r.reviewComment || '(无意见)'}{r.selfReview ? `;例外:${r.exceptionReason ?? ''}` : ''}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+          <div style={{ maxHeight: 520, overflow: 'auto' }}><Markdown text={r.content} /></div>
+        </Space>
+      )}
+    </Modal>
+  );
+}
+
+function ReportTable({ items, loading, onOpen, showScenario }: { items: FeasReportDto[]; loading: boolean; onOpen: (id: number) => void; showScenario?: boolean }) {
+  return (
+    <Table<FeasReportDto> rowKey="id" size="small" loading={loading} dataSource={items} locale={{ emptyText: <Empty description="还没有可行性报告" /> }}
+      onRow={(r) => ({ onClick: () => onOpen(r.id), style: { cursor: 'pointer' } })} columns={[
+        { title: '标题', dataIndex: 'title' },
+        ...(showScenario ? [
+          { title: '项目', key: 'p', width: 200, render: (_: unknown, r: FeasReportDto) => `${r.projectCode} ${r.projectName}` },
+          { title: '方案', key: 's', width: 140, render: (_: unknown, r: FeasReportDto) => `${r.scenarioCode} ${r.scenarioName}` },
+          { title: '组织', dataIndex: 'orgName', width: 120 },
+        ] : []),
+        { title: '运行', dataIndex: 'runId', width: 80, render: (v: number, r) => <Space size={4}>#{v}{r.stale && <Tag color="warning">已过期</Tag>}</Space> },
+        { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => statusTag(FEAS_REPORT_STATUS, v) },
+        { title: '提交', dataIndex: 'submittedAt', width: 150, render: (v: string | null, r) => (v ? `${r.submittedBy ?? ''} ${shortTime(v)}` : '—') },
+        { title: '生成', dataIndex: 'createdAt', width: 150, render: (v: string, r) => `${r.createdBy ?? ''} ${shortTime(v)}` },
+      ]} />
+  );
+}
+
+function ReportsTab() {
+  const [status, setStatus] = useState<FeasReportStatus | undefined>(can('investment:review') ? 'pending_review' : undefined);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const query = compact({ status });
+  const list = useQuery({ queryKey: ['feas-reports', query], queryFn: () => feasibilityApi.reports(query) });
+  return (
+    <div>
+      <Space wrap style={{ marginBottom: 12 }}>
+        <Select allowClear placeholder="状态" style={{ width: 130 }} value={status} onChange={setStatus}
+          options={Object.entries(FEAS_REPORT_STATUS).map(([value, m]) => ({ value, label: m.text }))} />
+      </Space>
+      {list.error ? <QueryErrorResult title="报告列表加载失败" error={list.error} refetch={list.refetch} />
+        : <ReportTable items={list.data?.items ?? []} loading={list.isLoading} onOpen={setOpenId} showScenario />}
+      <ReportModal id={openId} onClose={() => setOpenId(null)} />
+    </div>
+  );
+}
+
+function ScenarioReports({ scenario, writable }: { scenario: FeasScenarioDto; writable: boolean }) {
+  const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
+  const [openId, setOpenId] = useState<number | null>(null);
+  const list = useQuery({ queryKey: ['feas-reports', { scenarioId: scenario.id }], queryFn: () => feasibilityApi.reports({ scenarioId: scenario.id }) });
+  const gen = useMutation({
+    mutationFn: () => feasibilityApi.createReport(scenario.id, {}),
+    onSuccess: (r) => {
+      message.success(r.source === 'model' ? '已生成报告草稿(模型改写)' : '已生成报告草稿');
+      void qc.invalidateQueries({ queryKey: ['feas-reports'] }); void qc.invalidateQueries({ queryKey: ['feas-scenario', scenario.id] });
+      setOpenId(r.id);
+    },
+    onError: (e) => message.error(errorText(e)),
+  });
+  return (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      {writable && (
+        <Space>
+          <Button type="primary" loading={gen.isPending} disabled={scenario.stale} onClick={() => gen.mutate()}>生成报告草稿</Button>
+          <Typography.Text type="secondary">{scenario.stale ? '参数已修改或尚未测算,请先测算' : '基于最新成功测算与参数一致的敏感性结果生成'}</Typography.Text>
+        </Space>
+      )}
+      {list.error ? <QueryErrorResult title="报告加载失败" error={list.error} refetch={list.refetch} />
+        : <ReportTable items={list.data?.items ?? []} loading={list.isLoading} onOpen={setOpenId} />}
+      <ReportModal id={openId} onClose={() => setOpenId(null)} />
+    </Space>
+  );
+}
+
 function ScenarioDrawer({ id, onClose }: { id: number | null; onClose: () => void }) {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
@@ -287,6 +421,16 @@ function ScenarioDrawer({ id, onClose }: { id: number | null; onClose: () => voi
       refresh();
     } catch (e) { message.error(errorText(e)); } finally { setSensBusy(false); }
   };
+  const setBaseline = async () => {
+    if (!s) return;
+    try { await feasibilityApi.setBaseline(s.id, s.version); message.success('已设为基准方案'); refresh(); } catch (e) { message.error(errorText(e)); }
+  };
+  const remove = async () => {
+    if (!s) return;
+    const v = await prompt({ title: `删除方案 ${s.code}`, danger: true, okText: '删除', description: '删除后方案不再显示,测算运行记录保留;编码不能复用。已有可行性报告的方案不能删除。', fields: [] });
+    if (!v) return;
+    try { await feasibilityApi.deleteScenario(s.id, s.version); message.success('方案已删除'); void qc.invalidateQueries({ queryKey: ['feas-project'] }); void qc.invalidateQueries({ queryKey: ['feas-projects'] }); onClose(); } catch (e) { message.error(errorText(e)); }
+  };
   const copy = async () => {
     if (!s) return;
     const v = await prompt({ title: '复制方案', fields: [{ name: 'code', label: '新方案编码', required: true }, { name: 'name', label: '新方案名称', required: true, initial: `${s.name}(副本)` }] });
@@ -297,10 +441,13 @@ function ScenarioDrawer({ id, onClose }: { id: number | null; onClose: () => voi
     <Drawer open={id != null} onClose={onClose} width={1180} destroyOnClose title={s ? `${s.project.code} · ${s.code} ${s.name}` : '方案'}
       extra={s && (
         <Space wrap>
+          {s.isBaseline && <Tag color="gold">基准方案</Tag>}
           <StaleTag stale={s.stale} />
           {writable && <Button type="primary" loading={run.isPending} onClick={() => run.mutate()}>测算</Button>}
           {writable && <Button loading={sensBusy} onClick={() => void sensitivity()}>敏感性分析</Button>}
           {writable && <Button onClick={() => void copy()}>复制方案</Button>}
+          {writable && !s.isBaseline && <Button onClick={() => void setBaseline()}>设为基准</Button>}
+          {writable && <Button danger disabled={s.reportCount > 0} title={s.reportCount > 0 ? '已有可行性报告,不能删除' : undefined} onClick={() => void remove()}>删除</Button>}
           <Button onClick={() => void download(feasibilityApi.templatePath(s.id), `${s.project.code}-${s.code}-测算输入.xlsx`)}>导出输入模板</Button>
         </Space>
       )}>
@@ -321,6 +468,7 @@ function ScenarioDrawer({ id, onClose }: { id: number | null; onClose: () => voi
             ),
           },
           { key: 'input', label: '输入参数', children: <AssumptionsEditor scenario={s} editable={!!writable} onSaved={refresh} /> },
+          { key: 'reports', label: `可行性报告(${s.reportCount})`, children: <ScenarioReports scenario={s} writable={!!writable} /> },
           {
             key: 'runs', label: `运行历史(${runs.data?.items.length ?? 0})`,
             children: (
@@ -484,7 +632,8 @@ function ScenarioTable({ project, onOpen }: { project: FeasProjectDetailDto; onO
     <Table<FeasScenarioDto> rowKey="id" size="small" pagination={false} dataSource={project.scenarios} locale={{ emptyText: <Empty description="还没有方案" /> }}
       onRow={(s) => ({ onClick: () => onOpen(s.id), style: { cursor: 'pointer' } })} columns={[
         { title: '编码', dataIndex: 'code', width: 100 },
-        { title: '名称', dataIndex: 'name' },
+        { title: '名称', dataIndex: 'name', render: (v: string, s) => <Space size={4}>{v}{s.isBaseline && <Tag color="gold">基准</Tag>}</Space> },
+        { title: '报告', dataIndex: 'reportCount', width: 70 },
         { title: '来源', dataIndex: 'sourceFileName', width: 150, ellipsis: true, render: (v: string | null) => v ?? '页面编辑' },
         { title: '结果', dataIndex: 'stale', width: 140, render: (v: boolean, s) => (s.latestRun ? <StaleTag stale={v} /> : <Tag>未测算</Tag>) },
         { title: '项目 NPV(万元)', key: 'npv', width: 140, align: 'right', render: (_: unknown, s) => <Dec value={ind(s, 'project_npv')} /> },
@@ -495,7 +644,7 @@ function ScenarioTable({ project, onOpen }: { project: FeasProjectDetailDto; onO
   );
 }
 
-export default function Feasibility() {
+function ProjectsTab() {
   const [orgId, setOrgId] = useState<number>();
   const [status, setStatus] = useState<'active' | 'archived' | undefined>('active');
   const [keyword, setKeyword] = useState('');
@@ -533,4 +682,8 @@ export default function Feasibility() {
       <ScenarioDrawer id={scenarioId} onClose={() => setScenarioId(null)} />
     </div>
   );
+}
+
+export default function Feasibility() {
+  return <Tabs items={[{ key: 'projects', label: '测算项目', children: <ProjectsTab /> }, { key: 'reports', label: '可行性报告', children: <ReportsTab /> }]} />;
 }

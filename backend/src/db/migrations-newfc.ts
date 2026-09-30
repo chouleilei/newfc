@@ -2013,4 +2013,53 @@ CREATE TRIGGER trg_ff_run_insight_d BEFORE DELETE ON ff_run_insight BEGIN SELECT
 INSERT OR IGNORE INTO app_role_permission (role_id, permission) SELECT id, 'forecast:review' FROM app_role WHERE code = 'business_reviewer';
 `,
   },
+  {
+    version: 63,
+    name: 'feasibility_workflow',
+    sql: `
+/* investment_feasibility 补齐 lishui(T-7,AC-F12):基准方案(每项目至多一个)、方案删除(软删,运行留存)、
+   可行性报告:由成功基准运行生成(模板 + 可选模型改写),草稿 → 提交复核 → 通过/退回;退回可重新提交;通过后冻结。 */
+ALTER TABLE if_scenario ADD COLUMN is_baseline INTEGER NOT NULL DEFAULT 0 CHECK (is_baseline IN (0,1));
+ALTER TABLE if_scenario ADD COLUMN deleted_at TEXT;
+ALTER TABLE if_scenario ADD COLUMN deleted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX idx_if_scenario_baseline ON if_scenario(project_id) WHERE is_baseline = 1;
+CREATE TRIGGER trg_if_scenario_baseline_deleted BEFORE UPDATE OF is_baseline ON if_scenario
+  WHEN NEW.is_baseline = 1 AND NEW.deleted_at IS NOT NULL BEGIN SELECT RAISE(ABORT, '已删除方案不能设为基准'); END;
+CREATE TRIGGER trg_if_scenario_d BEFORE DELETE ON if_scenario BEGIN SELECT RAISE(ABORT, '方案只能软删除'); END;
+
+CREATE TABLE if_report (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scenario_id INTEGER NOT NULL REFERENCES if_scenario(id),
+  run_id INTEGER NOT NULL REFERENCES if_run(id),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('template','model')),
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','pending_review','approved','returned')),
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT,
+  reviewer_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1)),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (status NOT IN ('approved','returned') OR reviewed_at IS NOT NULL)
+);
+CREATE INDEX idx_if_report_scenario ON if_report(scenario_id, id);
+CREATE INDEX idx_if_report_status ON if_report(status, id);
+CREATE TRIGGER trg_if_report_content BEFORE UPDATE OF content, run_id, scenario_id, source, model, prompt_version ON if_report
+  BEGIN SELECT RAISE(ABORT, '可行性报告正文与依据运行不可修改,请重新生成'); END;
+CREATE TRIGGER trg_if_report_approved BEFORE UPDATE ON if_report WHEN OLD.status = 'approved'
+  BEGIN SELECT RAISE(ABORT, '已复核通过的可行性报告不可修改'); END;
+CREATE TRIGGER trg_if_report_d BEFORE DELETE ON if_report BEGIN SELECT RAISE(ABORT, '可行性报告不可删除'); END;
+
+/* 新权限 investment:review 授予已存在的业务复核角色。 */
+INSERT OR IGNORE INTO app_role_permission (role_id, permission) SELECT id, 'investment:review' FROM app_role WHERE code = 'business_reviewer';
+`,
+  },
 ];

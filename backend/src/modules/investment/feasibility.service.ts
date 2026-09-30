@@ -6,6 +6,7 @@
  * - 测算在事务外计算,再在短事务里写入冻结的运行记录(输入、hash、结果);运行不可修改/删除。
  * - 方案当前 hash(项目年份 + 输入)与最新运行不同即“结果需重算”。
  * - 敏感性分析作为后台任务执行(重任务并发 1),结果冻结为 sensitivity 运行。
+ * - T-7:每项目至多一个基准方案;方案软删除(已有可行性报告的方案不能删除),删除后与不存在同为 404,运行记录保留。
  */
 import type { DB } from '../../db/connection';
 import { AppError, Errors, type RowError } from '../../core/errors';
@@ -32,17 +33,18 @@ export interface FeasProjectRow {
   construction_start_year: number; operation_start_year: number; horizon_years: number; status: 'active' | 'archived'; version: number;
   created_by_user_id: number | null; created_at: string; updated_at: string;
 }
-interface ScenarioRow {
+export interface ScenarioRow {
   id: number; project_id: number; code: string; name: string; assumptions_json: string; assumptions_hash: string;
   source_file_object_id: number | null; source_file_name: string | null; version: number; created_by_user_id: number | null; created_at: string; updated_at: string;
+  is_baseline: number; deleted_at: string | null; deleted_by_user_id: number | null;
 }
-interface RunRow {
+export interface RunRow {
   id: number; scenario_id: number; kind: 'base' | 'sensitivity'; scenario_version: number; project_years_json: string; assumptions_json: string; parameter_hash: string;
   model_version: string; status: 'succeeded' | 'failed'; all_checks_passed: number | null; result_json: string | null; error_message: string | null;
   created_by_user_id: number | null; created_at: string;
 }
 
-const userName = (db: DB, id: number | null): string | null =>
+export const userName = (db: DB, id: number | null): string | null =>
   id == null ? null : ((db.prepare('SELECT COALESCE(NULLIF(display_name, \'\'), username) AS n FROM app_user WHERE id = ?').get(id) as { n: string } | undefined)?.n ?? null);
 
 export function visibleFeasProject(db: DB, id: number): FeasProjectRow {
@@ -50,14 +52,14 @@ export function visibleFeasProject(db: DB, id: number): FeasProjectRow {
   if (!row || !orgInScope(currentOrgScope(db), row.org_id)) throw notVisible('可行性项目');
   return row;
 }
-function visibleScenario(db: DB, id: number): { scenario: ScenarioRow; project: FeasProjectRow } {
+export function visibleScenario(db: DB, id: number): { scenario: ScenarioRow; project: FeasProjectRow } {
   const scenario = db.prepare('SELECT * FROM if_scenario WHERE id = ?').get(id) as ScenarioRow | undefined;
-  if (!scenario) throw notVisible('测算方案');
+  if (!scenario || scenario.deleted_at) throw notVisible('测算方案');
   const project = db.prepare('SELECT * FROM if_project WHERE id = ?').get(scenario.project_id) as FeasProjectRow;
   if (!orgInScope(currentOrgScope(db), project.org_id)) throw notVisible('测算方案');
   return { scenario, project };
 }
-function assertActiveProject(p: FeasProjectRow): void {
+export function assertActiveProject(p: FeasProjectRow): void {
   if (p.status !== 'active') throw conflict('FEAS_STATE', '项目已归档,不能修改方案或测算');
 }
 
@@ -66,13 +68,13 @@ export const projectYears = (p: Pick<FeasProjectRow, 'construction_start_year' |
 /** 方案当前参数 hash:与计算结果 parameterHash 同口径(项目年份 + 规范化输入)。 */
 export const currentParameterHash = (p: FeasProjectRow, a: FeasibilityAssumptions) => canonicalHash({ project: projectYears(p), assumptions: a });
 
-function orgName(db: DB, id: number): string {
+export function orgName(db: DB, id: number): string {
   return (db.prepare('SELECT name FROM org WHERE id = ?').get(id) as { name: string } | undefined)?.name ?? '';
 }
 
 function toProjectDto(db: DB, p: FeasProjectRow) {
   const md = p.md_project_id == null ? null : db.prepare('SELECT code, name FROM md_project WHERE id = ?').get(p.md_project_id) as { code: string; name: string } | undefined;
-  const scenarioCount = (db.prepare('SELECT COUNT(*) AS n FROM if_scenario WHERE project_id = ?').get(p.id) as { n: number }).n;
+  const scenarioCount = (db.prepare('SELECT COUNT(*) AS n FROM if_scenario WHERE project_id = ? AND deleted_at IS NULL').get(p.id) as { n: number }).n;
   return {
     id: p.id, code: p.code, name: p.name, orgId: p.org_id, orgName: orgName(db, p.org_id), mdProjectId: p.md_project_id, mdProjectCode: md?.code ?? null,
     description: p.description, constructionStartYear: p.construction_start_year, operationStartYear: p.operation_start_year, horizonYears: p.horizon_years,
@@ -90,7 +92,7 @@ function runSummary(db: DB, r: RunRow) {
   };
 }
 
-function latestBaseRun(db: DB, scenarioId: number): RunRow | undefined {
+export function latestBaseRun(db: DB, scenarioId: number): RunRow | undefined {
   return db.prepare("SELECT * FROM if_run WHERE scenario_id = ? AND kind = 'base' ORDER BY id DESC LIMIT 1").get(scenarioId) as RunRow | undefined;
 }
 
@@ -100,6 +102,8 @@ function toScenarioDto(db: DB, s: ScenarioRow, p: FeasProjectRow) {
   const hash = currentParameterHash(p, assumptions);
   return {
     id: s.id, projectId: s.project_id, code: s.code, name: s.name, assumptions, parameterHash: hash, sourceFileName: s.source_file_name,
+    isBaseline: s.is_baseline === 1,
+    reportCount: (db.prepare('SELECT COUNT(*) AS n FROM if_report WHERE scenario_id = ?').get(s.id) as { n: number }).n,
     version: s.version, createdAt: s.created_at, updatedAt: s.updated_at,
     latestRun: latest ? runSummary(db, latest) : null,
     /** 最新运行的参数与当前不同(或尚未测算):页面提示“参数已修改,结果需重算” */
@@ -169,14 +173,15 @@ export function updateFeasProject(db: DB, id: number, input: {
 
 export function getFeasProject(db: DB, id: number) {
   const p = visibleFeasProject(db, id);
-  const scenarios = db.prepare('SELECT * FROM if_scenario WHERE project_id = ? ORDER BY id').all(id) as ScenarioRow[];
+  const scenarios = db.prepare('SELECT * FROM if_scenario WHERE project_id = ? AND deleted_at IS NULL ORDER BY is_baseline DESC, id').all(id) as ScenarioRow[];
   return { ...toProjectDto(db, p), scenarios: scenarios.map((s) => toScenarioDto(db, s, p)) };
 }
 
 // ---------------- 方案 ----------------
 
 function insertScenario(db: DB, projectId: number, code: string, name: string, a: FeasibilityAssumptions, source?: { fileObjectId: number; fileName: string }): number {
-  if (db.prepare('SELECT 1 FROM if_scenario WHERE project_id = ? AND code = ?').get(projectId, code)) throw conflict('DUPLICATE', `方案编码 ${code} 已存在`);
+  const dup = db.prepare('SELECT deleted_at FROM if_scenario WHERE project_id = ? AND code = ?').get(projectId, code) as { deleted_at: string | null } | undefined;
+  if (dup) throw conflict('DUPLICATE', dup.deleted_at ? `方案编码 ${code} 已被已删除的方案占用,请换一个编码` : `方案编码 ${code} 已存在`);
   const now = nowIso();
   return Number(db.prepare(`INSERT INTO if_scenario (project_id, code, name, assumptions_json, assumptions_hash, source_file_object_id, source_file_name,
     created_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -215,6 +220,36 @@ export function copyFeasScenario(db: DB, id: number, input: { code: string; name
     writeLog(db, 'investment.feasibility.scenario.copy', 'if_scenario', newId, { fromScenarioId: id });
     return getFeasScenario(db, newId);
   })();
+}
+
+/** 设为基准方案:同项目原基准自动取消(两者版本号均递增)。 */
+export function setFeasBaseline(db: DB, id: number, expectedVersion: number) {
+  db.transaction(() => {
+    const { scenario, project } = visibleScenario(db, id);
+    assertActiveProject(project);
+    if (scenario.version !== expectedVersion) throw conflict('VERSION_CONFLICT', '方案已被其他人修改,请刷新后重试', { currentVersion: scenario.version });
+    if (scenario.is_baseline === 1) return;
+    const now = nowIso();
+    const prev = db.prepare('SELECT id FROM if_scenario WHERE project_id = ? AND is_baseline = 1').get(project.id) as { id: number } | undefined;
+    if (prev) db.prepare('UPDATE if_scenario SET is_baseline = 0, version = version + 1, updated_at = ? WHERE id = ?').run(now, prev.id);
+    db.prepare('UPDATE if_scenario SET is_baseline = 1, version = version + 1, updated_at = ? WHERE id = ?').run(now, id);
+    writeLog(db, 'investment.feasibility.scenario.baseline', 'if_scenario', id, { projectId: project.id, previousBaselineId: prev?.id ?? null });
+  }).immediate();
+  return getFeasScenario(db, id);
+}
+
+/** 删除方案(软删):已有可行性报告的方案保留为证据,不能删除;基准方案删除后项目暂无基准。运行记录保留。 */
+export function deleteFeasScenario(db: DB, id: number, expectedVersion: number): void {
+  db.transaction(() => {
+    const { scenario, project } = visibleScenario(db, id);
+    assertActiveProject(project);
+    if (scenario.version !== expectedVersion) throw conflict('VERSION_CONFLICT', '方案已被其他人修改,请刷新后重试', { currentVersion: scenario.version });
+    const reports = (db.prepare('SELECT COUNT(*) AS n FROM if_report WHERE scenario_id = ?').get(id) as { n: number }).n;
+    if (reports) throw conflict('FEAS_SCENARIO_HAS_REPORTS', `方案已有 ${reports} 份可行性报告,作为证据保留,不能删除`);
+    db.prepare('UPDATE if_scenario SET is_baseline = 0, deleted_at = ?, deleted_by_user_id = ?, version = version + 1, updated_at = ? WHERE id = ?')
+      .run(nowIso(), currentAuth()?.userId ?? null, nowIso(), id);
+    writeLog(db, 'investment.feasibility.scenario.delete', 'if_scenario', id, { projectId: project.id, code: scenario.code, wasBaseline: scenario.is_baseline === 1 });
+  }).immediate();
 }
 
 export function getFeasScenario(db: DB, id: number) {

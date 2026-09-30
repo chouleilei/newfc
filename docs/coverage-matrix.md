@@ -20,7 +20,7 @@
 | AC-F09 | `project_budget` | `/project-budget` | `/api/project-budget/preview|import|batches|summary` | 新：独立项目预算域，不读写经营预算事实 | `t4-project-budget.test.ts` | 通过 |
 | AC-F10 | `financial_statements` | `/statements` | `/api/statements/preview|import|batches|overview|trends` | 新：三大报表导入、激活、作废、指标；T-7 多期趋势（当月发生额、缺期不插补） | `t3-statements.test.ts`、`t7-statement-trends.test.ts`、`finance-data.spec.ts` | 通过 |
 | AC-F11 | `finance_forecast` | `/forecast` | `/api/forecast/models|versions|runs|folders|publications` | 新：工作簿导入、公式引擎、冻结、基准/情景运行、对比；T-7 补模型目录、版本复核、运行发布/撤回与已发布列表、基准时间线、运行洞察 | `t5-formula-engine.test.ts`、`t5-forecast.test.ts`、`t6-jobs-restart.test.ts`、`t7-forecast-workflow.test.ts`、`risk-investment.spec.ts` | 通过 |
-| AC-F12 | `investment_feasibility` | `/feasibility` | `/api/investment/feasibility/*` | 新：方案编辑/模板导入、冻结测算、敏感性任务、导出 | `t5-feasibility-calc.test.ts`（11 情形对 Python 参照）、`t5-feasibility.test.ts`、`risk-investment.spec.ts` | 通过 |
+| AC-F12 | `investment_feasibility` | `/feasibility` | `/api/investment/feasibility/*` | 新：方案编辑/模板导入、冻结测算、敏感性任务、导出；T-7 补基准方案、删除方案、可行性报告生成与提交复核 | `t5-feasibility-calc.test.ts`（11 情形对 Python 参照）、`t5-feasibility.test.ts`、`t7-feasibility-workflow.test.ts`、`risk-investment.spec.ts` | 通过 |
 | AC-F13 | `investment_control` | `/investment-control` | `/api/investment/control/*` | 新：概算/预算/结算导入、映射、对比快照、阈值（T-6 可在业务设置配置） | `t5-investment-control.test.ts`、`t6-settings.test.ts`、`risk-investment.spec.ts` | 通过 |
 | AC-F14 | `management_accounting` | `/mgmt`（八个页签） | `/api/mgmt/*` | 新：预警、责任中心、维度、指标、分摊、预算调整、多维分析、绩效；T-4/T-5 接入合同/计划/风险/投资计算器 | `t3-mgmt.test.ts`、`t4-linkage.test.ts`、`t5-linkage.test.ts` | 通过 |
 | AC-F15 | `plan_execution` | `/plan` | `/api/plan/preview|import|batches|overview|projects` | 新：三表模板、当期/累计、形象进度 | `t4-plan.test.ts` | 通过 |
@@ -62,6 +62,7 @@
 | `finance_forecast` | Univer 在线工作簿编辑 + 独立 Node 计算服务、What-if 滑块 | 上传工作簿（JSON 保存）、内置受限公式引擎（Worker 隔离、超时与内存上限）、参数/输出配置、情景运行与基准对比；不提供在线单元格编辑 | 不引入 Univer 计算服务与 MinIO（specs/implementation.md 预测定位）；编辑在 Excel 中完成后导入为新草稿，情景参数替代滑块 |
 | 历史数据 | MySQL/MinIO 运行数据 | newbd 快照用 `import:newbd` 迁入；lishui 业务数据经各域标准文件导入 | 不引入 MySQL；审批流水、会话、模型日志不迁入（OPEN-03 已定） |
 | `risk_workflow` 规则 | `scan.py` 硬编码规则；自定义规则只存元数据、不参与扫描 | 规则 = 计算器 + 阈值/等级/组织；自定义规则复用内置计算器并真正参与扫描 | lishui `PROJECT_CODE_MISSING` → `PLAN_PROJECT_UNMAPPED`（newfc 预算行必须关联项目，缺口只在计划明细）；`CONTRACT_CODE_MISSING` → `CONTRACT_PAY_NO_VOUCHER`（合同编号必填，追溯断点落在付款缺凭证号）；`CONTRACT_OVERPAY` 由数据库约束阻断，保留 `CONTRACT_PAY_OVER_CAP` |
+| `investment_control` 预警 | 投资控制内的预警台账 `/alerts`，逐条 `sync-risk` 手工推送到风险中心 | 不设独立预警台账：`IC_OVER_REDLINE`（超批复概算红线）、`IC_CONTROL_BREAK`（四算控制链被突破）、`IC_DEVIATION_EXCEED`（科目偏差超限）作为风险规则，由风险扫描直接从已确认版本与对比快照生成风险事件，处理/复核在风险台账完成；可行性测算同理（`FEAS_*` 五条） | 同一事实只在风险中心留一条事件与处理记录，避免预警与风险两套状态需要人工同步 |
 | `cross_domain_search` | 无独立路由 | 关键词检索（精确 → 前缀 → 包含），非语义检索 | 结果须可解释且与各页权限同口径 |
 
 ## 未决事项（不属于退出范围）

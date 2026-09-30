@@ -9,7 +9,7 @@ import { memoryUpload, sendAttachment, uploadName } from '../files/http';
 import { id as idSchema } from '../../contracts/common';
 import {
   feasImportConfirm, feasProjectCreate, feasProjectListQuery, feasProjectUpdate, feasRunRequest, feasScenarioCopy, feasScenarioCreate, feasScenarioUpdate,
-  feasSensitivityRequest,
+  feasReportCreate, feasReportListQuery, feasReportReview, feasReportSubmit, feasScenarioCommand, feasSensitivityRequest,
 } from '../../contracts/investment-feasibility';
 import {
   icCompareRequest, icImportConfirm, icImportForm, icMappingUpdate, icProjectCreate, icProjectListQuery, icProjectUpdate, icVersionConfirm, icVersionVoid,
@@ -21,10 +21,13 @@ import {
 } from './control.service';
 import {
   confirmFeasImport, copyFeasScenario, createFeasProject, createFeasScenario, exportFeasRun, exportFeasTemplate, getFeasProject, getFeasRun, getFeasScenario,
-  listFeasProjects, listFeasRuns, previewFeasImport, runFeasScenario, startFeasSensitivity, updateFeasProject, updateFeasScenario,
+  deleteFeasScenario, listFeasProjects, listFeasRuns, previewFeasImport, runFeasScenario, setFeasBaseline, startFeasSensitivity, updateFeasProject, updateFeasScenario,
 } from './feasibility.service';
+import { createFeasReport, getFeasReport, listFeasReports, reviewFeasReport, submitFeasReport } from './feasibility-report.service';
 
 addRouteRules([
+  // 复核人不需要维护权限:先于通用写规则匹配
+  { method: 'WRITE', pattern: /^\/investment\/feasibility\/reports\/\d+\/review$/, permission: 'investment:review' },
   { method: 'GET', pattern: /^\/investment(\/|$)/, permission: 'investment:read' },
   { method: 'WRITE', pattern: /^\/investment(\/|$)/, permission: 'investment:write' },
 ]);
@@ -59,6 +62,22 @@ export function registerInvestmentRoutes(app: Express, db: () => DB, wrap: Wrap,
 
   app.get(`${base}/scenarios/:id`, wrap((req, res) => { res.json(getFeasScenario(db(), id(req.params.id))); }));
   app.patch(`${base}/scenarios/:id`, wrap((req, res) => { res.json(updateFeasScenario(db(), id(req.params.id), parseInput(feasScenarioUpdate, req.body))); }));
+  app.post(`${base}/scenarios/:id/baseline`, wrap((req, res) => {
+    res.json(setFeasBaseline(db(), id(req.params.id), parseInput(feasScenarioCommand, req.body ?? {}).expectedVersion));
+  }));
+  app.delete(`${base}/scenarios/:id`, wrap((req, res) => {
+    deleteFeasScenario(db(), id(req.params.id), parseInput(feasScenarioCommand, queryFields(req)).expectedVersion);
+    res.status(204).end();
+  }));
+  app.get(`${base}/reports`, wrap((req, res) => { res.json(listFeasReports(db(), parseInput(feasReportListQuery, queryFields(req)))); }));
+  app.post(`${base}/scenarios/:id/reports`, wrap(async (req, res) => {
+    res.status(201).json(await createFeasReport(db(), id(req.params.id), parseInput(feasReportCreate, req.body ?? {})));
+  }));
+  app.get(`${base}/reports/:id`, wrap((req, res) => { res.json(getFeasReport(db(), id(req.params.id))); }));
+  app.post(`${base}/reports/:id/submit`, wrap((req, res) => {
+    res.json(submitFeasReport(db(), id(req.params.id), parseInput(feasReportSubmit, req.body ?? {}).expectedVersion));
+  }));
+  app.post(`${base}/reports/:id/review`, wrap((req, res) => { res.json(reviewFeasReport(db(), id(req.params.id), parseInput(feasReportReview, req.body ?? {}))); }));
   app.post(`${base}/scenarios/:id/copy`, wrap((req, res) => { res.status(201).json(copyFeasScenario(db(), id(req.params.id), parseInput(feasScenarioCopy, req.body))); }));
   app.post(`${base}/scenarios/:id/run`, wrap((req, res) => {
     res.status(201).json(runFeasScenario(db(), id(req.params.id), parseInput(feasRunRequest, req.body).expectedVersion));

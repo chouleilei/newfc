@@ -279,3 +279,31 @@ export interface FeasSensitivityItemDto {
   error?: string;
   indicators: { code: string; value: string | null; baseValue: string | null; delta: string | null }[];
 }
+
+/* ---------------- T-7:基准方案、方案删除、可行性报告复核(AC-F12) ---------------- */
+
+export const feasScenarioCommand = z.object({ expectedVersion }).strict();
+export const feasReportCreate = z.object({ title: optionalText(200) }).strict();
+export const feasReportSubmit = z.object({ expectedVersion }).strict();
+export const feasReportReview = z.object({
+  expectedVersion,
+  decision: z.enum(['approve', 'return']),
+  comment: optionalText(2000),
+  exceptionReason: optionalText(500),
+}).strict().refine((v) => v.decision !== 'return' || !!v.comment?.trim(), { message: '退回必须填写意见', path: ['comment'] });
+export const feasReportListQuery = z.object({
+  status: z.enum(['draft', 'pending_review', 'approved', 'returned']).optional(),
+  projectId: id.optional(),
+  scenarioId: id.optional(),
+}).strict();
+
+export type FeasReportStatus = 'draft' | 'pending_review' | 'approved' | 'returned';
+export interface FeasReportDto {
+  id: number; scenarioId: number; scenarioCode: string; scenarioName: string; projectId: number; projectCode: string; projectName: string; orgName: string;
+  runId: number; parameterHash: string; title: string; content: string; source: 'template' | 'model'; model: string; promptVersion: string;
+  status: FeasReportStatus; submittedBy: string | null; submittedAt: string | null;
+  reviewer: string | null; reviewedAt: string | null; reviewComment: string | null; exceptionReason: string | null; selfReview: boolean;
+  /** 报告依据的运行参数与方案当前参数不同:提示“方案已修改,报告依据已过期” */
+  stale: boolean;
+  version: number; createdBy: string | null; createdAt: string; updatedAt: string;
+}

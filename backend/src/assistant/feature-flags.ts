@@ -24,3 +24,5 @@ export function checkpointSummaryAiEnabled(): boolean { return enabled(process.e
 export function riskExplainAiEnabled(): boolean { return enabled(process.env.NEWFC_RISK_AI); }
 /** 财务预测运行洞察改写 */
 export function forecastInsightAiEnabled(): boolean { return enabled(process.env.NEWFC_FORECAST_AI); }
+/** 投资可行性报告草稿改写 */
+export function feasibilityReportAiEnabled(): boolean { return enabled(process.env.NEWFC_FEASIBILITY_AI); }

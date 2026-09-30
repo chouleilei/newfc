@@ -404,7 +404,7 @@ function icDeviationHits(db: DB, rule: RuleRow): RiskHit[] {
 function feasibilityHits(db: DB, rule: RuleRow): RiskHit[] {
   const rows = db.prepare(`SELECT r.id AS run_id, r.parameter_hash, r.result_json, s.id AS scenario_id, s.name AS scenario_name, p.code, p.name, p.org_id, p.md_project_id
     FROM if_run r JOIN if_scenario s ON s.id = r.scenario_id JOIN if_project p ON p.id = s.project_id
-    WHERE p.status = 'active' AND r.id = (SELECT MAX(id) FROM if_run WHERE scenario_id = s.id AND kind = 'base') AND r.status = 'succeeded' ORDER BY s.id`).all() as
+    WHERE p.status = 'active' AND s.deleted_at IS NULL AND r.id = (SELECT MAX(id) FROM if_run WHERE scenario_id = s.id AND kind = 'base') AND r.status = 'succeeded' ORDER BY s.id`).all() as
     { run_id: number; parameter_hash: string; result_json: string; scenario_id: number; scenario_name: string; code: string; name: string; org_id: number; md_project_id: number | null }[];
   const hits: RiskHit[] = [];
   for (const r of rows) {

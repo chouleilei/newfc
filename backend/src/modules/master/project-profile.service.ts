@@ -160,7 +160,7 @@ function investmentSection(db: DB, projectId: number, scope: OrgScope): ProjectP
       latestComparison: cmp && summary ? { id: cmp.id, createdAt: cmp.created_at, totalDeviation: summary.totalDeviation, totalDeviationRate: summary.totalDeviationRate ?? null } : null,
     };
   }
-  const feasibility = db.prepare(`SELECT p.id, p.code, p.name, p.status, (SELECT COUNT(*) FROM if_scenario s WHERE s.project_id = p.id) AS scenarios
+  const feasibility = db.prepare(`SELECT p.id, p.code, p.name, p.status, (SELECT COUNT(*) FROM if_scenario s WHERE s.project_id = p.id AND s.deleted_at IS NULL) AS scenarios
     FROM if_project p WHERE p.md_project_id = ? AND ${scopeFilterSql(scope, 'p.org_id').sql} ORDER BY p.id`)
     .all(projectId, ...scopeFilterSql(scope, 'p.org_id').params) as { id: number; code: string; name: string; status: string; scenarios: number }[];
   return { control, feasibility: feasibility.map((p) => ({ id: p.id, code: p.code, name: p.name, status: p.status, scenarioCount: p.scenarios })) };
