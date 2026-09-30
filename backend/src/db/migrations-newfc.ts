@@ -887,4 +887,419 @@ BEGIN SELECT RAISE(ABORT, '标准报表只能复核一次'); END;
 CREATE TRIGGER trg_std_report_d BEFORE DELETE ON std_report BEGIN SELECT RAISE(ABORT, '标准报表不可删除'); END;
 `,
   },
+  {
+    version: 49,
+    name: 'project_budget',
+    sql: `
+/* project_budget(AC-F09,T-4):项目预算按“年度 + 执行期间”导入批次,每批一个原件;同一年度期间最多一个当前批次。
+   批次涉及的组织由明细 org_id 决定(取 md_project.org_id),组织范围按明细裁剪。明细不可改删。 */
+CREATE TABLE pb_batch (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  year INTEGER NOT NULL CHECK (year BETWEEN 2000 AND 2100),
+  period TEXT NOT NULL CHECK (period GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]' AND substr(period, 1, 4) = CAST(year AS TEXT)),
+  name TEXT NOT NULL,
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  file_sha256 TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'imported' CHECK (status IN ('imported','voided')),
+  is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),
+  row_count INTEGER NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  activated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  activated_at TEXT,
+  voided_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  voided_at TEXT,
+  void_reason TEXT,
+  CHECK (status <> 'voided' OR is_current = 0),
+  UNIQUE (year, period, file_sha256)
+);
+CREATE UNIQUE INDEX idx_pb_batch_current ON pb_batch(year, period) WHERE is_current = 1;
+
+CREATE TABLE pb_entry (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL REFERENCES pb_batch(id),
+  row_no INTEGER NOT NULL,
+  project_id INTEGER NOT NULL REFERENCES md_project(id),
+  project_code TEXT NOT NULL,
+  project_name TEXT NOT NULL,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  fund_source TEXT NOT NULL,
+  expense_category TEXT NOT NULL DEFAULT '',
+  budget_cents INTEGER NOT NULL CHECK (budget_cents >= 0),
+  executed_cents INTEGER NOT NULL CHECK (executed_cents >= 0),
+  exec_month TEXT NOT NULL CHECK (exec_month GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  UNIQUE (batch_id, project_id, fund_source, org_id, expense_category, exec_month)
+);
+CREATE INDEX idx_pb_entry_batch_org ON pb_entry(batch_id, org_id);
+CREATE INDEX idx_pb_entry_project ON pb_entry(project_id);
+CREATE TRIGGER trg_pb_entry_u BEFORE UPDATE ON pb_entry BEGIN SELECT RAISE(ABORT, '项目预算明细不可修改'); END;
+CREATE TRIGGER trg_pb_entry_d BEFORE DELETE ON pb_entry BEGIN SELECT RAISE(ABORT, '项目预算明细不可删除'); END;
+`,
+  },
+  {
+    version: 50,
+    name: 'plan_execution',
+    sql: `
+/* plan_execution(AC-F15,T-4):计划执行按“计划年度 + 实际期间”导入批次。
+   每个字段声明口径 measure,指标只按口径取数,不互相兜底;金额整数分,数量 4 位、比率 6 位缩放整数。
+   明细行 org_id 必填(项目取 md_project.org_id,否则按承办单位解析);分类/小计行不归属组织,只对全组织用户可见。 */
+CREATE TABLE plan_batch (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  year INTEGER NOT NULL CHECK (year BETWEEN 2000 AND 2100),
+  actual_period TEXT NOT NULL CHECK (actual_period GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]' AND substr(actual_period, 1, 4) = CAST(year AS TEXT)),
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  file_sha256 TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  amount_unit TEXT NOT NULL CHECK (amount_unit IN ('yuan','wan')),
+  status TEXT NOT NULL DEFAULT 'imported' CHECK (status IN ('imported','voided')),
+  is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),
+  item_count INTEGER NOT NULL,
+  fact_count INTEGER NOT NULL,
+  sheets_json TEXT NOT NULL DEFAULT '[]',
+  ignored_sheets_json TEXT NOT NULL DEFAULT '[]',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  activated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  activated_at TEXT,
+  voided_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  voided_at TEXT,
+  void_reason TEXT,
+  CHECK (status <> 'voided' OR is_current = 0),
+  UNIQUE (year, actual_period, file_sha256)
+);
+CREATE UNIQUE INDEX idx_plan_batch_current ON plan_batch(year, actual_period) WHERE is_current = 1;
+
+CREATE TABLE plan_item (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL REFERENCES plan_batch(id),
+  sheet_code TEXT NOT NULL CHECK (sheet_code IN ('investment','purchase','maintenance')),
+  row_no INTEGER NOT NULL,
+  seq_no TEXT NOT NULL DEFAULT '',
+  item_name TEXT NOT NULL,
+  item_type TEXT NOT NULL CHECK (item_type IN ('detail','category','subtotal')),
+  path TEXT NOT NULL DEFAULT '',
+  item_key TEXT NOT NULL,
+  project_id INTEGER REFERENCES md_project(id),
+  org_id INTEGER REFERENCES org(id),
+  CHECK (item_type <> 'detail' OR org_id IS NOT NULL),
+  UNIQUE (batch_id, sheet_code, row_no)
+);
+CREATE INDEX idx_plan_item_batch_org ON plan_item(batch_id, org_id);
+CREATE INDEX idx_plan_item_project ON plan_item(project_id);
+
+CREATE TABLE plan_fact (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id INTEGER NOT NULL REFERENCES plan_batch(id),
+  item_id INTEGER NOT NULL REFERENCES plan_item(id),
+  field_key TEXT NOT NULL,
+  measure TEXT NOT NULL CHECK (measure IN ('annual_plan','annual_actual_ytd','cumulative','total','snapshot')),
+  value_type TEXT NOT NULL CHECK (value_type IN ('amount','quantity','ratio','text')),
+  amount_cents INTEGER,
+  scaled_value INTEGER,
+  text_value TEXT,
+  source_cell TEXT NOT NULL,
+  CHECK ((value_type = 'amount') = (amount_cents IS NOT NULL)),
+  CHECK ((value_type IN ('quantity','ratio')) = (scaled_value IS NOT NULL)),
+  UNIQUE (item_id, field_key)
+);
+CREATE INDEX idx_plan_fact_batch ON plan_fact(batch_id, field_key);
+CREATE TRIGGER trg_plan_item_u BEFORE UPDATE ON plan_item BEGIN SELECT RAISE(ABORT, '计划执行行不可修改'); END;
+CREATE TRIGGER trg_plan_item_d BEFORE DELETE ON plan_item BEGIN SELECT RAISE(ABORT, '计划执行行不可删除'); END;
+CREATE TRIGGER trg_plan_fact_u BEFORE UPDATE ON plan_fact BEGIN SELECT RAISE(ABORT, '计划执行事实不可修改'); END;
+CREATE TRIGGER trg_plan_fact_d BEFORE DELETE ON plan_fact BEGIN SELECT RAISE(ABORT, '计划执行事实不可删除'); END;
+`,
+  },
+  {
+    version: 51,
+    name: 'project_contract',
+    sql: `
+/* project_contract / contract_import(AC-F16 / AC-F04,T-4)。
+   当前金额 = 原始金额 + 已批准变更;已付只由支付登记(含导入基线)累加,且不超过当前金额。
+   文档、事件只追加;审核/变更/付款复核一次定论。阶段:initiation→procurement→drafting→approval→performance→settlement→archived。 */
+CREATE TABLE ct_import (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  file_sha256 TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  row_count INTEGER NOT NULL,
+  error_count INTEGER NOT NULL,
+  plan_hash TEXT NOT NULL,
+  plan_json TEXT NOT NULL,
+  errors_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'previewed' CHECK (status IN ('previewed','confirmed')),
+  result_json TEXT,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  confirmed_at TEXT
+);
+
+CREATE TABLE ct_contract (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contract_no TEXT NOT NULL,
+  normalized_no TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  contract_type TEXT NOT NULL DEFAULT '',
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  project_id INTEGER REFERENCES md_project(id),
+  supplier_id INTEGER REFERENCES md_supplier(id),
+  original_cents INTEGER NOT NULL DEFAULT 0 CHECK (original_cents >= 0),
+  approved_change_cents INTEGER NOT NULL DEFAULT 0,
+  paid_cents INTEGER NOT NULL DEFAULT 0 CHECK (paid_cents >= 0),
+  payment_cap_ratio_scaled INTEGER CHECK (payment_cap_ratio_scaled IS NULL OR payment_cap_ratio_scaled BETWEEN 0 AND 1000000),
+  stage TEXT NOT NULL DEFAULT 'initiation' CHECK (stage IN ('initiation','procurement','drafting','approval','performance','settlement','archived')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','closed','terminated','voided')),
+  status_reason TEXT,
+  sign_date TEXT,
+  effective_date TEXT,
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','import')),
+  import_id INTEGER REFERENCES ct_import(id),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (original_cents + approved_change_cents >= 0),
+  CHECK (paid_cents <= original_cents + approved_change_cents)
+);
+CREATE INDEX idx_ct_contract_org ON ct_contract(org_id, status);
+CREATE INDEX idx_ct_contract_project ON ct_contract(project_id);
+
+CREATE TABLE ct_document (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contract_id INTEGER NOT NULL REFERENCES ct_contract(id),
+  doc_type TEXT NOT NULL CHECK (doc_type IN ('procurement','contract_text','signed','performance','acceptance','invoice','change','settlement','other')),
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  name TEXT NOT NULL,
+  uploaded_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  uploaded_at TEXT NOT NULL
+);
+CREATE INDEX idx_ct_document_contract ON ct_document(contract_id, doc_type);
+CREATE TRIGGER trg_ct_document_u BEFORE UPDATE ON ct_document BEGIN SELECT RAISE(ABORT, '合同文档不可修改'); END;
+CREATE TRIGGER trg_ct_document_d BEFORE DELETE ON ct_document BEGIN SELECT RAISE(ABORT, '合同文档不可删除'); END;
+
+CREATE TABLE ct_review (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contract_id INTEGER NOT NULL REFERENCES ct_contract(id),
+  document_id INTEGER NOT NULL REFERENCES ct_document(id),
+  status TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','approved','rejected')),
+  submit_note TEXT NOT NULL DEFAULT '',
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1))
+);
+CREATE UNIQUE INDEX idx_ct_review_pending ON ct_review(contract_id) WHERE status = 'submitted';
+
+CREATE TABLE ct_change (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contract_id INTEGER NOT NULL REFERENCES ct_contract(id),
+  delta_cents INTEGER NOT NULL CHECK (delta_cents <> 0),
+  reason TEXT NOT NULL,
+  evidence_document_id INTEGER NOT NULL REFERENCES ct_document(id),
+  status TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','approved','rejected')),
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1))
+);
+CREATE INDEX idx_ct_change_contract ON ct_change(contract_id, status);
+
+CREATE TABLE ct_payment (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contract_id INTEGER NOT NULL REFERENCES ct_contract(id),
+  kind TEXT NOT NULL DEFAULT 'normal' CHECK (kind IN ('normal','import_baseline')),
+  node_name TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  planned_date TEXT,
+  evidence_document_id INTEGER REFERENCES ct_document(id),
+  status TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','approved','rejected','paid')),
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1)),
+  paid_date TEXT,
+  voucher_no TEXT,
+  invoice_document_id INTEGER REFERENCES ct_document(id),
+  paid_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  paid_at TEXT,
+  CHECK (status <> 'paid' OR (paid_date IS NOT NULL AND (kind = 'import_baseline' OR invoice_document_id IS NOT NULL)))
+);
+CREATE INDEX idx_ct_payment_contract ON ct_payment(contract_id, status);
+CREATE INDEX idx_ct_payment_paid ON ct_payment(status, paid_date);
+
+CREATE TABLE ct_event (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contract_id INTEGER NOT NULL REFERENCES ct_contract(id),
+  event_type TEXT NOT NULL,
+  from_stage TEXT,
+  to_stage TEXT,
+  detail_json TEXT NOT NULL DEFAULT '{}',
+  actor_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_ct_event_contract ON ct_event(contract_id, id);
+CREATE TRIGGER trg_ct_event_u BEFORE UPDATE ON ct_event BEGIN SELECT RAISE(ABORT, '合同事件只追加'); END;
+CREATE TRIGGER trg_ct_event_d BEFORE DELETE ON ct_event BEGIN SELECT RAISE(ABORT, '合同事件只追加'); END;
+CREATE TRIGGER trg_ct_review_once BEFORE UPDATE OF status ON ct_review WHEN OLD.status <> 'submitted'
+BEGIN SELECT RAISE(ABORT, '合同审核只能处理一次'); END;
+CREATE TRIGGER trg_ct_change_once BEFORE UPDATE OF status ON ct_change WHEN OLD.status <> 'submitted'
+BEGIN SELECT RAISE(ABORT, '合同变更只能复核一次'); END;
+CREATE TRIGGER trg_ct_payment_flow BEFORE UPDATE OF status ON ct_payment
+WHEN NOT ((OLD.status = 'submitted' AND NEW.status IN ('approved','rejected')) OR (OLD.status = 'approved' AND NEW.status = 'paid'))
+BEGIN SELECT RAISE(ABORT, '付款状态只能按 提交→批准/驳回→支付 推进'); END;
+`,
+  },
+  {
+    version: 52,
+    name: 'expense_audit',
+    sql: `
+/* expense_audit(AC-F22,T-4):报销单在本系统原生登记;制度依据按条款维护,规则阈值与材料要求来自条款。
+   审核运行、发现、人工复核只追加;提交后单据内容冻结(content_sha256),补件只追加附件。 */
+CREATE TABLE ex_policy (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL,
+  title TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version >= 1),
+  effective_from TEXT NOT NULL CHECK (effective_from GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]'),
+  effective_to TEXT CHECK (effective_to IS NULL OR effective_to >= effective_from),
+  file_object_id INTEGER REFERENCES file_object(id),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (code, version)
+);
+
+CREATE TABLE ex_policy_clause (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  policy_id INTEGER NOT NULL REFERENCES ex_policy(id),
+  clause_no TEXT NOT NULL,
+  clause_text TEXT NOT NULL,
+  expense_types_json TEXT NOT NULL DEFAULT '[]',
+  limit_cents INTEGER CHECK (limit_cents IS NULL OR limit_cents >= 0),
+  required_keywords_json TEXT NOT NULL DEFAULT '[]',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (policy_id, clause_no)
+);
+/* 条款随制度版本冻结:修改制度 = 新版本;已被审核运行引用的条款保持可追溯。 */
+CREATE TRIGGER trg_ex_policy_clause_u BEFORE UPDATE ON ex_policy_clause BEGIN SELECT RAISE(ABORT, '制度条款不可修改,请发布新版本'); END;
+CREATE TRIGGER trg_ex_policy_clause_d BEFORE DELETE ON ex_policy_clause BEGIN SELECT RAISE(ABORT, '制度条款不可删除'); END;
+
+CREATE TABLE ex_claim (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_no TEXT NOT NULL UNIQUE,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  applicant TEXT NOT NULL,
+  department TEXT NOT NULL DEFAULT '',
+  expense_type TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  occurred_date TEXT NOT NULL CHECK (occurred_date GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]'),
+  description TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','submitted','audited','reviewed','supplement')),
+  conclusion TEXT CHECK (conclusion IS NULL OR conclusion IN ('pass','reject')),
+  review_version INTEGER NOT NULL DEFAULT 1,
+  content_sha256 TEXT,
+  submit_round INTEGER NOT NULL DEFAULT 0,
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_ex_claim_org ON ex_claim(org_id, status);
+
+CREATE TABLE ex_claim_line (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_id INTEGER NOT NULL REFERENCES ex_claim(id),
+  line_no INTEGER NOT NULL,
+  expense_type TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  invoice_no TEXT NOT NULL DEFAULT '',
+  invoice_date TEXT,
+  description TEXT NOT NULL DEFAULT '',
+  UNIQUE (claim_id, line_no)
+);
+
+CREATE TABLE ex_attachment (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_id INTEGER NOT NULL REFERENCES ex_claim(id),
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  file_sha256 TEXT NOT NULL,
+  name TEXT NOT NULL,
+  kind_hint TEXT NOT NULL DEFAULT '',
+  submit_round INTEGER NOT NULL,
+  uploaded_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  uploaded_at TEXT NOT NULL
+);
+CREATE INDEX idx_ex_attachment_claim ON ex_attachment(claim_id);
+CREATE TRIGGER trg_ex_attachment_u BEFORE UPDATE ON ex_attachment BEGIN SELECT RAISE(ABORT, '报销附件不可修改'); END;
+
+/* OCR 结果按附件内容摘要缓存,同一原件不重复识别。 */
+CREATE TABLE ex_ocr_cache (
+  sha256 TEXT PRIMARY KEY CHECK (length(sha256) = 64),
+  text_content TEXT NOT NULL,
+  pages_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE ex_audit_run (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_id INTEGER NOT NULL REFERENCES ex_claim(id),
+  review_version INTEGER NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  job_id INTEGER,
+  risk_level TEXT NOT NULL CHECK (risk_level IN ('low','medium','high')),
+  ocr_status TEXT NOT NULL CHECK (ocr_status IN ('ok','unavailable','failed','not_needed')),
+  model_status TEXT NOT NULL CHECK (model_status IN ('ok','unavailable','invalid','failed')),
+  policy_refs_json TEXT NOT NULL DEFAULT '[]',
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_ex_audit_run_claim ON ex_audit_run(claim_id, id);
+
+CREATE TABLE ex_finding (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES ex_audit_run(id),
+  source TEXT NOT NULL CHECK (source IN ('rule','ocr','model')),
+  code TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('info','low','medium','high')),
+  message TEXT NOT NULL,
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  clause_id INTEGER REFERENCES ex_policy_clause(id)
+);
+CREATE INDEX idx_ex_finding_run ON ex_finding(run_id);
+
+CREATE TABLE ex_review (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_id INTEGER NOT NULL REFERENCES ex_claim(id),
+  run_id INTEGER NOT NULL REFERENCES ex_audit_run(id),
+  review_version INTEGER NOT NULL,
+  conclusion TEXT NOT NULL CHECK (conclusion IN ('pass','reject','supplement_required')),
+  dispositions_json TEXT NOT NULL,
+  comment TEXT NOT NULL DEFAULT '',
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1)),
+  reviewer_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (claim_id, review_version)
+);
+CREATE TRIGGER trg_ex_audit_run_u BEFORE UPDATE ON ex_audit_run BEGIN SELECT RAISE(ABORT, '审核运行只追加'); END;
+CREATE TRIGGER trg_ex_audit_run_d BEFORE DELETE ON ex_audit_run BEGIN SELECT RAISE(ABORT, '审核运行只追加'); END;
+CREATE TRIGGER trg_ex_finding_u BEFORE UPDATE ON ex_finding BEGIN SELECT RAISE(ABORT, '审核发现只追加'); END;
+CREATE TRIGGER trg_ex_finding_d BEFORE DELETE ON ex_finding BEGIN SELECT RAISE(ABORT, '审核发现只追加'); END;
+CREATE TRIGGER trg_ex_review_u BEFORE UPDATE ON ex_review BEGIN SELECT RAISE(ABORT, '复核记录不可修改'); END;
+CREATE TRIGGER trg_ex_review_d BEFORE DELETE ON ex_review BEGIN SELECT RAISE(ABORT, '复核记录不可删除'); END;
+`,
+  },
 ];

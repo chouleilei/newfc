@@ -13,7 +13,7 @@ import { MAX_IMPORT_ROWS } from './import-limits';
 import { assertSafeXlsx } from './xlsx-guard';
 
 export interface TableRow { rowNo: number; values: Record<string, string> }
-export interface ReadTable { headers: string[]; rows: TableRow[] }
+export interface ReadTable { headers: string[]; rows: TableRow[]; headerRowNo?: number }
 
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -65,9 +65,16 @@ function normalizeHeader(value: string): string {
   return value.replace(/^﻿/, '').replace(/\s+/g, '').trim();
 }
 
-function toTable(matrix: { rowNo: number; cells: string[] }[], maxRows: number): ReadTable {
-  const headerIndex = matrix.findIndex((r) => r.cells.some((c) => c.trim() !== ''));
-  if (headerIndex < 0) throw Errors.validation('文件没有表头');
+export interface MatrixRow { rowNo: number; cells: string[] }
+export interface ReadSheet { name: string; hidden: boolean; rows: MatrixRow[] }
+/** 表头定位:缺省取第一个非空行;给出 isHeader 时在前 within 行内找第一行满足条件的行(模板常有标题/单位行)。 */
+export interface HeaderLocator { isHeader: (cells: string[]) => boolean; within?: number; label?: string }
+
+function toTable(matrix: MatrixRow[], maxRows: number, locator?: HeaderLocator): ReadTable {
+  const headerIndex = locator
+    ? matrix.slice(0, locator.within ?? 20).findIndex((r) => locator.isHeader(r.cells.map(normalizeHeader)))
+    : matrix.findIndex((r) => r.cells.some((c) => c.trim() !== ''));
+  if (headerIndex < 0) throw Errors.validation(locator ? `前 ${locator.within ?? 20} 行内未找到${locator.label ?? '表头'}` : '文件没有表头');
   const headers = matrix[headerIndex].cells.map(normalizeHeader);
   const seen = new Set<string>();
   for (const h of headers) {
@@ -83,10 +90,48 @@ function toTable(matrix: { rowNo: number; cells: string[] }[], maxRows: number):
     headers.forEach((h, i) => { if (h) values[h] = (r.cells[i] ?? '').trim(); });
     rows.push({ rowNo: r.rowNo, values });
   }
-  return { headers: headers.filter(Boolean), rows };
+  return { headers: headers.filter(Boolean), rows, headerRowNo: matrix[headerIndex].rowNo };
 }
 
-export async function readTable(content: Buffer, fileName: string, maxRows = MAX_IMPORT_ROWS): Promise<ReadTable> {
+export function normalizeHeaderText(value: string): string {
+  return normalizeHeader(value);
+}
+
+/** 已读入的工作表矩阵 → 表头 + 文本行(多 sheet 模板逐表调用)。 */
+export function sheetTable(sheet: ReadSheet, locator?: HeaderLocator, maxRows = MAX_IMPORT_ROWS): ReadTable {
+  return toTable(sheet.rows, maxRows, locator);
+}
+
+async function loadWorkbook(content: Buffer, maxRows: number): Promise<ExcelJS.Workbook> {
+  if (!content.length) throw Errors.validation('上传文件为空');
+  await assertSafeXlsx(content, maxRows);
+  const wb = new ExcelJS.Workbook();
+  try {
+    await wb.xlsx.load(content as unknown as ExcelJS.Buffer);
+  } catch {
+    throw Errors.validation('不是有效的 xlsx 文件');
+  }
+  return wb;
+}
+
+function sheetMatrix(sheet: ExcelJS.Worksheet): MatrixRow[] {
+  const matrix: MatrixRow[] = [];
+  // 隐藏行同样读入:原始事实不能因为显示状态被静默丢弃
+  sheet.eachRow({ includeEmpty: false }, (row, rowNo) => {
+    const cells: string[] = [];
+    for (let c = 1; c <= sheet.columnCount; c++) cells.push(cellText(row.getCell(c)));
+    matrix.push({ rowNo, cells });
+  });
+  return matrix;
+}
+
+/** 读取 xlsx 全部工作表为文本矩阵(含隐藏表,由调用方决定是否忽略并列出)。 */
+export async function readWorkbookSheets(content: Buffer, maxRows = MAX_IMPORT_ROWS): Promise<ReadSheet[]> {
+  const wb = await loadWorkbook(content, maxRows);
+  return wb.worksheets.map((ws) => ({ name: ws.name.trim(), hidden: ws.state !== 'visible', rows: sheetMatrix(ws) }));
+}
+
+export async function readTable(content: Buffer, fileName: string, maxRows = MAX_IMPORT_ROWS, locator?: HeaderLocator): Promise<ReadTable> {
   const ext = path.extname(fileName).toLowerCase();
   if (!content.length) throw Errors.validation('上传文件为空');
   if (ext === '.csv') {
@@ -98,26 +143,13 @@ export async function readTable(content: Buffer, fileName: string, maxRows = MAX
     }
     const matrix = parseCsv(text.replace(/^﻿/, '')).map((cells, i) => ({ rowNo: i + 1, cells }));
     if (matrix.length > maxRows + 1 + 1000) throw Errors.validation(`数据行超过安全上限 ${maxRows} 行(不含表头)`);
-    return toTable(matrix, maxRows);
+    return toTable(matrix, maxRows, locator);
   }
   if (ext === '.xlsx') {
-    await assertSafeXlsx(content, maxRows);
-    const wb = new ExcelJS.Workbook();
-    try {
-      await wb.xlsx.load(content as unknown as ExcelJS.Buffer);
-    } catch {
-      throw Errors.validation('不是有效的 xlsx 文件');
-    }
+    const wb = await loadWorkbook(content, maxRows);
     const sheet = wb.worksheets[0];
     if (!sheet) throw Errors.validation('工作簿没有工作表');
-    const matrix: { rowNo: number; cells: string[] }[] = [];
-    // 隐藏行同样读入:原始事实不能因为显示状态被静默丢弃
-    sheet.eachRow({ includeEmpty: false }, (row, rowNo) => {
-      const cells: string[] = [];
-      for (let c = 1; c <= sheet.columnCount; c++) cells.push(cellText(row.getCell(c)));
-      matrix.push({ rowNo, cells });
-    });
-    return toTable(matrix, maxRows);
+    return toTable(sheetMatrix(sheet), maxRows, locator);
   }
   throw Errors.validation('仅支持 .csv 或 .xlsx 文件');
 }

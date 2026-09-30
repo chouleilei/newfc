@@ -93,3 +93,27 @@ export function requireCurrentAllOrgs(what: string): void {
   const auth = currentAuth();
   if (auth && !auth.allOrgs) requireAllOrgs(auth, what);
 }
+
+/** 当前请求的组织范围;无身份上下文(系统任务/测试直调)视为全组织。 */
+export function currentOrgScope(db: DB): OrgScope {
+  const auth = currentAuth();
+  return auth ? resolveOrgScope(db, auth) : { all: true };
+}
+
+/** 组织范围 → SQL 条件(column IN (...))。 */
+export function scopeFilterSql(scope: OrgScope, column: string): { sql: string; params: number[] } {
+  if (scope.all) return { sql: '1=1', params: [] };
+  if (scope.orgIds.size === 0) return { sql: '0=1', params: [] };
+  return { sql: `${column} IN (${[...scope.orgIds].map(() => '?').join(',')})`, params: [...scope.orgIds] };
+}
+
+/**
+ * 跨组织批次的写操作(导入、激活、作废)要求批次涉及的全部组织都在范围内,
+ * 否则受控拒绝(SCOPE_RESTRICTED),不静默只处理一部分。
+ */
+export function assertFullScope(scope: OrgScope, orgIds: Iterable<number>, what: string): void {
+  if (scope.all) return;
+  for (const id of orgIds) {
+    if (!scope.orgIds.has(id)) throw new AppError('SCOPE_RESTRICTED', `${what}涉及当前账号未授权的组织,只能由拥有全部相关组织权限的用户操作`, 403);
+  }
+}
