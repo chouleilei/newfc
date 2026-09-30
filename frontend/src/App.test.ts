@@ -3,7 +3,7 @@
  * dataMenuKey 归并(导入批次/一致性检查恢复为独立入口)与 pageTitle 特判。
  */
 import { describe, expect, it } from 'vitest';
-import { dataMenuKey, filterMenuByPermission, pageTitle, selectedKey } from './App';
+import { dataMenuKey, filterMenuByPermission, MENU_PERMISSION, pageTitle, selectedKey } from './App';
 
 describe('侧栏高亮与归并(阶段一)', () => {
   it('新增叶子项均在 selectedKey 白名单内', () => {
@@ -74,5 +74,18 @@ describe('侧栏按权限裁剪(AC-X04)', () => {
     const all = () => true;
     expect(keys(filterMenuByPermission(list, all, false))).toEqual(['grp-analysis', '/analysis']);
     expect(keys(filterMenuByPermission(list, all, true))).toEqual(['grp-budget', '/budget', '/progress', 'grp-analysis', '/analysis', '/history']);
+  });
+});
+
+describe('T-5 投资与预测、风险与报告入口', () => {
+  it('新叶子项高亮、标题与权限', () => {
+    for (const [key, title, perm] of [
+      ['/feasibility', '可行性测算', 'investment:read'], ['/investment-control', '投资控制', 'investment:read'], ['/forecast', '财务预测', 'forecast:read'],
+      ['/risk', '风险台账', 'risk:read'], ['/analysis-reports', '分析报告', 'report:read'],
+    ] as const) {
+      expect(selectedKey(key, '?status=open')).toBe(key);
+      expect(pageTitle(key, '', key)).toBe(title);
+      expect(MENU_PERMISSION[key]).toBe(perm);
+    }
   });
 });

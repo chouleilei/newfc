@@ -57,6 +57,11 @@ const Contracts = lazyWithRetry(() => import('./pages/project/Contracts'));
 const ContractImport = lazyWithRetry(() => import('./pages/project/ContractImport'));
 const ExpenseClaims = lazyWithRetry(() => import('./pages/expense/ExpenseClaims'));
 const ExpensePolicies = lazyWithRetry(() => import('./pages/expense/ExpensePolicies'));
+const Feasibility = lazyWithRetry(() => import('./pages/invest/Feasibility'));
+const InvestmentControl = lazyWithRetry(() => import('./pages/invest/InvestmentControl'));
+const Forecast = lazyWithRetry(() => import('./pages/invest/Forecast'));
+const RiskLedger = lazyWithRetry(() => import('./pages/risk/RiskLedger'));
+const AnalysisReports = lazyWithRetry(() => import('./pages/risk/AnalysisReports'));
 
 const { Sider, Header, Content, Footer } = Layout;
 
@@ -151,6 +156,25 @@ export const menuItems: MenuProps['items'] = [
       { key: '/expense/policies', label: '制度依据' },
     ],
   },
+  {
+    key: 'grp-invest',
+    icon: <i className="ri-line-chart-line" aria-hidden />,
+    label: '投资与预测',
+    children: [
+      { key: '/feasibility', label: '可行性测算' },
+      { key: '/investment-control', label: '投资控制' },
+      { key: '/forecast', label: '财务预测' },
+    ],
+  },
+  {
+    key: 'grp-risk',
+    icon: <i className="ri-shield-check-line" aria-hidden />,
+    label: '风险与报告',
+    children: [
+      { key: '/risk', label: '风险台账' },
+      { key: '/analysis-reports', label: '分析报告' },
+    ],
+  },
   { key: '/mgmt', icon: <i className="ri-scales-3-line" aria-hidden />, label: '管理会计' },
   { key: '/standard-reports', icon: <i className="ri-file-list-3-line" aria-hidden />, label: '标准报表' },
   {
@@ -211,6 +235,11 @@ export const MENU_PERMISSION: Record<string, string> = {
   '/contracts/import': 'contract:import',
   '/expense': 'expense:read',
   '/expense/policies': 'expense:read',
+  '/feasibility': 'investment:read',
+  '/investment-control': 'investment:read',
+  '/forecast': 'forecast:read',
+  '/risk': 'risk:read',
+  '/analysis-reports': 'report:read',
   '/mgmt': 'mgmt:read',
   '/standard-reports': 'report:read',
   '/org': 'master:read',
@@ -320,7 +349,7 @@ export function selectedKey(pathname: string, search: string): string {
   if (seg === '/data') return dataMenuKey(new URLSearchParams(search).get('tab'));
   if (pathname.startsWith('/contracts/import')) return '/contracts/import';
   if (pathname.startsWith('/expense/policies')) return '/expense/policies';
-  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs', '/eas', '/governance', '/statements', '/mgmt', '/standard-reports', '/project-budget', '/plan', '/contracts', '/expense'];
+  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs', '/eas', '/governance', '/statements', '/mgmt', '/standard-reports', '/project-budget', '/plan', '/contracts', '/expense', '/feasibility', '/investment-control', '/forecast', '/risk', '/analysis-reports'];
   return leaves.includes(seg) ? seg : '/';
 }
 
@@ -906,6 +935,11 @@ function getRouter() {
       { path: 'contracts/import', element: <ContractImport /> },
       { path: 'expense', element: <ExpenseClaims /> },
       { path: 'expense/policies', element: <ExpensePolicies /> },
+      { path: 'feasibility', element: <Feasibility /> },
+      { path: 'investment-control', element: <InvestmentControl /> },
+      { path: 'forecast', element: <Forecast /> },
+      { path: 'risk', element: <RiskLedger /> },
+      { path: 'analysis-reports', element: <AnalysisReports /> },
       { path: 'org', element: <OrgManage /> },
       { path: 'account', element: <AccountManage /> },
       { path: 'metric', element: <MetricManage /> },
