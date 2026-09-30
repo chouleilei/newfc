@@ -248,3 +248,18 @@ E2E 运行前提：webServer 直接跑 `backend/dist/index.js`，必须先在 ba
   - 首跑 78/79 通过（16.5 min）。失败项为 `risk-investment.spec.ts` 投资控制用例，属于测试自身定位问题：选完“基准版本”后其下拉仍在收起动画中、尚未带 `-hidden` 类，`chooseOption` 的 `.first()` 命中旧下拉里同名选项并一直不可见而超时；页面截图显示“目标版本”下拉与选项正常。单独重跑稳定复现。
   - 修复（仅测试）：`chooseOption` 先等到只剩一个展开的下拉再在其中点选；两次导入的成功提示可能同时存在，断言取最后一条；主数据项目下拉为虚拟列表，改为先输入编码筛选再选（反复重跑累积测试项目后新项目不在首屏渲染）。修复后该用例连续 4 次通过。
   - 重建夹具库后全量重跑 **79/79 通过**（14.3 min），UX31 九个可用性场景均为“独立完成”。
+
+## 生产上线（2026-09-30）
+
+用户确认 OPEN-03（lishui 旧历史不迁入）、OPEN-05（与 lishui 一致）并同意安装 `newfc.service` 正式上线。
+
+| 步骤 | 执行 | 结果 |
+|---|---|---|
+| 准备 | `install -d -m 700 /data/newfc-data`；`newfc.env` 由 `.env.example` 生成（chmod 600，附 SiliconFlow 模型渠道注释，密钥待填）；单元安装到 `/etc/systemd/system/newfc.service` 并 `daemon-reload` | 完成 |
+| 首次发布（第 1 次） | `scripts/deploy.sh --no-restart` | 测试阶段中止：939 项中 `t5-forecast.test.ts` Worker 用例 30.7 s 超时（依赖重装后全量并行负载高；单独 11 s 通过）。未构建、未迁移、服务未动。用例时限放宽到 90 s（`284a353`） |
+| 首次发布（第 2 次） | `scripts/deploy.sh --no-restart`（main `d5ac3dc`） | 后端 91 文件/940 项、前端 40 文件/432 项通过；构建到 dist.new；空库迁移至 V60；产物替换，341 s |
+| 启动 | `systemctl enable --now newfc.service` | active/enabled；`/api/health/ready` 返回 ready、schema V60；只监听 127.0.0.1:3760；启动内存约 54 MiB；newbd（3748）未受影响 |
+| 制度样本 | `npm run expense:policy:import -- --file ../deploy/expense-policy-lishui.json` | 发布 `LISHUI-EXPENSE-V1` v1，6 条条款，生效日期 2020-01-01（审计来源 cli） |
+| 首个管理员 | `admin:create` 后立即 `admin:reset-password`，均用随机口令经标准输入传入 | `admin`（id=1，全组织）；临时口令只写入 `/data/newfc-data/initial-admin-password.txt`（root 600），首次登录强制修改；登录接口 200 且 `mustChangePassword: true`；审计日志不含口令 |
+
+未完成：模型密钥（SiliconFlow）与 OCR 服务地址未配置，助手与费用审核按规则运行并标注“未配置”；接入后用真实单据补验模型/OCR 输出（OPEN-05 余项）。
