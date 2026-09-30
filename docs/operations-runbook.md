@@ -79,3 +79,12 @@ NEWFC_DATA_DIR=/data/newfc-data npm run admin:create -- --username admin --displ
 | 保护 | 内置 admin 角色锁定且自动拥有新权限；不能停用自己，不能移除最后一个启用的管理员 |
 
 排查：错误响应体与响应头 `X-Request-Id` 相同，可在“操作日志”按请求 ID、操作人、结果筛选（`/api/logs?requestId=...`）。
+
+## OCR 适配（费用审核 AC-F22）
+
+- **配置**：在「系统设置 → 业务设置 → 集成」里填 `OCR 服务地址`（https，或本机 http）和可选的 `OCR 服务密钥`。未配置时，审核运行记录 `OCR_UNAVAILABLE`，材料核对只看附件名，需要人工查看原件。
+- **调用范围**：只识别 pdf/png/jpg/jpeg/bmp/tif/tiff/webp/ofd 附件。在后台任务里、写事务之外调用，单次超时 30 秒。
+- **请求**：`POST <OCR 服务地址>`，`Content-Type: application/json`，配置了密钥时带 `Authorization: Bearer <密钥>`。请求体：`{"fileName": "...", "contentType": "image/jpeg", "contentBase64": "..."}`。
+- **响应**：HTTP 200 的 JSON，`{"text": "全文"}` 或 `{"pages": [{"page": 1, "text": "..."}]}`，两种至少返回一种。非 200、超时或缺字段时记录 `OCR_FAILED`，不当作通过。
+- **缓存**：结果按附件 sha256 写入 `ex_ocr_cache`，同一原件不再重复识别。更换 OCR 供应商后如需重新识别，先停服务，再清空该表（`DELETE FROM ex_ocr_cache;`）。
+- **兼容性**：接第三方 OCR 时需要一层很薄的转接服务，把上面的契约映射到供应商 API。供应商选型和真实样本验证见 OPEN-05。

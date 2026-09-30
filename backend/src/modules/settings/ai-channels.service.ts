@@ -8,7 +8,7 @@
 import type { DB } from '../../db/connection';
 import { Errors } from '../../core/errors';
 
-export const AI_FEATURES = ['chat', 'narrative', 'checkpoint_summary', 'cleaning_suggest', 'mapping_candidates', 'master_data_semantic'] as const;
+export const AI_FEATURES = ['chat', 'narrative', 'checkpoint_summary', 'cleaning_suggest', 'mapping_candidates', 'master_data_semantic', 'expense_audit'] as const;
 export type AiFeature = (typeof AI_FEATURES)[number];
 
 export interface AiChannelRow {

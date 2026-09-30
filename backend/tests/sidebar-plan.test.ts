@@ -187,8 +187,10 @@ describe('阶段五:LLM 渠道管理', () => {
       expect(channels[0].keyPreview).toContain('****');
       expect(channels[0].keyPreview).not.toContain('sk-test-1234');
       const bindings = aiChannels.listBindings(db);
-      expect(bindings.length).toBe(6);
-      expect(bindings.every((b) => b.primaryChannelId === channels[0].id)).toBe(true);
+      // V34 只绑定当时的 6 个功能;T-4 追加的 expense_audit 未绑定,按“任一启用渠道 → env”解析
+      expect(bindings.length).toBe(7);
+      expect(bindings.filter((b) => b.feature !== 'expense_audit').every((b) => b.primaryChannelId === channels[0].id)).toBe(true);
+      expect(bindings.find((b) => b.feature === 'expense_audit')?.primaryChannelId ?? null).toBeNull();
       db.close();
 
       // 未配置 env:表空

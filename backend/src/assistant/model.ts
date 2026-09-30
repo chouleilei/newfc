@@ -44,7 +44,7 @@ export function aiConfigurationIssue(): string | undefined {
 }
 
 /** 功能枚举与 ai-channels.service 保持一致(这里不 import 以免模型层反向依赖设置模块)。 */
-export type AiFeature = 'chat' | 'narrative' | 'checkpoint_summary' | 'cleaning_suggest' | 'mapping_candidates' | 'master_data_semantic';
+export type AiFeature = 'chat' | 'narrative' | 'checkpoint_summary' | 'cleaning_suggest' | 'mapping_candidates' | 'master_data_semantic' | 'expense_audit';
 
 /**
  * 库内渠道解析提供者:server 启动后注入(见 server.ts),注入前/测试直连场景返回 null,
