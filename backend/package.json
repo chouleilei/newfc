@@ -26,6 +26,8 @@
     "admin:create:dev": "ts-node src/modules/security/admin-cli.ts create",
     "restore:drill": "node dist/modules/backup/restore-drill-cli.js",
     "restore:drill:dev": "ts-node src/modules/backup/restore-drill-cli.ts",
+    "import:newbd": "node dist/modules/backup/newbd-import-cli.js",
+    "import:newbd:dev": "ts-node src/modules/backup/newbd-import-cli.ts",
     "resource:baseline": "node -r ts-node/register/transpile-only scripts/resource-baseline.ts"
   },
   "dependencies": {

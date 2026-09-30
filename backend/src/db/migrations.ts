@@ -1591,7 +1591,8 @@ interface AppliedRow {
 }
 
 /** 执行未应用的迁移(每个迁移一个事务;raw 迁移在事务外执行,自行管理外键开关)。返回本次应用的迁移列表。 */
-export function applyMigrations(db: DB): Migration[] {
+/** maxVersion:只应用到该版本为止(迁入夹具/演练构造旧 schema 用);默认全部。 */
+export function applyMigrations(db: DB, maxVersion = Number.POSITIVE_INFINITY): Migration[] {
   db.exec(`
 CREATE TABLE IF NOT EXISTS schema_migration (
   version INTEGER PRIMARY KEY,
@@ -1601,7 +1602,7 @@ CREATE TABLE IF NOT EXISTS schema_migration (
   const applied = new Set(
     (db.prepare('SELECT version FROM schema_migration').all() as AppliedRow[]).map((r) => r.version)
   );
-  const toApply = MIGRATIONS.filter((m) => !applied.has(m.version)).sort((a, b) => a.version - b.version);
+  const toApply = MIGRATIONS.filter((m) => !applied.has(m.version) && m.version <= maxVersion).sort((a, b) => a.version - b.version);
   for (const m of toApply) {
     if (m.rebuild) {
       db.pragma('foreign_keys = OFF');
