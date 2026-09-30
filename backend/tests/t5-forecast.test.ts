@@ -143,7 +143,7 @@ describe('T-5 财务预测(AC-F11)', () => {
     const divRun = await waitRun(base, analyst, (await ok(post(base, analyst, `${FF}/versions/${d.id}/runs`, { kind: 'baseline' }), 202)).id);
     expect(divRun).toMatchObject({ status: 'failed', errorCode: 'FORECAST_FORMULA_ERROR', outputs: null });
     expect(divRun.diagnostics).toEqual(expect.arrayContaining([{ output: 'revenue', cell: '预测!C1', error: '#DIV/0!' }]));
-  });
+  }, 90_000); // 多次 Worker 运行:发布前全量并行测试(紧接依赖重装)时曾超过默认 30 秒
 
   it('超时终止 Worker、释放任务槽,下一次运行立即可执行', async () => {
     const { base, analyst, model } = await setup();
