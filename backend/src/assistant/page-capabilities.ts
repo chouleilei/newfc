@@ -24,7 +24,8 @@ export type DomainCapability =
   | 'evidence'
   | 'operations'
   | 'finance_data'
-  | 'project_data';
+  | 'project_data'
+  | 'risk_investment';
 
 /** 通用语义 entity 类型全集(§3.6、§5.5)：行/树节点/卡片/异常/日志/核验闸门等统一为 entity。 */
 export type AssistantEntityType =
@@ -95,7 +96,7 @@ export const PAGE_CAPABILITY_MAP: Record<string, PageCapability> = {
     factTypes: ['verification'],
     draftKinds: [],
     defaultCapability: 'overview',
-    capabilities: ['overview', 'execution', 'evidence', 'finance_data', 'project_data'],
+    capabilities: ['overview', 'execution', 'evidence', 'finance_data', 'project_data', 'risk_investment'],
   },
   assistant: {
     label: '小澧助手',
@@ -104,7 +105,7 @@ export const PAGE_CAPABILITY_MAP: Record<string, PageCapability> = {
     factTypes: [],
     draftKinds: [],
     defaultCapability: 'assistant_content',
-    capabilities: ['assistant_content', 'execution', 'comparison', 'budget', 'actual', 'master_data', 'import_conversion', 'operations', 'overview', 'evidence', 'finance_data', 'project_data'],
+    capabilities: ['assistant_content', 'execution', 'comparison', 'budget', 'actual', 'master_data', 'import_conversion', 'operations', 'overview', 'evidence', 'finance_data', 'project_data', 'risk_investment'],
   },
   insights: {
     label: '洞察报告',
@@ -381,6 +382,8 @@ const CAPABILITY_TOOLS: Record<DomainCapability, string[]> = {
   finance_data: ['eas_period_status', 'statement_overview', 'mgmt_metric_snapshots', 'mgmt_alerts'],
   // T-4 项目、合同与费用(只读,同源 service,org_scope;合同详情由 service 判定可见性)
   project_data: ['project_budget_summary', 'plan_execution_overview', 'contract_summary', 'contract_detail', 'expense_audit_queue'],
+  // T-5 可研测算、投资控制、财务预测、风险与分析报告(只读,同源 service,org_scope;按 ID 读取由 service 判定可见性)
+  risk_investment: ['feasibility_result', 'investment_comparison', 'forecast_runs', 'risk_summary', 'report_list'],
 };
 
 /** 全页面都允许的通用只读工具。 */

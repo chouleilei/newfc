@@ -7,7 +7,7 @@
  */
 import type { DB } from '../../db/connection';
 import { AppError, Errors } from '../../core/errors';
-import { ratioScaled, sumCents } from '../../core/decimal';
+import { parseDecimalToCents, ratioScaled, sumCents } from '../../core/decimal';
 import { SIGN_BY_TYPE } from '../../core/money';
 import type { TreeNodeRow } from '../../core/tree';
 import { writeLog } from '../audit/log';
@@ -33,6 +33,7 @@ export interface MetricRow {
 const UNIT_OF: Record<MaCalculator, 'money' | 'ratio'> = {
   budget_amount: 'money', actual_amount: 'money', execution_rate: 'ratio', eas_balance: 'money', statement_item: 'money', allocated_cost: 'money',
   contract_paid: 'money', contract_payment_rate: 'ratio', plan_execution_rate: 'ratio',
+  risk_open_amount: 'money', investment_deviation_rate: 'ratio',
 };
 
 export function metricDto(r: MetricRow): MaMetricDto {
@@ -257,6 +258,29 @@ export function runCalculator(db: DB, metric: MetricRow, orgId: number, period: 
         status: 'valid', valueCents: null, valueScaled: r, compareCents: null, reasons: [],
         evidence: { source: 'plan_batch', batchId: p.batchId, annualPlan: money(p.annualPlanCents), annualActual: money(p.annualActualCents), rowCount: p.rowCount },
       };
+    }
+    case 'risk_open_amount': {
+      // 计算时点组织(含下级)内未关闭风险(非 closed / false_positive)的金额合计;没有未关闭风险时为确定的 0
+      const orgs = orgSubtreeNow(db, orgId);
+      const r = db.prepare(`SELECT COALESCE(SUM(amount_cents), 0) AS cents, COUNT(*) AS n, MAX(last_scan_id) AS scan FROM risk_event
+        WHERE status NOT IN ('closed','false_positive') AND org_id IN (${orgs.map(() => '?').join(',')})`).safeIntegers(true).get(...orgs) as { cents: bigint; n: bigint; scan: bigint | null };
+      if (!db.prepare('SELECT 1 FROM risk_scan LIMIT 1').get()) return unavailable({ code: 'RISK_SCAN_MISSING', message: '尚未执行风险扫描' });
+      return { status: 'valid', valueCents: r.cents, valueScaled: null, compareCents: null, reasons: [], evidence: { source: 'risk_event', openCount: Number(r.n), lastScanId: r.scan === null ? null : Number(r.scan), asOf: nowIso() } };
+    }
+    case 'investment_deviation_rate': {
+      // 组织(含下级)内各投资控制项目最新对比快照:Σ静态偏差 / Σ基准静态投资
+      const orgs = orgSubtreeNow(db, orgId);
+      const rows = db.prepare(`SELECT c.id, c.summary_json FROM ic_comparison c JOIN ic_project p ON p.id = c.project_id
+        WHERE p.status = 'active' AND p.org_id IN (${orgs.map(() => '?').join(',')}) AND c.id = (SELECT MAX(id) FROM ic_comparison WHERE project_id = c.project_id)`).all(...orgs) as { id: number; summary_json: string }[];
+      if (!rows.length) return unavailable({ code: 'IC_COMPARISON_MISSING', message: '组织范围内没有投资控制对比快照' });
+      let dev = 0n; let base = 0n;
+      for (const r of rows) {
+        const s = JSON.parse(r.summary_json) as { totalDeviation: string; baseTotalStatic: string };
+        dev += parseDecimalToCents(s.totalDeviation); base += parseDecimalToCents(s.baseTotalStatic);
+      }
+      const rate = ratioScaled(dev, base);
+      if (rate === null) return unavailable({ code: 'IC_BASE_ZERO', message: '基准静态投资合计为 0,偏差率不可计算' });
+      return { status: 'valid', valueCents: null, valueScaled: rate, compareCents: null, reasons: [], evidence: { source: 'ic_comparison', comparisonIds: rows.map((r) => r.id).sort((a, b) => a - b), deviation: money(dev), base: money(base) } };
     }
   }
 }

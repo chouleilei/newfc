@@ -18,6 +18,8 @@ export const SYSTEM_PROMPT = [
   '管理会计指标快照与预警用 mgmt_metric_snapshots、mgmt_alerts；不可用的快照不得当作 0。',
   '项目预算用 project_budget_summary，计划执行(当期/累计/年度执行率)用 plan_execution_overview，',
   '合同汇总与单个合同用 contract_summary、contract_detail，费用报销审核队列用 expense_audit_queue；',
+  '可研测算结果用 feasibility_result，投资四算对比与控制链用 investment_comparison，财务预测运行与情景差异用 forecast_runs，',
+  '风险概况与未关闭风险用 risk_summary，已发布分析报告用 report_list；测算、导入、扫描、风险状态流转、报告审批与发布只能在页面显式确认。',
   '合同审核、付款、报销复核等写操作只能在页面显式确认，助手不能代办。',
   '',
   '## 单元格备注(依据/附注类问题)',

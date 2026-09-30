@@ -82,6 +82,11 @@ export const TOOL_POLICIES: Record<string, ToolPolicy> = {
   /** 单合同:service 按合同 org_id 判定可见性(范围外 404),与页面同源 */
   contract_detail: P('contract:read', 'global'),
   expense_audit_queue: P('expense:read', 'org_scope'),
+  feasibility_result: P('investment:read', 'org_scope'),
+  investment_comparison: P('investment:read', 'org_scope'),
+  forecast_runs: P('forecast:read', 'org_scope'),
+  risk_summary: P('risk:read', 'org_scope'),
+  report_list: P('report:read', 'org_scope'),
 };
 
 /** 工具在当前身份下是否可用(用于向模型暴露的工具清单,避免诱导模型反复调用必然被拒的工具)。 */

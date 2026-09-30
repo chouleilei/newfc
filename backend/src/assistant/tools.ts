@@ -37,6 +37,8 @@ import { insightRowsFilter } from './ownership';
 import type { StatementScope } from '../contracts/statements';
 import { easPeriodStatusView, mgmtAlertsView, mgmtSnapshotsView, statementOverviewView } from './finance-data';
 import { contractDetailView, contractSummaryView, expenseAuditQueueView, planExecutionOverviewView, projectBudgetSummaryView } from './project-data';
+import { feasibilityResultView, forecastRunsView, investmentComparisonView, reportListView, riskSummaryView } from './risk-investment-data';
+import { RPT_KINDS, type RptKind } from '../contracts/analysis-reports';
 import { authorizeToolCall, orgTreeFilter } from './tool-policy';
 
 const rawTools = {
@@ -159,6 +161,16 @@ const rawTools = {
   contract_detail: (db: DB, input: Parameters<typeof contractDetailView>[1]) => contractDetailView(db, input),
   /** T-4 费用审核队列:按状态计数与待复核列表(AC-F22) */
   expense_audit_queue: (db: DB, input: Parameters<typeof expenseAuditQueueView>[1]) => expenseAuditQueueView(db, input),
+  /** T-5 可行性测算:方案最新基准运行的指标与检查(AC-F12) */
+  feasibility_result: (db: DB, input: Parameters<typeof feasibilityResultView>[1]) => feasibilityResultView(db, input),
+  /** T-5 投资控制四算对比:项目最新快照摘要、控制链与超限科目(AC-F13) */
+  investment_comparison: (db: DB, input: Parameters<typeof investmentComparisonView>[1]) => investmentComparisonView(db, input),
+  /** T-5 财务预测:模型、版本、基准/情景运行与差异(AC-F11) */
+  forecast_runs: (db: DB, input: Parameters<typeof forecastRunsView>[1]) => forecastRunsView(db, input),
+  /** T-5 风险概况:状态/等级统计与未关闭风险(AC-F17) */
+  risk_summary: (db: DB, input: Parameters<typeof riskSummaryView>[1]) => riskSummaryView(db, input),
+  /** T-5 分析报告:已发布或本人创建的报告列表(AC-F18) */
+  report_list: (db: DB, input: Parameters<typeof reportListView>[1]) => reportListView(db, input),
 };
 
 /**
@@ -274,6 +286,11 @@ const schemas: Record<string, any> = {
   contract_summary: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, projectId: { type: ['integer', 'null'] } }, additionalProperties: false },
   contract_detail: { type: 'object', properties: { contractId: { type: 'integer', description: '合同 ID(来自页面或 contract_summary 无法给出时请用户在合同台账中打开)' } }, required: ['contractId'], additionalProperties: false },
   expense_audit_queue: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' } }, additionalProperties: false },
+  feasibility_result: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, projectId: { type: ['integer', 'null'], description: '可研项目 ID' }, scenarioId: { type: ['integer', 'null'], description: '方案 ID,给出时返回该方案全部指标与未通过检查' } }, additionalProperties: false },
+  investment_comparison: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, projectId: { type: ['integer', 'null'], description: '投资控制项目 ID' }, comparisonId: { type: ['integer', 'null'], description: '对比快照 ID,给出时返回快照摘要与超限科目' } }, additionalProperties: false },
+  forecast_runs: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, modelId: { type: ['integer', 'null'], description: '预测模型 ID,给出时返回版本与运行' } }, additionalProperties: false },
+  risk_summary: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, level: { type: 'string', enum: ['high', 'medium', 'low'], description: '缺省全部等级' } }, additionalProperties: false },
+  report_list: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, kind: { type: 'string', enum: [...RPT_KINDS], description: '缺省全部类型' } }, additionalProperties: false },
 };
 
 /**
@@ -373,6 +390,11 @@ const TOOL_LABELS: Record<string, string> = {
   contract_summary: '读取合同汇总',
   contract_detail: '读取合同详情',
   expense_audit_queue: '读取费用审核队列',
+  feasibility_result: '读取可行性测算结果',
+  investment_comparison: '读取投资控制对比',
+  forecast_runs: '读取财务预测运行',
+  risk_summary: '读取风险概况',
+  report_list: '读取分析报告列表',
 };
 
 export function toolLabel(name: string): string {
@@ -647,6 +669,29 @@ export function executeTool(db: DB, name: string, args: any = {}) {
     });
     case 'contract_detail': return fn(db, { contractId: integer(args.contractId, 'contractId') });
     case 'expense_audit_queue': return fn(db, { orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId') });
+    // T-5 投资/预测/风险/报告只读工具:orgScopeId 由 tool-policy 按身份改写;按 ID 读取时由 service 按对象组织判定可见性(范围外 404)。
+    case 'feasibility_result': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      projectId: args.projectId == null ? undefined : integer(args.projectId, 'projectId'),
+      scenarioId: args.scenarioId == null ? undefined : integer(args.scenarioId, 'scenarioId'),
+    });
+    case 'investment_comparison': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      projectId: args.projectId == null ? undefined : integer(args.projectId, 'projectId'),
+      comparisonId: args.comparisonId == null ? undefined : integer(args.comparisonId, 'comparisonId'),
+    });
+    case 'forecast_runs': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      modelId: args.modelId == null ? undefined : integer(args.modelId, 'modelId'),
+    });
+    case 'risk_summary': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      level: args.level == null ? undefined : oneOf(args.level, 'level', ['high', 'medium', 'low']) as 'high' | 'medium' | 'low',
+    });
+    case 'report_list': return fn(db, {
+      orgScopeId: args.orgScopeId == null ? null : integer(args.orgScopeId, 'orgScopeId'),
+      kind: args.kind == null ? undefined : oneOf(args.kind, 'kind', [...RPT_KINDS]) as RptKind,
+    });
     default:
       /* 不默认透传模型给的任意 JSON 给业务 service:schemas 只用于模型侧声明,
          后端不据此校验,`default: return fn(db, args)` 意味着「新增工具忘了写 case

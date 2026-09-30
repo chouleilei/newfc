@@ -4,7 +4,7 @@ import { currentOrgScope, scopeFilterSql } from '../security/scope';
 import type { Permission } from '../security/permissions';
 
 /**
- * 工作台待办数(T-4):按权限与组织范围统计项目合同与费用审核的待处理事项。
+ * 工作台待办数(T-4/T-5):按权限与组织范围统计项目合同、费用审核、风险处理与分析报告的待处理事项。
  * 没有对应权限的项不返回(而不是返回 0),页面据此决定是否显示入口。
  */
 export interface TodoItem { key: string; label: string; count: number; path: string }
@@ -30,5 +30,15 @@ export function workbenchTodos(db: DB): { items: TodoItem[] } {
   }
   if (can('expense:review')) items.push({ key: 'expense_review', label: '待复核报销', count: countClaims('audited'), path: '/expense?status=audited' });
   if (can('expense:submit')) items.push({ key: 'expense_supplement', label: '退回补件报销', count: countClaims('supplement'), path: '/expense?status=supplement' });
+  const rk = scopeFilterSql(scope, 'org_id');
+  const countRisks = (status: string) =>
+    (db.prepare(`SELECT COUNT(*) AS n FROM risk_event WHERE status = ? AND ${rk.sql}`).get(status, ...rk.params) as { n: number }).n;
+  // 无组织的集团报告只计入全组织用户(受限用户的 IN 过滤天然排除 NULL)
+  const countReports = (status: string) =>
+    (db.prepare(`SELECT COUNT(*) AS n FROM rpt_report WHERE status = ? AND ${rk.sql}`).get(status, ...rk.params) as { n: number }).n;
+  if (can('risk:handle')) items.push({ key: 'risk_confirm', label: '待确认风险', count: countRisks('open'), path: '/risk?status=open' });
+  if (can('risk:review')) items.push({ key: 'risk_review', label: '待复核整改', count: countRisks('rectified'), path: '/risk?status=rectified' });
+  if (can('report:approve')) items.push({ key: 'report_approve', label: '待审批报告', count: countReports('pending_approval'), path: '/analysis-reports?status=pending_approval' });
+  if (can('report:publish')) items.push({ key: 'report_publish', label: '待发布报告', count: countReports('approved'), path: '/analysis-reports?status=approved' });
   return { items };
 }
