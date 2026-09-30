@@ -58,14 +58,14 @@
 | `ai_reports` | `/reports/templates` 用户维护报告模板 | 内置报告类型的确定性模板 + 可选模型改写（带事实护栏） | 报告正文必须可追溯到同源事实；用户自由模板无法保证审核冻结后的口径一致 |
 | `xiaoli_assistant` | DB-GPT 先行问答、Dify 编排 | 本地编排 + 同源只读工具，未配置模型时规则路由降级 | 不引入 DB-GPT/Dify；AI 不得直接写库 |
 | `agent_observability` | `/agents` Agent 运行记录 | `/jobs` 持久任务 + 模型调用记录 | 无 Agent 平台，重任务统一走任务队列 |
-| `expense_audit` | 平台 OCR/模型 | 可配置 OCR/模型渠道，未配置时明确记录并转人工复核 | 供应商与制度样本待 OPEN-05 确认 |
+| `expense_audit` | 平台 OCR/模型 | 可配置 OCR/模型渠道，未配置时明确记录并转人工复核 | OPEN-05 已定：模型 SiliconFlow（OpenAI 兼容）；OCR 走适配契约（lishui 由 Dify 承担）；制度样本为 lishui 首版规则 `deploy/expense-policy-lishui.json`。超阈值严重度为高（lishui 为中），同类多行按合计比较阈值（lishui 按单据合计与逐行） |
 | `finance_forecast` | Univer 在线工作簿编辑 + 独立 Node 计算服务、What-if 滑块 | 上传工作簿（JSON 保存）、内置受限公式引擎（Worker 隔离、超时与内存上限）、参数/输出配置、情景运行与基准对比；不提供在线单元格编辑 | 不引入 Univer 计算服务与 MinIO（specs/implementation.md 预测定位）；编辑在 Excel 中完成后导入为新草稿，情景参数替代滑块 |
-| 历史数据 | MySQL/MinIO 运行数据 | newbd 快照用 `import:newbd` 迁入；lishui 业务数据经各域标准文件导入 | 不引入 MySQL；审批流水、会话、模型日志保留范围待 OPEN-03 |
+| 历史数据 | MySQL/MinIO 运行数据 | newbd 快照用 `import:newbd` 迁入；lishui 业务数据经各域标准文件导入 | 不引入 MySQL；审批流水、会话、模型日志不迁入（OPEN-03 已定） |
 | `cross_domain_search` | 无独立路由 | 关键词检索（精确 → 前缀 → 包含），非语义检索 | 结果须可解释且与各页权限同口径 |
 
 ## 未决事项（不属于退出范围）
 
 finance/simulation 全量 E2E 已于 2026-09-30 补跑，79/79 通过（见验收记录 T-6 测试汇总）。
 
-- OPEN-03：lishui 旧历史（审批流水、会话、模型日志）的保留范围——真实数据迁入前确认。
-- OPEN-05：真实 OCR/模型供应商与制度样本——费用审核以桩协议验证，接入真实供应商时补样本验收。
+- OPEN-03：已定（2026-09-30）——lishui 旧历史（审批流水、会话、模型日志）不迁入。
+- OPEN-05：已定（2026-09-30）——与 lishui 一致，见上表 `expense_audit` 行；接入真实密钥与 OCR 服务后用真实单据补验模型/OCR 输出。

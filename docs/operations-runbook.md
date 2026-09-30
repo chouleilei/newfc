@@ -107,4 +107,16 @@ NEWFC_DATA_DIR=/data/newfc-data npm run admin:create -- --username admin --displ
 - **请求**：`POST <OCR 服务地址>`，`Content-Type: application/json`，配置了密钥时带 `Authorization: Bearer <密钥>`。请求体：`{"fileName": "...", "contentType": "image/jpeg", "contentBase64": "..."}`。
 - **响应**：HTTP 200 的 JSON，`{"text": "全文"}` 或 `{"pages": [{"page": 1, "text": "..."}]}`，两种至少返回一种。非 200、超时或缺字段时记录 `OCR_FAILED`，不当作通过。
 - **缓存**：结果按附件 sha256 写入 `ex_ocr_cache`，同一原件不再重复识别。更换 OCR 供应商后如需重新识别，先停服务，再清空该表（`DELETE FROM ex_ocr_cache;`）。
-- **兼容性**：接第三方 OCR 时需要一层很薄的转接服务，把上面的契约映射到供应商 API。供应商选型和真实样本验证见 OPEN-05。
+- **兼容性**：接第三方 OCR 时需要一层很薄的转接服务，把上面的契约映射到供应商 API。OPEN-05 结论：与 lishui 一致——lishui 的 OCR 由 Dify 工作流承担，newfc 不引入 Dify，因此沿用本契约；未接 OCR 服务时按附件名核对并转人工复核。
+
+## 模型渠道与费用制度（OPEN-05）
+
+- **模型**：与 lishui 一致，OpenAI 兼容协议、供应商 SiliconFlow。在 `/data/newfc-data/newfc.env` 填 `AI_BASE_URL="https://api.siliconflow.cn/v1"`、`AI_API_KEY`、`AI_MODEL`（须支持 function calling），然后 `systemctl restart newfc`。未配置时助手与费用审核按规则运行，并如实标注“未配置模型”。
+- **费用制度样本**：lishui 首版预审规则（差旅 5,000、住宿 1,500、业务招待 3,000、办公 10,000、培训 20,000、车辆 5,000 元；必备材料至少命中 min(2, N) 项）已转写为 `deploy/expense-policy-lishui.json`。发布：
+
+  ```bash
+  cd /root/newfc/backend && export PATH=/root/.nvm/versions/node/v24.21.0/bin:$PATH
+  NEWFC_DATA_DIR=/data/newfc-data npm run expense:policy:import -- --file ../deploy/expense-policy-lishui.json
+  ```
+
+  同编码已有生效版本时跳过；调整阈值在页面“制度依据”发布新版本（条款不可改，只能出新版本）。

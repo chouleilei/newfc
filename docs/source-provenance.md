@@ -26,7 +26,7 @@
 | 类别 | 处理 |
 |---|---|
 | `.git`、worktree 元数据、remote | 不导入；newfc 执行 `git init -b main`，未设置 origin（OPEN-01） |
-| `.env`、SQLite/WAL/SHM、`backend/data/`、备份、附件、日志（`server.log`） | 未跟踪，未导入；运行数据不迁入（OPEN-03） |
+| `.env`、SQLite/WAL/SHM、`backend/data/`、备份、附件、日志（`server.log`） | 未跟踪，未导入；运行数据不迁入（OPEN-03 已定：lishui 旧历史不迁入） |
 | 构建产物与依赖（dist、node_modules、.e2e-dist） | 未导入；在 newfc 内按锁文件重新安装 |
 | 根目录个人业务样本（`*.xlsx`）、网页存档（`*.html`）、截图 | 未跟踪，未导入 |
 | newbd `AGENTS.md`、`README.md`、`RELEASE_NOTES.md`（116 KB 历史版本记录） | 不导入；newfc 自建 |
@@ -58,6 +58,7 @@ lishui 只提供业务规则和验收样本，不导入源码。下列样本按�
 | newfc 路径 | lishui 来源（`e50b4b6`） | 用途 |
 |---|---|---|
 | `backend/tests/fixtures/eas-v600/eas_voucher.csv`、`eas_balance.csv`、`eas_auxiliary.csv` | `docs/sample-data/v600/` 同名文件（由 2.2.0 归档 EAS xlsx 派生的示例数据，不含真实凭证） | `tests/t3-eas.test.ts` 的 v600 三件套验收（AC-F05） |
+| `deploy/expense-policy-lishui.json` | `backend/app/services/expense_audit/rules.py`（`EXPENSE_TYPE_THRESHOLDS`、`REQUIRED_ATTACHMENT_KEYWORDS`、至少命中 `min(2, N)`）与 `policy_context.py`（条款摘要）；按值转写为 newfc 制度 JSON，非逐字节复制 | OPEN-05 制度样本；`tests/t6-expense-lishui-policy.test.ts` |
 | `backend/tests/fixtures/investment_feasibility_yichongqiao.json` | `backend/tests/fixtures/investment_feasibility_yichongqiao.json`（宜冲桥脱敏样本，逐字节一致） | `tests/t5-feasibility-calc.test.ts`、`t5-feasibility.test.ts` 与 E2E `risk-investment.spec.ts` 的 standard-1.0 测算验收（AC-F12） |
 
 `backend/tests/fixtures/feasibility-reference.json` 不是 lishui 文件：由会话临时目录中的独立 Python Decimal 参照实现（按 lishui standard-1.0 calculator/financing_schedule 规则重写，schema 以最小替身代替 pydantic）对上述样本及 10 个变体生成，只用于交叉核对，不作为唯一正确依据；lishui 源码未复制进 newfc。
