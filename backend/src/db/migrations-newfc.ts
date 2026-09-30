@@ -1889,4 +1889,67 @@ CREATE TRIGGER trg_std_report_d BEFORE DELETE ON std_report BEGIN SELECT RAISE(A
 ALTER TABLE ex_policy_clause ADD COLUMN keyword_min_matches INTEGER CHECK (keyword_min_matches IS NULL OR keyword_min_matches >= 1);
 `,
   },
+  {
+    version: 61,
+    name: 'risk_rules_lishui_parity',
+    rebuild: true,
+    sql: `
+/* risk_workflow(lishui 规则补齐):risk_rule.source 追加 eas,CHECK 只能整表重建(同 V53/V59)。
+   - detector:命中计算器编码。内置规则 detector = code;自定义规则复用某个内置计算器,
+     只改名称/等级/阈值/建议,并可限定组织(org_id,含下级)。事件键按规则 code,自定义规则与内置规则的事件互不合并。
+   - builtin:内置规则不可删除;自定义规则只停用不删除(历史事件引用规则 code)。
+   - 阈值按计算器声明的类型解释:ratio(0～1)或 amount(元,十进制字符串)。
+   新增内置规则(对应 lishui risk/scan.py):付款超前形象进度、完成投资逼近概算、投资计划明细未关联项目(对应 PROJECT_CODE_MISSING)、
+   已支付缺凭证号(对应 CONTRACT_CODE_MISSING 的付款追溯断点)、供应商大额集中付款、大额凭证缺项目辅助核算、
+   预付/暂估/挂账待清理、项目预算执行与 EAS 入账差异。
+   risk_ai_note:风险解释(确定性模板 + 可选模型改写)只追加,不改风险事实与状态。 */
+CREATE TABLE risk_rule_v61 (
+  code TEXT PRIMARY KEY CHECK (length(code) BETWEEN 3 AND 48),
+  name TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('project_budget','plan','contract','investment_control','feasibility','eas')),
+  detector TEXT NOT NULL,
+  builtin INTEGER NOT NULL DEFAULT 1 CHECK (builtin IN (0,1)),
+  org_id INTEGER REFERENCES org(id),
+  level TEXT NOT NULL CHECK (level IN ('high','medium','low')),
+  threshold TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+  suggestion TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT,
+  updated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  updated_at TEXT,
+  CHECK (builtin = 0 OR org_id IS NULL)
+);
+INSERT INTO risk_rule_v61 (code, name, source, detector, builtin, level, threshold, enabled, suggestion, version, updated_by_user_id, updated_at)
+  SELECT code, name, source, code, 1, level, threshold, enabled, suggestion, version, updated_by_user_id, updated_at FROM risk_rule;
+DROP TABLE risk_rule;
+ALTER TABLE risk_rule_v61 RENAME TO risk_rule;
+INSERT INTO risk_rule (code, name, source, detector, level, threshold, suggestion) VALUES
+  ('PLAN_PAY_AHEAD_PROGRESS', '付款进度超前于形象进度', 'plan', 'PLAN_PAY_AHEAD_PROGRESS', 'medium', '0.2', '核对付款节点与工程量确认,暂停超进度付款。'),
+  ('PLAN_ESTIMATE_NEAR_LIMIT', '累计完成投资逼近批复概算', 'plan', 'PLAN_ESTIMATE_NEAR_LIMIT', 'high', '0.9', '评估剩余工程量与概算余额,必要时启动概算调整。'),
+  ('PLAN_PROJECT_UNMAPPED', '投资计划明细未关联项目', 'plan', 'PLAN_PROJECT_UNMAPPED', 'low', NULL, '在主数据中补齐项目或编码映射后重新导入计划,保证跨系统可核对。'),
+  ('CONTRACT_PAY_NO_VOUCHER', '已支付款项缺少凭证号', 'contract', 'CONTRACT_PAY_NO_VOUCHER', 'medium', NULL, '补登支付凭证号,保证付款可追溯到 EAS 凭证。'),
+  ('SUPPLIER_LARGE_PAYMENTS', '供应商大额集中付款', 'contract', 'SUPPLIER_LARGE_PAYMENTS', 'medium', '1000000', '核查同一供应商多笔付款的合同依据与审批链。'),
+  ('EAS_PROJECT_CODE_MISSING', '大额凭证缺少项目辅助核算', 'eas', 'EAS_PROJECT_CODE_MISSING', 'medium', '100000', '补录项目辅助核算或说明不归属项目的原因。'),
+  ('EAS_LONG_UNCLEARED', '预付/暂估/挂账事项待清理', 'eas', 'EAS_LONG_UNCLEARED', 'low', NULL, '核对往来账龄,按合同与发票及时清理预付、暂估与挂账。'),
+  ('EAS_BUDGET_DIFF', '项目预算执行与 EAS 入账差异', 'eas', 'EAS_BUDGET_DIFF', 'medium', '0.1', '逐项核对项目预算执行数与 EAS 凭证,查明口径或入账差异。');
+
+CREATE TABLE risk_ai_note (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL REFERENCES risk_event(id),
+  kind TEXT NOT NULL CHECK (kind IN ('explain')),
+  content TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('template','model')),
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  event_version INTEGER NOT NULL,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_risk_ai_note_event ON risk_ai_note(event_id, id);
+CREATE TRIGGER trg_risk_ai_note_u BEFORE UPDATE ON risk_ai_note BEGIN SELECT RAISE(ABORT, '风险解释只追加'); END;
+CREATE TRIGGER trg_risk_ai_note_d BEFORE DELETE ON risk_ai_note BEGIN SELECT RAISE(ABORT, '风险解释只追加'); END;
+`,
+  },
 ];

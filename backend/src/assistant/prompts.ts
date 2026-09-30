@@ -67,6 +67,10 @@ export const PROMPT_VERSION = {
   cleaningStructure: 'cleaning-structure.v1',
   /** 报销单语义审核建议(只作待复核参考) */
   expenseAudit: 'expense-audit.v1',
+  /** 风险事件解释与整改建议改写 */
+  riskExplain: 'risk-explain.v1',
+  /** 财务预测运行洞察改写 */
+  forecastInsight: 'forecast-insight.v1',
 } as const;
 
 /* ---------------- 叙述改写类任务说明(rewriteTemplateNarrative 的 task) ---------------- */
@@ -93,6 +97,14 @@ export const QUALITY_ADVICE_REWRITE_TASK = '下面是预算定稿质量门禁的
 /** 编制记录点「本轮修改小结」改写。 */
 export const CHECKPOINT_SUMMARY_REWRITE_TASK = '下面是预算编制记录点的确定性「本轮修改小结」(Markdown)。'
   + `${REWRITE_ONLY}处数与方向结论必须逐字保留。`;
+
+/** 风险事件「解释与整改建议」改写(风险台账)。 */
+export const RISK_EXPLAIN_REWRITE_TASK = '下面是风险事件的确定性解释与整改建议(Markdown)。'
+  + `${REWRITE_ONLY}规则编码、风险等级与状态必须逐字保留;建议只能围绕已给出的事实展开。`;
+
+/** 财务预测运行「洞察」改写(情景与基准对比)。 */
+export const FORECAST_INSIGHT_REWRITE_TASK = '下面是财务预测运行的确定性洞察(Markdown)。'
+  + `${REWRITE_ONLY}输出项名称、情景参数与差异方向必须逐字保留。`;
 
 /* ---------------- 结构化输出类 prompt(JSON,经白名单校验) ---------------- */
 

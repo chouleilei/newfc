@@ -6,7 +6,7 @@ export const RISK_STATUS = {
 };
 export const RISK_LEVEL = { high: { text: '高', color: 'red' }, medium: { text: '中', color: 'orange' }, low: { text: '低', color: 'blue' } };
 export const RISK_SOURCE_LABEL: Record<string, string> = {
-  project_budget: '项目预算', plan: '计划执行', contract: '合同付款', investment_control: '投资控制', feasibility: '可行性测算',
+  project_budget: '项目预算', plan: '计划执行', contract: '合同付款', investment_control: '投资控制', feasibility: '可行性测算', eas: 'EAS 凭证',
 };
 export const RISK_ACTION_LABEL: Record<string, string> = {
   detect: '发现', redetect: '再次命中', reopen: '重开', suppressed: '误报再次命中', confirm: '确认', start: '开始整改', submit: '提交复核',

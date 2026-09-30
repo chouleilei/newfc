@@ -13,7 +13,7 @@ export const RISK_STATUS_LABELS: Record<RiskStatus, string> = {
 export const RISK_LEVELS = ['high', 'medium', 'low'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = { high: '高', medium: '中', low: '低' };
-export const RISK_SOURCES = ['project_budget', 'plan', 'contract', 'investment_control', 'feasibility'] as const;
+export const RISK_SOURCES = ['project_budget', 'plan', 'contract', 'investment_control', 'feasibility', 'eas'] as const;
 export type RiskSource = (typeof RISK_SOURCES)[number];
 
 /** 页面可发起的处理动作;detect/redetect/reopen/suppressed 只由扫描写入。 */
@@ -52,18 +52,54 @@ export const riskActionForm = z.object({
 }).strict();
 export type RiskActionForm = z.infer<typeof riskActionForm>;
 
+/** 阈值按计算器类型解释:ratio 为 0～1 比率,amount 为元(十进制字符串);具体范围由服务端按计算器校验。 */
+const thresholdText = z.string().trim().regex(/^\d{1,13}(\.\d{1,6})?$/, '阈值应为非负数字,最多 6 位小数');
+
 export const riskRuleUpdate = z.object({
   expectedVersion,
   enabled: z.boolean().optional(),
   level: z.enum(RISK_LEVELS).optional(),
-  threshold: z.string().trim().regex(/^(0(\.\d{1,6})?|1(\.0{1,6})?)$/, '阈值应为 0～1 之间最多 6 位小数').nullable().optional(),
+  threshold: thresholdText.nullable().optional(),
   suggestion: z.string().trim().max(500).optional(),
+  name: z.string().trim().min(2).max(60).optional(),
 }).strict();
 export type RiskRuleUpdate = z.infer<typeof riskRuleUpdate>;
+
+/** 自定义规则:复用某个内置计算器,只改名称/等级/阈值/建议,可限定组织(含下级)。 */
+export const riskRuleCreate = z.object({
+  code: z.string().trim().regex(/^[A-Z][A-Z0-9_]{2,47}$/, '编码只能用大写字母、数字与下划线,以字母开头,3～48 位'),
+  name: z.string().trim().min(2).max(60),
+  detector: z.string().trim().regex(/^[A-Z][A-Z0-9_]{2,47}$/),
+  level: z.enum(RISK_LEVELS),
+  threshold: thresholdText.nullable().optional(),
+  suggestion: z.string().trim().max(500).optional(),
+  orgId: id.nullable().optional(),
+}).strict();
+export type RiskRuleCreate = z.infer<typeof riskRuleCreate>;
+
+export type RiskThresholdKind = 'ratio' | 'amount';
 
 export interface RiskRuleDto {
   code: string; name: string; source: RiskSource; level: RiskLevel; threshold: string | null; thresholdApplies: boolean; enabled: boolean;
   suggestion: string; version: number; updatedAt: string | null;
+  /** 命中计算器;内置规则等于自身编码。 */
+  detector: string; detectorName: string; builtin: boolean; orgId: number | null; orgName: string | null;
+  thresholdKind: RiskThresholdKind | null; thresholdLabel: string | null;
+}
+
+/** 风险解释(确定性模板 + 可选模型改写,只追加)。 */
+export interface RiskExplanationDto {
+  id: number; eventId: number; content: string; source: 'template' | 'model'; model: string; promptVersion: string; eventVersion: number;
+  createdBy: string | null; createdAt: string;
+}
+
+/** 整改清单:按风险来源与当前事实确定性生成,不写库。 */
+export interface RiskChecklistItemDto {
+  key: string; question: string; required: boolean; done: boolean | null; hint: string; refs: { label: string; path: string }[];
+}
+export interface RiskChecklistDto {
+  eventId: number; eventVersion: number; status: RiskStatus; items: RiskChecklistItemDto[];
+  missingMaterials: { key: string; label: string }[]; suggestedNextStatus: RiskStatus | null; generatedAt: string;
 }
 export interface RiskEventDto {
   id: number; eventKey: string; ruleCode: string; ruleName: string; source: RiskSource; level: RiskLevel; orgId: number; orgName: string | null;
@@ -78,7 +114,7 @@ export interface RiskActionDto {
   id: number; action: string; actionLabel: string; fromStatus: RiskStatus | null; toStatus: RiskStatus | null; comment: string;
   attachmentName: string | null; hasAttachment: boolean; scanId: number | null; exceptionReason: string | null; actorUserId: number | null; actorName: string | null; createdAt: string;
 }
-export interface RiskEventDetailDto extends RiskEventDto { actions: RiskActionDto[]; allowed: RiskCommand[] }
+export interface RiskEventDetailDto extends RiskEventDto { actions: RiskActionDto[]; allowed: RiskCommand[]; explanations: RiskExplanationDto[] }
 export interface RiskScanDto {
   id: number; scope: Record<string, unknown>; createdCount: number; updatedCount: number; reopenedCount: number; suppressedCount: number; clearedCount: number;
   hitCount: number; createdByUserId: number | null; createdAt: string;

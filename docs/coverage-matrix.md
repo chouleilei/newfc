@@ -25,7 +25,7 @@
 | AC-F14 | `management_accounting` | `/mgmt`（八个页签） | `/api/mgmt/*` | 新：预警、责任中心、维度、指标、分摊、预算调整、多维分析、绩效；T-4/T-5 接入合同/计划/风险/投资计算器 | `t3-mgmt.test.ts`、`t4-linkage.test.ts`、`t5-linkage.test.ts` | 通过 |
 | AC-F15 | `plan_execution` | `/plan` | `/api/plan/preview|import|batches|overview|projects` | 新：三表模板、当期/累计、形象进度 | `t4-plan.test.ts` | 通过 |
 | AC-F16 | `project_contract` | `/contracts` | `/api/contracts/*` | 新：阶段、审核、变更、付款申请/复核/支付、归档/重开、作废、文档 | `t4-contracts.test.ts`、`project-contract.spec.ts` | 通过 |
-| AC-F17 | `risk_workflow` | `/risk` | `/api/risk/*` | 新：扫描、确认、整改、复核、重开、误报、整改台账 | `t5-risk.test.ts`、`risk-investment.spec.ts` | 通过 |
+| AC-F17 | `risk_workflow` | `/risk` | `/api/risk/*` | 新：扫描、确认、整改、复核、重开、误报、整改台账；T-7 补齐 lishui 规则（20 条内置，含 EAS 凭证类）、自定义规则（复用计算器、可限定组织）、风险解释（只追加）、整改清单 | `t5-risk.test.ts`、`t7-risk-rules.test.ts`、`risk-investment.spec.ts` | 通过 |
 | AC-F18 | `ai_reports` | `/analysis-reports`、`/insights` | `/api/analysis-reports/*`、`/api/assistant/insights` | 继：洞察草稿；新：审核、冻结、发布任务（DOCX/PDF）、修订 | `t5-reports.test.ts`、`t6-jobs-restart.test.ts`、`risk-investment.spec.ts` | 通过；模板管理见差异 |
 | AC-F19 | `standard_reports` | `/standard-reports` | `/api/standard-reports/*` | 新：五类报表（预算执行、财报摘要、EAS 对账、合同付款台账、风险整改台账）冻结、复核、导出 | `t3-standard-reports.test.ts`、`t4-linkage.test.ts`、`t5-linkage.test.ts` | 通过 |
 | AC-F20 | `xiaoli_assistant` | `/assistant`、页面侧栏助手 | `/api/assistant/*` | 继：助手编排、规则路由、降级；扩：各域只读工具（T-3～T-5）、`cross_search`（T-6） | `assistant*.test.ts`、`t3/t4-assistant.test.ts`、`t6-search.test.ts`、`assistant*.spec.ts` | 通过 |
@@ -34,7 +34,8 @@
 | AC-F23 | `system_settings` | `/settings/ai`、`/settings/business` | `/api/settings/ai-channels|ai-feature-bindings|business` | 继：模型渠道（凭据不回显）；扩：业务设置注册表（T-6 加投资控制阈值与预测超时） | `ai-channel-fallback.test.ts`、`master-settings.test.ts`、`t6-settings.test.ts` | 通过 |
 | AC-F24 | `security_administration` | `/settings/security` | `/api/security/users|roles|permissions` | 新：用户、角色、组织授权；授权对页面/API/下载/工具/检索生效 | `security.test.ts`、`scope-restricted.spec.ts`、`platform-admin.spec.ts`、`t6-search.test.ts` | 通过 |
 | AC-F25 | `audit_log` | `/data?tab=logs` | `/api/logs` | 继：操作日志；扩：操作人/来源/结果/请求 ID、凭据脱敏、各域动作 | `security.test.ts` 及各域测试的日志断言 | 通过 |
-| AC-F26 | `cross_domain_search` | 顶栏检索框、`/search` | `/api/search` | 新：十一类对象关键词检索、按权限与组织裁剪、结果路径可打开 | `t6-search.test.ts`、`Search.test.ts`、`App.test.ts`、`cross-domain.spec.ts` | 通过 |
+| AC-F26 | `risk_workflow` 规则 | `scan.py` 硬编码规则；自定义规则只存元数据、不参与扫描 | 规则 = 计算器 + 阈值/等级/组织；自定义规则复用内置计算器并真正参与扫描 | lishui `PROJECT_CODE_MISSING` → `PLAN_PROJECT_UNMAPPED`（newfc 预算行必须关联项目，缺口只在计划明细）；`CONTRACT_CODE_MISSING` → `CONTRACT_PAY_NO_VOUCHER`（合同编号必填，追溯断点落在付款缺凭证号）；`CONTRACT_OVERPAY` 由数据库约束阻断，保留 `CONTRACT_PAY_OVER_CAP` |
+| `cross_domain_search` | 顶栏检索框、`/search` | `/api/search` | 新：十一类对象关键词检索、按权限与组织裁剪、结果路径可打开 | `t6-search.test.ts`、`Search.test.ts`、`App.test.ts`、`cross-domain.spec.ts` | 通过 |
 
 ## 跨域验收
 

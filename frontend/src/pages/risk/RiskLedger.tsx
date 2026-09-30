@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Alert, App as AntdApp, Button, Card, Checkbox, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Row, Select, Space, Statistic, Switch, Table, Tabs, Tag,
+  Alert, App as AntdApp, Button, Card, Checkbox, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, List, Modal, Row, Select, Space, Statistic, Switch, Table, Tabs, Tag,
   Timeline, Typography, Upload,
 } from 'antd';
 import dayjs from 'dayjs';
 import { can, download, errorText, getSession } from '../../api/client';
 import {
   riskApi, type RiskCommand, type RiskEventDetailDto, type RiskEventDto, type RiskLevel, type RiskListQuery, type RiskRuleDto, type RiskStatus,
+  type RiskThresholdKind,
 } from '../../api/riskInvestment';
+import { Markdown } from '../../components/assistant/Markdown';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { useUrlId } from '../../hooks/useUrlId';
 import { shortTime } from '../../utils/relativeTime';
@@ -19,7 +21,19 @@ import { RISK_ACTION_LABEL, RISK_LEVEL, RISK_SOURCE_LABEL, RISK_STATUS } from '.
 /**
  * AC-F17 风险台账:扫描(规则命中 → 新建/再次命中/重开;误报只计次)→ 确认 → 整改 → 提交复核 → 他人复核通过/退回。
  * 未再命中的风险只标记,不自动关闭。复核要求提交人 ≠ 复核人;管理员同人复核须填例外原因。
+ * 风险解释(模板 + 可选模型改写)只追加、不改状态;整改清单由服务端按来源与证据确定性生成。
+ * 自定义规则复用内置计算器,可设阈值、等级并限定组织(含下级)。
  */
+
+const THRESHOLD_RULES: Record<RiskThresholdKind, { pattern: RegExp; message: string; placeholder: string; suffix: string }> = {
+  ratio: { pattern: /^(0(\.\d{1,6})?|1(\.0{1,6})?)?$/, message: '0～1 之间最多 6 位小数', placeholder: '如 0.5', suffix: '(0～1)' },
+  amount: { pattern: /^(\d{1,13}(\.\d{1,2})?)?$/, message: '请输入大于 0 的金额,最多 2 位小数', placeholder: '如 1000000', suffix: '(元)' },
+};
+
+function ThresholdCell({ rule }: { rule: RiskRuleDto }) {
+  if (!rule.thresholdApplies) return <>—</>;
+  return rule.thresholdKind === 'amount' ? <Money value={rule.threshold} /> : <Ratio value={rule.threshold} />;
+}
 
 const STATUS_KEYS = Object.keys(RISK_STATUS) as RiskStatus[];
 const COMMAND_META: Record<RiskCommand, { label: string; danger?: boolean; primary?: boolean; comment?: 'required' | 'optional'; assign?: boolean; review?: boolean }> = {
@@ -80,8 +94,18 @@ function ActionModal({ event, action, onClose, onDone }: { event: RiskEventDetai
 function RiskDrawer({ id, onClose }: { id: number | null; onClose: () => void }) {
   const qc = useQueryClient();
   const [action, setAction] = useState<RiskCommand | null>(null);
+  const { message } = AntdApp.useApp();
   const q = useQuery({ queryKey: ['risk-event', id], queryFn: () => riskApi.event(id!), enabled: id != null });
   const e = q.data;
+  const checklist = useQuery({ queryKey: ['risk-checklist', id, e?.version], queryFn: () => riskApi.checklist(id!), enabled: id != null && e != null });
+  const explain = useMutation({
+    mutationFn: () => riskApi.explain(id!),
+    onSuccess: (n) => {
+      message.success(n.source === 'model' ? '已生成解释(模型改写)' : '已生成解释(模板)');
+      void qc.invalidateQueries({ queryKey: ['risk-event', id] });
+    },
+    onError: (err) => message.error(errorText(err)),
+  });
   const done = (d: RiskEventDetailDto) => {
     qc.setQueryData(['risk-event', id], d);
     void qc.invalidateQueries({ queryKey: ['risk-events'] }); void qc.invalidateQueries({ queryKey: ['risk-summary'] });
@@ -118,6 +142,40 @@ function RiskDrawer({ id, onClose }: { id: number | null; onClose: () => void })
             {e.suggestion && <Descriptions.Item label="处理建议" span={2}>{e.suggestion}</Descriptions.Item>}
             {e.rectifyNote && <Descriptions.Item label="整改说明" span={2}>{e.rectifyNote}</Descriptions.Item>}
           </Descriptions>
+          {checklist.data && (
+            <Card size="small" title="整改清单" extra={checklist.data.suggestedNextStatus && <Typography.Text type="secondary">建议下一步:{RISK_STATUS[checklist.data.suggestedNextStatus].text}</Typography.Text>}>
+              {checklist.data.missingMaterials.length > 0 && (
+                <Alert type="warning" showIcon style={{ marginBottom: 8 }} message={`缺少材料:${checklist.data.missingMaterials.map((m) => m.label).join('、')}`} />
+              )}
+              <List size="small" dataSource={checklist.data.items} renderItem={(it) => (
+                <List.Item>
+                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                    <Space wrap>
+                      {it.done === true ? <Tag color="success">已完成</Tag> : it.done === false ? <Tag color="error">未完成</Tag> : <Tag>待核实</Tag>}
+                      <Typography.Text strong>{it.question}</Typography.Text>
+                      {it.required && <Typography.Text type="danger">*</Typography.Text>}
+                    </Space>
+                    <Typography.Text type="secondary">{it.hint}</Typography.Text>
+                    {it.refs.length > 0 && <Space wrap>{it.refs.map((r) => <Link key={r.path} to={r.path}>{r.label}</Link>)}</Space>}
+                  </Space>
+                </List.Item>
+              )} />
+            </Card>
+          )}
+          <Card size="small" title="风险解释" extra={can('risk:handle') && (
+            <Button size="small" loading={explain.isPending} onClick={() => explain.mutate()}>{e.explanations.length ? '重新生成' : '生成解释'}</Button>
+          )}>
+            {e.explanations.length === 0 ? <Typography.Text type="secondary">尚未生成解释。解释仅作辅助参考,不改变风险状态。</Typography.Text> : (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Typography.Text type="secondary">
+                  {e.explanations[0].source === 'model' ? `模型改写(${e.explanations[0].model})` : '确定性模板'} · {e.explanations[0].createdBy ?? '—'} · {shortTime(e.explanations[0].createdAt)}
+                  {e.explanations[0].eventVersion !== e.version && ' · 生成后风险已更新'}
+                  {e.explanations.length > 1 && ` · 历史 ${e.explanations.length - 1} 条`}
+                </Typography.Text>
+                <Markdown text={e.explanations[0].content} />
+              </Space>
+            )}
+          </Card>
           <Card size="small" title="命中证据">
             <pre style={{ margin: 0, maxHeight: 220, overflow: 'auto', fontSize: 12 }}>{JSON.stringify(e.evidence, null, 2)}</pre>
           </Card>
@@ -236,24 +294,77 @@ function ScansTab() {
 function RuleEditModal({ rule, onClose }: { rule: RiskRuleDto | null; onClose: () => void }) {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
-  const [form] = Form.useForm<{ enabled: boolean; level: RiskLevel; threshold?: string; suggestion?: string }>();
+  const [form] = Form.useForm<{ name?: string; enabled: boolean; level: RiskLevel; threshold?: string; suggestion?: string }>();
   const save = useMutation({
-    mutationFn: (v: { enabled: boolean; level: RiskLevel; threshold?: string; suggestion?: string }) => riskApi.updateRule(rule!.code, {
+    mutationFn: (v: { name?: string; enabled: boolean; level: RiskLevel; threshold?: string; suggestion?: string }) => riskApi.updateRule(rule!.code, {
       expectedVersion: rule!.version, enabled: v.enabled, level: v.level, suggestion: v.suggestion ?? '',
+      ...(!rule!.builtin && v.name?.trim() ? { name: v.name.trim() } : {}),
       ...(rule!.thresholdApplies ? { threshold: v.threshold?.trim() ? v.threshold.trim() : null } : {}),
     }),
     onSuccess: () => { message.success('规则已更新,下次扫描生效'); void qc.invalidateQueries({ queryKey: ['risk-rules'] }); onClose(); },
     onError: (e) => message.error(errorText(e)),
   });
   if (!rule) return null;
+  const th = THRESHOLD_RULES[rule.thresholdKind ?? 'ratio'];
   return (
     <Modal open title={`调整规则:${rule.name}`} onCancel={onClose} destroyOnClose confirmLoading={save.isPending} onOk={() => form.validateFields().then((v) => save.mutate(v))}>
-      <Form form={form} layout="vertical" preserve={false} initialValues={{ enabled: rule.enabled, level: rule.level, threshold: rule.threshold ?? '', suggestion: rule.suggestion }}>
+      <Form form={form} layout="vertical" preserve={false} initialValues={{ name: rule.name, enabled: rule.enabled, level: rule.level, threshold: rule.threshold ?? '', suggestion: rule.suggestion }}>
+        {!rule.builtin && <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, min: 2, max: 60 }]}><Input /></Form.Item>}
         <Form.Item name="enabled" label="启用" valuePropName="checked"><Switch /></Form.Item>
         <Form.Item name="level" label="等级"><Select options={(['high', 'medium', 'low'] as const).map((k) => ({ value: k, label: RISK_LEVEL[k].text }))} /></Form.Item>
         {rule.thresholdApplies && (
-          <Form.Item name="threshold" label="执行率阈值(0～1)" rules={[{ pattern: /^(0(\.\d{1,6})?|1(\.0{1,6})?)?$/, message: '0～1 之间最多 6 位小数' }]}><Input placeholder="如 0.5" /></Form.Item>
+          <Form.Item name="threshold" label={`${rule.thresholdLabel ?? '阈值'}${th.suffix}`} extra="留空使用计算器默认值" rules={[{ pattern: th.pattern, message: th.message }]}><Input placeholder={th.placeholder} /></Form.Item>
         )}
+        <Form.Item name="suggestion" label="处理建议"><Input.TextArea rows={3} maxLength={500} /></Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+function RuleCreateModal({ open, rules, onClose }: { open: boolean; rules: RiskRuleDto[]; onClose: () => void }) {
+  const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
+  type V = { code: string; name: string; detector: string; level: RiskLevel; threshold?: string; suggestion?: string; orgId?: number };
+  const [form] = Form.useForm<V>();
+  const detectors = rules.filter((r) => r.builtin);
+  const detector = detectors.find((r) => r.code === Form.useWatch('detector', form));
+  const th = detector?.thresholdKind ? THRESHOLD_RULES[detector.thresholdKind] : null;
+  const create = useMutation({
+    mutationFn: (v: V) => riskApi.createRule({
+      code: v.code.trim(), name: v.name.trim(), detector: v.detector, level: v.level,
+      ...compact({ suggestion: v.suggestion?.trim(), orgId: v.orgId }),
+      ...(th && v.threshold?.trim() ? { threshold: v.threshold.trim() } : {}),
+    }),
+    onSuccess: (r) => { message.success(`已新增规则 ${r.code},下次扫描生效`); void qc.invalidateQueries({ queryKey: ['risk-rules'] }); onClose(); },
+    onError: (e) => message.error(errorText(e)),
+  });
+  return (
+    <Modal open={open} title="新增自定义规则" onCancel={onClose} destroyOnClose confirmLoading={create.isPending} onOk={() => form.validateFields().then((v) => create.mutate(v))}>
+      <Form form={form} layout="vertical" preserve={false} initialValues={{ level: 'medium' }}
+        onValuesChange={(c: Partial<V>) => {
+          const d = c.detector ? detectors.find((r) => r.code === c.detector) : undefined;
+          if (d) form.setFieldsValue({ threshold: d.threshold ?? '', level: d.level, suggestion: d.suggestion });
+        }}>
+        <Form.Item name="detector" label="计算器(复用内置规则的命中逻辑)" rules={[{ required: true, message: '请选择' }]}>
+          <Select showSearch optionFilterProp="label" options={detectors.map((r) => ({ value: r.code, label: `${r.detectorName}(${r.code})` }))} />
+        </Form.Item>
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Item name="code" label="编码" rules={[{ required: true, pattern: /^[A-Z][A-Z0-9_]{2,47}$/, message: '大写字母开头,仅大写字母/数字/下划线,3～48 位' }]}>
+              <Input placeholder="如 CUSTOM_PB_LOW_EXEC_HZ" />
+            </Form.Item>
+          </Col>
+          <Col span={12}><Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, min: 2, max: 60 }]}><Input /></Form.Item></Col>
+        </Row>
+        <Row gutter={12}>
+          <Col span={12}><Form.Item name="level" label="等级"><Select options={(['high', 'medium', 'low'] as const).map((k) => ({ value: k, label: RISK_LEVEL[k].text }))} /></Form.Item></Col>
+          <Col span={12}>
+            {th ? (
+              <Form.Item name="threshold" label={`${detector?.thresholdLabel ?? '阈值'}${th.suffix}`} rules={[{ pattern: th.pattern, message: th.message }]}><Input placeholder={th.placeholder} /></Form.Item>
+            ) : <Form.Item label="阈值"><Typography.Text type="secondary">该计算器无阈值</Typography.Text></Form.Item>}
+          </Col>
+        </Row>
+        <Form.Item name="orgId" label="适用组织(含下级,留空为全部)"><OrgSelect onChange={(v) => form.setFieldValue('orgId', v)} width={470} /></Form.Item>
         <Form.Item name="suggestion" label="处理建议"><Input.TextArea rows={3} maxLength={500} /></Form.Item>
       </Form>
     </Modal>
@@ -262,23 +373,27 @@ function RuleEditModal({ rule, onClose }: { rule: RiskRuleDto | null; onClose: (
 
 function RulesTab() {
   const [editing, setEditing] = useState<RiskRuleDto | null>(null);
+  const [creating, setCreating] = useState(false);
   const q = useQuery({ queryKey: ['risk-rules'], queryFn: riskApi.rules });
   const editable = can('risk:review') && !!getSession()?.user.allOrgs;
   if (q.error) return <QueryErrorResult title="规则加载失败" error={q.error} refetch={q.refetch} />;
   return (
-    <>
-      <Table<RiskRuleDto> rowKey="code" size="small" loading={q.isLoading} dataSource={q.data ?? []} pagination={false} columns={[
-        { title: '编码', dataIndex: 'code', width: 180 },
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      {editable && <Button type="primary" onClick={() => setCreating(true)}>新增自定义规则</Button>}
+      <Table<RiskRuleDto> rowKey="code" size="small" loading={q.isLoading} dataSource={q.data ?? []} pagination={false} scroll={{ x: 1200 }} columns={[
+        { title: '编码', dataIndex: 'code', width: 220, render: (v: string, r) => <Space size={4}>{v}{!r.builtin && <Tag color="purple">自定义</Tag>}</Space> },
         { title: '名称', dataIndex: 'name', width: 200 },
         { title: '来源', dataIndex: 'source', width: 100, render: (v: string) => RISK_SOURCE_LABEL[v] ?? v },
         { title: '等级', dataIndex: 'level', width: 70, render: (v: RiskLevel) => statusTag(RISK_LEVEL, v) },
-        { title: '阈值', dataIndex: 'threshold', width: 90, render: (v: string | null, r) => (r.thresholdApplies ? <Ratio value={v} /> : '—') },
+        { title: '阈值', dataIndex: 'threshold', width: 150, render: (_: string | null, r) => (r.thresholdApplies ? <Space size={4}><Typography.Text type="secondary">{r.thresholdLabel}</Typography.Text><ThresholdCell rule={r} /></Space> : '—') },
+        { title: '适用组织', dataIndex: 'orgName', width: 110, render: (v: string | null) => v ?? '全部' },
         { title: '启用', dataIndex: 'enabled', width: 70, render: (v: boolean) => (v ? <Tag color="success">启用</Tag> : <Tag>停用</Tag>) },
         { title: '处理建议', dataIndex: 'suggestion', ellipsis: true },
         ...(editable ? [{ title: '', key: 'op', width: 70, render: (_: unknown, r: RiskRuleDto) => <Button size="small" onClick={() => setEditing(r)}>调整</Button> }] : []),
       ]} />
       <RuleEditModal rule={editing} onClose={() => setEditing(null)} />
-    </>
+      {creating && <RuleCreateModal open rules={q.data ?? []} onClose={() => setCreating(false)} />}
+    </Space>
   );
 }
 

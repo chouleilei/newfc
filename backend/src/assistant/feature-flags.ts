@@ -20,3 +20,7 @@ export function masterDataAiEnabled(): boolean { return enabled(process.env.NEWF
 export function trendNarrativeAiEnabled(): boolean { return enabled(process.env.NEWFC_TREND_AI); }
 /** 编制记录点「本轮修改小结」改写 */
 export function checkpointSummaryAiEnabled(): boolean { return enabled(process.env.NEWFC_CHECKPOINT_AI); }
+/** 风险事件「解释与整改建议」改写 */
+export function riskExplainAiEnabled(): boolean { return enabled(process.env.NEWFC_RISK_AI); }
+/** 财务预测运行洞察改写 */
+export function forecastInsightAiEnabled(): boolean { return enabled(process.env.NEWFC_FORECAST_AI); }

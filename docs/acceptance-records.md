@@ -265,3 +265,13 @@ E2E 运行前提：webServer 直接跑 `backend/dist/index.js`，必须先在 ba
 未完成：模型密钥（SiliconFlow）与 OCR 服务地址未配置，助手与费用审核按规则运行并标注“未配置”；接入后用真实单据补验模型/OCR 输出（OPEN-05 余项）。
 
 外网访问（2026-09-30）：宿主 nginx 新建独立站点 `newfc.tangdalei.com`（反代 127.0.0.1:3760，`proxy_buffering off` 支持 SSE，上传 20 MiB），`nginx -t` 通过后 reload，certbot 签发证书（2026-12-29 到期，自动续期）并设 HTTP→HTTPS 跳转；`NEWFC_TRUST_PROXY=1` 后重启服务。其他站点配置未改。外网验证：HTTP 301 → HTTPS；首页 200、证书校验通过；就绪 200（V60）；登录 200，会话 Cookie `HttpOnly; SameSite=Strict; Secure`；跨站 Origin 写请求 403，同源带 CSRF 令牌 200；IP 直连 443 拒绝握手、3760 外部不可达。管理员账号改为 `tangdalei`（全组织、管理员角色），引导账号 `admin` 已停用、临时口令文件已删除。
+
+## T-7 lishui 能力补齐（2026-10-01）
+
+上线后对照 lishui 端点与页面复核，补齐覆盖矩阵未列出的能力缺口。
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| 风险规则 | V61 重建 `risk_rule`（`detector`/`builtin`/`org_id`，来源增加 `eas`），新增 8 条内置规则：付款超前形象进度、完成投资逼近概算、计划明细未关联项目、已支付缺凭证号、供应商大额集中付款、大额凭证缺项目、预付/暂估/挂账、预算执行与 EAS 入账差异；阈值按比率/金额分别校验 | `t7-risk-rules.test.ts` 用例 1 |
+| 自定义规则 | 全组织 `risk:review` 新增；复用内置计算器，可设阈值、等级、适用组织（含下级）；编码冲突 409；内置规则不可改名 | 同上 |
+| 风险解释、整改清单 | 解释为确定性模板 + 可选模型改写（`risk-explain.v1`），`risk_ai_note` 只追加、不改风险状态，需 `risk:handle`；清单按来源与证据生成缺失材料与建议下一状态，范围外 404 | `t7-risk-rules.test.ts` 用例 2 |

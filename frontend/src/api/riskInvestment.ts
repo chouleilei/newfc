@@ -10,7 +10,8 @@ import type {
 import type { IcComparisonRowDto, IcComparisonSummaryDto, IcLevel, IcVersionType } from '@contracts/investment-control';
 import type { ForecastDiagnostic, ForecastOutput, ForecastParam } from '@contracts/finance-forecast';
 import type {
-  RiskCommand, RiskEventDetailDto, RiskEventDto, RiskLevel, RiskListQuery, RiskRuleDto, RiskRuleUpdate, RiskScanDto, RiskSummaryDto,
+  RiskChecklistDto, RiskCommand, RiskEventDetailDto, RiskEventDto, RiskExplanationDto, RiskLevel, RiskListQuery, RiskRuleCreate, RiskRuleDto, RiskRuleUpdate, RiskScanDto,
+  RiskSummaryDto,
 } from '@contracts/risk';
 import type { RptGenerate, RptKind, RptListQuery, RptReportDto, RptReportListItemDto, RptSectionEditDto, RptStatus } from '@contracts/analysis-reports';
 
@@ -200,6 +201,9 @@ export const riskApi = {
   scan: (orgId?: number) => api.post<RiskScanDto>('/risk/scans', orgId ? { orgId } : {}),
   rules: () => api.get<RiskRuleDto[]>('/risk/rules'),
   updateRule: (code: string, body: RiskRuleUpdate) => api.patch<RiskRuleDto>(`/risk/rules/${code}`, body),
+  createRule: (body: RiskRuleCreate) => api.post<RiskRuleDto>('/risk/rules', body),
+  explain: (id: number) => api.post<RiskExplanationDto>(`/risk/events/${id}/explain`, {}),
+  checklist: (id: number) => api.get<RiskChecklistDto>(`/risk/events/${id}/checklist`),
 };
 export type { RiskLevel };
 
