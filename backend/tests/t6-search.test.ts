@@ -79,13 +79,18 @@ describe('T-6 跨域检索', () => {
     expect(limited.truncated).toEqual({ project: true });
 
     // 缺少 contract:read 的角色:合同类型跳过,其余照常
-    const role = runWithContext(systemContext('cli'), () => createRole(db, { code: 't6_master_only', name: '仅主数据', permissions: ['master:read', 'assistant:use'] }));
+    const role = runWithContext(systemContext('cli'), () => createRole(db, { code: 't6_master_only', name: '仅主数据', permissions: ['master:read', 'search:use', 'assistant:use'] }));
     const masterOnly = createScopedUser(db, { username: 't6-master-only', roleCodes: [role.code], allOrgs: true });
     const mo = await json(get(base, masterOnly.session, `/api/search?q=${encodeURIComponent('水厂')}`));
     expect([...new Set(mo.items.map((i: any) => i.type))].sort()).toEqual(['project', 'supplier']);
     expect(mo.skipped).toContain('contract');
     expect(mo.skipped).toContain('analysis_report');
     expect(mo.skipped).not.toContain('project');
+    // 没有 search:use 的角色:接口与助手工具都拒绝
+    const noSearch = runWithContext(systemContext('cli'), () => createRole(db, { code: 't6_no_search', name: '无检索', permissions: ['master:read', 'assistant:use'] }));
+    const ns = createScopedUser(db, { username: 't6-no-search', roleCodes: [noSearch.code], allOrgs: true });
+    expect((await get(base, ns.session, '/api/search?q=水厂')).status).toBe(403);
+    as(db, ns.userId, () => expect(() => executeTool(db, 'cross_search', { q: '水厂' })).toThrow());
 
     // 通配符不生效:只含 % _ 时拒绝;'%' 不能匹配全部
     const wild = await get(base, admin, `/api/search?q=${encodeURIComponent('%_')}`);
@@ -126,7 +131,7 @@ describe('T-6 跨域检索', () => {
 
   it('助手 cross_search 与接口同源,按身份裁剪且不超过 30 条', async () => {
     const { base, db, admin, fx } = await boot('newfc-t6-search-tool-');
-    expect(TOOL_POLICIES.cross_search).toMatchObject({ permission: 'assistant:use', scope: 'global' });
+    expect(TOOL_POLICIES.cross_search).toMatchObject({ permission: 'search:use', scope: 'global' });
     expect(toolDefinitions.some((d) => d.function.name === 'cross_search')).toBe(true);
     expect(allowedToolsForCapabilities([])).toContain('cross_search');
     for (let i = 0; i < 15; i++) {

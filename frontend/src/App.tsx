@@ -721,11 +721,11 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
           </Space>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, lineHeight: 'normal' }}>
             {/* AC-F26 跨域检索入口:回车进入 /search?q=,按编码/名称关键词匹配 */}
-            <Input.Search
+            {can('search:use') && <Input.Search
               size="small" allowClear maxLength={64} placeholder="检索项目、合同、报告…" aria-label="跨域检索"
               className="bd-header-search" style={{ width: 220 }}
               onSearch={(v) => { const q = v.trim(); if (q) navigate(`/search?q=${encodeURIComponent(q)}`); }}
-            />
+            />}
             <Tooltip title="金额统一以万元录入与展示（1.00 万元 = 10,000 元，两位小数）；成本费用按正数填写，负数表示冲回；悬停金额数字可查看精确到元的原始值">
               <span className="bd-chip">
                 <span className="bd-status-dot" aria-hidden />

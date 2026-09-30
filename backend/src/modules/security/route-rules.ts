@@ -69,6 +69,7 @@ addRouteRules([
   // 工作台与按组织范围计算的报表/穿透:受限用户按 currentOrgScopeId/currentCellOrgId 裁剪(AC-X04)
   R('GET', /^\/dashboard$/, 'dashboard:read'),
   R('GET', /^\/dashboard\/todos$/, 'dashboard:read'),
+  R('GET', /^\/dashboard\/domains$/, 'dashboard:read'),
   R('GET', /^\/report\/(completion|structure|trend|multi-year-trend)$/, 'analysis:read'),
   R('GET', /^\/analysis\/anomalies$/, 'analysis:read'),
   R('GET', /^\/evidence\/(budget-cell|actual-cell|metric-cell)$/, 'analysis:read'),

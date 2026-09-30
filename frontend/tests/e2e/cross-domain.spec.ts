@@ -56,3 +56,18 @@ test.describe('跨域检索', () => {
     await expect(page.locator('.ant-table-row', { hasText: code })).toHaveCount(1);
   });
 });
+
+test.describe('工作台业务概况', () => {
+  test('各域概况块可见并可进入对应页面', async ({ page }) => {
+    await login(page);
+    await page.goto('/');
+    const card = page.getByTestId('domain-overview-card');
+    await expect(card).toBeVisible();
+    for (const label of ['合同', '费用报销', '项目预算', '风险', '投资控制', '分析报告']) {
+      await expect(card.getByLabel(`业务概况 ${label}`)).toBeVisible();
+    }
+    await expect(card.getByLabel('业务概况 投资控制')).toContainText('最新快照超限项目');
+    await card.getByLabel('业务概况 风险').click();
+    await expect(page).toHaveURL(/\/risk$/);
+  });
+});

@@ -8,7 +8,7 @@ import { searchQuery } from '../../contracts/search';
 import { crossDomainSearch } from './search.service';
 
 /** 跨域检索(AC-F26):路由只要求登录,逐类型的读权限与组织范围由 service 按 AuthContext 判断。 */
-addRouteRules([{ method: 'GET', pattern: /^\/search$/, permission: null }]);
+addRouteRules([{ method: 'GET', pattern: /^\/search$/, permission: 'search:use' }]);
 
 export function registerSearchRoutes(app: Express, db: () => DB, wrap: Wrap): void {
   app.get('/api/search', wrap((req, res) => { res.json(crossDomainSearch(db(), parseInput(searchQuery, queryFields(req)))); }));
