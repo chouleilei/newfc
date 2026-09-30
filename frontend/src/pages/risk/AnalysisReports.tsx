@@ -9,6 +9,7 @@ import {
   reportApi, waitJob, type RptKind, type RptReportDto, type RptReportListItemDto, type RptSectionDto, type RptStatus,
 } from '../../api/riskInvestment';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
+import { useUrlId } from '../../hooks/useUrlId';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, EXCEPTION_REASON_FIELD, OrgSelect, statusTag, usePrompt } from '../financeData/shared';
 import { MODEL_STATUS_LABEL, RPT_KIND_LABEL, RPT_STATUS } from './shared';
@@ -221,7 +222,7 @@ export default function AnalysisReports() {
   const [kind, setKind] = useState<RptKind>();
   const [orgId, setOrgId] = useState<number>();
   const [keyword, setKeyword] = useState('');
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useUrlId();
   const [generating, setGenerating] = useState(false);
   const qc = useQueryClient();
   const query = compact({ status, kind, orgId, keyword: keyword.trim() });

@@ -89,3 +89,10 @@ describe('T-5 投资与预测、风险与报告入口', () => {
     }
   });
 });
+
+describe('T-6 跨域检索入口', () => {
+  it('/search 有独立标题,不高亮任何业务菜单', () => {
+    expect(pageTitle('/search', '?q=水厂', selectedKey('/search', '?q=水厂'))).toBe('跨域检索');
+    expect(selectedKey('/search', '')).toBe('/');
+  });
+});

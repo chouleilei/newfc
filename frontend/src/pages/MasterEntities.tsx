@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, TreeSelect, Typography } from 'antd';
 import dayjs from 'dayjs';
@@ -43,11 +44,11 @@ function useOrgTree() {
   return useQuery({ queryKey: ['org-tree'], queryFn: () => api.get<{ tree: TreeNode[]; rows: TreeRow[] }>('/org/tree') });
 }
 
-function ProjectsTab() {
+function ProjectsTab({ initialKeyword = '' }: { initialKeyword?: string }) {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const writable = can('master:write');
-  const [keyword, setKeyword] = useState('');
+  const [keyword, setKeyword] = useState(initialKeyword);
   const [editing, setEditing] = useState<Project | 'new' | null>(null);
   const [form] = Form.useForm<{ code: string; name: string; projectType?: string; orgId: number }>();
   const orgTree = useOrgTree();
@@ -76,7 +77,7 @@ function ProjectsTab() {
   return (
     <>
       <Space style={{ marginBottom: 12 }}>
-        <Input.Search allowClear placeholder="编码或名称" onSearch={setKeyword} style={{ width: 220 }} />
+        <Input.Search allowClear placeholder="编码或名称" defaultValue={keyword} onSearch={setKeyword} style={{ width: 220 }} />
         {writable && <Button type="primary" onClick={() => open('new')}>新建项目</Button>}
         <Typography.Text type="secondary">只显示已授权组织下的项目;编码建立后不可修改,历史数据按项目 ID 关联。</Typography.Text>
       </Space>
@@ -119,11 +120,11 @@ function ProjectsTab() {
   );
 }
 
-function SuppliersTab() {
+function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const writable = can('master:write');
-  const [keyword, setKeyword] = useState('');
+  const [keyword, setKeyword] = useState(initialKeyword);
   const [editing, setEditing] = useState<Supplier | 'new' | null>(null);
   const [form] = Form.useForm<{ code?: string; name: string; supplierType?: string; creditCode?: string }>();
   const list = useQuery({
@@ -151,7 +152,7 @@ function SuppliersTab() {
   return (
     <>
       <Space style={{ marginBottom: 12 }}>
-        <Input.Search allowClear placeholder="编码或名称" onSearch={setKeyword} style={{ width: 220 }} />
+        <Input.Search allowClear placeholder="编码或名称" defaultValue={keyword} onSearch={setKeyword} style={{ width: 220 }} />
         {writable && <Button type="primary" onClick={() => open('new')}>新建供应商</Button>}
         <Typography.Text type="secondary">名称按全半角、空白与括号归一后查重。</Typography.Text>
       </Space>
@@ -321,13 +322,22 @@ function ResolveTab() {
 }
 
 /** 主数据扩展(AC-F07):项目、供应商、跨域编码映射与解析预览。组织/科目沿用原页面。 */
+const TAB_KEYS = ['projects', 'suppliers', 'mappings', 'resolve'];
+
+/** `?tab=&keyword=` 由跨域检索(AC-F26)带入:定位到对应页签并预填关键词;切换页签时清除关键词。 */
 export default function MasterEntities() {
+  const [params, setParams] = useSearchParams();
+  const tab = TAB_KEYS.includes(params.get('tab') ?? '') ? params.get('tab')! : 'projects';
+  const keyword = params.get('keyword') ?? '';
+  const onTab = (k: string) => setParams((p) => { const n = new URLSearchParams(p); n.set('tab', k); n.delete('keyword'); return n; }, { replace: true });
   return (
     <Card>
       <Tabs
+        activeKey={tab}
+        onChange={onTab}
         items={[
-          { key: 'projects', label: '项目', children: <ProjectsTab /> },
-          { key: 'suppliers', label: '供应商', children: <SuppliersTab /> },
+          { key: 'projects', label: '项目', children: <ProjectsTab key={`p:${tab === 'projects' ? keyword : ''}`} initialKeyword={tab === 'projects' ? keyword : ''} /> },
+          { key: 'suppliers', label: '供应商', children: <SuppliersTab key={`s:${tab === 'suppliers' ? keyword : ''}`} initialKeyword={tab === 'suppliers' ? keyword : ''} /> },
           { key: 'mappings', label: '编码映射', children: <MappingsTab /> },
           { key: 'resolve', label: '解析预览', children: <ResolveTab /> },
         ]}

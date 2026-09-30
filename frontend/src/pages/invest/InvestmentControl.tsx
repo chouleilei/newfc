@@ -10,6 +10,7 @@ import {
   type IcVersionType,
 } from '../../api/riskInvestment';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
+import { useUrlId } from '../../hooks/useUrlId';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, Money, OrgSelect, Ratio, statusTag, usePrompt } from '../financeData/shared';
 import { IC_LEVEL, IC_MAPPING, IC_ROW_STATUS, IC_VERSION_STATUS, IC_VERSION_TYPE_LABEL, IC_VERSION_TYPES, RowErrors } from './shared';
@@ -338,7 +339,7 @@ export default function InvestmentControl() {
   const [orgId, setOrgId] = useState<number>();
   const [status, setStatus] = useState<'active' | 'archived' | undefined>('active');
   const [keyword, setKeyword] = useState('');
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useUrlId();
   const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
   const query = compact({ orgId, status, keyword: keyword.trim() });

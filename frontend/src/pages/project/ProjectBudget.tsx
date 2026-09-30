@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Col, Drawer, Form, Input, InputNumber, Modal, Row, Space, Table, Tabs, Tag, Typography, Upload } from 'antd';
 import { can, download, errorText } from '../../api/client';
@@ -116,6 +117,16 @@ export default function ProjectBudget() {
   const [importing, setImporting] = useState(false);
   const [viewing, setViewing] = useState<PbBatchDto | null>(null);
   const writable = can('project_budget:write');
+  // 跨域检索(AC-F26)以 ?batchId= 进入:切到该批次年度并打开明细,之后移除参数
+  const [params, setParams] = useSearchParams();
+  const linkBatchId = Number(params.get('batchId')) || null;
+  const linked = useQuery({ queryKey: ['pb-batches', 'link'], queryFn: () => projectBudgetApi.batches({}), enabled: linkBatchId != null });
+  useEffect(() => {
+    if (linkBatchId == null || !linked.data) return;
+    const b = linked.data.find((x) => x.id === linkBatchId);
+    if (b) { setYear(b.year); setViewing(b); }
+    setParams((p) => { const n = new URLSearchParams(p); n.delete('batchId'); return n; }, { replace: true });
+  }, [linkBatchId, linked.data, setParams]);
   const summary = useQuery({ queryKey: ['pb-summary', year, period, orgId], queryFn: () => projectBudgetApi.summary({ year, period, orgId }) });
   const batches = useQuery({ queryKey: ['pb-batches', year], queryFn: () => projectBudgetApi.batches({ year }) });
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['pb-batches'] }); void qc.invalidateQueries({ queryKey: ['pb-summary'] }); };

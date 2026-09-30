@@ -11,6 +11,7 @@ import {
   riskApi, type RiskCommand, type RiskEventDetailDto, type RiskEventDto, type RiskLevel, type RiskListQuery, type RiskRuleDto, type RiskStatus,
 } from '../../api/riskInvestment';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
+import { useUrlId } from '../../hooks/useUrlId';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, Money, OrgSelect, Ratio, statusTag } from '../financeData/shared';
 import { RISK_ACTION_LABEL, RISK_LEVEL, RISK_SOURCE_LABEL, RISK_STATUS } from './shared';
@@ -156,7 +157,7 @@ function EventsTab() {
   const [orgId, setOrgId] = useState<number>();
   const [keyword, setKeyword] = useState('');
   const [openOnly, setOpenOnly] = useState(!status);
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useUrlId();
   const query: Partial<RiskListQuery> = compact({ status, level, source: source as RiskListQuery['source'], orgId, keyword: keyword.trim(), open: openOnly && !status ? '1' as const : undefined });
   const events = useQuery({ queryKey: ['risk-events', query], queryFn: () => riskApi.events(query) });
   const summary = useQuery({ queryKey: ['risk-summary', orgId], queryFn: () => riskApi.summary(compact({ orgId })) });

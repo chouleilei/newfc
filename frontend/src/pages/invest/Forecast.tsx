@@ -8,6 +8,7 @@ import {
   forecastApi, type FfCell, type FfModelDto, type FfRunDto, type FfVersionDto, type ForecastDiagnostic, type ForecastOutput, type ForecastParam,
 } from '../../api/riskInvestment';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
+import { useUrlId } from '../../hooks/useUrlId';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, defaultOrgId, OrgSelect, statusTag, usePrompt } from '../financeData/shared';
 import { Dec, FF_RUN_STATUS, FF_VERSION_STATUS } from './shared';
@@ -424,7 +425,7 @@ export default function Forecast() {
   const [orgId, setOrgId] = useState<number>();
   const [status, setStatus] = useState<'active' | 'archived' | undefined>('active');
   const [keyword, setKeyword] = useState('');
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenId] = useUrlId();
   const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
   const query = compact({ orgId, status, keyword: keyword.trim() });

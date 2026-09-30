@@ -68,7 +68,7 @@ export default defineConfig({
   projects: [
     {
       name: 'finance',
-      testMatch: /(assistant|assistant-dock|assistant-pages|finance-import|cleaning-import|fullscreen|usability-trial-finance|auth-session|platform-admin|scope-restricted|finance-data|project-contract|risk-investment)\.spec\.ts$/,
+      testMatch: /(assistant|assistant-dock|assistant-pages|finance-import|cleaning-import|fullscreen|usability-trial-finance|auth-session|platform-admin|scope-restricted|finance-data|project-contract|risk-investment|cross-domain)\.spec\.ts$/,
       use: { baseURL: FINANCE_URL },
     },
     {

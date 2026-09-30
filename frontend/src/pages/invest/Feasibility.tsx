@@ -9,6 +9,7 @@ import {
   type FeasProjectDto, type FeasResultDto, type FeasRunDetailDto, type FeasRunSummaryDto, type FeasScenarioDto, type FeasSensitivityItemDto,
 } from '../../api/riskInvestment';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
+import { useUrlId } from '../../hooks/useUrlId';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, defaultOrgId, OrgSelect, statusTag, usePrompt } from '../financeData/shared';
 import { Dec, FEAS_INDICATOR_STATUS, RowErrors, SENSITIVITY_LABEL, StaleTag } from './shared';
@@ -498,7 +499,7 @@ export default function Feasibility() {
   const [orgId, setOrgId] = useState<number>();
   const [status, setStatus] = useState<'active' | 'archived' | undefined>('active');
   const [keyword, setKeyword] = useState('');
-  const [projectId, setProjectId] = useState<number | null>(null);
+  const [projectId, setProjectId] = useUrlId();
   const [scenarioId, setScenarioId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
