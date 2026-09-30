@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Col, Descriptions, Drawer, Empty, Form, Popconfirm, Row, Select, Space, Table, Tabs, Tag, Typography, Upload } from 'antd';
 import { can, download, errorText } from '../../api/client';
 import {
   statementApi, type StatementBatchDto, type StatementCheckDto, type StatementItemDto, type StatementMetricCode, type StatementPreviewDto,
-  type StatementScope, type StatementSheetCode,
+  type StatementScope, type StatementSheetCode, type StatementTrendPointDto,
 } from '../../api/financeData';
+import EChart from '../../components/EChart';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
 import { defaultOrgId, lastPeriod, Money, OrgSelect, PeriodPicker, Ratio, statusTag, usePrompt } from './shared';
@@ -102,6 +103,74 @@ function OverviewTab() {
               ]}
             />
           </Card>
+        </Space>
+      )}
+    </>
+  );
+}
+
+/* 趋势图仅用于展示:十进制字符串转为万元数值绘图,不参与任何金额计算;表格仍显示原始精确金额。 */
+const TREND_METRICS: { code: StatementMetricCode; monthly?: boolean }[] = [
+  { code: 'total_assets_period_end' }, { code: 'total_liabilities_period_end' }, { code: 'owner_equity_period_end' },
+  { code: 'revenue_ytd', monthly: true }, { code: 'net_profit_ytd', monthly: true }, { code: 'operating_cash_flow_ytd', monthly: true },
+];
+const toWan = (v: string | null | undefined) => (v == null ? null : Math.round(Number(v) / 100) / 100);
+
+function TrendsTab() {
+  const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
+  const [scope, setScope] = useState<StatementScope | undefined>();
+  const [from, setFrom] = useState<string | undefined>();
+  const [to, setTo] = useState<string | undefined>();
+  const [metrics, setMetrics] = useState<StatementMetricCode[]>(['revenue_ytd', 'net_profit_ytd']);
+  const [basis, setBasis] = useState<'ytd' | 'monthly'>('ytd');
+  const q = useQuery({ queryKey: ['stmt-trends', orgId, scope, from, to], queryFn: () => statementApi.trends({ orgId, scope, from, to }) });
+  const d = q.data;
+  const valueOf = (p: StatementTrendPointDto, code: StatementMetricCode) =>
+    (basis === 'monthly' && code in p.monthly ? p.monthly[code as keyof StatementTrendPointDto['monthly']] : p.metrics[code]);
+  const option = useMemo(() => {
+    const points = d?.points ?? [];
+    return {
+      tooltip: { trigger: 'axis', valueFormatter: (v: number | null) => (v == null ? '—' : `${v.toLocaleString('zh-CN')} 万元`) },
+      legend: { top: 0 },
+      grid: { left: 60, right: 24, top: 36, bottom: 30 },
+      xAxis: { type: 'category', data: points.map((p) => p.period) },
+      yAxis: { type: 'value', name: '万元' },
+      series: metrics.map((code) => ({ name: METRIC_LABEL[code], type: 'line', smooth: false, connectNulls: false, data: points.map((p) => toWan(valueOf(p, code))) })),
+    };
+  }, [d, metrics, basis]);
+  return (
+    <>
+      <Space wrap style={{ marginBottom: 12 }}>
+        <OrgSelect value={orgId} onChange={setOrgId} />
+        <Select allowClear placeholder="口径(合并优先)" value={scope} onChange={setScope} style={{ width: 150 }} options={scopeOptions} />
+        <PeriodPicker value={from} onChange={setFrom} placeholder="起始期间" />
+        <PeriodPicker value={to} onChange={setTo} placeholder="截止(最新)" />
+        <Select mode="multiple" style={{ minWidth: 320 }} value={metrics} onChange={setMetrics} maxTagCount={3}
+          options={(Object.keys(METRIC_LABEL) as StatementMetricCode[]).map((k) => ({ value: k, label: METRIC_LABEL[k] }))} />
+        <Select value={basis} onChange={setBasis} style={{ width: 130 }} options={[{ value: 'ytd', label: '累计/期末数' }, { value: 'monthly', label: '当月发生额' }]} />
+      </Space>
+      {q.error ? <QueryErrorResult title="财报趋势加载失败" error={q.error} refetch={q.refetch} /> : !d?.points.length ? (
+        <Empty description={q.isLoading ? '加载中…' : '所选范围内没有当前财报批次'} />
+      ) : (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            {d.orgName} · {d.scope ? SCOPE_LABEL[d.scope] : ''} · {d.from} ～ {d.to}
+            {basis === 'monthly' && ' · 当月发生额 = 本期累计 − 上期累计(1 月取累计数),期末类指标不变'}
+          </Typography.Text>
+          {d.missingPeriods.length > 0 && <Alert type="warning" showIcon message={`以下期间没有当前批次,不做插补:${d.missingPeriods.join('、')}`} />}
+          <Card size="small"><EChart option={option} height={340} /></Card>
+          <Table
+            size="small" rowKey="period" pagination={false} dataSource={d.points} scroll={{ x: 1100 }}
+            columns={[
+              { title: '期间', dataIndex: 'period', width: 90, fixed: 'left' },
+              ...TREND_METRICS.map((m) => ({
+                title: basis === 'monthly' && m.monthly ? METRIC_LABEL[m.code].replace('本年累计', '当月') : METRIC_LABEL[m.code], key: m.code, width: 150, align: 'right' as const,
+                render: (_: unknown, p: StatementTrendPointDto) => <Money value={valueOf(p, m.code)} tone={m.code === 'net_profit_ytd'} />,
+              })),
+              { title: '资产负债率', key: 'dar', width: 110, align: 'right' as const, render: (_: unknown, p: StatementTrendPointDto) => <Ratio value={p.ratios.debt_asset_ratio} /> },
+              { title: '净利率', key: 'npm', width: 100, align: 'right' as const, render: (_: unknown, p: StatementTrendPointDto) => <Ratio value={p.ratios.net_profit_margin} /> },
+            ]}
+          />
         </Space>
       )}
     </>
@@ -254,6 +323,7 @@ export default function Statements() {
     <Tabs
       items={[
         { key: 'overview', label: '总览', children: <OverviewTab /> },
+        { key: 'trends', label: '趋势', children: <TrendsTab /> },
         { key: 'batches', label: '批次', children: <BatchesTab /> },
         ...(can('statements:import') ? [{ key: 'import', label: '导入', children: <ImportTab /> }] : []),
       ]}

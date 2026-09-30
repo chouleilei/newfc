@@ -83,3 +83,23 @@ export interface StatementOverviewDto {
   ratios: StatementRatiosDto | null;
   unitComparison: { batchId: number; orgId: number; orgName: string; scope: StatementScope; period: string; totalAssets: MoneyString | null; netProfitYtd: MoneyString | null; debtAssetRatio: RatioString }[];
 }
+
+/** 本年累计类流量指标:趋势中可按相邻期间相减得到当月发生额(1 月即累计数)。 */
+export const STATEMENT_FLOW_METRICS = [
+  'revenue_ytd', 'cost_ytd', 'operating_profit_ytd', 'total_profit_ytd', 'net_profit_ytd',
+  'operating_cash_flow_ytd', 'investing_cash_flow_ytd', 'financing_cash_flow_ytd', 'cash_net_increase_ytd',
+] as const satisfies readonly StatementMetricCode[];
+export type StatementFlowMetricCode = (typeof STATEMENT_FLOW_METRICS)[number];
+
+/** 多期趋势(对应 lishui `/financial-statements/trends`):同一报表单位 + 口径的当前批次按期间排列。 */
+export interface StatementTrendPointDto {
+  period: string; batchId: number; metrics: StatementMetricsDto; ratios: StatementRatiosDto;
+  /** 当月发生额;上一期间缺失(非 1 月)时为 null。 */
+  monthly: Record<StatementFlowMetricCode, MoneyString | null>;
+}
+export interface StatementTrendDto {
+  orgId: number | null; orgName: string | null; scope: StatementScope | null; from: string | null; to: string | null;
+  points: StatementTrendPointDto[];
+  /** 区间内缺少当前批次的期间。 */
+  missingPeriods: string[];
+}

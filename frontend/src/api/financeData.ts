@@ -8,7 +8,7 @@ import type {
 } from '@contracts/eas';
 import type { GovDispositionCreate, GovIssueDto, GovScanResultDto, GovVerifyDto } from '@contracts/governance';
 import type {
-  StatementBatchDto, StatementItemDto, StatementOverviewDto, StatementPreviewDto, StatementScope, StatementSheetCode,
+  StatementBatchDto, StatementItemDto, StatementOverviewDto, StatementPreviewDto, StatementScope, StatementSheetCode, StatementTrendDto,
 } from '@contracts/statements';
 import type { StdReportDto, StdReportGenerate, StdReportListItemDto } from '@contracts/standard-reports';
 
@@ -69,6 +69,7 @@ export const govApi = {
 
 export const statementApi = {
   overview: (q: { orgId?: number; period?: string; scope?: StatementScope }) => api.get<StatementOverviewDto>(`/statements/overview${qs(q)}`),
+  trends: (q: { orgId?: number; scope?: StatementScope; from?: string; to?: string }) => api.get<StatementTrendDto>(`/statements/trends${qs(q)}`),
   batches: (q: { orgId?: number; period?: string; scope?: StatementScope; status?: string }) => api.get<StatementBatchDto[]>(`/statements/batches${qs(q)}`),
   items: (id: number, sheet?: StatementSheetCode) => api.get<StatementItemDto[]>(`/statements/batches/${id}/items${qs({ sheet })}`),
   preview: (file: File, fields: { orgId: number; period: string; scope: StatementScope }) => api.post<StatementPreviewDto>('/statements/preview', form(file, fields)),

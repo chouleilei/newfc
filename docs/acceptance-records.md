@@ -276,3 +276,4 @@ E2E 运行前提：webServer 直接跑 `backend/dist/index.js`，必须先在 ba
 | 自定义规则 | 全组织 `risk:review` 新增；复用内置计算器，可设阈值、等级、适用组织（含下级）；编码冲突 409；内置规则不可改名 | 同上 |
 | 风险解释、整改清单 | 解释为确定性模板 + 可选模型改写（`risk-explain.v1`），`risk_ai_note` 只追加、不改风险状态，需 `risk:handle`；清单按来源与证据生成缺失材料与建议下一状态，范围外 404 | `t7-risk-rules.test.ts` 用例 2 |
 | 项目档案 | `GET /api/master/projects/:id/profile` + `/projects/:id` 页面：主数据与各域同源汇总；分区按该域读权限裁剪（无权限为 null），行按组织范围过滤，范围外项目 404；EAS 凭证按项目编码及有效编码映射匹配；检索结果与风险详情链接到档案 | `t7-project-profile.test.ts` |
+| 财报趋势 | `GET /api/statements/trends`（报表单位 + 口径，缺省同总览、截至最新期间 12 个月，最长 60 个月）：各期语义指标与比率，本年累计类指标相邻期间相减得当月发生额，缺期列出且不插补；范围外组织 404；财报页新增“趋势”页签（折线 + 精确金额表） | `t7-statement-trends.test.ts` |

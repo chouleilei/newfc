@@ -6,15 +6,15 @@
  * - 总览只读当前批次;组织范围按报表单位 org_id 裁剪,范围外 404。
  */
 import type { DB } from '../../db/connection';
-import { AppError } from '../../core/errors';
+import { AppError, Errors } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalOrNull, centsToDecimalString, ratioString } from '../../core/decimal';
 import { writeLog } from '../audit/log';
 import { notVisible, orgInScope, resolveOrgScope, type OrgScope } from '../security/scope';
 import { storeFile, type ObjectStore } from '../files/object-store';
 import {
-  STATEMENT_METRICS, type StatementBatchDto, type StatementCheckDto, type StatementItemDto, type StatementMetricsDto, type StatementOverviewDto,
-  type StatementPreviewDto, type StatementRatiosDto, type StatementScope, type StatementSheetCode, type StatementUploadForm,
+  STATEMENT_FLOW_METRICS, STATEMENT_METRICS, type StatementBatchDto, type StatementCheckDto, type StatementItemDto, type StatementMetricsDto, type StatementOverviewDto,
+  type StatementPreviewDto, type StatementRatiosDto, type StatementScope, type StatementSheetCode, type StatementTrendDto, type StatementTrendPointDto, type StatementUploadForm,
 } from '../../contracts/statements';
 import { PREFERRED_FIELD, STATEMENT_TEMPLATE_VERSION, parseStatementWorkbook, type ParsedStatement, type SheetCode } from './statement.parse';
 
@@ -226,6 +226,54 @@ export function statementOverview(db: DB, q: { orgId?: number; period?: string; 
         totalAssets: centsToDecimalOrNull(m.total_assets_period_end), netProfitYtd: centsToDecimalOrNull(m.net_profit_ytd), debtAssetRatio: ratiosOf(m).debt_asset_ratio };
     }),
   };
+}
+
+const TREND_DEFAULT_SPAN = 12;
+const TREND_MAX_SPAN = 60;
+function addMonths(period: string, n: number): string {
+  const [y, m] = period.split('-').map(Number);
+  const t = y * 12 + (m - 1) + n;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+}
+function monthsBetween(from: string, to: string): number {
+  const [fy, fm] = from.split('-').map(Number); const [ty, tm] = to.split('-').map(Number);
+  return (ty * 12 + tm) - (fy * 12 + fm);
+}
+
+/**
+ * 多期趋势:报表单位与口径缺省取总览同口径的当前批次;区间缺省为截至最新期间的 12 个月,最长 60 个月。
+ * 当月发生额 = 本期累计 − 上期累计(同一年度;1 月取累计数),上期缺失时为 null,不做插补。
+ */
+export function statementTrends(db: DB, q: { orgId?: number; scope?: StatementScope; from?: string; to?: string } = {}): StatementTrendDto {
+  const anchorBatch = currentStatementBatch(db, { orgId: q.orgId, scope: q.scope, period: q.to });
+  const base = anchorBatch ?? (q.to ? currentStatementBatch(db, { orgId: q.orgId, scope: q.scope }) : null);
+  if (!base) return { orgId: q.orgId ?? null, orgName: q.orgId ? orgName(db, q.orgId) : null, scope: q.scope ?? null, from: q.from ?? null, to: q.to ?? null, points: [], missingPeriods: [] };
+  const orgId = q.orgId ?? base.org_id;
+  const sc = q.scope ?? base.scope;
+  const to = q.to ?? base.period;
+  const from = q.from ?? addMonths(to, -(TREND_DEFAULT_SPAN - 1));
+  if (monthsBetween(from, to) < 0) throw Errors.validation('起始期间不能晚于截止期间');
+  if (monthsBetween(from, to) >= TREND_MAX_SPAN) throw Errors.validation(`趋势区间最长 ${TREND_MAX_SPAN} 个月`);
+  const rows = db.prepare(`SELECT * FROM stmt_batch WHERE is_current = 1 AND org_id = ? AND scope = ? AND period BETWEEN ? AND ? ORDER BY period`)
+    .all(orgId, sc, addMonths(from, -1), to) as BatchRow[];
+  const byPeriod = new Map(rows.map((r) => [r.period, statementMetrics(db, r.id)]));
+  const points: StatementTrendPointDto[] = [];
+  const missingPeriods: string[] = [];
+  for (let p = from; monthsBetween(p, to) >= 0; p = addMonths(p, 1)) {
+    const batch = rows.find((r) => r.period === p);
+    if (!batch) { missingPeriods.push(p); continue; }
+    const m = byPeriod.get(p)!;
+    const prev = p.endsWith('-01') ? null : byPeriod.get(addMonths(p, -1));
+    const monthly = Object.fromEntries(STATEMENT_FLOW_METRICS.map((k) => {
+      const cur = m[k];
+      if (cur === undefined) return [k, null];
+      if (p.endsWith('-01')) return [k, centsToDecimalString(cur)];
+      const before = prev?.[k];
+      return [k, before === undefined ? null : centsToDecimalString(cur - before)];
+    })) as StatementTrendPointDto['monthly'];
+    points.push({ period: p, batchId: batch.id, metrics: metricsDto(m), ratios: ratiosOf(m), monthly });
+  }
+  return { orgId, orgName: orgName(db, orgId), scope: sc, from, to, points, missingPeriods };
 }
 
 export function statementOriginal(db: DB, store: ObjectStore, id: number): { fileName: string; contentType: string; content: Buffer } {

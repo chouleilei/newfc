@@ -12,7 +12,7 @@ import {
 } from '../../contracts/statements';
 import {
   activateStatement, getStatementBatch, importStatement, listStatementBatches, previewStatement, statementItems, statementOriginal,
-  statementOverview, voidStatement,
+  statementOverview, statementTrends, voidStatement,
 } from './statement.service';
 
 addRouteRules([
@@ -65,4 +65,12 @@ export function registerStatementRoutes(app: Express, db: () => DB, wrap: Wrap, 
   }));
   app.post('/api/statements/batches/:id/void', wrap((req, res) => { res.json(voidStatement(db(), id(req.params.id), parseInput(statementVoidRequest, req.body).reason)); }));
   app.get('/api/statements/overview', wrap((req, res) => { res.json(statementOverview(db(), overviewQuery(req))); }));
+  app.get('/api/statements/trends', wrap((req, res) => {
+    const { orgId, scope } = overviewQuery(req);
+    res.json(statementTrends(db(), {
+      orgId, scope,
+      from: req.query.from ? parseInput(periodSchema, req.query.from) : undefined,
+      to: req.query.to ? parseInput(periodSchema, req.query.to) : undefined,
+    }));
+  }));
 }
