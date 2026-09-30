@@ -263,3 +263,5 @@ E2E 运行前提：webServer 直接跑 `backend/dist/index.js`，必须先在 ba
 | 首个管理员 | `admin:create` 后立即 `admin:reset-password`，均用随机口令经标准输入传入 | `admin`（id=1，全组织）；临时口令只写入 `/data/newfc-data/initial-admin-password.txt`（root 600），首次登录强制修改；登录接口 200 且 `mustChangePassword: true`；审计日志不含口令 |
 
 未完成：模型密钥（SiliconFlow）与 OCR 服务地址未配置，助手与费用审核按规则运行并标注“未配置”；接入后用真实单据补验模型/OCR 输出（OPEN-05 余项）。
+
+外网访问（2026-09-30）：宿主 nginx 新建独立站点 `newfc.tangdalei.com`（反代 127.0.0.1:3760，`proxy_buffering off` 支持 SSE，上传 20 MiB），`nginx -t` 通过后 reload，certbot 签发证书（2026-12-29 到期，自动续期）并设 HTTP→HTTPS 跳转；`NEWFC_TRUST_PROXY=1` 后重启服务。其他站点配置未改。外网验证：HTTP 301 → HTTPS；首页 200、证书校验通过；就绪 200（V60）；登录 200，会话 Cookie `HttpOnly; SameSite=Strict; Secure`；跨站 Origin 写请求 403，同源带 CSRF 令牌 200；IP 直连 443 拒绝握手、3760 外部不可达。管理员账号改为 `tangdalei`（全组织、管理员角色），引导账号 `admin` 已停用、临时口令文件已删除。

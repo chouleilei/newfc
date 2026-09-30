@@ -13,6 +13,7 @@
 | 数据目录 | `/data/newfc-data`（持久盘 /dev/vdb1） | `newfc.sqlite` + WAL/SHM、`backups/`、`files/`、`cleaning-uploads/` |
 | 运行身份 | root + `ProtectSystem=strict`、`ProtectHome=read-only`、`ReadWritePaths=/data/newfc-data` | 代码位于 /root/newfc（仅 root 可读）；文件系统隔离保证进程只能写本实例数据目录 |
 | 配置 | `/data/newfc-data/newfc.env`（chmod 600），模板为仓库根 `.env.example` | 不共用 newbd 的 .env |
+| 外网 | `https://newfc.tangdalei.com`：宿主 nginx 独立站点 `/etc/nginx/sites-available/newfc.tangdalei.com`（副本 `deploy/nginx-newfc.tangdalei.com.conf`），Let's Encrypt 证书由 certbot 自动续期；`newfc.env` 设 `NEWFC_TRUST_PROXY=1` | 2026-09-30 启用；HTTP 301 到 HTTPS，Cookie 带 Secure，3760 只监听本机 |
 
 ## 首次安装
 
