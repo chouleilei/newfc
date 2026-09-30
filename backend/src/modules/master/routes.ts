@@ -7,6 +7,9 @@ import {
   retireMapping, updateProject, updateSupplier, upsertMapping, type MasterEntityType,
 } from './master.service';
 import { getProjectProfile } from './project-profile.service';
+import { createDictItem, listDictItems, listDictTypes, updateDictItem } from './dict.service';
+import { parseInput } from '../../core/validate';
+import { dictItemCreate, dictItemListQuery, dictItemUpdate } from '../../contracts/master-dict';
 
 function id(value: unknown): number {
   const n = Number(value);
@@ -47,6 +50,12 @@ export function registerMasterRoutes(app: Express, db: () => DB, wrap: Wrap): vo
   }));
   app.post('/api/master/mappings', wrap((req, res) => { res.status(201).json(upsertMapping(db(), body(req.body))); }));
   app.post('/api/master/mappings/:id/retire', wrap((req, res) => { res.json(retireMapping(db(), id(req.params.id))); }));
+
+  /** 字典项(T-7):类型/取值不可改,停用代替删除。 */
+  app.get('/api/master/dict-types', wrap((_req, res) => { res.json({ items: listDictTypes(db()) }); }));
+  app.get('/api/master/dict-items', wrap((req, res) => { res.json({ items: listDictItems(db(), parseInput(dictItemListQuery, req.query)) }); }));
+  app.post('/api/master/dict-items', wrap((req, res) => { res.status(201).json(createDictItem(db(), parseInput(dictItemCreate, req.body))); }));
+  app.patch('/api/master/dict-items/:id', wrap((req, res) => { res.json(updateDictItem(db(), id(req.params.id), parseInput(dictItemUpdate, req.body))); }));
 
   /** 只读解析预览:不写库,导入前核对“外部编码/名称 → 规范实体”。 */
   app.post('/api/master/resolve', wrap((req, res) => {

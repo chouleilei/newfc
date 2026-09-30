@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { api, can, errorText } from '../api/client';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
+import DictItemsTab from './master/DictItemsTab';
 
 type Status = 'active' | 'inactive';
 type EntityType = 'org' | 'account' | 'project' | 'supplier';
@@ -322,7 +323,7 @@ function ResolveTab() {
 }
 
 /** 主数据扩展(AC-F07):项目、供应商、跨域编码映射与解析预览。组织/科目沿用原页面。 */
-const TAB_KEYS = ['projects', 'suppliers', 'mappings', 'resolve'];
+const TAB_KEYS = ['projects', 'suppliers', 'mappings', 'resolve', 'dicts'];
 
 /** `?tab=&keyword=` 由跨域检索(AC-F26)带入:定位到对应页签并预填关键词;切换页签时清除关键词。 */
 export default function MasterEntities() {
@@ -340,6 +341,7 @@ export default function MasterEntities() {
           { key: 'suppliers', label: '供应商', children: <SuppliersTab key={`s:${tab === 'suppliers' ? keyword : ''}`} initialKeyword={tab === 'suppliers' ? keyword : ''} /> },
           { key: 'mappings', label: '编码映射', children: <MappingsTab /> },
           { key: 'resolve', label: '解析预览', children: <ResolveTab /> },
+          { key: 'dicts', label: '字典项', children: <DictItemsTab /> },
         ]}
       />
     </Card>

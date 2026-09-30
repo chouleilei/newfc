@@ -2062,4 +2062,28 @@ CREATE TRIGGER trg_if_report_d BEFORE DELETE ON if_report BEGIN SELECT RAISE(ABO
 INSERT OR IGNORE INTO app_role_permission (role_id, permission) SELECT id, 'investment:review' FROM app_role WHERE code = 'business_reviewer';
 `,
   },
+  {
+    version: 64,
+    name: 'master_dict_items',
+    sql: `
+/* 主数据字典项(T-7,AC-F07,对应 lishui sys_dict_item):按字典类型维护取值与显示名。
+   类型与取值创建后不可改(被自定义字段等引用),只能改显示名/排序/状态;停用代替删除。 */
+CREATE TABLE md_dict_item (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dict_type TEXT NOT NULL,
+  item_value TEXT NOT NULL,
+  item_label TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (dict_type, item_value)
+);
+CREATE INDEX idx_md_dict_item_type ON md_dict_item(dict_type, sort_order, id);
+CREATE TRIGGER trg_md_dict_item_key BEFORE UPDATE OF dict_type, item_value ON md_dict_item
+  BEGIN SELECT RAISE(ABORT, '字典类型与取值不可修改'); END;
+CREATE TRIGGER trg_md_dict_item_d BEFORE DELETE ON md_dict_item BEGIN SELECT RAISE(ABORT, '字典项只能停用'); END;
+`,
+  },
 ];

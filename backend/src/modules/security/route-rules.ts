@@ -48,6 +48,8 @@ addRouteRules([
   R('GET', /^\/master\/projects\/\d+\/profile$/, 'master:read'),
   R('WRITE', /^\/master\/resolve$/, 'master:read'),
   R('WRITE', /^\/master\/mappings(\/\d+\/retire)?$/, 'master:write', true),
+  R('GET', /^\/master\/dict-(types|items)$/, 'master:read'),
+  R('WRITE', /^\/master\/dict-items(\/\d+)?$/, 'master:write', true),
   R('WRITE', /^\/master\/(projects|suppliers)(\/\d+)?$/, 'master:write'),
 
   // 经营预算
