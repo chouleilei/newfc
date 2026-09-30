@@ -337,7 +337,15 @@ export function registerSecurityRoutes(app: Express, db: () => DB, wrap: Wrap): 
   app.get('/api/security/users/:id', wrap((req, res) => res.json(security.getUser(db(), idParam(req.params.id, '用户 ID')))));
   app.patch('/api/security/users/:id', wrap((req, res) =>
     res.json(security.updateUser(db(), idParam(req.params.id, '用户 ID'), req.body ?? {}, authOf(req)))));
+  app.get('/api/security/users/:id/sessions', wrap((req, res) =>
+    res.json(security.listUserSessions(db(), idParam(req.params.id, '用户 ID'), authOf(req).sessionId))));
+  app.post('/api/security/users/:id/sessions/:sid/revoke', wrap((req, res) => {
+    security.revokeUserSession(db(), idParam(req.params.id, '用户 ID'), String(req.params.sid), authOf(req));
+    res.json({ ok: true });
+  }));
   app.get('/api/security/roles', wrap((_req, res) => res.json({ items: security.listRoles(db()) })));
+  app.post('/api/security/roles/:id/copy', wrap((req, res) =>
+    res.status(201).json(security.copyRole(db(), idParam(req.params.id, '角色 ID'), req.body ?? {}))));
   app.post('/api/security/roles', wrap((req, res) => res.status(201).json(security.createRole(db(), req.body ?? {}))));
   app.patch('/api/security/roles/:id', wrap((req, res) => res.json(security.updateRole(db(), idParam(req.params.id, '角色 ID'), req.body ?? {}))));
   app.delete('/api/security/roles/:id', wrap((req, res) => {

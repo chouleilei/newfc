@@ -401,6 +401,22 @@ export function updateRole(db: DB, id: number, input: RoleInput): PublicRole {
   return listRoles(db).find((r) => r.id === id)!;
 }
 
+/** 复制角色:权限原样带出(内置管理员角色也可作为模板),新角色不锁定、不带用户。 */
+export function copyRole(db: DB, id: number, input: RoleInput): PublicRole {
+  const src = db.prepare('SELECT * FROM app_role WHERE id = ?').get(id) as RoleRow | undefined;
+  if (!src) throw Errors.notFound('角色');
+  const permissions = (db.prepare('SELECT permission FROM app_role_permission WHERE role_id = ? ORDER BY permission').all(id) as { permission: string }[])
+    .map((p) => p.permission).filter(isPermission);
+  return db.transaction(() => {
+    const role = createRole(db, {
+      code: input.code, name: input.name ?? `${src.name}(副本)`,
+      description: input.description ?? (src.description ? `${src.description}(复制自 ${src.code})` : `复制自 ${src.code}`), permissions,
+    });
+    writeLog(db, 'security.role.copy', 'app_role', role.id, { fromRoleId: id, fromCode: src.code });
+    return role;
+  })();
+}
+
 export function deleteRole(db: DB, id: number): void {
   const tx = db.transaction(() => {
     const role = db.prepare('SELECT * FROM app_role WHERE id = ?').get(id) as RoleRow | undefined;
@@ -453,6 +469,8 @@ export interface SessionRow {
   expires_at: string;
   absolute_expires_at: string;
   last_seen_at: string;
+  ip: string;
+  user_agent: string;
   revoked_at: string | null;
 }
 
@@ -510,6 +528,43 @@ export function resolveSession(db: DB, token: string | undefined): { session: Se
     session.expires_at = next;
   }
   return { session, auth };
+}
+
+/* ============ 会话管理(管理员) ============ */
+
+/** 会话对外只暴露句柄(会话 ID 前 16 位,会话 ID 本身是令牌的哈希),不暴露 CSRF 令牌。 */
+const sessionHandle = (id: string) => id.slice(0, 16);
+
+export interface PublicSession {
+  sid: string; createdAt: string; lastSeenAt: string; expiresAt: string; ip: string; userAgent: string;
+  status: 'active' | 'revoked' | 'expired'; revokedAt: string | null; current: boolean;
+}
+
+export function listUserSessions(db: DB, userId: number, currentSessionId?: string): { items: PublicSession[] } {
+  getUserRow(db, userId);
+  const now = Date.now();
+  const rows = db.prepare('SELECT * FROM app_session WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 100').all(userId) as SessionRow[];
+  return {
+    items: rows.map((s) => ({
+      sid: sessionHandle(s.id), createdAt: s.created_at, lastSeenAt: s.last_seen_at, expiresAt: s.expires_at, ip: s.ip, userAgent: s.user_agent,
+      status: s.revoked_at ? 'revoked' : Date.parse(s.expires_at) <= now || Date.parse(s.absolute_expires_at) <= now ? 'expired' : 'active',
+      revokedAt: s.revoked_at, current: s.id === currentSessionId,
+    })),
+  };
+}
+
+/** 吊销指定会话;不能吊销自己当前使用的会话(请用退出登录)。已吊销/过期的会话幂等返回。 */
+export function revokeUserSession(db: DB, userId: number, sid: string, actor?: AuthContext): void {
+  if (!/^[a-f0-9]{16}$/.test(sid)) throw Errors.validation('会话标识不合法');
+  db.transaction(() => {
+    getUserRow(db, userId);
+    const s = db.prepare('SELECT id, revoked_at FROM app_session WHERE user_id = ? AND substr(id, 1, 16) = ?').get(userId, sid) as { id: string; revoked_at: string | null } | undefined;
+    if (!s) throw Errors.notFound('会话');
+    if (actor?.sessionId && s.id === actor.sessionId) throw new AppError('SESSION_CURRENT', '不能吊销当前正在使用的会话,请使用退出登录', 409);
+    if (s.revoked_at) return;
+    db.prepare('UPDATE app_session SET revoked_at = ? WHERE id = ?').run(nowIso(), s.id);
+    writeLog(db, 'security.session.revoke', 'app_user', userId, { sid });
+  })();
 }
 
 export function revokeSession(db: DB, sessionId: string): void {

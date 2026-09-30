@@ -4,6 +4,7 @@ import { Alert, App as AntdApp, Button, Card, Checkbox, Form, Input, Modal, Popc
 import { api, errorText, getSession } from '../api/client';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
+import { usePrompt } from './financeData/shared';
 
 interface UserItem {
   id: number;
@@ -46,6 +47,46 @@ interface RoleForm {
   permissions: string[];
 }
 
+interface SessionItem {
+  sid: string; createdAt: string; lastSeenAt: string; expiresAt: string; ip: string; userAgent: string;
+  status: 'active' | 'revoked' | 'expired'; revokedAt: string | null; current: boolean;
+}
+const SESSION_STATUS: Record<SessionItem['status'], [string, string]> = { active: ['有效', 'success'], revoked: ['已吊销', 'default'], expired: ['已过期', 'default'] };
+
+/** 用户会话:只显示句柄与登录来源;吊销后该会话下一次请求即失效。当前会话不能在此吊销。 */
+function SessionsModal({ user, onClose }: { user: UserItem | null; onClose: () => void }) {
+  const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['security-sessions', user?.id], queryFn: () => api.get<{ items: SessionItem[] }>(`/security/users/${user!.id}/sessions`), enabled: !!user });
+  const revoke = useMutation({
+    mutationFn: (sid: string) => api.post(`/security/users/${user!.id}/sessions/${sid}/revoke`),
+    onSuccess: () => { message.success('会话已吊销'); void qc.invalidateQueries({ queryKey: ['security-sessions', user?.id] }); },
+    onError: (e) => message.error(errorText(e)),
+  });
+  return (
+    <Modal open={!!user} onCancel={onClose} footer={null} width={900} destroyOnClose title={user ? `${user.displayName || user.username} 的会话` : '会话'}>
+      {q.error ? <QueryErrorResult title="会话加载失败" error={q.error} refetch={q.refetch} /> : (
+        <Table<SessionItem> rowKey="sid" size="small" loading={q.isLoading} dataSource={q.data?.items ?? []} pagination={false} columns={[
+          { title: '会话', dataIndex: 'sid', width: 170, render: (v: string, s) => <Space size={4}><Typography.Text code>{v}</Typography.Text>{s.current && <Tag color="blue">当前</Tag>}</Space> },
+          { title: '状态', dataIndex: 'status', width: 80, render: (v: SessionItem['status']) => <Tag color={SESSION_STATUS[v][1]}>{SESSION_STATUS[v][0]}</Tag> },
+          { title: '登录', dataIndex: 'createdAt', width: 130, render: (v: string) => shortTime(v) },
+          { title: '最近活动', dataIndex: 'lastSeenAt', width: 130, render: (v: string) => shortTime(v) },
+          { title: '来源', dataIndex: 'ip', width: 120 },
+          { title: '客户端', dataIndex: 'userAgent', ellipsis: true },
+          {
+            title: '操作', key: 'op', width: 90,
+            render: (_: unknown, s) => (s.status === 'active' && !s.current ? (
+              <Popconfirm title="吊销该会话?对方需要重新登录" onConfirm={() => revoke.mutate(s.sid)}>
+                <Button size="small" danger>吊销</Button>
+              </Popconfirm>
+            ) : null),
+          },
+        ]} />
+      )}
+    </Modal>
+  );
+}
+
 function toTreeData(nodes: OrgTreeNode[]): { value: number; title: string; children?: ReturnType<typeof toTreeData> }[] {
   return nodes.map((n) => ({ value: n.id, title: `${n.name}(${n.code})`, children: n.children?.length ? toTreeData(n.children) : undefined }));
 }
@@ -61,6 +102,8 @@ export default function SecurityAdmin() {
   const me = getSession()?.user;
   const [editingUser, setEditingUser] = useState<UserItem | 'new' | null>(null);
   const [editingRole, setEditingRole] = useState<RoleItem | 'new' | null>(null);
+  const [sessionsOf, setSessionsOf] = useState<UserItem | null>(null);
+  const [prompt, promptHolder] = usePrompt();
   const [userForm] = Form.useForm<UserForm>();
   const [roleForm] = Form.useForm<RoleForm>();
 
@@ -117,6 +160,15 @@ export default function SecurityAdmin() {
     onError: (e) => message.error(errorText(e)),
   });
 
+  const copyRole = async (r: RoleItem) => {
+    const v = await prompt({
+      title: `复制角色 ${r.name}`, description: '新角色带出原角色的全部权限,不带用户;复制后可再调整权限。',
+      fields: [{ name: 'code', label: '新角色编码(小写字母开头)', required: true, initial: `${r.code}_copy` }, { name: 'name', label: '新角色名称', required: true, initial: `${r.name}(副本)` }],
+    });
+    if (!v) return;
+    try { await api.post(`/security/roles/${r.id}/copy`, { code: v.code, name: v.name }); message.success('已复制'); invalidate(); } catch (e) { message.error(errorText(e)); }
+  };
+
   const openUser = (u: UserItem | 'new') => {
     setEditingUser(u);
     userForm.setFieldsValue(u === 'new'
@@ -137,6 +189,8 @@ export default function SecurityAdmin() {
 
   return (
     <Card>
+      {promptHolder}
+      <SessionsModal user={sessionsOf} onClose={() => setSessionsOf(null)} />
       <Tabs
         items={[
           {
@@ -179,6 +233,7 @@ export default function SecurityAdmin() {
                       render: (_: unknown, u) => (
                         <Space>
                           <Button size="small" onClick={() => openUser(u)}>编辑</Button>
+                          <Button size="small" onClick={() => setSessionsOf(u)}>会话</Button>
                           <Popconfirm
                             title={u.status === 'active' ? '停用后该用户的会话立即失效,确定?' : '重新启用该用户?'}
                             onConfirm={() => toggleStatus.mutate(u)}
@@ -219,6 +274,7 @@ export default function SecurityAdmin() {
                       render: (_: unknown, r) => (
                         <Space>
                           <Button size="small" disabled={r.locked} onClick={() => openRole(r)}>编辑</Button>
+                          <Button size="small" onClick={() => void copyRole(r)}>复制</Button>
                           <Popconfirm title="删除该角色?" onConfirm={() => deleteRole.mutate(r)} disabled={r.locked || r.userCount > 0}>
                             <Button size="small" danger disabled={r.locked || r.userCount > 0} title={r.userCount > 0 ? '仍有用户使用该角色' : undefined}>删除</Button>
                           </Popconfirm>
