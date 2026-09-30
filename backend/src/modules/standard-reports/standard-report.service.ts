@@ -22,6 +22,8 @@ import { statementOverview } from '../statements/statement.service';
 import { periodStatus } from '../eas/eas.service';
 import { RULE_LABELS } from '../governance/governance.sources';
 import { STATEMENT_METRICS, STATEMENT_METRIC_LABELS } from '../../contracts/statements';
+import { riskLedgerRows } from '../risk/risk.service';
+import { RISK_LEVEL_LABELS, RISK_STATUS_LABELS } from '../../contracts/risk';
 import { CONTRACT_STAGE_LABELS, CONTRACT_STATUS_LABELS, type ContractStage, type ContractStatus } from '../../contracts/project-contract';
 import {
   STD_REPORT_TYPE_LABELS, type StdCellValue, type StdColumnDto, type StdReportDto, type StdReportGenerate, type StdReportListItemDto, type StdReportReview,
@@ -188,6 +190,37 @@ function contractPaymentLedger(db: DB, input: Extract<StdReportGenerate, { repor
   };
 }
 
+function riskRectificationLedger(db: DB, input: Extract<StdReportGenerate, { reportType: 'risk_rectification_ledger' }>): Frozen {
+  if (input.orgId) assertOrg(db, input.orgId);
+  else requireCurrentAllOrgs('全组织风险整改台账');
+  const includeClosed = input.includeClosed ?? true;
+  const rows = riskLedgerRows(db, { orgId: input.orgId, includeClosed });
+  const scopeName = input.orgId ? orgName(db, input.orgId)! : '全组织';
+  const count = (pred: (r: typeof rows[number]) => boolean) => String(rows.filter(pred).length);
+  return {
+    title: `${input.period} 风险整改台账 · ${scopeName}`, orgId: input.orgId ?? null, period: input.period,
+    params: { period: input.period, orgId: input.orgId ?? null, includeClosed, asOfDate: new Date().toISOString().slice(0, 10) },
+    columns: [
+      { key: 'riskNo', label: '风险编号', kind: 'text' }, { key: 'rule', label: '规则', kind: 'text' }, { key: 'level', label: '等级', kind: 'text' },
+      { key: 'status', label: '状态', kind: 'text' }, { key: 'org', label: '组织', kind: 'text' }, { key: 'project', label: '项目', kind: 'text' },
+      { key: 'title', label: '风险', kind: 'text' }, { key: 'amount', label: '涉及金额', kind: 'money' }, { key: 'handler', label: '责任人', kind: 'text' },
+      { key: 'deadline', label: '整改期限', kind: 'text' }, { key: 'overdue', label: '是否逾期', kind: 'text' }, { key: 'lastAction', label: '最近动作', kind: 'text' },
+      { key: 'lastActionAt', label: '最近动作时间', kind: 'text' }, { key: 'occurrences', label: '命中次数', kind: 'integer' }, { key: 'version', label: '事件版本', kind: 'integer' },
+    ],
+    rows: rows.map((r) => ({
+      riskNo: r.riskNo, rule: `${r.ruleCode} ${r.ruleName}`, level: RISK_LEVEL_LABELS[r.level], status: RISK_STATUS_LABELS[r.status], org: r.orgName ?? '',
+      project: r.project, title: r.title, amount: r.amount, handler: r.handler ?? '', deadline: r.deadline ?? '', overdue: r.overdue ? '是' : '否',
+      lastAction: r.lastAction ?? '', lastActionAt: r.lastActionAt ?? '', occurrences: r.occurrenceCount, version: r.version,
+    })),
+    summary: [
+      { label: '风险数', value: String(rows.length) }, { label: '未关闭', value: count((r) => r.status !== 'closed' && r.status !== 'false_positive') },
+      { label: '待复核', value: count((r) => r.status === 'rectified') }, { label: '已逾期', value: count((r) => r.overdue) },
+      { label: '含已关闭/误报', value: includeClosed ? '是' : '否' }, { label: '组织范围', value: scopeName },
+    ],
+    sources: { events: rows.map((r) => ({ id: r.eventId, version: r.version })), asOfDate: new Date().toISOString().slice(0, 10) },
+  };
+}
+
 /* ================= 生成 / 查询 / 复核 / 导出 ================= */
 
 interface ReportRow {
@@ -227,7 +260,8 @@ function getRow(db: DB, id: number): ReportRow {
 export function generateReport(db: DB, input: StdReportGenerate): StdReportDto {
   // 取数在写事务之外;冻结内容一次性写入
   const f = input.reportType === 'budget_execution' ? budgetExecution(db, input) : input.reportType === 'statement_summary' ? statementSummary(db, input)
-    : input.reportType === 'eas_recon' ? easRecon(db, input) : contractPaymentLedger(db, input);
+    : input.reportType === 'eas_recon' ? easRecon(db, input) : input.reportType === 'contract_payment_ledger' ? contractPaymentLedger(db, input)
+    : riskRectificationLedger(db, input);
   const content = JSON.stringify({ columns: f.columns, rows: f.rows, summary: f.summary, sources: f.sources });
   const sha = crypto.createHash('sha256').update(content).digest('hex');
   const id = db.transaction(() => {
