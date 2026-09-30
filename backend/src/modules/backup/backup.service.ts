@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import fs from 'fs';
+import Database from 'better-sqlite3';
 import path from 'path';
 import type { DB } from '../../db/connection';
 import { openDatabase, openReadonlyDatabase, integrityCheck } from '../../db/connection';
@@ -61,6 +62,10 @@ async function createBackupSerial(db: DB, dir: string, tag: string): Promise<{ f
   if (path.dirname(path.resolve(dest)) !== path.resolve(dir)) throw Errors.validation('非法备份目标路径');
   try {
     await db.backup(dest);
+    // 备份继承源库的 WAL 模式,之后每次只读校验都会在旁边生成 -wal/-shm;改为回滚日志模式,
+    // 使备份成为自包含的单个文件(清单摘要在此之后计算)
+    const standalone = new Database(dest);
+    try { standalone.pragma('journal_mode = DELETE'); } finally { standalone.close(); }
     const manifest = writeBundle(dest, dir, runtimeObjectsRootOf(db));
     // 只有无标签的系统自动备份参与月度归档；人工及迁移/恢复前里程碑永久保留在日备目录。
     const monthly = tag === '' && isMonthlyKeep(dest, dir);

@@ -51,6 +51,8 @@ describe('T-6 一致性备份包与恢复演练', () => {
     expect(new Set(manifest.objects.map((o) => o.sha256))).toEqual(new Set(shas));
     for (const sha of shas) expect(sha256File(backupObjectPath(backupDir, sha))).toBe(sha);
     expect(verifyBackupBundle(backupFile)).toMatchObject({ ok: true });
+    // 自包含单文件:只读校验不在旁边留下 -wal/-shm
+    expect(fs.readdirSync(backupDir).filter((f) => /-(wal|shm)$/.test(f))).toEqual([]);
 
     // 删除一个运行对象:校验指出缺失且可从备份补齐
     const lost = runtimeObjectPath(store.root, artifact.sha256);
