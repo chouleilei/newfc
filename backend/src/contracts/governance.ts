@@ -64,3 +64,31 @@ export interface GovIssueDto {
 }
 
 export interface GovVerifyDto { issueId: number; sourceHash: string; unchanged: true; checkedAt: string }
+
+/** T-7(AC-F06)质量评分:按来源分维度,固定扣分规则,范围内统计。 */
+export interface GovQualityDimensionDto {
+  key: string; label: string; sourceType: GovSourceType; weight: string; score: string;
+  total: number; openErrors: number; openWarnings: number; pendingReview: number; closed: number;
+}
+export interface GovQualityScoreDto {
+  score: string;
+  grade: '优' | '良' | '中' | '差';
+  dimensions: GovQualityDimensionDto[];
+  totals: { total: number; open: number; pendingReview: number; resolved: number; dismissed: number };
+  formula: string;
+  computedAt: string;
+}
+
+/** T-7(AC-F06)主数据匹配建议:只读,采用走映射覆盖处置 → 复核。 */
+export interface GovMatchSuggestionDto {
+  issueId: number;
+  issueVersion: number;
+  status: GovIssueStatus;
+  entity: 'project' | 'supplier';
+  value: string;
+  orgName: string | null;
+  period: string;
+  lineCount: number;
+  sourceNames: string[];
+  suggestions: { targetId: number; code: string | null; name: string; confidence: string; reason: string }[];
+}

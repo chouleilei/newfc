@@ -6,7 +6,7 @@ import { api } from './client';
 import type {
   EasBatchDto, EasBatchLinesDto, EasCorrectionDto, EasDataType, EasPeriodLockDto, EasPeriodStatusDto, EasReconSetDto,
 } from '@contracts/eas';
-import type { GovDispositionCreate, GovIssueDto, GovScanResultDto, GovVerifyDto } from '@contracts/governance';
+import type { GovDispositionCreate, GovIssueDto, GovMatchSuggestionDto, GovQualityScoreDto, GovScanResultDto, GovVerifyDto } from '@contracts/governance';
 import type {
   StatementBatchDto, StatementItemDto, StatementOverviewDto, StatementPreviewDto, StatementScope, StatementSheetCode, StatementTrendDto,
 } from '@contracts/statements';
@@ -65,6 +65,10 @@ export const govApi = {
   scan: (body: { orgId?: number; period?: string }) => api.post<GovScanResultDto>('/governance/scan', body),
   dispose: (id: number, body: GovDispositionCreate) => api.post(`/governance/issues/${id}/dispositions`, body),
   review: (dispositionId: number, body: { action: 'approve' | 'return'; comment?: string; exceptionReason?: string }) => api.post(`/governance/dispositions/${dispositionId}/review`, body),
+  qualityScore: (q: { orgId?: number; period?: string }) => api.get<GovQualityScoreDto>(`/governance/quality-score${qs(q)}`),
+  matches: (q: { orgId?: number; period?: string; withSuggestionsOnly?: boolean }) =>
+    api.get<{ items: GovMatchSuggestionDto[] }>(`/governance/master-data-matches${qs({ ...q, withSuggestionsOnly: q.withSuggestionsOnly ? 'true' : undefined })}`),
+  issueMatches: (id: number) => api.get<Partial<GovMatchSuggestionDto> & { suggestions: GovMatchSuggestionDto['suggestions'] }>(`/governance/issues/${id}/match-suggestions`),
 };
 
 export const statementApi = {

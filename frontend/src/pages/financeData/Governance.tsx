@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tag, Timeline, Typography } from 'antd';
+import { Alert, App as AntdApp, Button, Card, Col, Descriptions, Drawer, Form, Input, List, Modal, Progress, Row, Select, Space, Statistic, Table, Tag, Timeline, Tooltip, Typography } from 'antd';
 import { api, can, errorText } from '../../api/client';
 import { easApi, govApi, type GovDispositionDto, type GovDispositionKind, type GovIssueDto } from '../../api/financeData';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, defaultOrgId, EXCEPTION_REASON_FIELD, OrgSelect, PeriodPicker, statusTag, usePrompt } from './shared';
 
-/** AC-F06 数据治理:扫描 → 处置(映射覆盖/误报/重新导入)→ 复核 → 生效证明;治理从不改写原始事实。 */
+/**
+ * AC-F06 数据治理:扫描 → 处置(映射覆盖/误报/重新导入)→ 复核 → 生效证明;治理从不改写原始事实。
+ * T-7:质量评分卡(固定扣分规则)、主数据匹配建议(只读,“采用”只预填映射覆盖处置,仍需复核)。
+ */
 
 const ISSUE_STATUS = {
   open: { text: '待处理', color: 'error' }, pending_review: { text: '待复核', color: 'warning' },
@@ -19,7 +22,7 @@ const DISPOSITION_STATUS = { pending_review: { text: '待复核', color: 'warnin
 
 interface MasterOption { id: number; code: string | null; name: string }
 
-function DispositionModal({ issue, onClose }: { issue: GovIssueDto | null; onClose: () => void }) {
+function DispositionModal({ issue, presetTargetId, onClose }: { issue: GovIssueDto | null; presetTargetId?: number; onClose: () => void }) {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [form] = Form.useForm<{ kind: GovDispositionKind; reason: string; targetId?: number; setId?: number }>();
@@ -35,14 +38,14 @@ function DispositionModal({ issue, onClose }: { issue: GovIssueDto | null; onClo
   });
   const submit = useMutation({
     mutationFn: (v: { kind: GovDispositionKind; reason: string; targetId?: number; setId?: number }) => govApi.dispose(issue!.id, { ...v, expectedVersion: issue!.version } as never),
-    onSuccess: () => { message.success('已提交处置,等待复核'); void qc.invalidateQueries({ queryKey: ['gov-issues'] }); void qc.invalidateQueries({ queryKey: ['gov-issue'] }); onClose(); },
+    onSuccess: () => { message.success('已提交处置,等待复核'); void qc.invalidateQueries({ queryKey: ['gov-issues'] }); void qc.invalidateQueries({ queryKey: ['gov-quality'] }); void qc.invalidateQueries({ queryKey: ['gov-issue-matches'] }); void qc.invalidateQueries({ queryKey: ['gov-issue'] }); onClose(); },
     onError: (e) => message.error(errorText(e)),
   });
   const kinds: GovDispositionKind[] = issue?.sourceType === 'eas_master' ? ['mapping_override', 'false_positive'] : issue?.sourceType === 'eas_recon' ? ['reimport', 'false_positive'] : ['false_positive'];
   return (
     <Modal open={!!issue} title="提交处置" onCancel={onClose} destroyOnClose confirmLoading={submit.isPending}
       onOk={() => form.validateFields().then((v) => submit.mutate(v))}>
-      <Form form={form} layout="vertical" preserve={false} initialValues={{ kind: kinds[0] }}>
+      <Form form={form} layout="vertical" preserve={false} initialValues={presetTargetId ? { kind: 'mapping_override', targetId: presetTargetId, reason: '采用主数据匹配建议' } : { kind: kinds[0] }}>
         <Form.Item name="kind" label="处置方式" rules={[{ required: true }]}>
           <Select options={kinds.map((k) => ({ value: k, label: KIND_LABEL[k] }))} />
         </Form.Item>
@@ -72,8 +75,10 @@ function IssueDrawer({ issueId, onClose }: { issueId: number | null; onClose: ()
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [prompt, holder] = usePrompt();
-  const [disposing, setDisposing] = useState<GovIssueDto | null>(null);
+  const [disposing, setDisposing] = useState<{ issue: GovIssueDto; targetId?: number } | null>(null);
   const q = useQuery({ queryKey: ['gov-issue', issueId], queryFn: () => govApi.issue(issueId!), enabled: issueId != null });
+  const isMaster = q.data?.sourceType === 'eas_master' && (q.data.status === 'open' || q.data.status === 'pending_review');
+  const matches = useQuery({ queryKey: ['gov-issue-matches', issueId], queryFn: () => govApi.issueMatches(issueId!), enabled: issueId != null && isMaster });
   const verify = useMutation({
     mutationFn: () => govApi.verify(issueId!),
     onSuccess: (r) => message.success(`来源事实未变化(${r.sourceHash.slice(0, 12)}…)`),
@@ -82,7 +87,7 @@ function IssueDrawer({ issueId, onClose }: { issueId: number | null; onClose: ()
   const review = useMutation({
     mutationFn: (v: { d: GovDispositionDto; action: 'approve' | 'return'; comment?: string; exceptionReason?: string }) =>
       govApi.review(v.d.id, compact({ action: v.action, comment: v.comment, exceptionReason: v.exceptionReason }) as never),
-    onSuccess: () => { message.success('复核已记录'); void qc.invalidateQueries({ queryKey: ['gov-issue'] }); void qc.invalidateQueries({ queryKey: ['gov-issues'] }); },
+    onSuccess: () => { message.success('复核已记录'); void qc.invalidateQueries({ queryKey: ['gov-quality'] }); void qc.invalidateQueries({ queryKey: ['gov-issue'] }); void qc.invalidateQueries({ queryKey: ['gov-issues'] }); },
     onError: (e) => message.error(errorText(e)),
   });
   const issue = q.data;
@@ -95,7 +100,7 @@ function IssueDrawer({ issueId, onClose }: { issueId: number | null; onClose: ()
       extra={issue && (
         <Space>
           <Button onClick={() => verify.mutate()} loading={verify.isPending}>验证来源</Button>
-          {issue.status === 'open' && can('governance:resolve') && <Button type="primary" onClick={() => setDisposing(issue)}>提交处置</Button>}
+          {issue.status === 'open' && can('governance:resolve') && <Button type="primary" onClick={() => setDisposing({ issue })}>提交处置</Button>}
         </Space>
       )}>
       {holder}
@@ -111,6 +116,20 @@ function IssueDrawer({ issueId, onClose }: { issueId: number | null; onClose: ()
             <Descriptions.Item label="来源引用" span={2}><Typography.Text code>{issue.sourceRef}</Typography.Text></Descriptions.Item>
             <Descriptions.Item label="来源哈希" span={2}><Typography.Text code copyable>{issue.sourceHash}</Typography.Text></Descriptions.Item>
           </Descriptions>
+          {isMaster && (
+            <Card size="small" title="主数据匹配建议" loading={matches.isLoading}
+              extra={<Typography.Text type="secondary">按{(matches.data?.entity ?? 'project') === 'project' ? '凭证项目名' : '供应商名称'}与有效主数据的名称相似度</Typography.Text>}>
+              {matches.error ? <Typography.Text type="danger">{errorText(matches.error)}</Typography.Text> : (matches.data?.suggestions ?? []).length === 0 ? (
+                <Typography.Text type="secondary">没有相似度 ≥ 0.60 的候选{matches.data?.sourceNames?.length ? `(凭证名称:${matches.data.sourceNames.join('、')})` : ''},请手工选择映射目标或新增主数据。</Typography.Text>
+              ) : (
+                <List size="small" dataSource={matches.data!.suggestions} renderItem={(m) => (
+                  <List.Item actions={issue.status === 'open' && can('governance:resolve') ? [<Button key="use" size="small" type="link" onClick={() => setDisposing({ issue, targetId: m.targetId })}>采用</Button>] : []}>
+                    <List.Item.Meta title={<Space>{m.name}{m.code && <Typography.Text type="secondary">{m.code}</Typography.Text>}<Tag color={Number(m.confidence) >= 0.9 ? 'success' : 'processing'}>{m.confidence}</Tag></Space>} description={m.reason} />
+                  </List.Item>
+                )} />
+              )}
+            </Card>
+          )}
           <pre style={{ margin: 0, maxHeight: 220, overflow: 'auto', fontSize: 12, background: 'var(--bd-fill)', padding: 8, borderRadius: 6 }}>{JSON.stringify(issue.detail, null, 2)}</pre>
           <Typography.Title level={5} style={{ margin: 0 }}>处置记录</Typography.Title>
           {(issue.dispositions ?? []).length === 0 ? <Typography.Text type="secondary">暂无处置</Typography.Text> : (
@@ -131,8 +150,39 @@ function IssueDrawer({ issueId, onClose }: { issueId: number | null; onClose: ()
           )}
         </Space>
       )}
-      <DispositionModal issue={disposing} onClose={() => setDisposing(null)} />
+      <DispositionModal key={disposing ? `${disposing.issue.id}-${disposing.targetId ?? ''}` : 'none'} issue={disposing?.issue ?? null} presetTargetId={disposing?.targetId} onClose={() => setDisposing(null)} />
     </Drawer>
+  );
+}
+
+const GRADE_COLOR: Record<string, string> = { 优: 'success', 良: 'processing', 中: 'warning', 差: 'error' };
+
+function QualityCard({ orgId, period }: { orgId?: number; period?: string }) {
+  const q = useQuery({ queryKey: ['gov-quality', orgId, period], queryFn: () => govApi.qualityScore({ orgId, period }) });
+  if (q.error) return <Alert type="error" showIcon style={{ marginBottom: 12 }} message={`质量评分加载失败:${errorText(q.error)}`} />;
+  const d = q.data;
+  return (
+    <Card size="small" loading={q.isLoading} style={{ marginBottom: 12 }}
+      title={<Space>数据质量评分<Tooltip title={d?.formula}><Typography.Text type="secondary" style={{ fontSize: 12, cursor: 'help' }}>评分规则</Typography.Text></Tooltip></Space>}
+      extra={d && <Typography.Text type="secondary">共 {d.totals.total} 个问题 · 待处理 {d.totals.open} · 待复核 {d.totals.pendingReview} · 已解决 {d.totals.resolved} · 误报 {d.totals.dismissed}</Typography.Text>}>
+      {d && (
+        <Row gutter={[16, 12]} align="middle">
+          <Col xs={24} md={6}>
+            <Space align="center">
+              <Statistic title="综合得分" value={d.score} />
+              <Tag color={GRADE_COLOR[d.grade]}>{d.grade}</Tag>
+            </Space>
+          </Col>
+          {d.dimensions.map((dim) => (
+            <Col xs={24} md={6} key={dim.key}>
+              <Typography.Text>{dim.label} <Typography.Text type="secondary">×{dim.weight}</Typography.Text></Typography.Text>
+              <Progress percent={Number(dim.score)} format={() => dim.score} size="small" status={Number(dim.score) < 60 ? 'exception' : 'normal'} />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>错误 {dim.openErrors} · 警告 {dim.openWarnings} · 待复核 {dim.pendingReview}</Typography.Text>
+            </Col>
+          ))}
+        </Row>
+      )}
+    </Card>
   );
 }
 
@@ -147,7 +197,7 @@ export default function Governance() {
   const list = useQuery({ queryKey: ['gov-issues', status, sourceType, orgId, period], queryFn: () => govApi.issues({ status, sourceType, orgId, period }) });
   const scan = useMutation({
     mutationFn: () => govApi.scan(compact({ orgId, period })),
-    onSuccess: (r) => { message.success(`扫描完成:新增 ${r.created},更新 ${r.updated},重新打开 ${r.reopened},未变 ${r.unchanged}`); void qc.invalidateQueries({ queryKey: ['gov-issues'] }); },
+    onSuccess: (r) => { message.success(`扫描完成:新增 ${r.created},更新 ${r.updated},重新打开 ${r.reopened},未变 ${r.unchanged}`); void qc.invalidateQueries({ queryKey: ['gov-issues'] }); void qc.invalidateQueries({ queryKey: ['gov-quality'] }); },
     onError: (e) => message.error(errorText(e)),
   });
   return (
@@ -159,6 +209,7 @@ export default function Governance() {
         <PeriodPicker value={period} onChange={setPeriod} />
         {can('governance:resolve') && <Button type="primary" onClick={() => scan.mutate()} loading={scan.isPending}>扫描问题</Button>}
       </Space>
+      <QualityCard orgId={orgId} period={period} />
       <Alert type="info" showIcon style={{ marginBottom: 12 }} message="治理只记录问题与处置,不改写 EAS/财报原始事实;来源事实变化后验证与生效证明会返回 GOVERNANCE_FACT_MUTATED。" />
       {list.error ? <QueryErrorResult title="治理问题加载失败" error={list.error} refetch={list.refetch} /> : (
         <Table<GovIssueDto>

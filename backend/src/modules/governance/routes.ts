@@ -6,6 +6,7 @@ import type { Wrap } from '../security/http';
 import { addRouteRules } from '../security/route-rules';
 import { id as idSchema, period as periodSchema } from '../../contracts/common';
 import { GOV_ISSUE_STATUSES, GOV_SOURCE_TYPES, govDispositionCreate, govReviewRequest, govScanRequest } from '../../contracts/governance';
+import { governanceQualityScore, issueMatchSuggestions, listMasterDataMatches } from './governance-quality.service';
 import { getIssue, listIssues, reviewDisposition, scanIssues, submitDisposition, verifyIssue } from './governance.service';
 
 addRouteRules([
@@ -28,6 +29,21 @@ export function registerGovernanceRoutes(app: Express, db: () => DB, wrap: Wrap)
       status: opt(req.query.status, GOV_ISSUE_STATUSES), sourceType: opt(req.query.sourceType, GOV_SOURCE_TYPES),
       orgId: req.query.orgId ? id(req.query.orgId) : undefined, period: req.query.period ? parseInput(periodSchema, req.query.period) : undefined,
     }));
+  }));
+  app.get('/api/governance/quality-score', wrap((req, res) => {
+    res.json(governanceQualityScore(db(), {
+      orgId: req.query.orgId ? id(req.query.orgId) : undefined, period: req.query.period ? parseInput(periodSchema, req.query.period) : undefined,
+    }));
+  }));
+  app.get('/api/governance/master-data-matches', wrap((req, res) => {
+    res.json(listMasterDataMatches(db(), {
+      orgId: req.query.orgId ? id(req.query.orgId) : undefined, period: req.query.period ? parseInput(periodSchema, req.query.period) : undefined,
+      withSuggestionsOnly: req.query.withSuggestionsOnly === 'true',
+    }));
+  }));
+  app.get('/api/governance/issues/:id/match-suggestions', wrap((req, res) => {
+    const r = issueMatchSuggestions(db(), id(req.params.id));
+    res.json(r ?? { issueId: Number(req.params.id), suggestions: [] });
   }));
   app.get('/api/governance/issues/:id', wrap((req, res) => { res.json(getIssue(db(), id(req.params.id))); }));
   app.get('/api/governance/issues/:id/verify', wrap((req, res) => { res.json(verifyIssue(db(), id(req.params.id))); }));
