@@ -64,8 +64,11 @@ async function openSelect(scope: ReturnType<typeof topDialog>, label: string) {
   await scope.locator('.ant-form-item', { hasText: label }).locator('.ant-select-selector').click();
 }
 
+/** 等上一个下拉的收起动画结束(只剩一个展开的下拉),再在其中选项,避免点到正在收起的旧下拉。 */
 async function chooseOption(page: Page, text: string | RegExp) {
-  await page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', { hasText: text }).first().click();
+  const open = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)');
+  await expect(open).toHaveCount(1);
+  await open.locator('.ant-select-item-option', { hasText: text }).first().click();
 }
 
 test.describe('投资、预测、风险与报告页面', () => {
@@ -76,7 +79,7 @@ test.describe('投资、预测、风险与报告页面', () => {
     await page.goto('/investment-control');
     await page.getByRole('button', { name: '新建项目' }).click();
     const create = topDialog(page);
-    await create.getByLabel('主数据项目').click();
+    await create.getByLabel('主数据项目').fill(code);
     await chooseOption(page, code);
     await create.getByRole('button', { name: OK }).click();
     await expect(page.getByText(`已建立投资控制项目 ${code}`)).toBeVisible();
@@ -90,7 +93,7 @@ test.describe('投资、预测、风险与报告页面', () => {
       await dlg.locator('input[type=file]').setInputFiles({ name: 'ic.csv', mimeType: 'text/csv', buffer: icCsv(amount) });
       await expect(dlg.getByText('ic.csv:2 行')).toBeVisible();
       await dlg.getByRole('button', { name: '确认导入' }).click();
-      await expect(page.getByText('已导入为草稿版本')).toBeVisible();
+      await expect(page.getByText('已导入为草稿版本').last()).toBeVisible();
       const vd = topDrawer(page);
       await expect(vd.getByText('草稿').first()).toBeVisible();
       await vd.getByRole('button', { name: '确认冻结' }).click();
