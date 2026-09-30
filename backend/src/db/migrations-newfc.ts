@@ -1371,4 +1371,513 @@ BEGIN SELECT RAISE(ABORT, '标准报表只能复核一次'); END;
 CREATE TRIGGER trg_std_report_d BEFORE DELETE ON std_report BEGIN SELECT RAISE(ABORT, '标准报表不可删除'); END;
 `,
   },
+  {
+    version: 54,
+    name: 'investment_feasibility',
+    sql: `
+/* investment_feasibility(AC-F12,T-5)。标准模型 standard-1.0:输入为版本化 JSON 文档(万元,6 位小数字符串),
+   测算在事务外完成,运行记录冻结输入与结果,不可修改/删除。 */
+CREATE TABLE if_project (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  md_project_id INTEGER REFERENCES md_project(id),
+  description TEXT NOT NULL DEFAULT '',
+  construction_start_year INTEGER NOT NULL CHECK (construction_start_year BETWEEN 2000 AND 2100),
+  operation_start_year INTEGER NOT NULL CHECK (operation_start_year BETWEEN 2000 AND 2100),
+  horizon_years INTEGER NOT NULL CHECK (horizon_years BETWEEN 1 AND 60),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (operation_start_year > construction_start_year)
+);
+CREATE INDEX idx_if_project_org ON if_project(org_id, status);
+
+CREATE TABLE if_scenario (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES if_project(id),
+  code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  assumptions_json TEXT NOT NULL,
+  assumptions_hash TEXT NOT NULL,
+  source_file_object_id INTEGER REFERENCES file_object(id),
+  source_file_name TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_id, code)
+);
+
+CREATE TABLE if_run (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scenario_id INTEGER NOT NULL REFERENCES if_scenario(id),
+  kind TEXT NOT NULL CHECK (kind IN ('base','sensitivity')),
+  scenario_version INTEGER NOT NULL,
+  project_years_json TEXT NOT NULL,
+  assumptions_json TEXT NOT NULL,
+  parameter_hash TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('succeeded','failed')),
+  all_checks_passed INTEGER CHECK (all_checks_passed IN (0,1)),
+  result_json TEXT,
+  error_message TEXT,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_if_run_scenario ON if_run(scenario_id, kind, id);
+CREATE TRIGGER trg_if_run_u BEFORE UPDATE ON if_run BEGIN SELECT RAISE(ABORT, '测算运行结果冻结,不可修改'); END;
+CREATE TRIGGER trg_if_run_d BEFORE DELETE ON if_run BEGIN SELECT RAISE(ABORT, '测算运行结果不可删除'); END;
+
+CREATE TABLE if_import (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES if_project(id),
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  file_sha256 TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'previewed' CHECK (status IN ('previewed','confirmed')),
+  assumptions_json TEXT,
+  errors_json TEXT NOT NULL DEFAULT '[]',
+  scenario_id INTEGER REFERENCES if_scenario(id),
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  confirmed_at TEXT
+);
+`,
+  },
+  {
+    version: 55,
+    name: 'investment_control',
+    sql: `
+/* investment_control(四算对比,AC-F13,T-5)。金额整数分;版本确认后科目冻结;对比快照不可修改/删除。 */
+CREATE TABLE ic_project (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  md_project_id INTEGER NOT NULL UNIQUE REFERENCES md_project(id),
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  approved_cents INTEGER CHECK (approved_cents IS NULL OR approved_cents >= 0),
+  approval_doc_no TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_ic_project_org ON ic_project(org_id, status);
+
+CREATE TABLE ic_version (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES ic_project(id),
+  version_type TEXT NOT NULL CHECK (version_type IN ('estimate','design_estimate','adjusted_estimate','construction_budget','settlement','final_account')),
+  version_no INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','confirmed','voided')),
+  is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),
+  static_cents INTEGER NOT NULL DEFAULT 0,
+  dynamic_cents INTEGER NOT NULL DEFAULT 0,
+  approval_doc_no TEXT NOT NULL DEFAULT '',
+  approval_date TEXT,
+  source_file_object_id INTEGER REFERENCES file_object(id),
+  source_file_name TEXT,
+  content_hash TEXT,
+  void_reason TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  confirmed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  confirmed_at TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_id, version_type, version_no),
+  CHECK (is_current = 0 OR status = 'confirmed')
+);
+CREATE UNIQUE INDEX idx_ic_version_current ON ic_version(project_id, version_type) WHERE is_current = 1;
+
+CREATE TABLE ic_item (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version_id INTEGER NOT NULL REFERENCES ic_version(id),
+  row_no INTEGER NOT NULL,
+  item_code TEXT NOT NULL,
+  parent_code TEXT,
+  level INTEGER NOT NULL CHECK (level >= 1),
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT '',
+  static_cents INTEGER NOT NULL CHECK (static_cents >= 0),
+  dynamic_cents INTEGER NOT NULL CHECK (dynamic_cents >= 0),
+  source_cell TEXT,
+  canonical_code TEXT,
+  mapping_status TEXT NOT NULL CHECK (mapping_status IN ('matched','need_mapping','manual','ignored')),
+  mapping_method TEXT,
+  UNIQUE (version_id, item_code)
+);
+CREATE TRIGGER trg_ic_item_frozen_u BEFORE UPDATE ON ic_item
+WHEN (SELECT status FROM ic_version WHERE id = OLD.version_id) <> 'draft'
+BEGIN SELECT RAISE(ABORT, '已确认版本的科目不可修改'); END;
+CREATE TRIGGER trg_ic_item_frozen_d BEFORE DELETE ON ic_item
+WHEN (SELECT status FROM ic_version WHERE id = OLD.version_id) <> 'draft'
+BEGIN SELECT RAISE(ABORT, '已确认版本的科目不可删除'); END;
+
+CREATE TABLE ic_import (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES ic_project(id),
+  version_type TEXT NOT NULL,
+  file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  file_sha256 TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  row_count INTEGER NOT NULL,
+  error_count INTEGER NOT NULL,
+  items_json TEXT NOT NULL DEFAULT '[]',
+  errors_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'previewed' CHECK (status IN ('previewed','confirmed')),
+  version_id INTEGER REFERENCES ic_version(id),
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  confirmed_at TEXT
+);
+
+CREATE TABLE ic_comparison (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES ic_project(id),
+  base_version_id INTEGER NOT NULL REFERENCES ic_version(id),
+  target_version_id INTEGER NOT NULL REFERENCES ic_version(id),
+  base_content_hash TEXT NOT NULL,
+  target_content_hash TEXT NOT NULL,
+  redline_version_id INTEGER REFERENCES ic_version(id),
+  thresholds_json TEXT NOT NULL,
+  rows_json TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_ic_comparison_project ON ic_comparison(project_id, id);
+CREATE TRIGGER trg_ic_comparison_u BEFORE UPDATE ON ic_comparison BEGIN SELECT RAISE(ABORT, '对比快照不可修改'); END;
+CREATE TRIGGER trg_ic_comparison_d BEFORE DELETE ON ic_comparison BEGIN SELECT RAISE(ABORT, '对比快照不可删除'); END;
+`,
+  },
+  {
+    version: 56,
+    name: 'finance_forecast',
+    sql: `
+/* finance_forecast(AC-F11,T-5)。工作簿以 JSON 保存,内置受限公式引擎在 Worker 中重算;
+   冻结版本不可修改;运行结束(成功/失败)后不可修改,失败不保存部分输出。 */
+CREATE TABLE ff_model (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  base_year INTEGER NOT NULL CHECK (base_year BETWEEN 2000 AND 2100),
+  horizon_years INTEGER NOT NULL CHECK (horizon_years BETWEEN 1 AND 30),
+  description TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_ff_model_org ON ff_model(org_id, status);
+
+CREATE TABLE ff_version (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  model_id INTEGER NOT NULL REFERENCES ff_model(id),
+  version_no INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','frozen')),
+  workbook_json TEXT NOT NULL,
+  params_json TEXT NOT NULL DEFAULT '[]',
+  outputs_json TEXT NOT NULL DEFAULT '[]',
+  diagnostics_json TEXT NOT NULL DEFAULT '{}',
+  content_hash TEXT NOT NULL,
+  source_file_object_id INTEGER REFERENCES file_object(id),
+  source_file_name TEXT,
+  note TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  frozen_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  frozen_at TEXT,
+  UNIQUE (model_id, version_no)
+);
+CREATE TRIGGER trg_ff_version_frozen_u BEFORE UPDATE ON ff_version WHEN OLD.status = 'frozen'
+BEGIN SELECT RAISE(ABORT, '冻结的预测版本不可修改'); END;
+CREATE TRIGGER trg_ff_version_d BEFORE DELETE ON ff_version BEGIN SELECT RAISE(ABORT, '预测版本不可删除'); END;
+
+CREATE TABLE ff_run (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version_id INTEGER NOT NULL REFERENCES ff_version(id),
+  kind TEXT NOT NULL CHECK (kind IN ('baseline','scenario')),
+  scenario_name TEXT NOT NULL DEFAULT '',
+  params_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','succeeded','failed')),
+  outputs_json TEXT,
+  error_code TEXT,
+  error_message TEXT,
+  diagnostics_json TEXT,
+  job_id INTEGER,
+  duration_ms INTEGER,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  finished_at TEXT,
+  CHECK (status <> 'succeeded' OR outputs_json IS NOT NULL),
+  CHECK (status <> 'failed' OR outputs_json IS NULL)
+);
+CREATE INDEX idx_ff_run_version ON ff_run(version_id, id);
+CREATE UNIQUE INDEX idx_ff_run_baseline ON ff_run(version_id) WHERE kind = 'baseline' AND status = 'succeeded';
+CREATE TRIGGER trg_ff_run_final_u BEFORE UPDATE ON ff_run WHEN OLD.status IN ('succeeded','failed')
+BEGIN SELECT RAISE(ABORT, '已结束的预测运行不可修改'); END;
+CREATE TRIGGER trg_ff_run_d BEFORE DELETE ON ff_run BEGIN SELECT RAISE(ABORT, '预测运行不可删除'); END;
+`,
+  },
+  {
+    version: 57,
+    name: 'risk_workflow',
+    sql: `
+/* risk_workflow(AC-F17,T-5)。event_key = 规则:对象类型:对象ID[:子项],同一对象跨批次不拆单;
+   时间线只追加。状态:open→confirmed→rectifying→rectified→closed;open/confirmed→false_positive;rectified→rectifying(退回);
+   closed 再次命中由扫描重开为 open。 */
+CREATE TABLE risk_rule (
+  code TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('project_budget','plan','contract','investment_control','feasibility')),
+  level TEXT NOT NULL CHECK (level IN ('high','medium','low')),
+  threshold TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+  suggestion TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  updated_at TEXT
+);
+INSERT INTO risk_rule (code, name, source, level, threshold, suggestion) VALUES
+  ('PB_LOW_EXEC', '项目预算执行率偏低', 'project_budget', 'medium', '0.3', '核实项目进度与资金拨付计划，必要时调整年度预算。'),
+  ('PB_OVER_BUDGET', '项目预算超支', 'project_budget', 'high', NULL, '核查超支原因，补办预算调整或停止无预算支出。'),
+  ('PLAN_LOW_EXEC', '年度投资计划执行率偏低', 'plan', 'medium', '0.5', '分析计划滞后原因，制定赶工或调整计划措施。'),
+  ('CONTRACT_PAY_OVER_CAP', '合同付款超过付款上限比例', 'contract', 'high', NULL, '核对付款节点与结算依据，暂停超比例付款。'),
+  ('IC_OVER_REDLINE', '投资超出批复概算红线', 'investment_control', 'high', NULL, '履行调整概算审批，落实超概原因与责任。'),
+  ('IC_CONTROL_BREAK', '四算控制链被突破', 'investment_control', 'high', NULL, '复核预算/结算编制依据与变更签证。'),
+  ('IC_DEVIATION_EXCEED', '科目投资偏差超限', 'investment_control', 'medium', NULL, '分析偏差科目的设计变更、价格或工程量原因。'),
+  ('FEAS_NPV_NEGATIVE', '可行性测算净现值为负', 'feasibility', 'high', NULL, '复核收入、成本、投资和融资参数。'),
+  ('FEAS_IRR_LOW', '可行性测算收益率未达标或无解', 'feasibility', 'medium', NULL, '开展价格、发电量、成本和投资敏感性复核。'),
+  ('FEAS_DSCR_LOW', '偿债覆盖率不足', 'feasibility', 'medium', NULL, '调整资本金、贷款期限或运营现金流安排。'),
+  ('FEAS_FUNDING_GAP', '测算期存在资金缺口', 'feasibility', 'medium', NULL, '补充备用资金或调整融资与还款节奏。'),
+  ('FEAS_MODEL_CHECK', '测算模型检查未通过', 'feasibility', 'high', NULL, '修正参数后重新测算，不得绕过模型检查。');
+
+CREATE TABLE risk_scan (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope_json TEXT NOT NULL,
+  created_count INTEGER NOT NULL DEFAULT 0,
+  updated_count INTEGER NOT NULL DEFAULT 0,
+  reopened_count INTEGER NOT NULL DEFAULT 0,
+  suppressed_count INTEGER NOT NULL DEFAULT 0,
+  cleared_count INTEGER NOT NULL DEFAULT 0,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE risk_event (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_key TEXT NOT NULL UNIQUE,
+  rule_code TEXT NOT NULL REFERENCES risk_rule(code),
+  source TEXT NOT NULL,
+  level TEXT NOT NULL CHECK (level IN ('high','medium','low')),
+  org_id INTEGER NOT NULL REFERENCES org(id),
+  project_id INTEGER REFERENCES md_project(id),
+  subject_type TEXT NOT NULL,
+  subject_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  amount_cents INTEGER,
+  metric TEXT,
+  evidence_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','confirmed','rectifying','rectified','closed','false_positive')),
+  occurrence_count INTEGER NOT NULL DEFAULT 1,
+  first_detected_at TEXT NOT NULL,
+  last_detected_at TEXT NOT NULL,
+  last_scan_id INTEGER REFERENCES risk_scan(id),
+  last_scan_hit INTEGER NOT NULL DEFAULT 1 CHECK (last_scan_hit IN (0,1)),
+  handler_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  deadline TEXT,
+  rectify_note TEXT,
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  closed_at TEXT,
+  reopened_count INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_risk_event_org ON risk_event(org_id, status);
+CREATE INDEX idx_risk_event_rule ON risk_event(rule_code, status);
+
+CREATE TABLE risk_action (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL REFERENCES risk_event(id),
+  action TEXT NOT NULL CHECK (action IN ('detect','redetect','reopen','suppressed','confirm','start','submit','approve','return','false_positive','comment')),
+  from_status TEXT,
+  to_status TEXT,
+  comment TEXT NOT NULL DEFAULT '',
+  attachment_file_object_id INTEGER REFERENCES file_object(id),
+  attachment_name TEXT,
+  scan_id INTEGER REFERENCES risk_scan(id),
+  exception_reason TEXT,
+  actor_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_risk_action_event ON risk_action(event_id, id);
+CREATE TRIGGER trg_risk_action_u BEFORE UPDATE ON risk_action BEGIN SELECT RAISE(ABORT, '风险时间线只追加'); END;
+CREATE TRIGGER trg_risk_action_d BEFORE DELETE ON risk_action BEGIN SELECT RAISE(ABORT, '风险时间线只追加'); END;
+`,
+  },
+  {
+    version: 58,
+    name: 'ai_reports',
+    sql: `
+/* ai_reports(AC-F18,T-5)。draft→pending_approval→approved→published;published 只能修订(新修订号的 draft),
+   新修订发布后旧版 superseded。审批后章节冻结;发布快照与 DOCX/PDF 产物不可修改。 */
+CREATE TABLE rpt_report (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  series_no TEXT NOT NULL,
+  revision_no INTEGER NOT NULL DEFAULT 1,
+  previous_report_id INTEGER REFERENCES rpt_report(id),
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('monthly_execution','annual_review','budget_discussion','risk_investment')),
+  params_json TEXT NOT NULL DEFAULT '{}',
+  org_id INTEGER REFERENCES org(id),
+  year INTEGER,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','pending_approval','approved','published','superseded')),
+  model_status TEXT NOT NULL DEFAULT 'template',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  submitted_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  submitted_at TEXT,
+  approved_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  approved_at TEXT,
+  approval_comment TEXT,
+  exception_reason TEXT,
+  self_approval INTEGER NOT NULL DEFAULT 0 CHECK (self_approval IN (0,1)),
+  return_comment TEXT,
+  published_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  published_at TEXT,
+  UNIQUE (series_no, revision_no)
+);
+CREATE INDEX idx_rpt_report_org ON rpt_report(org_id, status);
+CREATE UNIQUE INDEX idx_rpt_report_open_revision ON rpt_report(series_no) WHERE status IN ('draft','pending_approval','approved');
+CREATE TRIGGER trg_rpt_report_frozen BEFORE UPDATE OF title, kind, params_json, org_id, year, series_no, revision_no ON rpt_report
+WHEN OLD.status <> 'draft'
+BEGIN SELECT RAISE(ABORT, '报告已提交或发布,内容冻结'); END;
+CREATE TRIGGER trg_rpt_report_d BEFORE DELETE ON rpt_report WHEN OLD.status <> 'draft'
+BEGIN SELECT RAISE(ABORT, '只有草稿报告可以删除'); END;
+
+CREATE TABLE rpt_section (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id INTEGER NOT NULL REFERENCES rpt_report(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  facts_json TEXT NOT NULL DEFAULT '{}',
+  citations_json TEXT NOT NULL DEFAULT '[]',
+  edited INTEGER NOT NULL DEFAULT 0 CHECK (edited IN (0,1)),
+  updated_at TEXT NOT NULL,
+  UNIQUE (report_id, key)
+);
+CREATE TRIGGER trg_rpt_section_frozen BEFORE UPDATE ON rpt_section
+WHEN (SELECT status FROM rpt_report WHERE id = OLD.report_id) <> 'draft'
+BEGIN SELECT RAISE(ABORT, '报告已提交或发布,章节冻结'); END;
+
+CREATE TABLE rpt_section_edit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id INTEGER NOT NULL REFERENCES rpt_report(id) ON DELETE CASCADE,
+  section_id INTEGER NOT NULL REFERENCES rpt_section(id) ON DELETE CASCADE,
+  before_body TEXT NOT NULL,
+  after_body TEXT NOT NULL,
+  actor_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TRIGGER trg_rpt_section_edit_u BEFORE UPDATE ON rpt_section_edit BEGIN SELECT RAISE(ABORT, '修改历史只追加'); END;
+
+CREATE TABLE rpt_publication (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_id INTEGER NOT NULL UNIQUE REFERENCES rpt_report(id),
+  snapshot_json TEXT NOT NULL,
+  snapshot_sha256 TEXT NOT NULL,
+  docx_file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  pdf_file_object_id INTEGER NOT NULL REFERENCES file_object(id),
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TRIGGER trg_rpt_publication_u BEFORE UPDATE ON rpt_publication BEGIN SELECT RAISE(ABORT, '发布快照不可修改'); END;
+CREATE TRIGGER trg_rpt_publication_d BEFORE DELETE ON rpt_publication BEGIN SELECT RAISE(ABORT, '发布快照不可删除'); END;
+`,
+  },
+  {
+    version: 59,
+    name: 'risk_investment_linkage',
+    rebuild: true,
+    sql: `
+/* risk_investment_linkage(T-5 联动):CHECK 枚举扩展只能整表重建(同 V53)。
+   - ma_metric.calculator 追加 risk_open_amount / investment_deviation_rate;
+   - std_report.report_type 追加 risk_rectification_ledger(风险整改台账)。
+   rebuild 迁移:外键关闭后在单事务内“建新表 → 全量复制 → 删旧表 → 改名 → 重建索引与触发器”,
+   提交前 foreign_key_check;子表 REFERENCES 按表名解析,改名后自然指回新表。 */
+CREATE TABLE ma_metric_v59 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL CHECK (unit IN ('money','ratio')),
+  calculator TEXT NOT NULL CHECK (calculator IN ('budget_amount','actual_amount','execution_rate','eas_balance','statement_item','allocated_cost',
+    'contract_paid','contract_payment_rate','plan_execution_rate','risk_open_amount','investment_deviation_rate')),
+  params_json TEXT NOT NULL DEFAULT '{}',
+  thresholds_json TEXT NOT NULL DEFAULT '{}',
+  builtin INTEGER NOT NULL DEFAULT 0 CHECK (builtin IN (0,1)),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO ma_metric_v59 (id, code, name, unit, calculator, params_json, thresholds_json, builtin, status, version, created_by_user_id, created_at, updated_at)
+  SELECT id, code, name, unit, calculator, params_json, thresholds_json, builtin, status, version, created_by_user_id, created_at, updated_at FROM ma_metric;
+DROP TABLE ma_metric;
+ALTER TABLE ma_metric_v59 RENAME TO ma_metric;
+
+CREATE TABLE std_report_v59 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_type TEXT NOT NULL CHECK (report_type IN ('budget_execution','statement_summary','eas_recon','contract_payment_ledger','risk_rectification_ledger')),
+  title TEXT NOT NULL,
+  org_id INTEGER REFERENCES org(id),
+  period TEXT NOT NULL,
+  params_json TEXT NOT NULL,
+  columns_json TEXT NOT NULL,
+  rows_json TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  sources_json TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'generated' CHECK (status IN ('generated','reviewed')),
+  generated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  generated_at TEXT NOT NULL,
+  reviewed_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  reviewed_at TEXT,
+  review_comment TEXT,
+  exception_reason TEXT,
+  self_review INTEGER NOT NULL DEFAULT 0 CHECK (self_review IN (0,1))
+);
+INSERT INTO std_report_v59 (id, report_type, title, org_id, period, params_json, columns_json, rows_json, summary_json, sources_json, content_sha256, status,
+    generated_by_user_id, generated_at, reviewed_by_user_id, reviewed_at, review_comment, exception_reason, self_review)
+  SELECT id, report_type, title, org_id, period, params_json, columns_json, rows_json, summary_json, sources_json, content_sha256, status,
+    generated_by_user_id, generated_at, reviewed_by_user_id, reviewed_at, review_comment, exception_reason, self_review FROM std_report;
+DROP TABLE std_report;
+ALTER TABLE std_report_v59 RENAME TO std_report;
+CREATE INDEX idx_std_report_type ON std_report(report_type, period);
+CREATE INDEX idx_std_report_org ON std_report(org_id);
+CREATE TRIGGER trg_std_report_frozen_u BEFORE UPDATE OF report_type, title, org_id, period, params_json, columns_json, rows_json, summary_json,
+  sources_json, content_sha256, generated_by_user_id, generated_at ON std_report
+BEGIN SELECT RAISE(ABORT, '标准报表冻结内容不可修改'); END;
+CREATE TRIGGER trg_std_report_review_once BEFORE UPDATE OF status ON std_report
+WHEN NOT (OLD.status = 'generated' AND NEW.status = 'reviewed')
+BEGIN SELECT RAISE(ABORT, '标准报表只能复核一次'); END;
+CREATE TRIGGER trg_std_report_d BEFORE DELETE ON std_report BEGIN SELECT RAISE(ABORT, '标准报表不可删除'); END;
+`,
+  },
 ];

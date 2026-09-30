@@ -1,0 +1,44 @@
+{
+  "fixture_note": "基于宜冲桥工作簿参数体系构造的脱敏回归数据，不含原始文件内容或真实结论",
+  "project": {
+    "project_code": "REG-WATER-001",
+    "project_name": "脱敏水库项目",
+    "total_investment": "10000",
+    "construction_start_year": 2026,
+    "operation_start_year": 2028,
+    "horizon_years": 30
+  },
+  "assumptions": {
+    "schema_version": "standard-1.0",
+    "basis": {
+      "preparation_basis": "脱敏可研资料",
+      "data_source": "脱敏业务测算",
+      "scope_note": "仅用于自动回归"
+    },
+    "investment_plan": [
+      {"fiscal_year": 2026, "engineering_cost": "3800", "equipment_cost": "600", "land_resettlement_cost": "300", "preliminary_cost": "100", "design_supervision_cost": "100", "other_cost": "50", "contingency": "50", "working_capital": "0"},
+      {"fiscal_year": 2027, "engineering_cost": "3900", "equipment_cost": "500", "land_resettlement_cost": "200", "preliminary_cost": "100", "design_supervision_cost": "100", "other_cost": "100", "contingency": "50", "working_capital": "50"}
+    ],
+    "revenue_items": [
+      {"name": "发电收入", "mode": "power", "start_year": 2028, "power_generation_10k_kwh": "5000", "electricity_price_yuan_per_kwh": "0.4", "price_tax_mode": "tax_inclusive", "growth_rate": "0.01", "taxable_for_vat": true},
+      {"name": "其他经营收入", "mode": "fixed_amount", "start_year": 2028, "annual_amount": "100", "price_tax_mode": "tax_exclusive", "growth_rate": "0", "taxable_for_vat": false}
+    ],
+    "cost_items": [
+      {"name": "运行维护成本", "mode": "fixed_amount", "start_year": 2028, "annual_amount": "300", "growth_rate": "0.01", "amount_tax_mode": "tax_exclusive", "input_vat_rate": "0.06"},
+      {"name": "管理成本", "mode": "revenue_rate", "start_year": 2028, "revenue_rate": "0.03", "growth_rate": "0", "amount_tax_mode": "tax_exclusive", "input_vat_rate": "0"}
+    ],
+    "financing": {"debt_ratio": "0.6", "loan_interest_rate": "0.04", "total_loan_years": 12, "operation_repayment_years": 10, "repayment_method": "equal_principal", "plan": []},
+    "tax": {"vat_rate": "0.09", "opening_input_vat_credit": "500", "annual_input_vat": [], "water_resource_tax_yuan_per_kwh": "0.001", "water_construction_fund_rate": "0.005", "surcharge_rate": "0.12", "income_tax_rate": "0.25", "loss_carryforward_years": 5},
+    "depreciation": {"residual_rate": "0.05", "useful_life_years": 20, "method": "straight_line"},
+    "evaluation": {"discount_rate": "0.08", "benchmark_irr": "0.08", "min_dscr": "1.2", "horizon_years": 30, "cashflow_timing": "end_of_year", "terminal_recovery": "500", "affordability_warning_score": "70"},
+    "sensitivity": {"variables": [
+      {"code": "electricity_price", "mode": "relative", "changes": ["-0.1", "0.1"]},
+      {"code": "power_generation", "mode": "relative", "changes": ["-0.1", "0.1"]},
+      {"code": "operating_cost", "mode": "relative", "changes": ["-0.1", "0.1"]},
+      {"code": "construction_investment", "mode": "relative", "changes": ["-0.1", "0.1"]},
+      {"code": "construction_delay", "mode": "year_delta", "changes": ["1"]},
+      {"code": "loan_interest_rate", "mode": "percentage_point", "changes": ["0.01"]},
+      {"code": "opening_input_vat_credit", "mode": "relative", "changes": ["-0.1", "0.1"]}
+    ]}
+  }
+}

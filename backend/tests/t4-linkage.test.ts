@@ -28,12 +28,13 @@ describe('T-4 联动(V53、管理会计、合同付款台账)', () => {
   it('V53 在已有数据上重建:指标/快照/标准报表保留,外键完好,冻结与不可删触发器仍生效,新枚举可写', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'newfc-v53-'));
     const db = openDatabase(path.join(dir, 'v53.sqlite'));
+    // 模拟停在 V52 的库:暂时移除 V53 及之后的迁移
     const v53 = MIGRATIONS.findIndex((m) => m.version === 53);
-    const [removed] = MIGRATIONS.splice(v53, 1);
+    const removed = MIGRATIONS.splice(v53, MIGRATIONS.length - v53);
     try {
       applyMigrations(db);
     } finally {
-      MIGRATIONS.splice(v53, 0, removed);
+      MIGRATIONS.splice(v53, 0, ...removed);
     }
     expect((db.prepare('SELECT MAX(version) AS v FROM schema_migration').get() as { v: number }).v).toBe(52);
     const org = Number(db.prepare("INSERT INTO org (code, name, created_at, updated_at) VALUES ('X', 'X公司', ?, ?)").run(now, now).lastInsertRowid);
@@ -46,7 +47,7 @@ describe('T-4 联动(V53、管理会计、合同付款台账)', () => {
     expect(() => db.prepare("INSERT INTO ma_metric (code, name, unit, calculator, created_at, updated_at) VALUES ('CP', 'CP', 'money', 'contract_paid', ?, ?)").run(now, now)).toThrow(/CHECK/);
 
     applyMigrations(db);
-    expect((db.prepare('SELECT MAX(version) AS v FROM schema_migration').get() as { v: number }).v).toBe(53);
+    expect((db.prepare('SELECT MAX(version) AS v FROM schema_migration').get() as { v: number }).v).toBeGreaterThanOrEqual(53);
     expect(db.prepare('SELECT id, code, builtin FROM ma_metric WHERE id = ?').get(metric.id)).toEqual({ id: metric.id, code: 'ALLOCATED_COST', builtin: 1 });
     expect(db.prepare('SELECT metric_id FROM ma_metric_snapshot').get()).toEqual({ metric_id: metric.id });
     expect(db.pragma('foreign_key_check')).toEqual([]);
