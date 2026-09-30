@@ -34,7 +34,7 @@
 | AC-F23 | `system_settings` | `/settings/ai`、`/settings/business` | `/api/settings/ai-channels|ai-feature-bindings|business` | 继：模型渠道（凭据不回显）；扩：业务设置注册表（T-6 加投资控制阈值与预测超时） | `ai-channel-fallback.test.ts`、`master-settings.test.ts`、`t6-settings.test.ts` | 通过 |
 | AC-F24 | `security_administration` | `/settings/security` | `/api/security/users|roles|permissions`、`/api/security/users/:id/sessions`、`/api/security/roles/:id/copy` | 新：用户、角色、组织授权；授权对页面/API/下载/工具/检索生效；T-7 补用户会话查看/吊销、角色复制 | `security.test.ts`、`t7-security-sessions.test.ts`、`scope-restricted.spec.ts`、`platform-admin.spec.ts`、`t6-search.test.ts` | 通过 |
 | AC-F25 | `audit_log` | `/data?tab=logs` | `/api/logs` | 继：操作日志；扩：操作人/来源/结果/请求 ID、凭据脱敏、各域动作 | `security.test.ts` 及各域测试的日志断言 | 通过 |
-| AC-F26 | `cross_domain_search` | 顶栏检索框、`/search` | `/api/search` | 新：十一类对象关键词检索、按权限与组织裁剪、结果路径可打开 | `t6-search.test.ts`、`Search.test.ts`、`App.test.ts`、`cross-domain.spec.ts` | 通过 |
+| AC-F26 | `cross_domain_search` | 顶栏检索框、`/search` | `/api/search`、`/api/search/suggestions` | 新：十一类对象关键词检索、按权限与组织裁剪、结果路径可打开；T-7 补顶栏输入联想（可检索类型 + 前缀命中） | `t6-search.test.ts`、`t7-search-suggestions.test.ts`、`Search.test.ts`、`App.test.ts`、`cross-domain.spec.ts` | 通过 |
 
 ## 跨域验收
 

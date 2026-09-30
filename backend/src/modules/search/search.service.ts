@@ -12,7 +12,9 @@ import { listForecastModels } from '../forecast/forecast.service';
 import { listRiskEvents } from '../risk/risk.service';
 import { listAnalysisReports } from '../analysis-reports/report.service';
 import { listVersions } from '../budget/budget.service';
-import { SEARCH_TYPES, SEARCH_TYPE_LABELS, type SearchItemDto, type SearchResultDto, type SearchType } from '../../contracts/search';
+import {
+  SEARCH_TYPE_HINTS, SEARCH_TYPES, SEARCH_TYPE_LABELS, type SearchItemDto, type SearchResultDto, type SearchSuggestionDto, type SearchType,
+} from '../../contracts/search';
 import { CONTRACT_STAGE_LABELS, CONTRACT_STATUS_LABELS } from '../../contracts/project-contract';
 import { CLAIM_STATUS_LABELS } from '../../contracts/expense';
 import { RISK_STATUS_LABELS } from '../../contracts/risk';
@@ -141,4 +143,31 @@ export function crossDomainSearch(db: DB, input: { q: string; types?: SearchType
     for (const { c } of ranked.slice(0, perType)) items.push({ type, typeLabel: SEARCH_TYPE_LABELS[type], ...c });
   }
   return { query: k, items: items.slice(0, TOTAL_LIMIT), truncated, skipped };
+}
+
+const SUGGEST_PER_TYPE = 3;
+const SUGGEST_LIMIT = 8;
+
+/**
+ * 检索建议(顶栏输入联想):可检索类型按读权限裁剪;有关键词时只取编码/标题完全相同或前缀命中的条目
+ * (与检索同一套 service,权限与组织范围同口径),每类最多 3 条、总数最多 8 条。
+ */
+export function searchSuggestions(db: DB, input: { q?: string }): SearchSuggestionDto {
+  const auth = currentAuth();
+  const can = (p: Permission) => !auth || auth.permissions.has(p);
+  const allowed = SEARCH_TYPES.filter((t) => can(PERMISSION[t]));
+  const types = allowed.map((type) => ({ type, label: SEARCH_TYPE_LABELS[type], hint: SEARCH_TYPE_HINTS[type] }));
+  const k = input.q?.replace(/[%_\\]/g, '').trim();
+  if (!k) return { types, items: [] };
+  const items: SearchSuggestionDto['items'] = [];
+  for (const type of allowed) {
+    const ranked = collect(db, type, k)
+      .map((c) => ({ c, r: rank(k, c) }))
+      .filter((x): x is { c: Candidate; r: number } => x.r !== null && x.r <= 1)
+      .sort((a, b) => a.r - b.r || (b.c.updatedAt ?? '').localeCompare(a.c.updatedAt ?? ''));
+    for (const { c } of ranked.slice(0, SUGGEST_PER_TYPE)) {
+      items.push({ type, typeLabel: SEARCH_TYPE_LABELS[type], id: c.id, code: c.code, title: c.title, path: c.path });
+    }
+  }
+  return { types, items: items.slice(0, SUGGEST_LIMIT) };
 }

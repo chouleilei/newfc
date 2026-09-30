@@ -1,12 +1,13 @@
 /** 跨域检索(T-6,AC-F26)。类型取自 @contracts/search(仅 import type)。 */
 import { api } from './client';
 import { qs } from './financeData';
-import type { SearchItemDto, SearchResultDto, SearchType } from '@contracts/search';
+import type { SearchItemDto, SearchResultDto, SearchSuggestionDto, SearchType } from '@contracts/search';
 
-export type { SearchItemDto, SearchResultDto, SearchType };
+export type { SearchItemDto, SearchResultDto, SearchSuggestionDto, SearchType };
 
 export const searchApi = {
   search: (q: string, types?: SearchType[]) => api.get<SearchResultDto>(`/search${qs({ q, types: types?.length ? types.join(',') : undefined })}`),
+  suggestions: (q?: string) => api.get<SearchSuggestionDto>(`/search/suggestions${qs({ q: q || undefined })}`),
 };
 
 /** 与后端 SEARCH_TYPE_LABELS 一致的展示顺序;契约常量不能在前端运行时引用,这里列出。 */
