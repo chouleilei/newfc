@@ -9,6 +9,7 @@
  *   rectified→closed(复核通过)/rectifying(退回)。复核、退回、误报需要 risk:review,复核人 ≠ 提交整改的人(管理员须写例外原因)。
  *   每次转换在同一短事务里写时间线与审计;时间线只追加。
  */
+import { promptSupplement } from '../../modules/settings/prompt-supplements.service';
 import crypto from 'crypto';
 import type { DB } from '../../db/connection';
 import { AppError, Errors } from '../../core/errors';
@@ -802,7 +803,7 @@ export async function explainRisk(db: DB, id: number): Promise<RiskExplanationDt
   const template = lines.join('\n');
   const factTerms = [e.ruleName, e.orgName, e.projectCode, e.projectName].filter((x): x is string => !!x);
   const rewrite = await rewriteTemplateNarrative({
-    enabled: riskExplainAiEnabled(), promptVersion: PROMPT_VERSION.riskExplain, task: RISK_EXPLAIN_REWRITE_TASK, template, factTerms, maxChars: 8000,
+    enabled: riskExplainAiEnabled(), promptVersion: PROMPT_VERSION.riskExplain, task: RISK_EXPLAIN_REWRITE_TASK, supplement: promptSupplement(db, 'riskExplain'), template, factTerms, maxChars: 8000,
   });
   const noteId = db.transaction(() => {
     const nid = Number(db.prepare(`INSERT INTO risk_ai_note (event_id, kind, content, source, model, prompt_version, event_version, created_by_user_id, created_at)

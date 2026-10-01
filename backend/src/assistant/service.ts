@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { promptSupplement } from '../modules/settings/prompt-supplements.service';
 import { currentOwnerId, insightRowsFilter, ownedRowsFilter } from './ownership';
 import type { DB } from '../db/connection';
 import * as budget from '../modules/budget/budget.service';
@@ -2704,10 +2705,11 @@ export async function reportDraft(db: DB, input: Record<string, unknown>): Promi
   const draft = buildReportDraft(db, authorized as Parameters<typeof buildReportDraft>[1]);
   const wantsNarrative = p.narrative == null ? true : Boolean(p.narrative);
   if (!wantsNarrative) return { ...draft, model: 'template' };
-  if (draft.kind === 'annual_review') return annualReviewTrendRewrite(draft);
+  if (draft.kind === 'annual_review') return annualReviewTrendRewrite(db, draft);
   const rewrite = await rewriteTemplateNarrative({
     enabled: true,
     promptVersion: PROMPT_VERSION.reportRewrite,
+    supplement: promptSupplement(db, 'reportRewrite'),
     task: REPORT_REWRITE_TASK,
     template: draft.narrative,
     factTerms: draft.factTerms,
@@ -2731,7 +2733,7 @@ function guardFallbackNotes(draft: ReportDraft, failure: { extra: string[]; miss
  * 章节块由 sectionMarkdown 生成,与 assemble 的组装口径同源,因此替换后其余章节逐字不变;
  * 开关关闭、模型不可用或守卫失败时整份保持模板稿。
  */
-async function annualReviewTrendRewrite(draft: ReportDraft): Promise<ReportDraft & { model: string }> {
+async function annualReviewTrendRewrite(db: DB, draft: ReportDraft): Promise<ReportDraft & { model: string }> {
   const section = draft.sections.find((item) => item.key === 'trend');
   if (!section) return { ...draft, model: 'template' };
   const block = sectionMarkdown(section);
@@ -2739,6 +2741,7 @@ async function annualReviewTrendRewrite(draft: ReportDraft): Promise<ReportDraft
   const rewrite = await rewriteTemplateNarrative({
     enabled: trendNarrativeAiEnabled(),
     promptVersion: PROMPT_VERSION.trendNarrative,
+    supplement: promptSupplement(db, 'trendNarrative'),
     task: TREND_SECTION_REWRITE_TASK,
     template: block,
     factTerms: draft.factTerms,

@@ -10,6 +10,7 @@ import type { DB } from '../../db/connection';
 import { AppError, Errors } from '../../core/errors';
 import { currentAuth, type AuthContext } from '../../core/request-context';
 import { writeLog } from '../audit/log';
+import { validateCustomExtra } from '../settings/custom-fields.service';
 import { assertOrgVisible, orgInScope, resolveOrgScope } from '../security/scope';
 
 export type MasterEntityType = 'org' | 'account' | 'project' | 'supplier';
@@ -50,14 +51,6 @@ function code(value: unknown, name: string): string {
   const v = text(value, name, 64);
   if (!/^[A-Za-z0-9][A-Za-z0-9_.\-/]*$/.test(v)) throw Errors.validation(`${name}只能包含字母、数字和 _ . - /`);
   return v;
-}
-
-function extra(value: unknown): string {
-  if (value === undefined || value === null) return '{}';
-  if (typeof value !== 'object' || Array.isArray(value)) throw Errors.validation('扩展字段必须是对象');
-  const json = JSON.stringify(value);
-  if (json.length > 8_000) throw Errors.validation('扩展字段过大');
-  return json;
 }
 
 function status(value: unknown): 'active' | 'inactive' {
@@ -132,7 +125,7 @@ export function createProject(db: DB, input: Record<string, unknown>): PublicPro
     if (db.prepare('SELECT 1 FROM md_project WHERE code = ?').get(c)) throw new AppError('CODE_TAKEN', `项目编码 ${c} 已存在`, 409);
     const now = nowIso();
     const id = Number(db.prepare('INSERT INTO md_project (code, name, project_type, org_id, status, extra_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(c, name, text(input.projectType, '项目类型', 64, false), orgId, 'active', extra(input.extra), now, now).lastInsertRowid);
+      .run(c, name, text(input.projectType, '项目类型', 64, false), orgId, 'active', validateCustomExtra(db, 'project', input.extra, null), now, now).lastInsertRowid);
     writeLog(db, 'master.project.create', 'md_project', id, { code: c, name, orgId });
     return id;
   });
@@ -150,7 +143,7 @@ export function updateProject(db: DB, id: number, input: Record<string, unknown>
     if (input.name !== undefined) { next.name = text(input.name, '项目名称', 200); changes.name = [row.name, next.name]; }
     if (input.projectType !== undefined) { next.project_type = text(input.projectType, '项目类型', 64, false); changes.projectType = next.project_type; }
     if (input.status !== undefined) { next.status = status(input.status); changes.status = next.status; }
-    if (input.extra !== undefined) { next.extra_json = extra(input.extra); changes.extra = true; }
+    if (input.extra !== undefined) { next.extra_json = validateCustomExtra(db, 'project', input.extra, row.extra_json); changes.extra = true; }
     if (input.orgId !== undefined) {
       const orgId = Number(input.orgId);
       if (!Number.isSafeInteger(orgId) || orgId <= 0) throw Errors.validation('归属组织不合法');
@@ -213,7 +206,7 @@ export function createSupplier(db: DB, input: Record<string, unknown>): PublicSu
     if (dup) throw new AppError('DUPLICATE_SUPPLIER', `供应商已存在:${dup.name}(id=${dup.id})`, 409);
     const now = nowIso();
     const id = Number(db.prepare(`INSERT INTO md_supplier (code, name, normalized_name, supplier_type, credit_code, status, extra_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`).run(c, name, normalized, text(input.supplierType, '供应商类型', 64, false), creditCode(input.creditCode), extra(input.extra), now, now).lastInsertRowid);
+      VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`).run(c, name, normalized, text(input.supplierType, '供应商类型', 64, false), creditCode(input.creditCode), validateCustomExtra(db, 'supplier', input.extra, null), now, now).lastInsertRowid);
     writeLog(db, 'master.supplier.create', 'md_supplier', id, { code: c, name });
     return id;
   });
@@ -240,7 +233,7 @@ export function updateSupplier(db: DB, id: number, input: Record<string, unknown
     if (input.supplierType !== undefined) { next.supplier_type = text(input.supplierType, '供应商类型', 64, false); changes.supplierType = next.supplier_type; }
     if (input.creditCode !== undefined) { next.credit_code = creditCode(input.creditCode); changes.creditCode = true; }
     if (input.status !== undefined) { next.status = status(input.status); changes.status = next.status; }
-    if (input.extra !== undefined) { next.extra_json = extra(input.extra); changes.extra = true; }
+    if (input.extra !== undefined) { next.extra_json = validateCustomExtra(db, 'supplier', input.extra, row.extra_json); changes.extra = true; }
     db.prepare(`UPDATE md_supplier SET code = ?, name = ?, normalized_name = ?, supplier_type = ?, credit_code = ?, status = ?, extra_json = ?, updated_at = ? WHERE id = ?`)
       .run(next.code, next.name, next.normalized_name, next.supplier_type, next.credit_code, next.status, next.extra_json, nowIso(), id);
     writeLog(db, next.status !== row.status ? `master.supplier.${next.status === 'inactive' ? 'deactivate' : 'activate'}` : 'master.supplier.update', 'md_supplier', id, changes);

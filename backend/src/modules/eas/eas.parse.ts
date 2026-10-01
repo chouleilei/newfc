@@ -19,7 +19,7 @@ import type { EasDataType } from '../../contracts/eas';
 export const EAS_PARSER_VERSION = 'eas-2026-09-v1';
 const TOLERANCE_CENTS = 1n;
 
-type FieldSpec = { key: string; label: string; aliases: string[]; required: boolean };
+export type FieldSpec = { key: string; label: string; aliases: string[]; required: boolean };
 const F = (key: string, label: string, aliases: string[], required = true): FieldSpec => ({ key, label, aliases: [label, ...aliases], required });
 
 const COMMON = [F('company', '公司', ['公司名称', '核算组织', '组织名称', '公司编码']), F('period', '期间', ['会计期间'])];
@@ -89,12 +89,16 @@ export type ParsedEas =
   | { dataType: 'balance'; company: string; period: string; lines: BalanceLine[]; debitTotal: bigint; creditTotal: bigint }
   | { dataType: 'auxiliary'; company: string; period: string; lines: AuxLine[]; debitTotal: bigint; creditTotal: bigint };
 
-function locateColumns(table: ReadTable, dataType: EasDataType): Record<string, string> {
+/** 目标字段目录(导入字段模板在设置页按此追加表头别名)。 */
+export const EAS_FIELD_CATALOG: Readonly<Record<EasDataType, readonly Readonly<FieldSpec>[]>> = FIELDS;
+
+/** extraAliases:设置页维护的导入字段别名(字段 key → 别名),只追加表头识别,不改解析口径。 */
+function locateColumns(table: ReadTable, dataType: EasDataType, extraAliases: Readonly<Record<string, readonly string[]>>): Record<string, string> {
   const available = new Set(table.headers);
   const cols: Record<string, string> = {};
   const missing: string[] = [];
   for (const spec of FIELDS[dataType]) {
-    const found = spec.aliases.filter((a) => available.has(a.replace(/\s+/g, '')));
+    const found = [...new Set([...spec.aliases, ...(extraAliases[spec.key] ?? [])])].filter((a) => available.has(a.replace(/\s+/g, '')));
     if (found.length > 1) throw Errors.validation(`表头“${spec.label}”匹配到多个列:${found.join('、')}`);
     if (found.length === 1) cols[spec.key] = found[0];
     else if (spec.required) missing.push(spec.label);
@@ -142,9 +146,9 @@ function normalizeDate(raw: string): string | null {
 
 const abs = (v: bigint) => (v < 0n ? -v : v);
 
-export function parseEasTable(table: ReadTable, dataType: EasDataType): ParsedEas {
+export function parseEasTable(table: ReadTable, dataType: EasDataType, extraAliases: Readonly<Record<string, readonly string[]>> = {}): ParsedEas {
   if (table.rows.length === 0) throw Errors.validation('文件没有数据行');
-  const cols = locateColumns(table, dataType);
+  const cols = locateColumns(table, dataType, extraAliases);
   const errors: RowError[] = [];
   const companies = new Set<string>();
   const periods = new Set<string>();

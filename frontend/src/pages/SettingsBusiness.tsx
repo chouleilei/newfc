@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Card, Descriptions, Input, InputNumber, Select, Space, Switch, Tag, Typography } from 'antd';
+import { Alert, App as AntdApp, Button, Card, Descriptions, Input, InputNumber, Select, Skeleton, Space, Switch, Tabs, Tag, Typography } from 'antd';
 import { api, ApiError, can, errorText } from '../api/client';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
+import CustomFieldsPanel from './settings/CustomFieldsPanel';
+import ImportAliasesPanel from './settings/ImportAliasesPanel';
 
 type Value = string | number | boolean | null;
 
@@ -17,7 +19,7 @@ interface SettingItem {
  * 业务设置(AC-F23):登记过的键才能保存,整批校验后一次写入;
  * 凭据只写不读,页面只显示“已配置 ****末4位”,留空表示不修改。
  */
-export default function SettingsBusiness() {
+function BusinessParams() {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const writable = can('settings:manage');
@@ -84,8 +86,9 @@ export default function SettingsBusiness() {
     }
   };
 
+  if (q.isLoading) return <Skeleton active />;
   return (
-    <Card loading={q.isLoading}>
+    <div>
       {!writable && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="当前账号只能查看设置" />}
       {groups.map(([group, items]) => (
         <Descriptions key={group} title={group} bordered column={1} size="small" style={{ marginBottom: 20 }} labelStyle={{ width: 200 }}>
@@ -110,6 +113,19 @@ export default function SettingsBusiness() {
           <Button disabled={!dirty} onClick={() => { setDraft({}); setFieldErrors({}); }}>放弃修改</Button>
         </Space>
       )}
+    </div>
+  );
+}
+
+/** 业务设置页:业务参数 + T-7 自定义字段、导入字段模板。 */
+export default function SettingsBusiness() {
+  return (
+    <Card>
+      <Tabs items={[
+        { key: 'params', label: '业务参数', children: <BusinessParams /> },
+        { key: 'custom-fields', label: '自定义字段', children: <CustomFieldsPanel /> },
+        { key: 'import-aliases', label: '导入字段模板', children: <ImportAliasesPanel /> },
+      ]} />
     </Card>
   );
 }

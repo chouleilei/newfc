@@ -6,6 +6,7 @@
  * 模型仅重述与解释,数字守卫失败或模型不可用时回退模板稿。
  * 输入只含结构化 issue 列表与归并统计,不含金额明细。
  */
+import { promptSupplement } from '../modules/settings/prompt-supplements.service';
 import type { DB } from '../db/connection';
 import { budgetQualityReport, BUDGET_QUALITY_HELP, type BudgetQualityGroup, type BudgetQualityIssue } from '../modules/check/budget-quality';
 import { getVersion } from '../modules/budget/budget.service';
@@ -102,6 +103,7 @@ export async function qualityAdvice(db: DB, versionId: number): Promise<QualityA
   const rewrite = await rewriteTemplateNarrative({
     enabled: qualityAdviceAiEnabled(),
     promptVersion: PROMPT_VERSION.qualityAdvice,
+    supplement: promptSupplement(db, 'qualityAdvice'),
     task: QUALITY_ADVICE_REWRITE_TASK,
     template,
     // 模板里唯一的中文专名是版本名(问题概况用的是归并统计,不含组织/科目名称)

@@ -8,6 +8,7 @@
  *   新修订发布后旧版 superseded。审批后内容冻结(触发器兜底)。
  * - 发布:任务内由同一脱敏快照渲染 DOCX 与 PDF 并保存为文件对象;已发布下载保存的产物(字节一致),其余即时渲染带“草稿”水印。
  */
+import { promptSupplement } from '../../modules/settings/prompt-supplements.service';
 import type { DB } from '../../db/connection';
 import { AppError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
@@ -169,7 +170,7 @@ async function buildDraft(db: DB, input: RptGenerate): Promise<{ title: string; 
     const d = riskInvestmentDraft(db, { orgId, orgName, year: input.year ?? null });
     let sections: NewSection[] = d.sections.map((s) => ({ key: s.key, title: s.title, body: bulletsBody(s.bullets), facts: s.data, citations: s.citations }));
     const template = [`# ${d.title}`, ...d.sections.map((s) => [`## ${s.title}`, ...s.bullets.map((b) => `- ${b}`)].join('\n'))].join('\n\n');
-    const rewrite = await rewriteTemplateNarrative({ enabled: useModel, promptVersion: PROMPT_VERSION.reportRewrite, task: REPORT_REWRITE_TASK, template, factTerms: d.factTerms });
+    const rewrite = await rewriteTemplateNarrative({ enabled: useModel, promptVersion: PROMPT_VERSION.reportRewrite, task: REPORT_REWRITE_TASK, supplement: promptSupplement(db, 'reportRewrite'), template, factTerms: d.factTerms });
     let modelStatus = 'template';
     if (rewrite.guardFailure) modelStatus = 'template:guard_failed';
     else if (rewrite.source === 'model') {

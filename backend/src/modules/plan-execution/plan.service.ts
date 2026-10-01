@@ -8,6 +8,7 @@
  *   形象进度只来自形象进度列。
  * - 组织范围:明细行 org_id;分类/小计行只对全组织用户可见。写操作要求批次涉及的全部组织在范围内。
  */
+import { planExtraAliases } from '../settings/import-aliases.service';
 import type { DB } from '../../db/connection';
 import { AppError, type RowError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
@@ -36,7 +37,7 @@ interface ResolvedItem extends ParsedPlanItem { projectId: number | null; orgId:
 interface ResolvedPlan { sheets: (ParsedPlanSheet & { items: ResolvedItem[] })[]; ignoredSheets: string[]; errors: RowError[] }
 
 async function parseAndResolve(db: DB, scope: OrgScope, content: Buffer, form: PlanUploadForm): Promise<ResolvedPlan> {
-  const parsed = parsePlanWorkbook(await readWorkbookSheets(content), form.year);
+  const parsed = parsePlanWorkbook(await readWorkbookSheets(content), form.year, planExtraAliases(db));
   const errors = [...parsed.errors];
   const projects = new Map((db.prepare('SELECT id, code, name, org_id, status FROM md_project').all() as { id: number; code: string; name: string; org_id: number; status: string }[]).map((p) => [p.code, p]));
   const asOf = `${form.actualPeriod}-28T00:00:00.000Z`;

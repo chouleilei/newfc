@@ -18,6 +18,7 @@
  *   额度用尽时仍产出确定性模板稿。
  * - provenance 同时落在任务行与 budget_compilation_checkpoint 的 summary_* 列。
  */
+import { promptSupplement } from '../modules/settings/prompt-supplements.service';
 import type { DB } from '../db/connection';
 import type { AccountType } from '../core/money';
 import { centsToWanText as coreCentsToWanText, scaledToQuantityString } from '../core/money';
@@ -250,6 +251,7 @@ export async function runCheckpointSummaryTask(db: DB, taskId: number): Promise<
     const rewrite = await rewriteTemplateNarrative({
       enabled,
       promptVersion: PROMPT_VERSION.checkpointSummary,
+      supplement: promptSupplement(db, 'checkpointSummary'),
       task: CHECKPOINT_SUMMARY_REWRITE_TASK,
       template,
       factTerms,

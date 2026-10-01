@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import PromptSupplementsPanel from './settings/PromptSupplementsPanel';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Badge, Button, Card, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd';
+import { Alert, App as AntdApp, Badge, Button, Card, Divider, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd';
 import { api, ApiError } from '../api/client';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
@@ -337,6 +338,8 @@ export default function SettingsAi() {
           </Form.Item>
         </Form>
       </Modal>
+      <Divider orientation="left">提示补充</Divider>
+      <PromptSupplementsPanel />
     </Card>
   );
 }

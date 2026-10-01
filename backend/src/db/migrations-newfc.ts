@@ -2086,4 +2086,60 @@ CREATE TRIGGER trg_md_dict_item_key BEFORE UPDATE OF dict_type, item_value ON md
 CREATE TRIGGER trg_md_dict_item_d BEFORE DELETE ON md_dict_item BEGIN SELECT RAISE(ABORT, '字典项只能停用'); END;
 `,
   },
+  {
+    version: 65,
+    name: 'system_settings_ext',
+    sql: `
+/* system_settings 补齐 lishui(T-7,AC-F23):
+   1) 自定义字段:项目/供应商扩展字段定义(类型 text/number/date/select,select 引用字典类型),保存时按定义校验 extra;
+   2) 导入字段模板:为 EAS/计划执行解析器的目标字段追加表头别名(只加识别别名,不改解析口径);
+   3) AI 提示补充:按改写任务追加业务补充说明,附在硬约束之后且不能覆盖;有补充时 prompt 版本带内容哈希。
+   三者均停用/清空代替删除。 */
+CREATE TABLE sys_custom_field (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL CHECK (domain IN ('project','supplier')),
+  field_code TEXT NOT NULL,
+  field_name TEXT NOT NULL,
+  field_type TEXT NOT NULL CHECK (field_type IN ('text','number','date','select')),
+  required INTEGER NOT NULL DEFAULT 0 CHECK (required IN (0,1)),
+  dict_type TEXT,
+  description TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (domain, field_code),
+  CHECK ((field_type = 'select') = (dict_type IS NOT NULL))
+);
+CREATE TRIGGER trg_sys_custom_field_key BEFORE UPDATE OF domain, field_code, field_type ON sys_custom_field
+  BEGIN SELECT RAISE(ABORT, '自定义字段的领域、编码与类型不可修改'); END;
+CREATE TRIGGER trg_sys_custom_field_d BEFORE DELETE ON sys_custom_field BEGIN SELECT RAISE(ABORT, '自定义字段只能停用'); END;
+
+CREATE TABLE sys_import_field_alias (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  data_type TEXT NOT NULL,
+  target_field TEXT NOT NULL,
+  source_alias TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (data_type, source_alias)
+);
+CREATE TRIGGER trg_sys_import_field_alias_key BEFORE UPDATE OF data_type, target_field, source_alias ON sys_import_field_alias
+  BEGIN SELECT RAISE(ABORT, '导入字段别名的类型、目标字段与别名不可修改'); END;
+CREATE TRIGGER trg_sys_import_field_alias_d BEFORE DELETE ON sys_import_field_alias BEGIN SELECT RAISE(ABORT, '导入字段别名只能停用'); END;
+
+CREATE TABLE ai_prompt_supplement (
+  task_key TEXT PRIMARY KEY,
+  content TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_by_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TRIGGER trg_ai_prompt_supplement_d BEFORE DELETE ON ai_prompt_supplement BEGIN SELECT RAISE(ABORT, '提示补充只能清空'); END;
+`,
+  },
 ];

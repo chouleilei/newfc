@@ -24,7 +24,7 @@ const SHEET_ALIASES: Record<PlanSheetCode, readonly string[]> = {
   maintenance: ['运行维护费', '运维费', '运行维护费计划'],
 };
 
-const ID_COLUMNS = {
+export const PLAN_ID_COLUMNS = {
   seq: ['序号'],
   projectCode: ['项目编码', '项目代码', '项目编号'],
   name: ['项目名称', '名称', '资产名称', '费用项目', '费用名称'],
@@ -82,7 +82,11 @@ export function sheetCodeOf(name: string): PlanSheetCode | null {
   return null;
 }
 
-export function parsePlanWorkbook(sheets: ReadSheet[], year: number): ParsedPlanWorkbook {
+/** 设置页维护的导入字段别名:表 → 字段 key(含标识列 seq/projectCode/name/orgName)→ 追加别名。 */
+export type PlanExtraAliases = Partial<Record<PlanSheetCode, Readonly<Record<string, readonly string[]>>>>;
+const withExtra = (aliases: readonly string[], extra: readonly string[] | undefined) => (extra?.length ? [...new Set([...aliases, ...extra])] : aliases);
+
+export function parsePlanWorkbook(sheets: ReadSheet[], year: number, extraAliases: PlanExtraAliases = {}): ParsedPlanWorkbook {
   const errors: RowError[] = [];
   const out: ParsedPlanSheet[] = [];
   const ignored: string[] = [];
@@ -92,7 +96,9 @@ export function parsePlanWorkbook(sheets: ReadSheet[], year: number): ParsedPlan
     if (!code || seen.has(code)) { ignored.push(sheet.name); continue; }
     seen.add(code);
     const label = PLAN_SHEET_LABELS[code];
-    const fields = PLAN_FIELDS[code];
+    const extra = extraAliases[code] ?? {};
+    const fields = PLAN_FIELDS[code].map((f) => ({ ...f, aliases: withExtra(f.aliases, extra[f.key]) }));
+    const idColumns = Object.fromEntries(Object.entries(PLAN_ID_COLUMNS).map(([k, a]) => [k, withExtra(a, extra[k])])) as Record<keyof typeof PLAN_ID_COLUMNS, readonly string[]>;
     const annualPlan = fields.find((f) => f.key === 'annual_plan')!;
     let table;
     try {
@@ -100,7 +106,7 @@ export function parsePlanWorkbook(sheets: ReadSheet[], year: number): ParsedPlan
         label: `${label}表头(名称列与年度计划列)`,
         isHeader: (cells) => {
           const keys = cells.map(headerKey);
-          return ID_COLUMNS.name.some((a) => keys.includes(a)) && annualPlan.aliases.some((a) => keys.includes(a));
+          return idColumns.name.some((a) => keys.includes(a)) && annualPlan.aliases.some((a) => keys.includes(a));
         },
       });
     } catch (e) {
@@ -118,7 +124,7 @@ export function parsePlanWorkbook(sheets: ReadSheet[], year: number): ParsedPlan
     // 原始表头 → 列序号(用于来源单元格)
     const headerRow = sheet.rows.find((r) => r.rowNo === headerRowNo)!;
     const colIndex = new Map(headerRow.cells.map((c, i) => [normalizeHeaderText(c), i] as const));
-    const idCol = Object.fromEntries(Object.entries(ID_COLUMNS).map(([k, a]) => [k, findHeader(table.headers, a)])) as Record<keyof typeof ID_COLUMNS, string | null>;
+    const idCol = Object.fromEntries(Object.entries(idColumns).map(([k, a]) => [k, findHeader(table.headers, a)])) as Record<keyof typeof PLAN_ID_COLUMNS, string | null>;
     const fieldCols = fields.map((f) => ({ def: f, header: findHeader(table.headers, f.aliases) })).filter((f) => f.header);
     if (code === 'investment' && !idCol.projectCode) errors.push({ row: headerRowNo, field: label, message: '缺少“项目编码”列' });
     const items: ParsedPlanItem[] = [];

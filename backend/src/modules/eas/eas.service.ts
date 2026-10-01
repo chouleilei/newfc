@@ -15,6 +15,7 @@ import { notVisible, orgInScope, resolveOrgScope, type OrgScope } from '../secur
 import { assertDistinctReviewer, requireAdmin } from '../security/review';
 import { storeFile, type ObjectStore } from '../files/object-store';
 import { readTable } from '../io/table-reader';
+import { easExtraAliases } from '../settings/import-aliases.service';
 import { EAS_PARSER_VERSION, parseEasTable, type AuxLine, type BalanceLine, type ParsedEas, type VoucherLine } from './eas.parse';
 import type {
   EasActivateRequest, EasAuxRequirementCreate, EasBatchDto, EasBatchLinesDto, EasCorrectionCreate, EasCorrectionDto, EasCorrectionReview,
@@ -164,7 +165,7 @@ export interface EasImportInput { content: Buffer; fileName: string; contentType
 
 export async function importEasFile(db: DB, store: ObjectStore, input: EasImportInput): Promise<EasBatchDto> {
   const table = await readTable(input.content, input.fileName);
-  const parsed = parseEasTable(table, input.form.dataType);
+  const parsed = parseEasTable(table, input.form.dataType, easExtraAliases(db, input.form.dataType));
   const { orgId } = resolveEasCompany(db, parsed.company);
   if (!orgInScope(scope(db), orgId)) {
     throw new AppError('SCOPE_RESTRICTED', '文件中的公司不在当前账号的授权组织范围内', 403);

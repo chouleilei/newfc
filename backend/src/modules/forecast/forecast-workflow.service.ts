@@ -6,6 +6,7 @@
  * - 基准时间线按版本号排列各冻结版本的成功基准运行,输出按行合计并与上一版对比。
  * - 洞察为确定性模板 + 可选模型改写(数字/名称护栏),只追加;模型调用在事务外。
  */
+import { promptSupplement } from '../../modules/settings/prompt-supplements.service';
 import type { DB } from '../../db/connection';
 import { AppError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
@@ -202,7 +203,7 @@ export async function generateForecastInsight(db: DB, runId: number): Promise<Ff
   const template = lines.join('\n');
   const factTerms = [model.name, run.scenarioName, ...outputs.map((o) => o.name), ...[...params.values()].map((p) => p.name)].filter((x): x is string => !!x);
   const rewrite = await rewriteTemplateNarrative({
-    enabled: forecastInsightAiEnabled(), promptVersion: PROMPT_VERSION.forecastInsight, task: FORECAST_INSIGHT_REWRITE_TASK, template, factTerms, maxChars: 8000,
+    enabled: forecastInsightAiEnabled(), promptVersion: PROMPT_VERSION.forecastInsight, task: FORECAST_INSIGHT_REWRITE_TASK, supplement: promptSupplement(db, 'forecastInsight'), template, factTerms, maxChars: 8000,
   });
   const id = db.transaction(() => {
     const iid = Number(db.prepare(`INSERT INTO ff_run_insight (run_id, content, source, model, prompt_version, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)

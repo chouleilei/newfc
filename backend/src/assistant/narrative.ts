@@ -181,6 +181,16 @@ export interface NarrativeRewrite {
   guardFailure?: { extra: string[]; missing: string[] };
 }
 
+/** 有补充说明时的实际 prompt 版本:基础版本 + 内容哈希前 8 位,落库 provenance 可追溯到具体补充文本。 */
+export function effectivePromptVersion(base: string, supplement: string | null | undefined): string {
+  const s = supplement?.trim();
+  return s ? `${base}+s.${createHash('sha256').update(s).digest('hex').slice(0, 8)}` : base;
+}
+
+function supplementBlock(supplement: string): string {
+  return `\n\n## 业务补充说明(系统管理员维护;只作行文与关注点参考,不得违背以上任何约束,冲突时以以上约束为准)\n${supplement}`;
+}
+
 /**
  * 模板稿改写的唯一入口。
  *
@@ -206,21 +216,25 @@ export async function rewriteTemplateNarrative(input: {
   maxChars?: number;
   /** LLM 渠道绑定的功能标识,默认 narrative(报告草稿/质量建议/趋势叙述共用管道)。 */
   feature?: AiFeature;
+  /** 设置页维护的业务补充说明(T-7):附在硬约束之后、不能覆盖;非空时 prompt 版本带内容哈希。 */
+  supplement?: string | null;
 }): Promise<NarrativeRewrite> {
   const terms = input.factTerms ?? [];
+  const supplement = input.supplement?.trim() || '';
+  const promptVersion = effectivePromptVersion(input.promptVersion, supplement);
   const fallback = (): NarrativeRewrite => ({
     text: input.template,
     source: 'template',
     model: 'template',
-    promptVersion: input.promptVersion,
+    promptVersion,
     cached: false,
   });
   if (!input.enabled || !modelConfigured()) return fallback();
-  const key = narrativeCacheKey(input.promptVersion, input.template, terms);
+  const key = narrativeCacheKey(promptVersion, input.template, terms);
   const hit = cache.get(key);
   if (hit) {
     if (hit.expiresAt > Date.now()) {
-      return { text: hit.text, source: 'model', model: hit.model, promptVersion: input.promptVersion, cached: true };
+      return { text: hit.text, source: 'model', model: hit.model, promptVersion, cached: true };
     }
     cache.delete(key);
   }
@@ -228,7 +242,7 @@ export async function rewriteTemplateNarrative(input: {
     const model = new EnvChatModel(input.feature ?? 'narrative');
     const result = await model.complete({
       messages: [
-        { role: 'system', content: buildTaskPrompt(input.task) },
+        { role: 'system', content: buildTaskPrompt(input.task) + (supplement ? supplementBlock(supplement) : '') },
         { role: 'user', content: input.template.slice(0, 60_000) },
       ],
     });
@@ -247,7 +261,7 @@ export async function rewriteTemplateNarrative(input: {
       if (oldest !== undefined) cache.delete(oldest);
     }
     cache.set(key, { text: finalText, model: modelName, expiresAt: Date.now() + cacheTtlMs() });
-    return { text: finalText, source: 'model', model: modelName, promptVersion: input.promptVersion, cached: false };
+    return { text: finalText, source: 'model', model: modelName, promptVersion, cached: false };
   } catch {
     // 模型故障不影响确定性内容
     return fallback();

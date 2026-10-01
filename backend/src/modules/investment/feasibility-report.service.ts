@@ -7,6 +7,7 @@
  *   退回可重新提交;通过后冻结。报告存在即作为证据,方案不能删除。
  * - 列表与详情按项目组织范围裁剪,范围外 404。
  */
+import { promptSupplement } from '../../modules/settings/prompt-supplements.service';
 import type { DB } from '../../db/connection';
 import { AppError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
@@ -151,7 +152,7 @@ export async function createFeasReport(db: DB, scenarioId: number, input: { titl
   const title = input.title?.trim() || `${project.name}-${scenario.name}投资可行性分析报告`;
   const tpl = feasReportTemplate(db, project, scenario, run, title);
   const rewrite = await rewriteTemplateNarrative({
-    enabled: feasibilityReportAiEnabled(), promptVersion: PROMPT_VERSION.feasibilityReport, task: FEASIBILITY_REPORT_REWRITE_TASK,
+    enabled: feasibilityReportAiEnabled(), promptVersion: PROMPT_VERSION.feasibilityReport, task: FEASIBILITY_REPORT_REWRITE_TASK, supplement: promptSupplement(db, 'feasibilityReport'),
     template: tpl.text, factTerms: tpl.factTerms, maxChars: 12000,
   });
   const id = db.transaction(() => {
