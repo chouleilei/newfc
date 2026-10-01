@@ -37,27 +37,27 @@
 | `dashboard` | 扩展 newbd 工作台 | 2，逐域补齐至 6 | AC-F03 | 通过（T-2 基础；T-3 财报摘要、T-4/T-5 待办、T-6 业务概况六块按权限出现） |
 | `contract_import` | 扩展文件上传、预览与合同导入 | 4 | AC-F04 | 通过（T-4） |
 | `eas_workspace` | 财务转换基础上补原始批次、期间和更正 | 3 | AC-F05 | 通过（T-3） |
-| `data_governance` | 扩展质量问题、处置与复核 | 3 | AC-F06 | 通过（T-3） |
-| `master_data` | 复用组织/科目，补项目、供应商及映射 | 1，逐域扩展 | AC-F07 | 通过（T-1 基础；项目/供应商/映射逐域接入至 T-5） |
+| `data_governance` | 扩展质量问题、处置与复核 | 3 | AC-F06 | 通过（T-3；T-7 质量评分、主数据匹配建议） |
+| `master_data` | 复用组织/科目，补项目、供应商及映射 | 1，逐域扩展 | AC-F07 | 通过（T-1 基础；项目/供应商/映射逐域接入至 T-5；T-7 项目档案、字典项） |
 | `operating_budget` | 复用预算、实际快照与预实分析 | 2 | AC-F08 | 通过（T-2） |
 | `project_budget` | 新增独立项目预算域 | 4 | AC-F09 | 通过（T-4） |
-| `financial_statements` | 新增三大财报与分析 | 3 | AC-F10 | 通过（T-3） |
-| `finance_forecast` | 补工作簿、计算版本与结果 | 5 | AC-F11 | 通过（T-5） |
-| `investment_feasibility` | 移植已核实的标准计算模型 | 5 | AC-F12 | 通过（T-5） |
+| `financial_statements` | 新增三大财报与分析 | 3 | AC-F10 | 通过（T-3；T-7 多期趋势） |
+| `finance_forecast` | 补工作簿、计算版本与结果 | 5 | AC-F11 | 通过（T-5；T-7 模型目录、版本复核、发布/撤回、时间线、洞察） |
+| `investment_feasibility` | 移植已核实的标准计算模型 | 5 | AC-F12 | 通过（T-5；T-7 基准方案、删除方案、报告提交复核） |
 | `investment_control` | 新增投资控制与比较 | 5 | AC-F13 | 通过（T-5） |
 | `management_accounting` | 扩展指标、责任中心、分摊与绩效 | 3 | AC-F14 | 通过（T-3；T-4 合同/计划计算器，T-5 风险/投资计算器） |
 | `plan_execution` | 新增计划与形象进度域 | 4 | AC-F15 | 通过（T-4） |
 | `project_contract` | 新增合同生命周期 | 4 | AC-F16 | 通过（T-4） |
-| `risk_workflow` | 扩展异常到风险处理闭环 | 5 | AC-F17 | 通过（T-5） |
+| `risk_workflow` | 扩展异常到风险处理闭环 | 5 | AC-F17 | 通过（T-5；T-7 补充规则、自定义规则、解释与整改清单） |
 | `ai_reports` | 扩展洞察草稿到审核与发布 | 5 | AC-F18 | 通过（T-5） |
 | `standard_reports` | 新增标准报告与导出 | 3 | AC-F19 | 通过（T-3；T-4 合同付款台账，T-5 风险整改台账） |
 | `xiaoli_assistant` | 复用助手并接入新增领域工具 | 2，逐域扩展 | AC-F20 | 通过（T-2 基础；T-3～T-5 各域只读工具，T-6 跨域检索工具） |
 | `agent_observability` | 扩展任务与模型调用记录 | 1，逐域扩展 | AC-F21 | 通过（T-1 基础；T-6 重启逐类型对账、失败/中断释放幂等键、任务类型中文名） |
 | `expense_audit` | 新增原生费用审核与人工复核 | 4 | AC-F22 | 通过（T-4） |
-| `system_settings` | 复用模型渠道并扩展业务设置 | 1，逐域扩展 | AC-F23 | 通过（T-1 基础；T-6 投资控制阈值与预测超时业务设置） |
-| `security_administration` | 新增用户、角色与组织授权 | 1 | AC-F24 | 通过（T-1 基础；T-2 预算/看板/下载/助手裁剪，T-6 检索权限 search:use） |
+| `system_settings` | 复用模型渠道并扩展业务设置 | 1，逐域扩展 | AC-F23 | 通过（T-1 基础；T-6 投资控制阈值与预测超时业务设置；T-7 自定义字段、导入字段模板、AI 提示补充） |
+| `security_administration` | 新增用户、角色与组织授权 | 1 | AC-F24 | 通过（T-1 基础；T-2 预算/看板/下载/助手裁剪，T-6 检索权限 search:use；T-7 会话查看/吊销、角色复制） |
 | `audit_log` | 扩展现有操作日志 | 1，逐域扩展 | AC-F25 | 通过（T-1），逐域追加动作 |
-| `cross_domain_search` | 新增有权限的跨域检索 | 6 | AC-F26 | 通过（T-6） |
+| `cross_domain_search` | 新增有权限的跨域检索 | 6 | AC-F26 | 通过（T-6；T-7 检索建议） |
 
 ## 事实边界
 

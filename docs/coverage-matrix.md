@@ -63,6 +63,12 @@
 | 历史数据 | MySQL/MinIO 运行数据 | newbd 快照用 `import:newbd` 迁入；lishui 业务数据经各域标准文件导入 | 不引入 MySQL；审批流水、会话、模型日志不迁入（OPEN-03 已定） |
 | `risk_workflow` 规则 | `scan.py` 硬编码规则；自定义规则只存元数据、不参与扫描 | 规则 = 计算器 + 阈值/等级/组织；自定义规则复用内置计算器并真正参与扫描 | lishui `PROJECT_CODE_MISSING` → `PLAN_PROJECT_UNMAPPED`（newfc 预算行必须关联项目，缺口只在计划明细）；`CONTRACT_CODE_MISSING` → `CONTRACT_PAY_NO_VOUCHER`（合同编号必填，追溯断点落在付款缺凭证号）；`CONTRACT_OVERPAY` 由数据库约束阻断，保留 `CONTRACT_PAY_OVER_CAP` |
 | `investment_control` 预警 | 投资控制内的预警台账 `/alerts`，逐条 `sync-risk` 手工推送到风险中心 | 不设独立预警台账：`IC_OVER_REDLINE`（超批复概算红线）、`IC_CONTROL_BREAK`（四算控制链被突破）、`IC_DEVIATION_EXCEED`（科目偏差超限）作为风险规则，由风险扫描直接从已确认版本与对比快照生成风险事件，处理/复核在风险台账完成；可行性测算同理（`FEAS_*` 五条） | 同一事实只在风险中心留一条事件与处理记录，避免预警与风险两套状态需要人工同步 |
+| `security_administration` 服务账号 | `/security/service-accounts`：为 Dify/DB-GPT 等外部平台签发 internal/HMAC 凭据、轮换与停用 | 不提供（退出范围） | 服务账号只为外部编排平台回调而设；newfc 无外部平台，助手与任务在进程内以服务端构建的 `AuthContext` 调用同源 service，没有需要凭据的调用方 |
+| `security_administration` 能力票据 | `/security/capability-tickets`：为 Agent/平台调用签发带策略快照的一次性票据、列表与撤销 | 不提供（退出范围） | 票据用于把用户权限快照带给进程外 Agent；newfc 的 AI 工具与页面同进程同校验，权限每次按会话实时解析，无需也不应另存快照 |
+| `xiaoli_assistant` AI 评测 | `/ai/eval-cases`、`/ai/eval-runs`（含 mock 运行）在线评测台 | 不提供运行时评测台（退出范围）；等价保障在测试套件：`assistant.*.test.ts` 路由/工具/缺陷回归、`narrative-guard.test.ts` 事实守卫 | 评测是研发期质量手段，放进生产运行库会混入非业务数据；单人维护下由 Vitest 回归承担 |
+| `system_settings` 提示词 | `/system-settings/ai-prompts` 可整段替换 system prompt、启用工具与免责声明 | 只允许按改写任务追加“业务补充说明”（`/settings/ai-prompt-supplements`），硬约束、工具清单不可配置 | AI 只能解释同源事实的边界不能被设置页放开；补充内容体现在 prompt 版本哈希中 |
+| `system_settings` 导入字段模板 | 可改目标字段的标签/类型/必填/缺省值/查重键 | 只追加表头别名（`/settings/import-field-aliases`） | 字段类型、必填与换算是解析器口径（金额单位、精度）的一部分，随解析器版本审阅，不交给设置页 |
+| `system_settings` 组织与分析指标 | `/system-settings/org-units|org-aliases|analysis-metrics` | 沿用继承的 `/org`、`/metric` 页面与 `/master-entities` 编码映射（来源系统 + 名称/编码 → 组织） | 同一事实只保留一个维护入口 |
 | `cross_domain_search` | 无独立路由 | 关键词检索（精确 → 前缀 → 包含），非语义检索 | 结果须可解释且与各页权限同口径 |
 
 ## 未决事项（不属于退出范围）

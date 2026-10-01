@@ -286,3 +286,5 @@ E2E 运行前提：webServer 直接跑 `backend/dist/index.js`，必须先在 ba
 | 自定义字段 | V65 `sys_custom_field`（项目/供应商；text/number/date/select，select 引用字典类型）：领域/编码/类型不可改、停用代替删除；项目与供应商新建、以及更新时传入 extra 才按有效定义校验——必填、文本 ≤500、数值为十进制字符串（安全整数转字符串，浮点拒绝）、日期 YYYY-MM-DD 且真实存在、下拉取值须为有效字典项（未改动的旧值在选项停用后保留），问题一次列出；空值移除、未定义键原样保留；有效定义经 `/api/master/custom-fields` 对主数据读者开放，管理需 `settings:manage` | `t7-system-settings.test.ts` 用例 1 |
 | 导入字段模板 | V65 `sys_import_field_alias`：为 EAS 三类文件与计划执行三张表的目标字段追加表头别名，只影响列识别、不改类型/必填/换算；别名按解析器口径规整，与内置表头或同类型已登记别名相同 409，目标字段不存在 400；停用后不再识别；目录接口列出各字段内置表头 | 同上 用例 2 |
 | AI 提示补充 | V65 `ai_prompt_supplement`：七个改写任务各一条补充说明（≤1000 字，带期望版本，清空代替删除），附在系统硬约束与任务说明之后并声明不得违背其上约束；数字/编码守卫不变；非空时 prompt 版本为 `基础版本+s.<sha256 前 8 位>` 并随生成物落库；审计只记长度与哈希；不开放整段提示词替换（与 lishui 可配置 system prompt 的差异） | 同上 用例 3 |
+
+测试汇总（2026-10-01，T-7 全部提交后）：后端 `npx tsc --noEmit` 通过，`npx vitest run` 101 个文件 / 953 个用例通过；前端 `npx vitest run` 40 个文件 / 432 个用例通过，`npx tsc -b` 通过。E2E 未重跑；V61～V65 迁移尚未在生产执行（需经 `scripts/deploy.sh` 发布）。
