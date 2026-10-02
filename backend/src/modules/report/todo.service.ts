@@ -40,5 +40,20 @@ export function workbenchTodos(db: DB): { items: TodoItem[] } {
   if (can('risk:review')) items.push({ key: 'risk_review', label: '待复核整改', count: countRisks('rectified'), path: '/risk?status=rectified' });
   if (can('report:approve')) items.push({ key: 'report_approve', label: '待审批报告', count: countReports('pending_approval'), path: '/analysis-reports?status=pending_approval' });
   if (can('report:publish')) items.push({ key: 'report_publish', label: '待发布报告', count: countReports('approved'), path: '/analysis-reports?status=approved' });
+  if (can('forecast:review') && can('forecast:read')) {
+    const ff = scopeFilterSql(scope, 'm.org_id');
+    const count = (db.prepare(`SELECT COUNT(*) AS n FROM ff_version v JOIN ff_model m ON m.id = v.model_id
+      WHERE m.status = 'active' AND v.status = 'frozen'
+        AND NOT EXISTS (SELECT 1 FROM ff_version_review r WHERE r.version_id = v.id) AND ${ff.sql}`)
+      .get(...ff.params) as { n: number }).n;
+    items.push({ key: 'forecast_review', label: '待复核预测版本', count, path: '/forecast?tab=reviews' });
+  }
+  if (can('investment:review') && can('investment:read')) {
+    const feas = scopeFilterSql(scope, 'p.org_id');
+    const count = (db.prepare(`SELECT COUNT(*) AS n FROM if_report r JOIN if_scenario s ON s.id = r.scenario_id
+      JOIN if_project p ON p.id = s.project_id WHERE r.status = 'pending_review' AND ${feas.sql}`)
+      .get(...feas.params) as { n: number }).n;
+    items.push({ key: 'feasibility_review', label: '待复核可研报告', count, path: '/feasibility?tab=reports&status=pending_review' });
+  }
   return { items };
 }

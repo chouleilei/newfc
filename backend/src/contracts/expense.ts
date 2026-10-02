@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { expectedVersion, id, moneyString, optionalText, reason, type MoneyString } from './common';
+import { expectedVersion, id, moneyString, optionalText, pageQuery, reason, type MoneyString } from './common';
 
 /** AC-F22 费用审核:请求 schema 与响应类型。规则见 specs/implementation.md T-4「费用审核」。 */
 
@@ -33,7 +33,7 @@ export const policyClauseInput = z.object({
   expenseTypes: z.array(expenseType).max(20).default([]),
   limit: moneyString.refine((v) => !v.startsWith('-'), '金额上限不能为负').nullish(),
   requiredKeywords: z.array(keyword).max(20).default([]),
-  /** 必备材料至少命中几项;空 = 全部命中。lishui 首版规则为 min(2, 关键词数)。 */
+  /** 必备材料至少命中几项;空 = 全部命中。首版样本规则为 min(2, 关键词数)。 */
   keywordMinMatches: z.number().int().min(1).max(20).nullish(),
 }).refine((c) => c.keywordMinMatches == null || c.keywordMinMatches <= c.requiredKeywords.length,
   { message: '至少命中数不能大于关键词数', path: ['keywordMinMatches'] });
@@ -75,6 +75,7 @@ export const claimListQuery = z.object({
   status: z.enum(CLAIM_STATUSES).optional(), orgId: id.optional(), keyword: z.string().trim().max(100).optional(),
 });
 export type ClaimListQuery = z.infer<typeof claimListQuery>;
+export const claimPageQuery = claimListQuery.merge(pageQuery);
 export const claimReviewRequest = z.object({
   expectedReviewVersion: expectedVersion,
   runId: id,

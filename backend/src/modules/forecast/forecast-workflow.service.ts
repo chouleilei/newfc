@@ -1,5 +1,5 @@
 /**
- * 财务预测补齐 lishui 能力(T-7,AC-F11):版本复核、运行发布/撤回、已发布列表、基准时间线、运行洞察。
+ * 财务预测工作流(T-7,AC-F11):版本复核、运行发布/撤回、已发布列表、基准时间线、运行洞察。
  *
  * - 冻结即提交复核;复核只一次(通过/退回),提交人 ≠ 复核人(管理员同人须写例外原因)。退回的版本复制为新草稿后再冻结。
  * - 只有已复核通过版本的成功运行可以发布;同一运行只发布一次,撤回须写原因且不可恢复(重新发布需另一运行)。
@@ -17,7 +17,7 @@ import { assertDistinctReviewer } from '../security/review';
 import { rewriteTemplateNarrative } from '../../assistant/narrative';
 import { FORECAST_INSIGHT_REWRITE_TASK, PROMPT_VERSION } from '../../assistant/prompts';
 import { forecastInsightAiEnabled } from '../../assistant/feature-flags';
-import type { FfBaselineTimelineDto, FfInsightDto, FfPublicationDto, ForecastOutput } from '../../contracts/finance-forecast';
+import type { FfBaselineTimelineDto, FfInsightDto, FfPublicationDto, FfReviewQueueItemDto, ForecastOutput } from '../../contracts/finance-forecast';
 import {
   assertActive, compareForecastRun, getForecastRun, getForecastVersion, reviewStatusOf, userName, versionReview, visibleModel, visibleVersion,
   type ModelRow, type RunRow, type VersionRow,
@@ -27,6 +27,24 @@ const nowIso = () => new Date().toISOString();
 const conflict = (code: string, message: string, details?: unknown) => new AppError(code, message, 409, undefined, details);
 
 /* ---------------- 版本复核 ---------------- */
+
+/** 与首页待办同口径:仅使用中模型的已冻结、尚未复核版本。 */
+export function listForecastReviewQueue(db: DB, q: { orgId?: number }): { items: FfReviewQueueItemDto[] } {
+  requirePermission(currentAuth(), 'forecast:read');
+  const scope = currentOrgScope(db);
+  if (q.orgId && !orgInScope(scope, q.orgId)) throw notVisible('组织');
+  const f = scopeFilterSql(scope, 'm.org_id');
+  const rows = db.prepare(`SELECT v.id AS versionId, m.id AS modelId, m.name AS modelName, m.org_id AS orgId,
+    o.name AS orgName, v.version_no AS versionNo, v.note, v.frozen_at AS frozenAt,
+    COALESCE(NULLIF(u.display_name, ''), u.username) AS frozenBy
+    FROM ff_version v JOIN ff_model m ON m.id = v.model_id JOIN org o ON o.id = m.org_id
+    LEFT JOIN app_user u ON u.id = v.frozen_by_user_id
+    WHERE m.status = 'active' AND v.status = 'frozen'
+      AND NOT EXISTS (SELECT 1 FROM ff_version_review r WHERE r.version_id = v.id)
+      AND ${f.sql}${q.orgId ? ' AND m.org_id = ?' : ''}
+    ORDER BY v.frozen_at, v.id`).all(...f.params, ...(q.orgId ? [q.orgId] : [])) as FfReviewQueueItemDto[];
+  return { items: rows };
+}
 
 export function reviewForecastVersion(db: DB, id: number, input: { expectedVersion: number; decision: 'approve' | 'return'; comment?: string; exceptionReason?: string }) {
   const auth = requirePermission(currentAuth(), 'forecast:review');

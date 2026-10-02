@@ -43,8 +43,13 @@ export const BUSINESS_SETTINGS: readonly SettingDef[] = [
   { key: 'investment.ic_threshold_attention', label: '投资偏差“关注”上限', group: '投资控制', type: 'ratio', default: '0.08', description: '超过正常上限且不超过该值为关注' },
   { key: 'investment.ic_threshold_warning', label: '投资偏差“预警”上限', group: '投资控制', type: 'ratio', default: '0.10', description: '超过关注上限且不超过该值为预警,再高为超限;三者须单调不减' },
   { key: 'forecast.timeout_seconds', label: '预测运行超时(秒)', group: '财务预测', type: 'int', default: 30, min: 5, max: 120, description: '单次预测重算的最长计算时间,超时记为失败' },
-  { key: 'integration.ocr_base_url', label: 'OCR 服务地址', group: '集成', type: 'url', default: '', maxLength: 300 },
-  { key: 'integration.ocr_api_key', label: 'OCR 服务密钥', group: '集成', type: 'secret', default: null, maxLength: 500 },
+  { key: 'integration.ocr_provider', label: 'OCR 接口类型', group: '集成', type: 'enum', default: 'json_http', options: [{ value: 'json_http', label: 'JSON 同步接口' }, { value: 'tangdalei_http', label: '原有 OCR 服务（异步）' }] },
+  { key: 'integration.ocr_base_url', label: 'OCR 服务地址', group: '集成', type: 'url', default: '', maxLength: 300, description: '原有 OCR 服务填写 https://ocr.tangdalei.com/api；JSON 接口填写完整调用地址' },
+  { key: 'integration.ocr_api_key', label: 'OCR 服务密钥', group: '集成', type: 'secret', default: null, maxLength: 500, description: '仅用于 JSON 同步接口' },
+  { key: 'integration.ocr_username', label: 'OCR 登录账号', group: '集成', type: 'string', default: '', maxLength: 200, description: '原有 OCR 服务的登录账号' },
+  { key: 'integration.ocr_password', label: 'OCR 登录密码', group: '集成', type: 'secret', default: null, maxLength: 500, description: '原有 OCR 服务的登录密码，留空不修改' },
+  { key: 'integration.ocr_api_type', label: 'OCR 识别类型', group: '集成', type: 'string', default: '1', maxLength: 50, description: '原有 OCR 服务的识别类型，按服务约定填写' },
+  { key: 'integration.ocr_timeout_seconds', label: '异步 OCR 超时（秒）', group: '集成', type: 'int', default: 120, min: 5, max: 300, description: '单附件登录、上传、轮询与下载的总时限' },
 ];
 
 const DEFS = new Map(BUSINESS_SETTINGS.map((d) => [d.key, d]));
@@ -141,16 +146,23 @@ export function getSetting<T extends string | number | boolean | null>(db: DB, k
 
 const IC_THRESHOLD_KEYS = ['investment.ic_threshold_normal', 'investment.ic_threshold_attention', 'investment.ic_threshold_warning'] as const;
 
-/** 跨项校验:保存后的投资偏差阈值(本次提交 + 已存值/默认值)须满足 正常 ≤ 关注 ≤ 预警。 */
+/** 跨项校验使用本次提交与已存值/默认值，校验失败整批拒绝。 */
 function crossCheck(db: DB, parsed: [SettingDef, string | number | boolean | null][]): { row: number; field: string; message: string }[] {
-  if (!parsed.some(([d]) => (IC_THRESHOLD_KEYS as readonly string[]).includes(d.key))) return [];
   const next = new Map(parsed.map(([d, v]) => [d.key, v]));
-  const eff = IC_THRESHOLD_KEYS.map((k) => {
-    const v = next.has(k) ? next.get(k) ?? DEFS.get(k)!.default : getSetting<string>(db, k);
-    return parseScaled(String(v), RATIO_SCALE);
-  });
-  if (eff[0] <= eff[1] && eff[1] <= eff[2]) return [];
-  return [{ row: 0, field: 'investment.ic_threshold_attention', message: '投资偏差阈值须满足 正常 ≤ 关注 ≤ 预警' }];
+  const effective = (k: string) => next.has(k) ? next.get(k) ?? DEFS.get(k)!.default : getSetting(db, k);
+  const errors: { row: number; field: string; message: string }[] = [];
+  if (next.has('integration.ocr_provider') || next.has('integration.ocr_base_url')) {
+    const url = effective('integration.ocr_base_url');
+    if (effective('integration.ocr_provider') === 'tangdalei_http' && typeof url === 'string' && url) {
+      const root = new URL(url);
+      if (root.search || root.hash) errors.push({ row: 0, field: 'integration.ocr_base_url', message: '原有 OCR 服务根地址不能带查询参数或片段' });
+    }
+  }
+  if (parsed.some(([d]) => (IC_THRESHOLD_KEYS as readonly string[]).includes(d.key))) {
+    const eff = IC_THRESHOLD_KEYS.map((k) => parseScaled(String(effective(k)), RATIO_SCALE));
+    if (!(eff[0] <= eff[1] && eff[1] <= eff[2])) errors.push({ row: 0, field: 'investment.ic_threshold_attention', message: '投资偏差阈值须满足 正常 ≤ 关注 ≤ 预警' });
+  }
+  return errors;
 }
 
 /** 投资控制默认阈值(对比请求未指定时使用)。 */

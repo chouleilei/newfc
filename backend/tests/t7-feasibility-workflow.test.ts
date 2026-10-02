@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { boot, get, json, post, type Session } from './t3-helpers';
 import { createScopedUser, fetchAs } from './http-helpers';
+import * as narrative from '../src/assistant/narrative';
 
 /**
  * T-7 投资可行性补齐 lishui(AC-F12):基准方案(每项目一个)、方案软删除(有报告不可删)、
@@ -17,13 +18,13 @@ const patch = (base: string, s: Session, url: string, body: unknown) =>
 const del = (base: string, s: Session, url: string) => fetchAs(s, `${base}${url}`, { method: 'DELETE' });
 async function ok(res: Response | Promise<Response>, status = 200) {
   const r = await res;
-  const body = await r.json();
+  const body = await json(r);
   expect(r.status, JSON.stringify(body).slice(0, 2000)).toBe(status);
   return body;
 }
 async function fail(res: Response | Promise<Response>, status: number, code?: string) {
   const r = await res;
-  const body = await r.json();
+  const body = await json(r);
   if (code) expect([r.status, body.code], JSON.stringify(body).slice(0, 2000)).toEqual([status, code]);
   else expect(r.status, JSON.stringify(body).slice(0, 2000)).toBe(status);
 }
@@ -37,6 +38,25 @@ async function waitJob(base: string, s: Session, jobId: number) {
 }
 
 describe('T-7 投资可行性:基准方案、删除方案、报告复核', () => {
+  it('报告生成期间参数变化时拒绝落库,不留下过期草稿', async () => {
+    const { base, db, admin, fx } = await boot('newfc-feas-report-race-');
+    const project = await ok(post(base, admin, `${BASE}/projects`, {
+      code: 'RACE', name: '报告并发样本', orgId: fx.orgIds.shanghai, constructionStartYear: 2026, operationStartYear: 2028, horizonYears: 30,
+    }), 201);
+    const scenario = await ok(post(base, admin, `${BASE}/projects/${project.id}/scenarios`, { code: 'A', name: '基准', assumptions: sample.assumptions }), 201);
+    await ok(post(base, admin, `${BASE}/scenarios/${scenario.id}/run`, { expectedVersion: scenario.version }), 201);
+    const rewrite = vi.spyOn(narrative, 'rewriteTemplateNarrative').mockImplementationOnce(async (input) => {
+      const changed = structuredClone(sample.assumptions); changed.evaluation.min_dscr = '1.5';
+      await ok(patch(base, admin, `${BASE}/scenarios/${scenario.id}`, { expectedVersion: scenario.version, assumptions: changed }));
+      return { text: input.template, source: 'template', model: 'template', promptVersion: input.promptVersion, cached: false };
+    });
+    try {
+      await fail(post(base, admin, `${BASE}/scenarios/${scenario.id}/reports`, {}), 409, 'FEAS_REPORT_STALE');
+      expect(rewrite).toHaveBeenCalledOnce();
+      expect((db.prepare('SELECT COUNT(*) AS n FROM if_report').get() as { n: number }).n).toBe(0);
+    } finally { rewrite.mockRestore(); }
+  });
+
   it('完整流程与权限、范围', async () => {
     const { base, db, admin, fx } = await boot('newfc-t7-feas-');
     const analyst = createScopedUser(db, { username: 'feas7-analyst', roleCodes: ['finance_analyst'], orgIds: [fx.orgIds.east] }).session;
@@ -80,6 +100,19 @@ describe('T-7 投资可行性:基准方案、删除方案、报告复核', () =>
     await fail(post(base, reviewer, `${BASE}/reports/${r1.id}/submit`, { expectedVersion: r1.version }), 403);
     const s1 = await ok(post(base, analyst, `${BASE}/reports/${r1.id}/submit`, { expectedVersion: r1.version }));
     expect(s1).toMatchObject({ status: 'pending_review', submittedBy: 'feas7-analyst' });
+    // 同名与改名均不能影响服务端按账号ID判定本人提交。
+    db.prepare('UPDATE app_user SET display_name = ? WHERE username IN (?, ?)').run('同名人员', 'feas7-analyst', 'feas7-reviewer');
+    expect((await ok(get(base, analyst, `${BASE}/reports/${r1.id}`))).submittedByCurrentUser).toBe(true);
+    expect((await ok(get(base, reviewer, `${BASE}/reports/${r1.id}`))).submittedByCurrentUser).toBe(false);
+    db.prepare('UPDATE app_user SET display_name = ? WHERE username = ?').run('改名编制人', 'feas7-analyst');
+    expect((await ok(get(base, analyst, `${BASE}/reports/${r1.id}`))).submittedByCurrentUser).toBe(true);
+    db.prepare('UPDATE app_user SET display_name = username WHERE username IN (?, ?)').run('feas7-analyst', 'feas7-reviewer');
+
+    const todo = async (s: Session) => (await ok(get(base, s, '/api/dashboard/todos'))).items.find((i: { key: string }) => i.key === 'feasibility_review');
+    expect(await todo(reviewer)).toMatchObject({ count: 1, path: '/feasibility?tab=reports&status=pending_review' });
+    const otherOrg = createScopedUser(db, { username: 'feas-queue-hz', roleCodes: ['business_reviewer'], orgIds: [fx.orgIds.hangzhou] }).session;
+    expect((await todo(otherOrg)).count).toBe(0);
+    expect(await todo(analyst)).toBeUndefined();
     await fail(post(base, analyst, `${BASE}/reports/${r1.id}/submit`, { expectedVersion: s1.version }), 409, 'FEAS_REPORT_STATE');
     await fail(post(base, analyst, `${BASE}/reports/${r1.id}/review`, { expectedVersion: s1.version, decision: 'approve' }), 403);
     await fail(post(base, reviewer, `${BASE}/reports/${r1.id}/review`, { expectedVersion: s1.version, decision: 'return' }), 400);
@@ -89,6 +122,7 @@ describe('T-7 投资可行性:基准方案、删除方案、报告复核', () =>
     expect(s2).toMatchObject({ status: 'pending_review', reviewer: null, reviewComment: null });
     const ap = await ok(post(base, reviewer, `${BASE}/reports/${r1.id}/review`, { expectedVersion: s2.version, decision: 'approve', comment: '同意' }));
     expect(ap).toMatchObject({ status: 'approved', selfReview: false });
+    expect((await todo(reviewer)).count).toBe(0);
     await fail(post(base, analyst, `${BASE}/reports/${r1.id}/submit`, { expectedVersion: ap.version }), 409, 'FEAS_REPORT_STATE');
     expect(() => db.prepare("UPDATE if_report SET title = 'x' WHERE id = ?").run(r1.id)).toThrow(/复核通过/);
     expect(() => db.prepare('DELETE FROM if_report').run()).toThrow(/不可删除/);
@@ -104,16 +138,25 @@ describe('T-7 投资可行性:基准方案、删除方案、报告复核', () =>
     // 列表筛选;方案参数修改后报告标记依据过期
     expect((await ok(get(base, analyst, `${BASE}/reports?scenarioId=${b.id}`))).items.map((r: { id: number }) => r.id)).toEqual([r2.id, r1.id]);
     expect((await ok(get(base, analyst, `${BASE}/reports?status=pending_review`))).items).toEqual([]);
+    const draft = await ok(post(base, analyst, `${BASE}/scenarios/${b.id}/reports`, {}), 201);
+    const pending = await ok(post(base, analyst, `${BASE}/scenarios/${b.id}/reports`, {}), 201);
+    const submitted = await ok(post(base, analyst, `${BASE}/reports/${pending.id}/submit`, { expectedVersion: pending.version }));
     const changed = structuredClone(sample.assumptions);
     changed.evaluation.min_dscr = '1.5';
     const cur = await ok(get(base, analyst, `${BASE}/scenarios/${b.id}`));
     await ok(patch(base, analyst, `${BASE}/scenarios/${b.id}`, { expectedVersion: cur.version, assumptions: changed }));
     expect((await ok(get(base, analyst, `${BASE}/reports/${r1.id}`))).stale).toBe(true);
     await fail(post(base, analyst, `${BASE}/scenarios/${b.id}/reports`, {}), 409, 'FEAS_STATE');
+    await fail(post(base, analyst, `${BASE}/reports/${draft.id}/submit`, { expectedVersion: draft.version }), 409, 'FEAS_REPORT_STALE');
+    await fail(post(base, reviewer, `${BASE}/reports/${pending.id}/review`, { expectedVersion: submitted.version, decision: 'approve' }), 409, 'FEAS_REPORT_STALE');
+    expect((await ok(get(base, analyst, `${BASE}/reports/${pending.id}`))).version).toBe(submitted.version);
+    const returned = await ok(post(base, reviewer, `${BASE}/reports/${pending.id}/review`, { expectedVersion: submitted.version, decision: 'return', comment: '依据过期,重新生成' }));
+    await fail(post(base, analyst, `${BASE}/reports/${pending.id}/submit`, { expectedVersion: returned.version }), 409, 'FEAS_REPORT_STALE');
+    expect((await ok(get(base, analyst, `${BASE}/reports/${draft.id}`))).status).toBe('draft');
 
     // 删除:有报告的方案不能删;删除后 404、编码仍占用、不可物理删除
     const bNow = await ok(get(base, analyst, `${BASE}/scenarios/${b.id}`));
-    expect(bNow.reportCount).toBe(2);
+    expect(bNow.reportCount).toBe(4);
     await fail(del(base, analyst, `${BASE}/scenarios/${b.id}?expectedVersion=${bNow.version}`), 409, 'FEAS_SCENARIO_HAS_REPORTS');
     const aNow = await ok(get(base, analyst, `${BASE}/scenarios/${a.id}`));
     await fail(del(base, analyst, `${BASE}/scenarios/${a.id}?expectedVersion=${aNow.version + 1}`), 409, 'VERSION_CONFLICT');

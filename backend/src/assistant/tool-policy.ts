@@ -24,6 +24,8 @@ export interface ToolPolicy { permission: Permission; scope: ToolScope }
 const P = (permission: Permission, scope: ToolScope): ToolPolicy => ({ permission, scope });
 
 export const TOOL_POLICIES: Record<string, ToolPolicy> = {
+  domain_ledger: P('assistant:use', 'org_scope'),
+  domain_batch_read: P('assistant:use', 'org_scope'), statement_trends: P('statements:read', 'org_scope'), mgmt_workspace: P('mgmt:read', 'org_scope'), domain_workspace: P('assistant:use', 'org_scope'), feasibility_report_read: P('investment:read', 'global'),
   get_org_tree: P('master:read', 'org_tree'),
   get_account_tree: P('master:read', 'global'),
   list_budget_versions: P('budget:read', 'global'),
@@ -74,6 +76,7 @@ export const TOOL_POLICIES: Record<string, ToolPolicy> = {
   list_backups: P('system:backup', 'all_orgs'),
   eas_period_status: P('eas:read', 'org_scope'),
   statement_overview: P('statements:read', 'org_scope'),
+  mgmt_analysis: P('mgmt:read', 'org_scope'),
   mgmt_metric_snapshots: P('mgmt:read', 'org_scope'),
   mgmt_alerts: P('mgmt:read', 'org_scope'),
   project_budget_summary: P('project_budget:read', 'org_scope'),
@@ -89,6 +92,18 @@ export const TOOL_POLICIES: Record<string, ToolPolicy> = {
   report_list: P('report:read', 'org_scope'),
   /** 跨域检索:service 内逐类型校验读权限并复用各域列表的组织范围裁剪,与 /api/search 同源 */
   cross_search: P('search:use', 'global'),
+  project_profile: P('project:read', 'global'),
+  master_entities: P('master:read', 'org_scope'),
+  expense_detail: P('expense:read', 'global'),
+  policy_search: P('expense:read', 'global'),
+  governance_issues: P('governance:read', 'org_scope'),
+  standard_report_read: P('report:read', 'org_scope'),
+  analysis_report_read: P('report:read', 'global'),
+  risk_detail: P('risk:read', 'global'),
+  forecast_result: P('forecast:read', 'global'),
+  task_status: P('tasks:read', 'global'),
+  authorization_scope: P('assistant:use', 'global'),
+  configuration_overview: P('settings:read', 'global'),
 };
 
 /** 工具在当前身份下是否可用(用于向模型暴露的工具清单,避免诱导模型反复调用必然被拒的工具)。 */

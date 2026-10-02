@@ -1,7 +1,7 @@
 import type { MoneyString, RatioString } from './common';
 
 /**
- * 项目档案(360 视图,对应 lishui `/project-contract/projects/:code`):主数据 + 各域同源只读汇总。
+ * 项目档案(360 视图):主数据 + 各域同源只读汇总。
  * 每个分区按该域读权限独立裁剪:无权限为 null(页面不展示),有权限无数据为空集合;组织范围与各域列表同口径。
  */
 

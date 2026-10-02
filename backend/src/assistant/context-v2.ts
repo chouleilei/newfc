@@ -1,5 +1,7 @@
+import { validateDomainContext, domainBatchContext } from './domain-context';
+import { DOMAIN_ID_FIELDS, DOMAIN_ENTITY_FIELDS, normalizeDomainContext, type DomainContext } from './domain-scope';
 /**
- * AssistantPageContextV2 后端解析入口(方案《小澧助手全页面回答范围自动对齐开发计划》§5、§9.1)。
+ * AssistantPageContextV2 后端解析入口(现行 specs/ai.md 页面上下文契约§5、§9.1)。
  *
  * 浏览器输入不可信(§3.4)：前端传入的 ID、级别、金额、图表值和核验结果都只是定位线索。
  * 本模块在调用任何业务工具之前完成四件事：
@@ -63,7 +65,7 @@ export const SELECTION_MAX_REFS = 500;
 
 /* ============ V2 类型(§5) ============ */
 
-export interface PageScope {
+export interface PageScope extends DomainContext {
   year?: number;
   periodStart?: string;
   periodEnd?: string;
@@ -130,8 +132,9 @@ const SURFACE_KINDS: ReadonlySet<string> = new Set(['drawer', 'modal', 'popover'
 const SCOPE_INT_FIELDS: (keyof PageScope)[] = [
   'budgetVersionId', 'targetVersionId', 'actualSnapshotId', 'importBatchId',
   'orgScopeId', 'accountScopeId', 'metricId', 'insightId', 'conversionId', 'mappingVersionId', 'templateId',
-  'baseVersionId', 'compareVersionId',
+  'baseVersionId', 'compareVersionId', ...DOMAIN_ID_FIELDS,
 ];
+const SCOPE_TEXT_FIELDS = ['period', 'periodFrom', 'periodTo', 'statementScope'];
 const SCOPE_DATE_FIELDS: (keyof PageScope)[] = ['periodStart', 'periodEnd', 'asOfDate'];
 const DRAFT_KINDS: ReadonlySet<string> = new Set([
   'budget_grid', 'actual_grid', 'org_form', 'account_form', 'metric_formula', 'calculation_rule', 'cleaning_template', 'alias_rule',
@@ -335,9 +338,10 @@ function parseSelection(raw: unknown, page: PageCapability, snapshotId: string):
 function parseScope(raw: unknown, snapshotId: string): PageScope {
   if (raw == null) return {};
   if (!isPlainObject(raw)) fail('scope 必须是对象', 'scope', snapshotId);
-  const out: PageScope = {};
+  let out: PageScope;
+  try { out = normalizeDomainContext(raw); } catch (error) { throw new AppError('CONTEXT_INVALID', error instanceof Error ? error.message : '业务范围无效', 400); }
   for (const key of Object.keys(raw)) {
-    if (![...SCOPE_INT_FIELDS, ...SCOPE_DATE_FIELDS, 'year'].includes(key as keyof PageScope)) {
+    if (![...SCOPE_INT_FIELDS, ...SCOPE_DATE_FIELDS, ...SCOPE_TEXT_FIELDS, 'year'].includes(key as keyof PageScope)) {
       fail(`scope 不支持字段「${key}」`, `scope.${key}`, snapshotId);
     }
   }
@@ -466,6 +470,7 @@ function requireInTreeSnapshot(db: DB, snapshotIdColumn: 'org_tree_snapshot_id' 
 
 /** entity 类型 → scope 字段(§6：surface > focus > 页面 scope)。 */
 const ENTITY_SCOPE_FIELD: Record<string, keyof PageScope> = {
+  ...DOMAIN_ENTITY_FIELDS,
   org: 'orgScopeId',
   account: 'accountScopeId',
   metric: 'metricId',
@@ -479,6 +484,8 @@ const ENTITY_SCOPE_FIELD: Record<string, keyof PageScope> = {
 };
 
 function validateEntityExists(db: DB, entityType: string, id: number, field: string, snapshotId: string): void {
+  const domainField = DOMAIN_ENTITY_FIELDS[entityType];
+  if (domainField) { validateDomainContext(db, { [domainField]: id }); return; }
   switch (entityType) {
     case 'org': return requireResource(db, field, snapshotId, 'SELECT id FROM org WHERE id=?', id, '组织');
     case 'account': return requireResource(db, field, snapshotId, 'SELECT id FROM account WHERE id=?', id, '科目');
@@ -629,6 +636,7 @@ export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendCont
   }
 
   /* ---- §6 优先级合并：surface(最上层优先) > focus > 页面 scope ---- */
+  validateDomainContext(db, { ...scope, page: parsed.pageKey, orgId: scope.orgScopeId });
   const mergedScope: PageScope = { ...scope };
   const applyEntity = (entityType: string, id: number) => {
     const field = ENTITY_SCOPE_FIELD[entityType];
@@ -668,9 +676,11 @@ export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendCont
   /* ---- 草稿：白名单解析 + 基线校验(§9.6)，原始 changes 的裁剪在 draft-context 内完成 ---- */
   const draft = parsed.draft ? normalizeDraftInput(db, parsed.draft, { snapshotId }) : null;
 
+  Object.assign(mergedScope, domainBatchContext(db, { ...mergedScope, page: parsed.pageKey, orgId: mergedScope.orgScopeId }));
   const effectiveBudgetVersionId = mergedScope.baseVersionId ?? mergedScope.budgetVersionId;
   const effectiveTargetVersionId = mergedScope.compareVersionId ?? mergedScope.targetVersionId;
   const pageContext: AssistantContext = {
+    ...normalizeDomainContext(mergedScope as Record<string, unknown>),
     page: parsed.pageKey,
     ...(mergedScope.year != null ? { year: mergedScope.year } : {}),
     ...(effectiveBudgetVersionId != null ? { budgetVersionId: effectiveBudgetVersionId } : {}),
@@ -725,6 +735,8 @@ export interface ContextTrace {
 }
 
 const SUMMARY_FIELD_LABEL: Record<string, string> = {
+  ...Object.fromEntries(DOMAIN_ID_FIELDS.map((k) => [k, ({projectId: '主数据项目', contractId: '合同', claimId: '报销单', feasProjectId: '可研项目', scenarioId: '可研方案', icProjectId: '投资项目', comparisonId: '投资快照', modelId: '预测模型', forecastVersionId: '预测版本', forecastRunId: '预测运行', riskId: '风险', reportId: '分析报告', standardReportId: '标准报表', governanceIssueId: '治理问题', mgmtMetricId: '管理会计指标', statementBatchId: '财报批次', projectBudgetBatchId: '项目预算批次', planBatchId: '计划批次', easBatchId: 'EAS 批次', feasReportId: '可行性报告', jobId: '后台任务'} as Record<string,string>)[k]])),
+  period: '期间', periodFrom: '起始期间', periodTo: '截至期间', statementScope: '财报口径',
   year: '年度',
   budgetVersionId: '预算版本',
   targetVersionId: '对比版本',
@@ -751,6 +763,9 @@ export function buildContextSummary(
   view: Record<string, unknown>,
 ): string {
   const parts: string[] = [pageLabel];
+  if (context.period) parts.push(context.period);
+  if (context.periodFrom || context.periodTo) parts.push(`${context.periodFrom ?? '默认'} 至 ${context.periodTo ?? '最新'}`);
+  for (const key of DOMAIN_ID_FIELDS) if (context[key] != null) parts.push(`${contextFieldLabel(key)} #${context[key]}`);
   if (context.year != null) parts.push(`${context.year} 年`);
   if (context.budgetVersionId != null) {
     const row = rowOf<{ name: string }>(db, 'SELECT name FROM budget_version WHERE id=?', context.budgetVersionId);

@@ -7,10 +7,9 @@ import { addRouteRules } from '../security/route-rules';
 import type { ObjectStore } from '../files/object-store';
 import { memoryUpload, sendAttachment, uploadName } from '../files/http';
 import { id as idSchema } from '../../contracts/common';
-import { pbActivateRequest, pbSummaryQuery, pbUploadForm, pbVoidRequest, year as yearSchema } from '../../contracts/project-budget';
-import { period as periodSchema } from '../../contracts/common';
+import { pbActivateRequest, pbBatchListQuery, pbBatchPageQuery, pbSummaryQuery, pbUploadForm, pbVoidRequest } from '../../contracts/project-budget';
 import {
-  activateProjectBudget, getProjectBudgetBatch, importProjectBudget, listProjectBudgetBatches, previewProjectBudget, projectBudgetEntries,
+  activateProjectBudget, getProjectBudgetBatch, importProjectBudget, listProjectBudgetBatches, listProjectBudgetBatchesPage, previewProjectBudget, projectBudgetEntries,
   projectBudgetOriginal, projectBudgetSummary, voidProjectBudget,
 } from './project-budget.service';
 
@@ -45,12 +44,10 @@ export function registerProjectBudgetRoutes(app: Express, db: () => DB, wrap: Wr
     res.status(batch.replayed ? 200 : 201).json(batch);
   }));
   app.get('/api/project-budget/batches', wrap((req, res) => {
-    const q = queryFields(req);
-    const status = q.status;
-    if (status && status !== 'imported' && status !== 'voided') throw Errors.validation('查询参数不合法');
-    res.json(listProjectBudgetBatches(db(), {
-      year: q.year ? parseInput(yearSchema, q.year) : undefined, period: q.period ? parseInput(periodSchema, q.period) : undefined, status,
-    }));
+    res.json(listProjectBudgetBatches(db(), parseInput(pbBatchListQuery, queryFields(req))));
+  }));
+  app.get('/api/project-budget/batches/page', wrap((req, res) => {
+    res.json(listProjectBudgetBatchesPage(db(), parseInput(pbBatchPageQuery, req.query)));
   }));
   app.get('/api/project-budget/batches/:id', wrap((req, res) => { res.json(getProjectBudgetBatch(db(), id(req.params.id))); }));
   app.get('/api/project-budget/batches/:id/entries', wrap((req, res) => { res.json(projectBudgetEntries(db(), id(req.params.id))); }));

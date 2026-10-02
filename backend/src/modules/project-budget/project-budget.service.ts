@@ -7,6 +7,7 @@
  * - 只读写 pb_* 与文件对象,不触碰经营预算与实际快照表。
  */
 import type { DB } from '../../db/connection';
+import type { PageDto, PageQuery } from '../../contracts/common';
 import { AppError, type RowError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalString, ratioString } from '../../core/decimal';
@@ -16,7 +17,7 @@ import { storeFile, type ObjectStore } from '../files/object-store';
 import { readTable, type ReadTable } from '../io/table-reader';
 import { amountCents, CellError, findHeader, headerKey, headerUnit, monthCell } from '../io/cell-values';
 import type {
-  PbBatchDto, PbEntryDto, PbGroupDto, PbPreviewDto, PbSummaryDto, PbSummaryQuery, PbTotalsDto, PbUploadForm,
+  PbBatchDto, PbBatchListQuery, PbEntryDto, PbGroupDto, PbPreviewDto, PbSummaryDto, PbSummaryQuery, PbTotalsDto, PbUploadForm,
 } from '../../contracts/project-budget';
 
 const nowIso = () => new Date().toISOString();
@@ -203,7 +204,7 @@ export function getProjectBudgetBatch(db: DB, id: number): PbBatchDto {
   return batchDto(db, scope, visibleBatchRow(db, scope, id));
 }
 
-export function listProjectBudgetBatches(db: DB, q: { year?: number; period?: string; status?: string } = {}): PbBatchDto[] {
+function batchListFilter(db: DB, q: PbBatchListQuery) {
   const scope = currentOrgScope(db);
   const sc = scopeFilterSql(scope, 'e.org_id');
   const where = [scope.all ? '1=1' : `EXISTS (SELECT 1 FROM pb_entry e WHERE e.batch_id = b.id AND ${sc.sql})`];
@@ -211,8 +212,29 @@ export function listProjectBudgetBatches(db: DB, q: { year?: number; period?: st
   if (q.year) { where.push('b.year = ?'); params.push(q.year); }
   if (q.period) { where.push('b.period = ?'); params.push(q.period); }
   if (q.status) { where.push('b.status = ?'); params.push(q.status); }
-  return (db.prepare(`SELECT b.* FROM pb_batch b WHERE ${where.join(' AND ')} ORDER BY b.period DESC, b.id DESC LIMIT 300`).all(...params) as BatchRow[])
+  if (q.keyword) {
+    where.push("(b.name LIKE ? ESCAPE '\\' OR b.period LIKE ? ESCAPE '\\')");
+    const keyword = `%${q.keyword.replace(/[\\%_]/g, '\\$&')}%`;
+    params.push(keyword, keyword);
+  }
+  return { scope, clause: where.join(' AND '), params };
+}
+
+export function listProjectBudgetBatches(db: DB, q: PbBatchListQuery = {}): PbBatchDto[] {
+  const { scope, clause, params } = batchListFilter(db, q);
+  return (db.prepare(`SELECT b.* FROM pb_batch b WHERE ${clause} ORDER BY b.period DESC, b.id DESC LIMIT 300`).all(...params) as BatchRow[])
     .map((b) => batchDto(db, scope, b));
+}
+
+export function listProjectBudgetBatchesPage(db: DB, q: PbBatchListQuery & PageQuery): PageDto<PbBatchDto> {
+  const { scope, clause, params } = batchListFilter(db, q);
+  return db.transaction(() => {
+    const { total } = db.prepare(`SELECT COUNT(*) AS total FROM pb_batch b WHERE ${clause}`).get(...params) as { total: number };
+    const page = Math.min(q.page, Math.max(1, Math.ceil(total / q.pageSize)));
+    const rows = db.prepare(`SELECT b.* FROM pb_batch b WHERE ${clause} ORDER BY b.period DESC, b.id DESC LIMIT ? OFFSET ?`)
+      .all(...params, q.pageSize, (page - 1) * q.pageSize) as BatchRow[];
+    return { items: rows.map((b) => batchDto(db, scope, b)), total, page, pageSize: q.pageSize };
+  })();
 }
 
 export function projectBudgetEntries(db: DB, id: number): PbEntryDto[] {

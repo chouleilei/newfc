@@ -32,7 +32,7 @@ export function matchRouteRule(method: string, path: string): RouteRule | undefi
 const R = (method: RouteRule['method'], pattern: RegExp, permission: Permission | null, allOrgs = false): RouteRule =>
   ({ method, pattern, permission, allOrgs });
 
-/** 继承自 newbd 的接口。路径不含 /api 前缀。 */
+/** 经营预算与基础模块接口。路径不含 /api 前缀。 */
 addRouteRules([
   R('*', /^\/health$/, null),
   R('*', /^\/me(\/|$)/, null),

@@ -7,6 +7,9 @@
 import type { AssistantCitation } from './schemas';
 
 export interface FactSource {
+  period?: string;
+  orgScopeId?: number;
+  references?: { kind: string; id: number; label: string; path: string; hash?: string }[];
   year?: number;
   budgetVersionId?: number | null;
   targetVersionId?: number | null;
@@ -24,6 +27,7 @@ export interface FactRecord {
 export function citationsForFacts(facts: FactRecord[]): AssistantCitation[] {
   return facts.map((entry) => ({
     source: entry.type,
+    period: entry.source.period, orgScopeId: entry.source.orgScopeId, references: entry.source.references,
     asOf: entry.source.asOf || new Date().toISOString(),
     year: entry.source.year,
     budgetVersionId: entry.source.budgetVersionId ?? null,

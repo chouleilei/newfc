@@ -1,3 +1,4 @@
+import { DOMAIN_PAGE_INTENTS, DOMAIN_READ_RULES } from './domain-intents';
 /**
  * 上下文自动解析(方案《AI助手完整方案》5.6「上下文」)。
  *
@@ -288,7 +289,7 @@ export interface ResolveOptions {
   yearOverride?: boolean;
   /**
    * 是否允许句子里明确命中的版本/快照/组织/科目覆盖请求(页面)里的对应值
-   * (《小澧助手全页面回答范围自动对齐开发计划》§6 优先级 1 > 4)。
+   * (specs/ai.md 页面上下文契约§6 优先级 1 > 4)。
    *
    * 只读提问才开启；覆盖会写进 resolution(「已覆盖页面的 X」)，由上层转成
    * contextTrace.overrides 如实展示。名称有歧义时不覆盖，照旧返回候选。
@@ -311,6 +312,8 @@ export function resolveMessageContext(
 ): ResolvedContextResult {
   const text = String(message || '');
   const context: AssistantContext = { ...requested };
+  const domainQuery = !/经营预算|预算版本|预算编制|预算执行月报/.test(text) && (!!(requested.page && DOMAIN_PAGE_INTENTS[requested.page]) || DOMAIN_READ_RULES.some((r) => r.pattern.test(text)));
+  if (domainQuery) { delete context.budgetVersionId; delete context.targetVersionId; delete context.actualSnapshotId; delete context.importBatchId; delete context.accountId; }
   const resolution: ContextResolution[] = [];
   const ambiguities: NodeAmbiguity[] = [];
   const record = (field: ContextResolution['field'], value: number, origin: ResolutionOrigin, reason: string, label?: string) => {
@@ -335,11 +338,14 @@ export function resolveMessageContext(
     } else if (fromVersion) {
       context.year = fromVersion.year;
       record('year', fromVersion.year, 'request', fromVersion.reason);
+    } else if (requested.period) {
+      context.year = Number(requested.period.slice(0, 4));
+      record('year', context.year, 'request', '采用页面期间所属年度');
     } else if (inherited.year != null) {
       context.year = inherited.year;
       record('year', inherited.year, 'conversation', '沿用上一轮的年度');
     } else {
-      const fallback = defaultYear(db);
+      const fallback = (requested.page && DOMAIN_PAGE_INTENTS[requested.page]) || DOMAIN_READ_RULES.some((r) => r.pattern.test(text)) ? { year: new Date().getFullYear(), reason: '新业务未指定年度，采用当前自然年' } : defaultYear(db);
       if (fallback) {
         context.year = fallback.year;
         record('year', fallback.year, 'default', fallback.reason);
@@ -383,13 +389,13 @@ export function resolveMessageContext(
     ? db.prepare('SELECT id,year,name,status,is_current,kind FROM budget_version ORDER BY year DESC, created_at DESC, id DESC').all()
     : db.prepare('SELECT id,year,name,status,is_current,kind FROM budget_version WHERE year=? ORDER BY created_at DESC, id DESC').all(context.year)
   ) as VersionRow[];
-  const namedVersions = matchVersionsByName(text, versions);
+  const namedVersions = domainQuery ? [] : matchVersionsByName(text, versions);
   /* ---- 问题明确指定的版本覆盖页面版本(§6 优先级 1 > 4) ----
      跨年度匹配：页面年度过滤不应挡住「问 2025 的 V1」这类显式覆盖。
      覆盖后同步清理与新年度冲突的其余字段(与 yearFromMessage 分支同模式)：
      残留的 targetVersionId / actualSnapshotId 会在 validateContextConsistency
      处变成「context.year 与 XXX 年度不一致」，或更糟——静默做跨年对比。 */
-  if (context.budgetVersionId != null && options.messageOverride) {
+  if (!domainQuery && context.budgetVersionId != null && options.messageOverride) {
     const allVersions = (context.year == null ? versions
       : db.prepare('SELECT id,year,name,status,is_current,kind FROM budget_version ORDER BY year DESC, created_at DESC, id DESC').all()) as VersionRow[];
     const namedAll = matchVersionsByName(text, allVersions);
@@ -421,7 +427,7 @@ export function resolveMessageContext(
       }
     }
   }
-  if (context.budgetVersionId == null) {
+  if (!domainQuery && context.budgetVersionId == null) {
     const explicitId = text.match(/版本\s*#?(\d{1,9})/);
     const byId = explicitId ? versions.find((v) => v.id === Number(explicitId[1])) : undefined;
     if (namedVersions.length) {
@@ -449,7 +455,7 @@ export function resolveMessageContext(
   }
 
   /* ---------- 对比版本 ---------- */
-  if (context.targetVersionId == null) {
+  if (!domainQuery && context.targetVersionId == null) {
     const second = namedVersions.find((hit) => hit.row.id !== context.budgetVersionId);
     if (second) {
       context.targetVersionId = second.row.id;
@@ -466,7 +472,7 @@ export function resolveMessageContext(
   // 匹配——否则 2026 年页面会命中 2025-03-31 这类前年快照，产生混合年度口径。
   // 日期/编号/「最新快照」是强信号，允许跨年；跨年后必须原子地同步年度和预算基线，
   // 不能留下「2025 快照 + 2026 预算版本」再交给一致性校验报错。
-  if (options.messageOverride && tableExists(db, 'actual_snapshot_batch')) {
+  if (!domainQuery && options.messageOverride && tableExists(db, 'actual_snapshot_batch')) {
     const allBatches = db.prepare('SELECT id,year,snapshot_date,revision FROM actual_snapshot_batch ORDER BY snapshot_date DESC, revision DESC').all() as BatchRow[];
     const hasExplicitSnapshotSignal = /((?:19|20)\d{2})-(\d{2})-(\d{2})/.test(text)
       || /快照\s*#?\d{1,9}/.test(text)
@@ -537,7 +543,7 @@ export function resolveMessageContext(
       }
     }
   }
-  if (context.actualSnapshotId == null && tableExists(db, 'actual_snapshot_batch')) {
+  if (!domainQuery && context.actualSnapshotId == null && tableExists(db, 'actual_snapshot_batch')) {
     const batches = (context.year == null
       ? db.prepare('SELECT id,year,snapshot_date,revision FROM actual_snapshot_batch ORDER BY snapshot_date DESC, revision DESC').all()
       : db.prepare('SELECT id,year,snapshot_date,revision FROM actual_snapshot_batch WHERE year=? ORDER BY snapshot_date DESC, revision DESC').all(context.year)
@@ -602,7 +608,7 @@ export function resolveMessageContext(
   }
 
   /* ---------- 科目 ---------- */
-  if (tableExists(db, 'account')) {
+  if (!domainQuery && tableExists(db, 'account')) {
     const rows = db.prepare('SELECT id,code,name,status FROM account ORDER BY sort_order, id').all() as NodeRow[];
     if (context.accountId == null) {
       const matched = matchNode(text, rows);
@@ -637,7 +643,7 @@ export function resolveMessageContext(
   }
 
   /* ---------- 导入批次 ---------- */
-  if (context.importBatchId == null && tableExists(db, 'import_batch')) {
+  if (!domainQuery && context.importBatchId == null && tableExists(db, 'import_batch')) {
     const explicit = text.match(/(?:导入)?批次\s*#?(\d{1,9})/);
     if (explicit) {
       const row = db.prepare('SELECT id FROM import_batch WHERE id=?').get(Number(explicit[1])) as { id: number } | undefined;

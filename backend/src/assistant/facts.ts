@@ -1,3 +1,5 @@
+import { queryDomainFacts } from './domain-facts';
+import { isDomainIntent } from './domain-intents';
 import type { DB } from '../db/connection';
 import * as budget from '../modules/budget/budget.service';
 import * as actual from '../modules/actual/actual.service';
@@ -76,6 +78,7 @@ export interface QueryFactsOptions {
   intents?: IntentDetection;
   /** 是否附加 glossary / navigation 事实(模型路由时由调用方单独附加，避免重复) */
   includeExtras?: boolean;
+  view?: Record<string, unknown>;
 }
 
 /**
@@ -89,9 +92,9 @@ export interface QueryFactsOptions {
  */
 export function queryFacts(db: DB, message: string, context: AssistantContext = {}, options: QueryFactsOptions = {}): FactRecord[] {
   const m = String(message || '').trim();
-  const detection = options.intents ?? detectIntents(m);
+  const detection = options.intents ?? detectIntents(m, context.page);
   const intents = new Set<ReadIntent>(detection.read);
-  const facts: FactRecord[] = [];
+  const facts: FactRecord[] = queryDomainFacts(db, m, context, detection.read, options.view);
   /**
    * 追加一条事实。
    *
@@ -281,6 +284,6 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
   if (options.includeExtras !== false) facts.push(...deterministicExtras(db, m, context));
 
   // 没有命中任何意图时，至少返回当前上下文的轻量版本列表，便于助手继续追问。
-  if (facts.length === 0 && year != null) add('budget_versions', () => tools.list_budget_versions(db, year), { year });
+  if (facts.length === 0 && year != null && !detection.read.some(isDomainIntent)) add('budget_versions', () => tools.list_budget_versions(db, year), { year });
   return facts;
 }

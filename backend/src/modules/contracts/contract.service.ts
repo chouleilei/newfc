@@ -9,6 +9,7 @@
  * - 组织范围按合同 org_id;范围外 404。
  */
 import type { DB } from '../../db/connection';
+import type { PageDto, PageQuery } from '../../contracts/common';
 import { AppError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalString, formatScaled, mulCents, parseDecimalToCents, parseScaled, ratioString, RATIO_SCALE } from '../../core/decimal';
@@ -202,7 +203,7 @@ const TODO_EXISTS: Record<ContractTodo, string> = {
   pay: "SELECT 1 FROM ct_payment x WHERE x.contract_id = ct_contract.id AND x.status = 'approved'",
 };
 
-export function listContracts(db: DB, q: ContractListQuery = {}): ContractDto[] {
+function contractListFilter(db: DB, q: ContractListQuery) {
   const scope = currentOrgScope(db);
   if (q.orgId && !orgInScope(scope, q.orgId)) throw notVisible('组织');
   const sc = scopeFilterSql(scope, 'org_id');
@@ -217,8 +218,24 @@ export function listContracts(db: DB, q: ContractListQuery = {}): ContractDto[] 
   if (q.projectId) { where.push('project_id = ?'); params.push(q.projectId); }
   if (q.keyword) { const k = `%${q.keyword.replace(/[%_]/g, '')}%`; where.push('(contract_no LIKE ? OR name LIKE ?)'); params.push(k, k); }
   if (q.todo) where.push(`status = 'active' AND EXISTS (${TODO_EXISTS[q.todo]})`);
-  return (db.prepare(`SELECT * FROM ct_contract WHERE ${where.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT 500`).safeIntegers(true).all(...params) as Record<string, unknown>[])
+  return { clause: where.join(' AND '), params };
+}
+
+export function listContracts(db: DB, q: ContractListQuery = {}): ContractDto[] {
+  const { clause, params } = contractListFilter(db, q);
+  return (db.prepare(`SELECT * FROM ct_contract WHERE ${clause} ORDER BY updated_at DESC, id DESC LIMIT 500`).safeIntegers(true).all(...params) as Record<string, unknown>[])
     .map((r) => toDto(db, normalizeRow(r)));
+}
+
+export function listContractsPage(db: DB, q: ContractListQuery & PageQuery): PageDto<ContractDto> {
+  const { clause, params } = contractListFilter(db, q);
+  return db.transaction(() => {
+    const { total } = db.prepare(`SELECT COUNT(*) AS total FROM ct_contract WHERE ${clause}`).get(...params) as { total: number };
+    const page = Math.min(q.page, Math.max(1, Math.ceil(total / q.pageSize)));
+    const rows = db.prepare(`SELECT * FROM ct_contract WHERE ${clause} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`)
+      .safeIntegers(true).all(...params, q.pageSize, (page - 1) * q.pageSize) as Record<string, unknown>[];
+    return { items: rows.map((r) => toDto(db, normalizeRow(r))), total, page, pageSize: q.pageSize };
+  })();
 }
 
 /** 范围内合同汇总(助手 contract_summary、工作台待办共用)。 */

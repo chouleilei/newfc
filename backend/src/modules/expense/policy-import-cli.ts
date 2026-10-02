@@ -1,7 +1,7 @@
 /**
  * 从 JSON 文件发布制度依据(显式运维操作;页面“制度依据”同样可维护)。
  *
- *   npm run expense:policy:import -- --file ../deploy/expense-policy-lishui.json [--new-version]
+ *   npm run expense:policy:import -- --file ../deploy/expense-policy-v1.json [--new-version]
  *
  * 文件格式同 POST /api/expense/policies。同编码已有生效版本时默认跳过(可重复执行);
  * 加 --new-version 发布为新版本。数据目录取 NEWFC_DATA_DIR(默认 <cwd>/data),与服务一致;

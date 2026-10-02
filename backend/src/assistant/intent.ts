@@ -1,3 +1,4 @@
+import { DOMAIN_READ_RULES, DOMAIN_PAGE_INTENTS, isDomainIntent, type DomainReadIntent } from './domain-intents';
 /**
  * 意图识别(方案《AI助手完整方案》3「总体交互原则」的「识别意图」一步)。
  *
@@ -12,7 +13,7 @@
  * 因此这里做三件事：扩充同义词、按语义蕴含去重、把宽泛词限定成词组。
  */
 
-export type ReadIntent =
+export type ReadIntent = DomainReadIntent
   | 'budget_versions'
   | 'actual_snapshots'
   | 'org_tree'
@@ -53,6 +54,7 @@ interface Rule<T> {
  * 超支/亏/省了/拖后腿/垫底/排名/慢了/快了 等。
  */
 const READ_RULES: Rule<ReadIntent>[] = [
+  ...DOMAIN_READ_RULES,
   { intent: 'budget_versions', pattern: /版本列表|预算版本|预测版本|有哪些版本|列出版本|定稿|草稿|归档|当前生效/, label: '版本' },
   { intent: 'actual_snapshots', pattern: /实际数|实际值|累计实际|快照|补录|实际录入|实际到哪/, label: '实际与快照' },
   { intent: 'org_tree', pattern: /组织树|组织结构|组织列表|有哪些组织|下属单位|子公司列表/, label: '组织树' },
@@ -153,7 +155,7 @@ export interface IntentDetection {
   inheritedRead: ReadIntent[];
 }
 
-export function detectIntents(message: string): IntentDetection {
+export function detectIntents(message: string, page?: string): IntentDetection {
   const text = String(message || '');
   const matched: { intent: ReadIntent; label: string; keyword: string }[] = [];
   for (const rule of READ_RULES) {
@@ -186,8 +188,20 @@ export function detectIntents(message: string): IntentDetection {
       suppressed.add('cell_note');
     }
   }
+  const domainReads = [...present].filter(isDomainIntent);
+  const pageIntent = page && DOMAIN_PAGE_INTENTS[page];
+  const explicitBudget = /经营预算|预算版本|预算编制|预算执行月报/.test(text) || (!domainReads.length && !pageIntent && /科目|利润/.test(text));
+  if (domainReads.length && !explicitBudget) {
+    for (const intent of [...present]) {
+      if (!isDomainIntent(intent) && !['org_tree', 'account_tree', 'operation_log'].includes(intent)) { present.delete(intent); suppressed.add(intent); }
+    }
+  }
+  if (pageIntent && !domainReads.length && !explicitBudget && !/你好|谢谢|再见/.test(text)) {
+    for (const intent of [...present]) { present.delete(intent); suppressed.add(intent); }
+    present.add(pageIntent);
+  }
   const write: WriteIntent[] = [];
-  for (const rule of WRITE_RULES) if (rule.pattern.test(text)) write.push(rule.intent);
+  for (const rule of WRITE_RULES) if (rule.pattern.test(text) && (explicitBudget || ![...present].some(isDomainIntent))) write.push(rule.intent);
   const hints = matched
     .filter((m) => present.has(m.intent))
     .map((m) => `${m.label}(${m.keyword})`);

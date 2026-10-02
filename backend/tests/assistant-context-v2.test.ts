@@ -1,5 +1,5 @@
 /**
- * 后端单元测试(方案《小澧助手全页面回答范围自动对齐开发计划》§13.2)。
+ * 后端单元测试(现行 specs/ai.md 页面上下文契约§13.2)。
  *
  * 覆盖:
  * - V2 schema、字段白名单和大小限制;
@@ -267,7 +267,7 @@ describe('resolveBackendContext · 资源与关系校验', () => {
 
 describe('领域能力调度', () => {
   it('28 个 pageKey 均有能力映射', () => {
-    expect(PAGE_KEYS.length).toBe(28);
+    expect(PAGE_KEYS.length).toBe(50);
     for (const key of PAGE_KEYS) {
       const page = pageCapability(key);
       expect(page, key).not.toBeNull();

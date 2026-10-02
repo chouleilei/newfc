@@ -1,8 +1,8 @@
 /**
- * 核验事实(方案《小澧助手全页面回答范围自动对齐开发计划》§9.5)。
+ * 核验事实(现行 specs/ai.md 页面上下文契约§9.5)。
  *
  * 执行分析、结构分析和指标穿透的领域响应统一携带 verificationFacts；
- * 页面 VerifyBar、小澧助手和导出共用同一份结论——overspend、lagging、subtotal、
+ * 页面 VerifyBar、财务助手和导出共用同一份结论——overspend、lagging、subtotal、
  * reconciliation 等分类只在后端这里实现一份，页面不再各自判定，
  * 助手收到 verification fact 时也由本模块重新取得(客户端的 label/details/level 全部忽略)。
  */

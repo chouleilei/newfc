@@ -10,6 +10,10 @@ export const expectedVersion = z.coerce.number().int().positive();
 /** 金额:十进制字符串(元,最多两位小数);服务端再做 64 位定点解析。 */
 export const moneyString = z.string().trim().regex(/^-?\d{1,16}(\.\d{1,2})?$/, '金额应为最多两位小数的十进制字符串');
 
+export const pageQuery = z.object({ page: id.default(1), pageSize: id.max(100).default(20) });
+export type PageQuery = z.infer<typeof pageQuery>;
+export interface PageDto<T> { items: T[]; total: number; page: number; pageSize: number }
+
 /** 金额在响应中一律为十进制字符串(元)。 */
 export type MoneyString = string;
 /** 比率为 6 位小数的十进制字符串;分母为 0 时为 null。 */

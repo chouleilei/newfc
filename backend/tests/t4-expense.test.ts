@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { boot, get, post, upload, type Session } from './t3-helpers';
+import { boot, get, json, post, upload, type Session } from './t3-helpers';
 import { createScopedUser, fetchAs } from './http-helpers';
 
 /**
@@ -15,13 +15,13 @@ afterEach(() => { for (const k of envKeys) { if (savedEnv[k] === undefined) dele
 
 async function ok(res: Response | Promise<Response>, status = 200) {
   const r = await res;
-  const body = await r.json();
+  const body = await json(r);
   expect(r.status, JSON.stringify(body)).toBe(status);
   return body;
 }
 async function fail(res: Response | Promise<Response>, status: number, code: string) {
   const r = await res;
-  const body = await r.json();
+  const body = await json(r);
   expect([r.status, body.code], JSON.stringify(body)).toEqual([status, code]);
   return body;
 }
@@ -287,6 +287,7 @@ describe('T-4 费用审核(AC-F22)', () => {
     // T-5 起业务复核角色另有风险复核与报告审批/发布待办
     expect(await todos(reviewer)).toEqual({
       contract_review: 0, contract_change: 0, contract_payment_review: 0, expense_review: 1, risk_review: 0, report_approve: 0, report_publish: 0,
+      forecast_review: 0, feasibility_review: 0,
     });
     expect(await todos(maker)).toEqual({ contract_payment_pay: 0, expense_supplement: 0 });
     expect((await todos(outsider)).expense_review).toBe(0);

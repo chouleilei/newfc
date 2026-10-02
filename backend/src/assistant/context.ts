@@ -1,3 +1,4 @@
+import { normalizeDomainContext } from './domain-scope';
 import type { AssistantContext } from './schemas';
 /** 仅保留当前任务所需的上下文 ID，避免把全库数据发送给模型。 */
 export function normalizeContext(input: unknown): AssistantContext {
@@ -13,6 +14,7 @@ export function normalizeContext(input: unknown): AssistantContext {
   const year = integer(c.year, 'year', 1900);
   if (year != null && year > 9999) throw new Error('year必须是 1900-9999');
   return {
+    ...normalizeDomainContext(c),
     year,
     budgetVersionId: integer(c.budgetVersionId, 'budgetVersionId'),
     targetVersionId: integer(c.targetVersionId, 'targetVersionId'),

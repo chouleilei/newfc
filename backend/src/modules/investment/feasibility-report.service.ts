@@ -1,5 +1,5 @@
 /**
- * 投资可行性报告(T-7,AC-F12,对应 lishui `/investment-feasibility/reports`)。
+ * 投资可行性报告(T-7,AC-F12)。
  *
  * - 由方案最新一次成功基准运行生成,且运行参数须与方案当前参数一致(否则先重算);正文为确定性模板 + 可选模型改写,
  *   模型调用在事务外。正文与依据运行生成后不可改,需要修改请重新生成。
@@ -41,6 +41,7 @@ function reportDto(db: DB, r: ReportRow): FeasReportDto {
     id: r.id, scenarioId: s.id, scenarioCode: s.code, scenarioName: s.name, projectId: p.id, projectCode: p.code, projectName: p.name, orgName: orgName(db, p.org_id),
     runId: r.run_id, parameterHash: run.parameter_hash, title: r.title, content: r.content, source: r.source, model: r.model, promptVersion: r.prompt_version,
     status: r.status, submittedBy: userName(db, r.submitted_by_user_id), submittedAt: r.submitted_at,
+    submittedByCurrentUser: r.submitted_by_user_id != null && r.submitted_by_user_id === currentAuth()?.userId,
     reviewer: userName(db, r.reviewer_user_id), reviewedAt: r.reviewed_at, reviewComment: r.review_comment, exceptionReason: r.exception_reason, selfReview: r.self_review === 1,
     stale: !s.deleted_at && run.parameter_hash !== currentParameterHash(p, JSON.parse(s.assumptions_json) as FeasibilityAssumptions),
     version: r.version, createdBy: userName(db, r.created_by_user_id), createdAt: r.created_at, updatedAt: r.updated_at,
@@ -53,6 +54,16 @@ function visibleReport(db: DB, id: number): ReportRow {
   const orgId = (db.prepare('SELECT p.org_id FROM if_scenario s JOIN if_project p ON p.id = s.project_id WHERE s.id = ?').get(r.scenario_id) as { org_id: number }).org_id;
   if (!orgInScope(currentOrgScope(db), orgId)) throw notVisible('可行性报告');
   return r;
+}
+
+/** 提交/批准前在同一短事务内核对依据;历史报告仍可读取,过期待审稿仍可退回。 */
+function assertCurrentReportBasis(db: DB, r: ReportRow): void {
+  const { scenario, project } = visibleScenario(db, r.scenario_id);
+  assertActiveProject(project);
+  const run = db.prepare('SELECT parameter_hash FROM if_run WHERE id = ?').get(r.run_id) as { parameter_hash: string };
+  if (run.parameter_hash !== currentParameterHash(project, JSON.parse(scenario.assumptions_json) as FeasibilityAssumptions)) {
+    throw conflict('FEAS_REPORT_STALE', '报告测算依据已过期,请重新测算并生成报告后提交复核');
+  }
 }
 
 export function getFeasReport(db: DB, id: number): FeasReportDto {
@@ -156,7 +167,11 @@ export async function createFeasReport(db: DB, scenarioId: number, input: { titl
     template: tpl.text, factTerms: tpl.factTerms, maxChars: 12000,
   });
   const id = db.transaction(() => {
-    visibleScenario(db, scenarioId); // 生成期间被删除则 404
+    const fresh = visibleScenario(db, scenarioId); // 生成期间被删除则 404
+    assertActiveProject(fresh.project);
+    if (currentParameterHash(fresh.project, JSON.parse(fresh.scenario.assumptions_json) as FeasibilityAssumptions) !== hash) {
+      throw conflict('FEAS_REPORT_STALE', '报告生成期间参数已修改,请重新测算并生成报告');
+    }
     const now = nowIso();
     const rid = Number(db.prepare(`INSERT INTO if_report (scenario_id, run_id, title, content, source, model, prompt_version, created_by_user_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(scenarioId, run.id, title, rewrite.text, rewrite.source, rewrite.model, rewrite.promptVersion,
@@ -175,6 +190,7 @@ export function submitFeasReport(db: DB, id: number, expectedVersion: number): F
     const r = visibleReport(db, id);
     if (r.version !== expectedVersion) throw conflict('VERSION_CONFLICT', '报告已被其他人修改,请刷新后重试', { currentVersion: r.version });
     if (r.status !== 'draft' && r.status !== 'returned') throw conflict('FEAS_REPORT_STATE', '只有草稿或已退回的报告可以提交复核');
+    assertCurrentReportBasis(db, r);
     db.prepare(`UPDATE if_report SET status = 'pending_review', submitted_by_user_id = ?, submitted_at = ?, reviewer_user_id = NULL, reviewed_at = NULL,
       review_comment = NULL, exception_reason = NULL, self_review = 0, version = version + 1, updated_at = ? WHERE id = ?`).run(auth.userId, nowIso(), nowIso(), id);
     writeLog(db, 'investment.feasibility.report.submit', 'if_report', id, { from: r.status });
@@ -188,6 +204,7 @@ export function reviewFeasReport(db: DB, id: number, input: { expectedVersion: n
     const r = visibleReport(db, id);
     if (r.version !== input.expectedVersion) throw conflict('VERSION_CONFLICT', '报告已被其他人修改,请刷新后重试', { currentVersion: r.version });
     if (r.status !== 'pending_review') throw conflict('FEAS_REPORT_STATE', '只有待复核的报告可以复核');
+    if (input.decision === 'approve') assertCurrentReportBasis(db, r);
     const { selfReview } = assertDistinctReviewer(db, auth, r.submitted_by_user_id, input.exceptionReason, '可行性报告');
     const now = nowIso();
     db.prepare(`UPDATE if_report SET status = ?, reviewer_user_id = ?, reviewed_at = ?, review_comment = ?, exception_reason = ?, self_review = ?,

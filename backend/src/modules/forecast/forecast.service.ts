@@ -87,7 +87,7 @@ export function listForecastModels(db: DB, q: { orgId?: number; status?: 'active
   return { items: rows.map((m) => modelDto(db, m)) };
 }
 
-/** 模型目录树(lishui 模型文件夹):按可见模型汇总,含各级上级目录;目录随模型存在,无独立生命周期。 */
+/** 模型目录树:按可见模型汇总,含各级上级目录;目录随模型存在,无独立生命周期。 */
 export function listForecastFolders(db: DB) {
   const f = scopeFilterSql(currentOrgScope(db), 'org_id');
   const rows = db.prepare(`SELECT folder, COUNT(*) AS n FROM ff_model WHERE ${f.sql} AND folder <> '' GROUP BY folder`).all(...f.params) as { folder: string; n: number }[];
@@ -151,6 +151,7 @@ function versionSummary(db: DB, v: VersionRow) {
     errorCount: items.filter((d) => d.severity === 'error').length, warningCount: items.filter((d) => d.severity === 'warning').length,
     baselineRunId: baseline?.id ?? null, version: v.version, createdAt: v.created_at, createdBy: userName(db, v.created_by_user_id),
     frozenAt: v.frozen_at, frozenBy: userName(db, v.frozen_by_user_id),
+    frozenByCurrentUser: v.frozen_by_user_id != null && v.frozen_by_user_id === currentAuth()?.userId,
     reviewStatus: reviewStatusOf(v, review), review,
   };
 }

@@ -11,12 +11,12 @@ import { sendAttachment, uploadName } from '../files/http';
 import { MAX_UPLOAD_BYTES } from '../io/import-limits';
 import { id as idSchema } from '../../contracts/common';
 import {
-  claimAttachmentForm, claimCreateRequest, claimListQuery, claimReviewRequest, claimSubmitRequest, claimUpdateRequest, policyCreateRequest, policyRetireRequest,
+  claimAttachmentForm, claimCreateRequest, claimListQuery, claimPageQuery, claimReviewRequest, claimSubmitRequest, claimUpdateRequest, policyCreateRequest, policyRetireRequest,
 } from '../../contracts/expense';
 import { formFields, queryFields } from '../project-budget/routes';
 import {
   addClaimAttachment, ATTACHMENT_EXTENSIONS, attachPolicySource, claimAttachmentContent, createClaim, createPolicy, expenseQueue, getClaimDetail, getPolicy,
-  listClaims, listPolicies, policySourceContent, removeClaimAttachment, retirePolicy, reviewClaim, submitClaim, updateClaim,
+  listClaims, listClaimsPage, listPolicies, policySourceContent, removeClaimAttachment, retirePolicy, reviewClaim, submitClaim, updateClaim,
 } from './expense.service';
 import { startClaimAudit } from './audit-run';
 
@@ -61,6 +61,7 @@ export function registerExpenseRoutes(app: Express, db: () => DB, wrap: Wrap, st
     res.json(expenseQueue(db(), { orgId: q.orgId ? id(q.orgId) : undefined }));
   }));
   app.get('/api/expense/claims', wrap((req, res) => { res.json(listClaims(db(), parseInput(claimListQuery, queryFields(req)))); }));
+  app.get('/api/expense/claims/page', wrap((req, res) => { res.json(listClaimsPage(db(), parseInput(claimPageQuery, req.query))); }));
   app.post('/api/expense/claims', wrap((req, res) => { res.status(201).json(createClaim(db(), parseInput(claimCreateRequest, req.body))); }));
   app.get('/api/expense/claims/:id', wrap((req, res) => { res.json(getClaimDetail(db(), id(req.params.id))); }));
   app.put('/api/expense/claims/:id', wrap((req, res) => { res.json(updateClaim(db(), id(req.params.id), parseInput(claimUpdateRequest, req.body))); }));

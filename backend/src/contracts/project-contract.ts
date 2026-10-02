@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { expectedVersion, id, moneyString, optionalText, reason, type MoneyString, type RatioString } from './common';
+import { expectedVersion, id, moneyString, optionalText, pageQuery, reason, type MoneyString, type RatioString } from './common';
 import type { RowErrorDto } from './project-budget';
 
 /** AC-F16 合同生命周期 / AC-F04 合同导入:请求 schema 与响应类型。 */
@@ -73,6 +73,7 @@ export const contractListQuery = z.object({
   todo: z.enum(CONTRACT_TODOS).optional(),
 });
 export type ContractListQuery = z.infer<typeof contractListQuery>;
+export const contractPageQuery = contractListQuery.merge(pageQuery);
 
 export interface BlockerDto { code: string; message: string }
 

@@ -1,3 +1,4 @@
+import { currentAuth } from '../core/request-context';
 /**
  * 页面导航意图(方案《AI助手完整方案》4.1「页面导航」)。
  *
@@ -25,7 +26,29 @@ interface Rule {
   build: (context: AssistantContext) => { path: string; params?: Record<string, string | number> };
 }
 
+const DOMAIN_NAV: [string, string, RegExp, string][] = [
+  ['standard_reports', '标准报表', /标准报表|冻结报表|合同付款台账|风险整改台账/, '/standard-reports'],
+  ['project_profile', '项目全景', /项目全景|项目档案/, '/projects'],
+  ['eas', 'EAS 工作区', /EAS|eas|对账集合|期间锁/, '/eas'], ['governance', '数据治理', /数据治理|治理问题/, '/governance'],
+  ['statements', '财务报表', /财务报表|资产负债表|现金流量表/, '/statements'], ['mgmt', '管理会计', /管理会计|分摊|责任中心|绩效/, '/mgmt'],
+  ['project_budget', '项目预算', /项目预算/, '/project-budget'], ['plan', '计划执行', /计划执行|形象进度/, '/plan'],
+  ['contract_import', '合同导入', /合同导入/, '/contracts/import'], ['contracts', '合同台账', /合同|付款节点/, '/contracts'],
+  ['expense_policies', '制度依据', /制度|条款/, '/expense/policies'], ['expense', '费用审核', /费用审核|报销|费用复核/, '/expense'],
+  ['feasibility', '可行性测算', /可行性|可研/, '/feasibility'], ['investment_control', '投资控制', /投资控制|概算|四算/, '/investment-control'],
+  ['forecast', '财务预测', /财务预测|预测模型|预测运行/, '/forecast'], ['risk', '风险台账', /风险|整改/, '/risk'],
+  ['analysis_reports', '分析报告', /分析报告|专题报告|报告发布/, '/analysis-reports'], ['master_entities', '主数据', /主数据|供应商/, '/master-entities'],
+  ['search', '跨域检索', /跨域检索|搜索/, '/search'], ['jobs', '任务中心', /任务中心|后台任务/, '/jobs'],
+  ['business_settings', '业务设置', /业务设置/, '/settings/business'], ['security', '授权管理', /授权管理|账号权限/, '/settings/security'],
+];
+const PAGE_PERMISSION: Record<string, string> = {
+  eas: 'eas:read', governance: 'governance:read', statements: 'statements:read', mgmt: 'mgmt:read', standard_reports: 'report:read', project_profile: 'project:read',
+  project_budget: 'project_budget:read', plan: 'plan:read', contracts: 'contract:read', contract_import: 'contract:import', expense: 'expense:read', expense_policies: 'expense:read',
+  feasibility: 'investment:read', investment_control: 'investment:read', forecast: 'forecast:read', risk: 'risk:read', analysis_reports: 'report:read', master_entities: 'master:read',
+  search: 'search:use', jobs: 'tasks:read', business_settings: 'settings:read', security: 'security:manage',
+};
+function visiblePage(page: string) { const auth = currentAuth(); return !auth || !PAGE_PERMISSION[page] || auth.permissions.has(PAGE_PERMISSION[page] as any); }
 const RULES: Rule[] = [
+  ...DOMAIN_NAV.map(([page, label, pattern, path]) => ({ page, label, pattern, build: (c: AssistantContext) => ({ path: page === 'project_profile' && c.projectId ? `/projects/${c.projectId}` : page === 'project_profile' ? '/master-entities?tab=projects' : path }) })),
   { page: 'dashboard', label: '首页工作台', pattern: /首页|工作台|仪表盘|总览|看板/, build: () => ({ path: '/' }) },
   {
     page: 'budget_edit',
@@ -87,6 +110,7 @@ export function resolveNavigation(message: string, context: AssistantContext = {
   const text = String(message || '');
   if (!text.trim() || !looksLikeNavigation(text)) return null;
   for (const rule of RULES) {
+    if (!visiblePage(rule.page)) continue;
     const match = text.match(rule.pattern);
     if (!match) continue;
     const built = rule.build(context);
@@ -97,5 +121,5 @@ export function resolveNavigation(message: string, context: AssistantContext = {
 
 /** 全部可导航页面,供前端渲染快捷入口与文档核对。 */
 export function navigationCatalog(): { page: string; label: string; path: string }[] {
-  return RULES.map((rule) => ({ page: rule.page, label: rule.label, path: rule.build({}).path }));
+  return RULES.filter((r) => visiblePage(r.page)).map((rule) => ({ page: rule.page, label: rule.label, path: rule.build({}).path }));
 }

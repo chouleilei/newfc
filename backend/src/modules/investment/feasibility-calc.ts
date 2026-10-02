@@ -1,7 +1,7 @@
 /**
  * 投资可行性标准模型 standard-1.0 计算器(T-5,AC-F12)。
  *
- * 口径移植自 lishui investment_feasibility(calculator / financing_schedule / sensitivity / risk_rules),
+ * 口径为 standard-1.0，来源记录见 docs/source-provenance.md，
  * 见 specs/implementation.md「投资可行性测算」。金额单位万元;每个中间结果按 6 位小数 HALF_UP
  * 量化(money),与 Python Decimal quantize 一致。数值全程为 bigint 定点(core/fixed),不经过浮点。
  * 纯函数:不读库、不写库;调用方负责校验输入(contracts/investment-feasibility)与持久化。
@@ -496,7 +496,7 @@ function scaleField(item: Record<string, unknown>, field: string, multiplier: Fx
   item[field] = S6(fxMax(FX_ZERO, mul(fx(String(v)), multiplier)));
 }
 
-/** 对深拷贝的项目年份与输入施加一个敏感性变动(移植 lishui sensitivity._apply_sensitivity_mode)。 */
+/** 对深拷贝的项目年份与输入施加一个敏感性变动。 */
 export function applySensitivity(project: FeasProjectYears, a: FeasibilityAssumptions, code: SensitivityCode, change: string, mode: 'relative' | 'percentage_point' | 'year_delta'): void {
   const delta = fx(change);
   if (mode === 'year_delta') {
@@ -553,7 +553,7 @@ export interface FeasRiskHit {
   evidence: Record<string, unknown>;
 }
 
-/** 从冻结的测算结果生成风险命中(移植 lishui risk_rules.generate_risks,口径见 spec 风险规则表)。 */
+/** 从冻结的测算结果生成风险命中(口径见 spec 风险规则表)。 */
 export function feasibilityRiskHits(result: FeasResultDto): FeasRiskHit[] {
   const by = new Map(result.indicators.map((i) => [i.code, i]));
   const hits: FeasRiskHit[] = [];

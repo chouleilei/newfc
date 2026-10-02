@@ -891,7 +891,7 @@ export function completionReport(db: DB, input: CompletionInput): CompletionRepo
   };
   const { unbudgetedActual, reconciliation } = scopeActualCoverage(scope);
   /**
-   * 核验事实(§9.5):页面 VerifyBar、小澧助手与导出共用。
+   * 核验事实(§9.5):页面 VerifyBar、财务助手与导出共用。
    * 分类与上面的 paceClass 共用 verification.ts 的 classifyPace。
    */
   const verificationFacts = completionVerificationFacts({

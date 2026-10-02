@@ -91,7 +91,7 @@ export const STATEMENT_FLOW_METRICS = [
 ] as const satisfies readonly StatementMetricCode[];
 export type StatementFlowMetricCode = (typeof STATEMENT_FLOW_METRICS)[number];
 
-/** 多期趋势(对应 lishui `/financial-statements/trends`):同一报表单位 + 口径的当前批次按期间排列。 */
+/** 多期趋势:同一报表单位 + 口径的当前批次按期间排列。 */
 export interface StatementTrendPointDto {
   period: string; batchId: number; metrics: StatementMetricsDto; ratios: StatementRatiosDto;
   /** 当月发生额;上一期间缺失(非 1 月)时为 null。 */

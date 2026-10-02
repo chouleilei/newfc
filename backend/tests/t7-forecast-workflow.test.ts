@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { boot, get, json, post, type Session } from './t3-helpers';
-import { createScopedUser, fetchAs } from './http-helpers';
+import { createScopedUser, fetchAs, TEST_ADMIN } from './http-helpers';
 
 /**
  * T-7 财务预测补齐 lishui(AC-F11):模型目录、冻结即提交复核(提交人 ≠ 复核人)、复核通过后发布运行、撤回、
@@ -12,7 +12,7 @@ const patch = (base: string, s: Session, url: string, body: unknown) =>
   fetchAs(s, `${base}${url}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 async function ok(res: Response | Promise<Response>, status = 200) {
   const r = await res;
-  const body = await r.json();
+  const body = await json(r);
   expect(r.status, JSON.stringify(body).slice(0, 1000)).toBe(status);
   return body;
 }
@@ -47,6 +47,38 @@ async function run(base: string, s: Session, versionId: number, body: Record<str
 }
 
 describe('T-7 财务预测:目录、复核、发布、时间线、洞察', () => {
+  it('待复核队列与首页计数一致;排除草稿、已审与归档模型,按范围裁剪', async () => {
+    const { base, db, admin, fx } = await boot('newfc-review-queue-');
+    const makeModel = (name: string, orgId: number) => ok(post(base, admin, `${FF}/models`, { name, orgId, baseYear: 2026, horizonYears: 3 }), 201);
+    const sh = await makeModel('上海待审', fx.orgIds.shanghai);
+    const hz = await makeModel('杭州待审', fx.orgIds.hangzhou);
+    const archived = await makeModel('归档模型', fx.orgIds.shanghai);
+    const v = await frozen(base, admin, sh.id, '1000');
+    await frozen(base, admin, hz.id, '2000');
+    await frozen(base, admin, archived.id, '3000');
+    await ok(patch(base, admin, `${FF}/models/${archived.id}`, { expectedVersion: archived.version, status: 'archived' }));
+    await ok(post(base, admin, `${FF}/models/${sh.id}/versions`, { workbook: workbook('4000') }), 201);
+    const reviewer = createScopedUser(db, { username: 'queue-sh', roleCodes: ['business_reviewer'], orgIds: [fx.orgIds.shanghai] }).session;
+    const queue = (s: Session, query = '') => ok(get(base, s, `${FF}/review-queue${query}`));
+    const todo = async (s: Session) => (await ok(get(base, s, '/api/dashboard/todos'))).items.find((i: { key: string }) => i.key === 'forecast_review');
+    expect((await queue(admin)).items).toHaveLength(2);
+    const east = createScopedUser(db, { username: 'queue-east', roleCodes: ['business_reviewer'], orgIds: [fx.orgIds.east] }).session;
+    expect((await queue(east)).items).toHaveLength(2);
+    expect((await todo(east)).count).toBe(2);
+    expect((await queue(reviewer)).items).toMatchObject([{ versionId: v.id, modelName: '上海待审', versionNo: 1, frozenBy: TEST_ADMIN.username }]);
+    expect(await todo(reviewer)).toMatchObject({ count: 1, path: '/forecast?tab=reviews' });
+    expect((await queue(admin, `?orgId=${fx.orgIds.hangzhou}`)).items).toHaveLength(1);
+    expect(await status(get(base, reviewer, `${FF}/review-queue?orgId=${fx.orgIds.hangzhou}`))).toEqual([404, 'NOT_FOUND']);
+    expect((await get(base, reviewer, `${FF}/review-queue?orgId=bad`)).status).toBe(400);
+    await ok(post(base, reviewer, `${FF}/versions/${v.id}/review`, { expectedVersion: v.version, decision: 'return', comment: '调整口径' }));
+    expect((await queue(reviewer)).items).toEqual([]);
+    expect((await todo(reviewer)).count).toBe(0);
+    const viewer = createScopedUser(db, { username: 'queue-viewer', roleCodes: ['viewer'], allOrgs: true }).session;
+    expect(await todo(viewer)).toBeUndefined();
+    const none = createScopedUser(db, { username: 'queue-none', roleCodes: [], allOrgs: true }).session;
+    expect((await get(base, none, `${FF}/review-queue`)).status).toBe(403);
+  });
+
   it('完整流程与权限、范围', async () => {
     const { base, db, admin, fx } = await boot('newfc-t7-ff-');
     const sh = fx.orgIds.shanghai;
@@ -70,6 +102,14 @@ describe('T-7 财务预测:目录、复核、发布、时间线、洞察', () =>
     // 冻结即待复核;未复核不能发布
     const v1 = await frozen(base, analyst, m.id, '1000');
     expect(v1).toMatchObject({ status: 'frozen', reviewStatus: 'pending', review: null });
+    // 同名与改名均不能影响服务端按账号ID判定本人提交。
+    db.prepare('UPDATE app_user SET display_name = ? WHERE username IN (?, ?)').run('同名人员', 'ff7-analyst', 'ff7-reviewer');
+    expect((await ok(get(base, analyst, `${FF}/versions/${v1.id}`))).frozenByCurrentUser).toBe(true);
+    expect((await ok(get(base, reviewer, `${FF}/versions/${v1.id}`))).frozenByCurrentUser).toBe(false);
+    db.prepare('UPDATE app_user SET display_name = ? WHERE username = ?').run('改名编制人', 'ff7-analyst');
+    expect((await ok(get(base, analyst, `${FF}/versions/${v1.id}`))).frozenByCurrentUser).toBe(true);
+    db.prepare('UPDATE app_user SET display_name = username WHERE username IN (?, ?)').run('ff7-analyst', 'ff7-reviewer');
+
     const b1 = await run(base, analyst, v1.id, { kind: 'baseline' });
     expect(await status(post(base, analyst, `${FF}/runs/${b1.id}/publish`, {}))).toEqual([409, 'FORECAST_VERSION_STATE']);
 

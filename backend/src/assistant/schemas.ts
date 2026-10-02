@@ -1,6 +1,7 @@
+import type { DomainContext } from './domain-scope';
 import { Errors } from '../core/errors';
 import { normalizeContext } from './context';
-export interface AssistantContext {
+export interface AssistantContext extends DomainContext {
   year?: number;
   budgetVersionId?: number;
   targetVersionId?: number;
@@ -21,6 +22,9 @@ export interface ChatRequest {
   pageContext?: unknown;
 }
 export interface AssistantCitation {
+  period?: string;
+  orgScopeId?: number;
+  references?: { kind: string; id: number; label: string; path: string; hash?: string }[];
   source: string;
   asOf: string;
   year?: number;

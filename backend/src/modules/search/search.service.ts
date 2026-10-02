@@ -78,8 +78,7 @@ function collect(db: DB, type: SearchType, k: string): Candidate[] {
         status: CLAIM_STATUS_LABELS[c.status] ?? c.status, path: `/expense?id=${c.id}`, updatedAt: c.updatedAt,
       }));
     case 'project_budget_batch': {
-      const lower = k.toLowerCase();
-      return listProjectBudgetBatches(db).filter((b) => b.name.toLowerCase().includes(lower) || b.period.includes(k)).map((b) => ({
+      return listProjectBudgetBatches(db, { keyword: k }).map((b) => ({
         id: b.id, code: b.period, title: b.name, subtitle: b.fileName, orgName: null, status: b.status === 'voided' ? '已作废' : b.isCurrent ? '当前批次' : '已导入',
         path: `/project-budget?batchId=${b.id}`, updatedAt: b.createdAt,
       }));

@@ -16,6 +16,7 @@ import { AppError } from '../../core/errors';
 import { writeLog } from '../audit/log';
 import { currentAuth } from '../../core/request-context';
 import { getSetting } from '../settings/business-settings';
+import { recognizeAttachment, type OcrConfig, type OcrText } from './ocr-client';
 import type { ObjectStore } from '../files/object-store';
 import { submitJob, type JobHandle } from '../jobs/job.service';
 import { EnvChatModel, modelConfigured } from '../../assistant/model';
@@ -30,13 +31,10 @@ export interface DraftFinding {
   source: FindingSource; code: string; severity: FindingSeverity; message: string; evidence: EvidenceRef[]; clauseId: number | null;
 }
 
-interface OcrText { text: string; pages: { page: number; text: string }[] }
 interface OcrOutcome { status: AuditRunDto['ocrStatus']; texts: Map<number, OcrText>; findings: DraftFinding[] }
 interface ModelOutcome { status: AuditRunDto['modelStatus']; findings: DraftFinding[] }
 
 const OCR_EXTENSIONS = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp', '.ofd']);
-const OCR_TIMEOUT_MS = 30_000;
-const MAX_OCR_CHARS = 200_000;
 const MAX_MODEL_FINDINGS = 10;
 const MODEL_EXCERPT_CHARS = 2_000;
 
@@ -48,32 +46,6 @@ const fieldRef = (field: string, text?: string): EvidenceRef => ({ kind: 'field'
 const attachmentRef = (a: AttachmentRow): EvidenceRef => ({ kind: 'attachment', ref: String(a.id), text: a.name });
 
 /* ================= OCR ================= */
-
-/**
- * OCR 适配:POST {base_url},JSON {fileName, contentType, contentBase64};可选 Bearer 密钥。
- * 响应 {text?: string, pages?: [{page, text}]},两者至少其一。
- */
-async function callOcr(baseUrl: string, apiKey: string | null, file: { name: string; content: Buffer }): Promise<OcrText> {
-  const res = await fetch(baseUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-    body: JSON.stringify({ fileName: file.name, contentType: ocrContentType(file.name), contentBase64: file.content.toString('base64') }),
-    signal: AbortSignal.timeout(OCR_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`OCR 服务返回 HTTP ${res.status}`);
-  const body = await res.json() as { text?: unknown; pages?: unknown };
-  const pages = Array.isArray(body.pages)
-    ? body.pages.filter((p): p is { page: number; text: string } => !!p && typeof p === 'object' && Number.isSafeInteger((p as { page: unknown }).page) && typeof (p as { text: unknown }).text === 'string')
-    : [];
-  const text = typeof body.text === 'string' ? body.text : pages.map((p) => p.text).join('\n');
-  if (typeof body.text !== 'string' && pages.length === 0) throw new Error('OCR 响应缺少 text/pages');
-  return { text: text.slice(0, MAX_OCR_CHARS), pages: pages.map((p) => ({ page: p.page, text: p.text.slice(0, MAX_OCR_CHARS) })) };
-}
-
-function ocrContentType(name: string): string {
-  const ext = path.extname(name).toLowerCase();
-  return ext === '.pdf' ? 'application/pdf' : ext === '.ofd' ? 'application/ofd' : `image/${ext === '.jpg' ? 'jpeg' : ext === '.tif' ? 'tiff' : ext.slice(1)}`;
-}
 
 async function runOcr(db: DB, store: ObjectStore, attachments: AttachmentRow[]): Promise<OcrOutcome> {
   const texts = new Map<number, OcrText>();
@@ -89,7 +61,11 @@ async function runOcr(db: DB, store: ObjectStore, attachments: AttachmentRow[]):
       }],
     };
   }
-  const apiKey = getSetting<string | null>(db, 'integration.ocr_api_key');
+  const config: OcrConfig = {
+    baseUrl, provider: getSetting(db, 'integration.ocr_provider'), apiKey: getSetting(db, 'integration.ocr_api_key'),
+    username: getSetting(db, 'integration.ocr_username'), password: getSetting(db, 'integration.ocr_password'),
+    apiType: getSetting(db, 'integration.ocr_api_type'), timeoutSeconds: getSetting(db, 'integration.ocr_timeout_seconds'),
+  };
   const findings: DraftFinding[] = [];
   const cacheGet = db.prepare('SELECT text_content, pages_json FROM ex_ocr_cache WHERE sha256 = ?');
   for (const a of targets) {
@@ -99,7 +75,7 @@ async function runOcr(db: DB, store: ObjectStore, attachments: AttachmentRow[]):
       continue;
     }
     try {
-      const result = await callOcr(baseUrl, apiKey, { name: a.name, content: store.read(a.file_sha256) });
+      const result = await recognizeAttachment(config, { name: a.name, content: store.read(a.file_sha256) });
       texts.set(a.id, result);
       db.prepare('INSERT OR IGNORE INTO ex_ocr_cache (sha256, text_content, pages_json, created_at) VALUES (?, ?, ?, ?)')
         .run(a.file_sha256, result.text, JSON.stringify(result.pages), new Date().toISOString());
@@ -209,7 +185,7 @@ export function evaluateRules(input: AuditInput): { findings: DraftFinding[]; us
       }
       continue;
     }
-    // 至少命中 N 项(lishui 口径):不足时一条发现,列出已识别与未识别的材料
+    // 至少命中 N 项:不足时一条发现,列出已识别与未识别的材料
     const hit = c.required_keywords.length - missing.length;
     if (hit < c.keyword_min_matches) {
       const found = c.required_keywords.filter((kw) => !missing.includes(kw));

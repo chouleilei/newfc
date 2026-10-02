@@ -14,7 +14,7 @@ export const SEARCH_TYPE_LABELS: Record<SearchType, string> = {
   analysis_report: '分析报告', budget_version: '经营预算版本',
 };
 
-/** 检索建议里的类型说明(对应 lishui search/suggestions):告诉用户每类按哪些字段匹配。 */
+/** 检索建议里的类型说明:告诉用户每类按哪些字段匹配。 */
 export const SEARCH_TYPE_HINTS: Record<SearchType, string> = {
   project: '按项目编码、名称、类型', supplier: '按供应商名称、编码、信用代码', contract: '按合同编号、名称、供应商',
   expense_claim: '按报销单号、申请人、事由', project_budget_batch: '按批次名称、期间', feasibility_project: '按项目编码、名称',

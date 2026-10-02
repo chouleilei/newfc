@@ -5,7 +5,7 @@ import { expectedVersion, id, optionalText } from './common';
  * 投资可行性测算契约(T-5,AC-F12)。
  *
  * assumptions 是版本化的模型输入文档(schema_version = standard-1.0),字段名沿用标准模型
- * (snake_case,与 lishui 标准模板/回归样本一致);金额单位万元、最多 6 位小数,比率 0~1、最多 6 位小数。
+ * (snake_case,与本项目标准模板/回归样本一致);金额单位万元、最多 6 位小数,比率 0~1、最多 6 位小数。
  * 数值一律以十进制字符串传输(也接受不带指数的 JSON 数字),服务端规范化后参与 hash 与计算。
  */
 
@@ -302,6 +302,8 @@ export interface FeasReportDto {
   id: number; scenarioId: number; scenarioCode: string; scenarioName: string; projectId: number; projectCode: string; projectName: string; orgName: string;
   runId: number; parameterHash: string; title: string; content: string; source: 'template' | 'model'; model: string; promptVersion: string;
   status: FeasReportStatus; submittedBy: string | null; submittedAt: string | null;
+  /** 服务端按当前用户 ID 判断,显示名不能用于本人复核判断。 */
+  submittedByCurrentUser: boolean;
   reviewer: string | null; reviewedAt: string | null; reviewComment: string | null; exceptionReason: string | null; selfReview: boolean;
   /** 报告依据的运行参数与方案当前参数不同:提示“方案已修改,报告依据已过期” */
   stale: boolean;

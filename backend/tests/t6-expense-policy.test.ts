@@ -4,13 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { boot, get, post, upload, type Session } from './t3-helpers';
 import { createScopedUser } from './http-helpers';
 
-/**
- * OPEN-05(与 lishui 一致):deploy/expense-policy-lishui.json 按 lishui 首版预审规则
- * (rules.py 的六类阈值与必备材料关键词,材料至少命中 min(2, 关键词数) 项)建立制度依据,
- * 审核结论与 lishui 口径一致;条款“至少命中 N 项”不大于关键词数。
- */
+/** AC-F22：首版制度六类阈值与材料命中规则；来源与兼容编码见 docs/source-provenance.md。 */
 
-const SAMPLE = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../deploy/expense-policy-lishui.json'), 'utf8')) as {
+const SAMPLE = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../deploy/expense-policy-v1.json'), 'utf8')) as {
   clauses: { clauseNo: string; requiredKeywords: string[]; keywordMinMatches?: number }[];
 };
 

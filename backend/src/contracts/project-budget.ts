@@ -1,9 +1,15 @@
 import { z } from 'zod';
-import { id, period, reason, type MoneyString, type RatioString } from './common';
+import { id, pageQuery, period, reason, type MoneyString, type RatioString } from './common';
 
 /** AC-F09 项目预算:请求 schema 与响应类型。 */
 
 export const year = z.coerce.number().int().min(2000).max(2100);
+export const pbBatchListQuery = z.object({
+  year: year.optional(), period: period.optional(), status: z.enum(['imported', 'voided']).optional(),
+  keyword: z.string().trim().max(100).optional(),
+});
+export type PbBatchListQuery = z.infer<typeof pbBatchListQuery>;
+export const pbBatchPageQuery = pbBatchListQuery.merge(pageQuery);
 
 /** multipart 表单字段(预览与导入相同):年度 + 执行期间(须在年度内)。 */
 export const pbUploadForm = z.object({ year, period, name: z.string().trim().max(100).optional() })

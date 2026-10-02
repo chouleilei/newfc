@@ -10,7 +10,7 @@ const decimal = z.string().trim().regex(/^-?\d{1,15}(\.\d{1,12})?$/, '应为十�
 const cellRef = z.string().trim().min(3).max(200).regex(/^(?:'(?:[^']|'')+'|[^!]+)!\$?[A-Za-z]{1,3}\$?\d+$/, '单元格应写成 工作表!A1');
 const rowRef = z.string().trim().min(3).max(200)
   .regex(/^(?:'(?:[^']|'')+'|[^!]+)!\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?$/, '输出应写成 工作表!B5 或 工作表!B5:F5(一行)');
-/** 模型目录(lishui 模型文件夹):'/' 分隔的路径,空串为根目录。 */
+/** 模型目录:'/' 分隔的路径,空串为根目录。 */
 const modelFolder = z.string().trim().max(120).regex(/^[^/]+(\/[^/]+)*$|^$/, '目录用 / 分隔,不能以 / 开头或结尾');
 const mapKey = z.string().trim().regex(/^[a-z][a-z0-9_]{0,63}$/, '编码只能用小写字母、数字和下划线,字母开头');
 
@@ -66,6 +66,12 @@ export const ffModelListQuery = z.object({
   status: z.enum(['active', 'archived']).optional(),
   keyword: z.string().trim().max(100).optional(),
 }).strict();
+
+export const ffReviewQueueQuery = z.object({ orgId: id.optional() }).strict();
+export interface FfReviewQueueItemDto {
+  versionId: number; modelId: number; modelName: string; orgId: number; orgName: string;
+  versionNo: number; note: string; frozenAt: string | null; frozenBy: string | null;
+}
 
 export const ffVersionCreate = z.object({
   workbook: workbookJson,

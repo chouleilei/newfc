@@ -80,8 +80,34 @@ describe('AC-X08 显式迁移', () => {
 describe('AC-X01 仓库与运行隔离', () => {
   const runtimeFiles = [
     'backend/src/index.ts', 'backend/src/server.ts', 'backend/src/db/migrate-cli.ts', 'backend/src/env.ts',
-    'deploy/newfc.service', 'scripts/deploy.sh', '.env.example', 'frontend/vite.config.ts', 'frontend/playwright.config.ts',
+    'backend/AI_ASSISTANT.md', 'deploy/newfc.service', 'scripts/deploy.sh', '.env.example', 'frontend/vite.config.ts', 'frontend/playwright.config.ts',
   ];
+
+  it('全部源码与脚本没有指向旧服务的请求地址；模拟主数据只有纯定义', () => {
+    function checkDir(dir: string): void {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name);
+        if (entry.isDirectory()) checkDir(file);
+        else if (/\.(?:ts|tsx|cjs|sh)$/.test(file)) {
+          const text = fs.readFileSync(file, 'utf8');
+          expect(text, file).not.toMatch(/(?:https?:\/\/[^\s'"`]*:3748\b|(?:NEWFC_PORT|PORT)\s*=\s*3748\b)/);
+          if (file.startsWith(path.join(REPO_ROOT, 'frontend/src')) && !file.endsWith('browserStorage.ts') && !/\.test\./.test(file)) {
+            expect(text, file).not.toMatch(/\bbd[-:]|--bd-|\bBdEmpty\b|小澧助手|budget-theme-mode/);
+          }
+        }
+      }
+    }
+    for (const dir of ['backend/src', 'backend/scripts', 'frontend/src', 'scripts']) {
+      checkDir(path.join(REPO_ROOT, dir));
+    }
+    for (const obsolete of ['seed-lishui-org.cjs', 'seed-lishui-account.cjs']) {
+      expect(fs.existsSync(path.join(REPO_ROOT, 'backend/scripts', obsolete))).toBe(false);
+    }
+    const fixture = fs.readFileSync(path.join(REPO_ROOT, 'backend/scripts/fixtures/water-finance-master-data.cjs'), 'utf8');
+    expect(fixture).not.toMatch(/\b(?:require|fetch|Database|process|main)\b/);
+    const css = fs.readFileSync(path.join(REPO_ROOT, 'frontend/src/index.css'), 'utf8');
+    expect(css).not.toMatch(/\bbd[-:]|--bd-|\bbd[A-Z]/);
+  });
 
   it('运行配置与脚本不引用原项目目录、服务名或端口', () => {
     for (const rel of runtimeFiles) {

@@ -1,3 +1,6 @@
+import { resolveDomainMessage, summarizeDomainFacts, domainSuggestions, domainSource } from './domain-facts';
+import { validateDomainContext, domainBatchContext, DOMAIN_ID_FIELDS } from './domain-context';
+import { domainWriteRequest, isDomainIntent } from './domain-intents';
 import crypto from 'crypto';
 import { promptSupplement } from '../modules/settings/prompt-supplements.service';
 import { currentOwnerId, insightRowsFilter, ownedRowsFilter } from './ownership';
@@ -242,6 +245,8 @@ function deterministicSummary(
   options: { rankFocus?: number | null } = {},
 ): string {
   if (!facts.length) return '当前问题没有足够的上下文。请提供年度、预算版本或实际快照；如涉及修改，请先创建预览并确认。';
+  const domainText = summarizeDomainFacts(facts);
+  if (domainText) return domainText;
   // 导航是最强意图信号：用户明确要求跳转时先给页面。
   const navigation: any = facts.find((f) => f.type === 'navigation')?.data;
   if (navigation?.target) {
@@ -562,6 +567,8 @@ function summarizeVersionsText(versions: any[], context: AssistantContext): stri
 
 /** 上下文相关建议:只根据已获得的事实和缺失条件生成，全部标记为建议供用户点击。 */
 function buildSuggestions(facts: FactRecord[], context: AssistantContext, navigation: NavigationTarget | null): string[] {
+  const domain = domainSuggestions(facts, context);
+  if (domain) return domain;
   const out: string[] = [];
   const has = (type: string) => facts.some((f) => f.type === type);
   for (const f of facts.filter((x) => x.type === 'missing_context')) {
@@ -963,6 +970,55 @@ function historyMessagesForModel(db: DB, conversationId: number, limit = 10): an
  *  超出部分不执行,以错误作为 tool 消息回给模型。 */
 const MAX_TOOL_CALLS_PER_ROUND = 8;
 
+/** 模型不可扩大已核验的本轮范围；遗漏的维度由服务端注入，冲突显式报错。 */
+export function alignDomainToolArguments(name: string, args: Record<string, unknown>, context: AssistantContext, view: Record<string, unknown> = {}): Record<string, unknown> {
+  const fields: Record<string, Record<string, keyof AssistantContext>> = {
+    feasibility_report_read: { reportId: 'feasReportId', projectId: 'feasProjectId', scenarioId: 'scenarioId' }, task_status: { jobId: 'jobId' }, statement_trends: { from: 'periodFrom', to: 'periodTo', scope: 'statementScope' },
+    contract_detail: { contractId: 'contractId' }, expense_detail: { claimId: 'claimId' }, project_profile: { projectId: 'projectId' },
+    feasibility_result: { projectId: 'feasProjectId', scenarioId: 'scenarioId' }, investment_comparison: { projectId: 'icProjectId', comparisonId: 'comparisonId' },
+    forecast_runs: { modelId: 'modelId' }, forecast_result: { versionId: 'forecastVersionId', runId: 'forecastRunId' },
+    risk_detail: { riskId: 'riskId' }, analysis_report_read: { reportId: 'reportId' }, standard_report_read: { reportId: 'standardReportId' },
+    governance_issues: { issueId: 'governanceIssueId' }, mgmt_metric_snapshots: { metricId: 'mgmtMetricId' },
+    contract_summary: { projectId: 'projectId' }, project_budget_summary: { projectId: 'projectId' }, plan_execution_overview: { projectId: 'projectId', asOfPeriod: 'period' },
+    statement_overview: { scope: 'statementScope' },
+  };
+  const domainNames = new Set(['domain_ledger', 'mgmt_analysis', 'authorization_scope', 'domain_batch_read', 'statement_trends', 'mgmt_workspace', 'domain_workspace', 'feasibility_report_read', 'eas_period_status', 'statement_overview', 'mgmt_metric_snapshots', 'mgmt_alerts', 'project_budget_summary', 'plan_execution_overview', 'contract_summary', 'contract_detail', 'expense_audit_queue', 'expense_detail', 'policy_search', 'feasibility_result', 'investment_comparison', 'forecast_runs', 'forecast_result', 'risk_summary', 'risk_detail', 'report_list', 'analysis_report_read', 'standard_report_read', 'governance_issues', 'project_profile', 'master_entities', 'cross_search', 'task_status', 'configuration_overview']);
+  if (!domainNames.has(name)) return args;
+  const out = { ...args };
+  const bindView = (param: string, value: unknown) => {
+    if (value == null || value === '' || !toolAcceptsParam(name, param)) return;
+    const same = Array.isArray(value) && Array.isArray(out[param])
+      ? JSON.stringify([...value].sort()) === JSON.stringify([...(out[param] as unknown[])].sort())
+      : String(out[param]) === String(value);
+    if (out[param] != null && !same) throw new AppError('CONTEXT_CONFLICT', `工具筛选 ${param} 与当前页面不一致`, 409);
+    out[param] = value;
+  };
+  if (name === 'mgmt_analysis') for (const key of ['metricIds', 'periods', 'groupBy', 'dimensionId']) bindView(key, view[key]);
+  if (name === 'mgmt_workspace') {
+    if (['centers','metrics','dimensions','allocation','performance','budget-adjust'].includes(String(view.tab))) bindView('kind', view.tab);
+    for (const key of ['status', 'schemeId']) bindView(key, view[key]);
+  }
+  if (name === 'domain_workspace') {
+    const prefix = ({ eas: 'eas', risk: 'risk', forecast: 'forecast' } as Record<string, string>)[context.page ?? ''];
+    if (prefix && ['locks','corrections','aux','scans','rules','reviews','publications'].includes(String(view.tab))) bindView('kind', `${prefix}_${view.tab}`);
+    for (const key of ['status', 'includeWithdrawn', 'pendingOnly']) bindView(key, view[key]);
+  }
+  if (name === 'master_entities') { bindView('keyword', view.keyword); if (['projects','suppliers'].includes(String(view.tab))) bindView('kind', view.tab === 'suppliers' ? 'supplier' : 'project'); }
+  const filtered = Object.entries(view).some(([k,v]) => ['status','keyword','level','folder','kind','todo','stage'].includes(k) && v != null && v !== '');
+  if (filtered && (name === 'contract_summary' || name === 'expense_audit_queue' || (name === 'forecast_runs' && !context.modelId) || (name === 'risk_summary' && !context.riskId) || name === 'report_list')) throw new AppError('CONTEXT_CONFLICT', '当前台账有筛选，请使用 domain_ledger 保留筛选口径', 409);
+  if (name === 'domain_ledger') { const kind = ({ contracts: 'contracts', expense: 'expense', forecast: 'forecast', risk: 'risk', feasibility: 'feasibility', investment_control: 'investment', analysis_reports: 'reports' } as Record<string,string>)[context.page ?? '']; if (kind) { if (out.kind != null && out.kind !== kind) throw new AppError('CONTEXT_CONFLICT', '台账类型与当前页面不一致', 409); out.kind = kind; } for (const key of ['status','keyword','level','folder','todo','stage','kind']) { const param = key === 'kind' ? 'reportKind' : key; if (view[key] == null || view[key] === '') continue; if (out[param] != null && String(out[param]) !== String(view[key])) throw new AppError('CONTEXT_CONFLICT', `工具筛选 ${param} 与当前页面不一致`, 409); out[param] = view[key]; } }
+  if (name === 'domain_batch_read') { const histories = { statement: context.statementBatchId, project_budget: context.projectBudgetBatchId, plan: context.planBatchId, eas: context.easBatchId }; const selected = Object.entries(histories).filter(([, id]) => id != null); if (selected.length === 1) { const [kind, batchId] = selected[0]; if ((out.kind != null && out.kind !== kind) || (out.batchId != null && String(out.batchId) !== String(batchId))) throw new AppError('CONTEXT_CONFLICT', '工具批次与当前详情不一致', 409); out.kind = kind; out.batchId = batchId; } }
+  const liveTools: Record<string, number | undefined> = { statement_overview: context.statementBatchId, project_budget_summary: context.projectBudgetBatchId, plan_execution_overview: context.planBatchId, eas_period_status: context.easBatchId };
+  if (liveTools[name] != null) throw new AppError('CONTEXT_CONFLICT', '当前打开指定历史批次，请使用 domain_batch_read 查询，不能替换为当前生效数据', 409);
+  const dimensions = { ...(fields[name] ?? {}), orgScopeId: 'orgId', period: 'period', year: 'year' } as Record<string, keyof AssistantContext>;
+  for (const [param, field] of Object.entries(dimensions)) {
+    if (!toolAcceptsParam(name, param) || context[field] == null) continue;
+    if (out[param] != null && String(out[param]) !== String(context[field])) throw new AppError('CONTEXT_CONFLICT', `工具参数 ${param} 与本轮已核验范围不一致`, 409);
+    out[param] = context[field];
+  }
+  return out;
+}
+
 /** 工具调用结果转事实记录，并把调用与结果写回消息列表供模型继续推理。 */
 function runToolCalls(
   db: DB,
@@ -971,6 +1027,7 @@ function runToolCalls(
   context: AssistantContext,
   messages: any[],
   allowedTools?: ReadonlySet<string>,
+  view: Record<string, unknown> = {},
 ): FactRecord[] {
   const out: FactRecord[] = [];
   for (const [callIndex, call] of calls.entries()) {
@@ -982,7 +1039,7 @@ function runToolCalls(
       // 模型只暴露本轮 PageCapabilityMap 允许的领域能力(§9.3)。
       data = { error: `当前页面不提供该查询能力(${call.name})，请改用页面允许的只读工具`, code: 'CAPABILITY_UNAVAILABLE' };
     } else {
-      try { data = executeTool(db, call.name, call.arguments); }
+      try { call.arguments = alignDomainToolArguments(call.name, call.arguments, context, view); data = executeTool(db, call.name, call.arguments); }
       catch (err) { data = { error: err instanceof Error ? err.message : String(err) }; }
     }
     const toolData: any = data as any;
@@ -997,10 +1054,11 @@ function runToolCalls(
       type: `tool:${call.name}`,
       data,
       source: {
+        ...domainSource(call.name, call.arguments, toolData),
         year: toolAcceptsParam(call.name, 'year') ? (safeInt(call.arguments?.year) ?? context.year) : undefined,
         budgetVersionId: toolAcceptsParam(call.name, 'versionId') ? (safeInt(call.arguments?.versionId) ?? context.budgetVersionId ?? null) : null,
         actualSnapshotId: toolAcceptsParam(call.name, 'batchId') ? (safeInt(call.arguments?.batchId) ?? context.actualSnapshotId ?? null) : null,
-        asOf: typeof toolData?.asOfDate === 'string' ? toolData.asOfDate : now(),
+        ...(typeof toolData?.asOfDate === 'string' ? { asOf: toolData.asOfDate } : {}),
       },
     });
     messages.push(
@@ -1058,6 +1116,7 @@ async function runModelRouting(
     context: AssistantContext;
     detection: IntentDetection;
     digest: unknown;
+    view?: Record<string, unknown>;
     conversationId: number;
     /** 本轮允许的领域能力工具集(V2 页面口径)；缺省不限制(旧客户端)。 */
     allowedTools?: ReadonlySet<string>;
@@ -1124,7 +1183,7 @@ async function runModelRouting(
     const executable = callsThisRound.slice(0, allowedThisRound);
     const overflow = callsThisRound.slice(allowedThisRound);
     usage.toolCalls += callsThisRound.length;
-    toolFacts.push(...runToolCalls(db, executable, round, input.context, messages, input.allowedTools));
+    toolFacts.push(...runToolCalls(db, executable, round, input.context, messages, input.allowedTools, input.view));
     for (const call of overflow) {
       messages.push({ role: 'tool', tool_call_id: call.id || `overflow-${call.name}`, name: call.name, content: JSON.stringify({ error: `单次对话工具调用总数超过上限 ${MAX_TOTAL_TOOL_CALLS} 个,请基于已取到的事实作答`, code: 'TOO_MANY_TOOL_CALLS_TOTAL' }) });
     }
@@ -1145,10 +1204,11 @@ async function runModelRouting(
   }
   const modelProducedNothing = !text;
 
+  if (toolFacts.length && toolFacts.every((f) => !!(f.data as any)?.error) && input.detection.read.some(isDomainIntent)) return { facts: [], text: '', model: modelName, routed: false, degraded: '模型工具参数或范围校验未通过，已改用同源确定性查询', ...usage };
   if (!toolFacts.length) {
     // 模型没有路由：用正则兜底取事实，再让模型基于事实作答(不再给工具，避免来回)。
     onProgress?.({ stage: 'fallback', label: '模型未调用工具，改用关键词兜底取数' });
-    const fallback = queryFacts(db, input.message, input.context, { intents: input.detection, includeExtras: false });
+    const fallback = queryFacts(db, input.message, input.context, { intents: input.detection, includeExtras: false, view: input.view });
     if (fallback.length) {
       const factsJson = stringifyForModel(fallback.map((f) => ({ type: f.type, source: f.source, data: f.data })), 60_000);
       messages.push({ role: 'system', content: buildFallbackFactsPrompt(factsJson) });
@@ -1440,6 +1500,7 @@ function summarizeDraftValidation(draft: { baseline: string; changeCount: number
 /** 后端实际采用的安全范围(§9.7 effectiveContext)。 */
 function buildEffectiveContext(backendCtx: ResolvedBackendContext, context: AssistantContext) {
   return {
+    ...Object.fromEntries([...DOMAIN_ID_FIELDS, 'period', 'periodFrom', 'periodTo', 'statementScope'].filter((k) => (context as any)[k] != null).map((k) => [k, (context as any)[k]])),
     pageKey: backendCtx.pageKey,
     pageLabel: backendCtx.pageLabel,
     ...(context.year != null ? { year: context.year } : {}),
@@ -1478,12 +1539,13 @@ export async function chat(
     requested = { ...requested, ...backendCtx.pageContext };
     validateContextConsistency(db, requested);
   }
+  Object.assign(requested, domainBatchContext(db, requested));
   // 新会话先用 0 作为无历史的临时 ID，直到回答完成且未取消才真正落库；
   // 这样 SSE 在 open 后立即断开不会留下空会话。
   let conversationId = input?.conversationId == null ? 0 : ensureConversation(db, input.conversationId, message);
 
   // 1) 意图识别(正则)：既作为模型不可用时的路由，也作为提示词里的参考
-  const detected = detectIntents(message);
+  const detected = detectIntents(message, requested.page);
   // 2) 上下文解析：年度/组织/科目/版本/快照/导入批次，请求 > 消息 > 上一轮 > 默认
   const inherited = inheritedTurn(db, conversationId);
   // 只读提问才允许句子里的年度覆盖筛选器；写操作里的年份通常是目标年度，不能覆盖。
@@ -1517,6 +1579,8 @@ export async function chat(
       resolution.push({ field: 'orgId', value: context.orgId, origin: 'default', reason: '按当前账号的授权组织范围', label: orgRow?.name });
     }
   }
+  validateDomainContext(db, context);
+  const domainResolved = resolveDomainMessage(db, message, context, inherited.context, detection.read, looksLikeFollowUp(message) && (!requested.page || requested.page === inherited.context.page || requested.page === 'assistant'));
   const ambiguities = resolved.ambiguities;
   options.onProgress?.({
     stage: 'context',
@@ -1529,6 +1593,7 @@ export async function chat(
   });
   validateContextConsistency(db, context);
   const digest = contextDigest(db, context, resolution);
+  if (backendCtx) (digest as unknown as Record<string, unknown>).pageView = backendCtx.view;
 
   /* ===== V2 页面范围落地(§9.1、§9.4、§9.6、§9.7) ===== */
   const pageCap = backendCtx ? pageCapability(backendCtx.pageKey) : null;
@@ -1574,10 +1639,10 @@ export async function chat(
   let routing: 'model' | 'rules' = 'rules';
   let modelError: string | null = null;
 
-  if (modelConfigured()) {
+  if (!domainResolved.clarification && modelConfigured()) {
     options.onProgress?.({ stage: 'routing', label: '正在由模型选择需要的数据' });
     try {
-      const outcome = await runModelRouting(db, { message, context, detection: effectiveDetection, digest, conversationId, allowedTools }, options.onToken, options.onProgress, options.signal);
+      const outcome = await runModelRouting(db, { message, context, detection: effectiveDetection, digest, view: backendCtx?.view, conversationId, allowedTools }, options.onToken, options.onProgress, options.signal);
       throwIfChatAborted(options.signal);
       usage.modelCalls += outcome.modelCalls;
       usage.modelMs += outcome.modelMs;
@@ -1600,7 +1665,7 @@ export async function chat(
   if (routing === 'rules') {
     throwIfChatAborted(options.signal);
     options.onProgress?.({ stage: 'template', label: '正在用后端确定性查询取数' });
-    facts = queryFacts(db, message, context, { intents: effectiveDetection });
+    facts = domainResolved.clarification ? [domainResolved.clarification] : queryFacts(db, message, context, { intents: effectiveDetection, view: backendCtx?.view });
     text = deterministicSummary(facts, context, { rankFocus: detectRankFocus(message) });
     if (modelError && !facts.length) text = `模型暂时不可用：${modelError}。${text}`;
     emitInChunks(text, options.onToken);
@@ -1652,13 +1717,14 @@ export async function chat(
   const navigation = resolveNavigation(message, context) ?? cellNoteNavigation(facts);
   let action: ProposedAction | null = null;
   try {
-    action = await resolveProposedAction(db, message, context, detection, digest, options.signal);
+    action = domainWriteRequest(message, context.page) || detection.read.some(isDomainIntent) ? null : await resolveProposedAction(db, message, context, detection, digest, options.signal);
   } catch (error) {
     throwIfChatAborted(options.signal);
     action = null;
   }
   throwIfChatAborted(options.signal);
   const notices: string[] = [];
+  if (domainWriteRequest(message, context.page)) notices.push('本轮仅查询与解释，没有执行付款、审批、复核、测算、发布、导入或导出；请在对应业务页面核对后显式操作。');
   /**
    * 名称片段有歧义时如实说明。
    *
@@ -1681,7 +1747,7 @@ export async function chat(
    * 2. 明确告诉用户对话里的「确认」不会写入，真实路径是预览卡片上的确认按钮。
    */
   const confirmAttempt = looksLikeWriteConfirmation(message);
-  if (!action && inherited.action && (confirmAttempt || looksLikeFollowUp(message))) {
+  if (!action && inherited.action && !detection.read.some(isDomainIntent) && !domainWriteRequest(message, context.page) && (confirmAttempt || looksLikeFollowUp(message))) {
     const check = actionIsConstructible(db, inherited.action.type, inherited.action.params);
     action = check.ok
       ? { ...inherited.action, previewable: true, inherited: true }
@@ -1691,7 +1757,7 @@ export async function chat(
     notices.push(
       action
         ? '在聊天里回复「确认」不会写入任何数据。请在下方操作卡片点「创建预览」，核对逐行影响后再点「确认」，落库前后端会再复查版本状态与预览基线。'
-        : '在聊天里回复「确认」不会写入任何数据，而且当前没有待确认的操作建议。请重述要做的操作（例如「把 2026 年预算复制成 2027 年草案，增长 5%」），助手会给出参数并提供「创建预览」按钮。',
+        : detection.read.some(isDomainIntent) || domainWriteRequest(message, context.page) ? '聊天中的确认不会写入数据，请前往对应业务页面核对并显式操作。' : '在聊天里回复「确认」不会写入任何数据，而且当前没有待确认的操作建议。请重述要做的操作（例如「把 2026 年预算复制成 2027 年草案，增长 5%」），助手会给出参数并提供「创建预览」按钮。',
     );
   }
   /* 干跑只做参数形态/读取校验,不重新断言源/目标版本当前状态(那在 confirm 的基线复核里),
@@ -1710,9 +1776,11 @@ export async function chat(
     contextWarnings.push(`本轮计算包含 ${backendCtx.draft.changeCount} 项未保存修改（${backendCtx.draft.baseline}），不会写入数据库`);
     for (const issue of backendCtx.draft.issues) contextWarnings.push(`草稿校验：${issue}`);
   }
+  for (const item of domainResolved.trace) contextWarnings.push(`${item.reason}：${item.value}`);
   for (const warning of backendCtx?.warnings ?? []) contextWarnings.push(warning);
   if (verificationFactWarning) contextWarnings.push(verificationFactWarning);
   const contextOverrides = backendCtx ? detectOverrides(backendCtx.pageContext, resolution) : [];
+  if (backendCtx) for (const item of domainResolved.trace) { const oldValue = (backendCtx.pageContext as any)[item.field]; if (item.origin === 'message' && oldValue != null && oldValue !== item.value) contextOverrides.push({ field: item.field as any, from: oldValue, to: item.value, reason: `${item.reason}，覆盖页面范围` }); }
   for (const override of contextOverrides) {
     notices.push(override.reason.includes('覆盖') ? override.reason : `问题指定的${override.field}已覆盖页面范围`);
   }
@@ -1766,7 +1834,7 @@ export async function chat(
       /** 一行范围摘要，例如「年度执行分析 · 2026 年 · 预算 V3 · 江垭电站 · 截至 6 月」 */
       contextSummary: buildContextSummary(db, backendCtx.pageLabel, context, backendCtx.extras, backendCtx.view),
       contextTrace: {
-        used: resolution.map((item) => ({ field: item.field, value: item.value, origin: item.origin, reason: item.reason })),
+        used: [...resolution.map((item) => ({ field: item.field, value: item.value, origin: item.origin, reason: item.reason })), ...domainResolved.trace],
         overrides: contextOverrides,
         warnings: contextWarnings,
       },

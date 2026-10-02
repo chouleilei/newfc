@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { expectedVersion } from './common';
 
-/** system_settings 补齐 lishui(T-7,AC-F23):自定义字段、导入字段模板(表头别名)、AI 提示补充。 */
+/** system_settings(T-7,AC-F23):自定义字段、导入字段模板(表头别名)、AI 提示补充。 */
 
 export const CUSTOM_FIELD_DOMAINS = ['project', 'supplier'] as const;
 export type CustomFieldDomain = (typeof CUSTOM_FIELD_DOMAINS)[number];

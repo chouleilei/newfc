@@ -1,29 +1,36 @@
 /**
- * 澧水集团预算科目树初始化(完整适配 · 第二步)
- *
- * 依据用户预算模板:收入成本表 / 发电收入 / 非电收入 / 非电营业成本 / 管理费用 / 人工成本表
- * 建成三类科目森林:I=income 收入 / C=cost 成本 / E=expense 费用
- * 并配置利润表指标(P01~P07)。
- *
- * 归一化口径(与模板差异,详见 docs/澧水预算科目编码.md):
- *  - 各子公司清单中的"营业外收入/营业外支出/政府补助/所得税/资产减值损失"归位到主分类节点;
- *  - "资产减值损失"并入主表"信用减值损失(处置损益)"科目;
- *  - 非金额行(上网电量/电价/税率/职工人数等)留待数量型科目扩展,本步不建;
- *  - 管理费用表"一~五"汇总类目不建节点(模板未定义归集口径),"人工成本"子树按人工成本表展开;
- *  - 模板序号错乱(人工成本表两个"五"等)按语义修正编号。
- *
- * 用法: node scripts/seed-lishui-account.cjs   (在 backend 目录下运行)
- * 幂等: 已存在的编码跳过并校验名称一致;存在外来编码则中止。
+ * 水利财务模拟夹具主数据：只导出定义，无网络、数据库或初始化副作用。
+ * 保留现行业务组织/科目编码用于预算回归；来源见 docs/source-provenance.md。
  */
-const fs = require('fs');
-const path = require('path');
-const ExcelJS = require('exceljs');
+const ORG_TREE = [
+  { code: '01', name: '澧水集团', parent: null },
+  { code: '0101', name: '澧水本级', parent: '01' },
+  { code: '010101', name: '公司总部', parent: '0101' },
+  { code: '010102', name: '江垭电站', parent: '0101' },
+  { code: '010103', name: '皂市电站', parent: '0101' },
+  { code: '0102', name: '索溪分公司', parent: '01' },
+  { code: '0103', name: '彩石公司', parent: '01' },
+  { code: '0104', name: '澧能公司', parent: '01' },
+  { code: '010401', name: '澧能总部', parent: '0104' },
+  { code: '010402', name: '新化大熊山', parent: '0104' },
+  { code: '010403', name: '双牌湘澧', parent: '0104' },
+  { code: '010404', name: '全州优能', parent: '0104' },
+  { code: '01040401', name: '六字界风电场', parent: '010404' },
+  { code: '01040402', name: '白竹风电场', parent: '010404' },
+  { code: '01040403', name: '磨子岭风电场', parent: '010404' },
+  { code: '01040404', name: '全州优能本部', parent: '010404' },
+  { code: '0105', name: '项目公司', parent: '01' },
+  { code: '0106', name: '泽通公司', parent: '01' },
+  { code: '010601', name: '泽通总部', parent: '0106' },
+  { code: '010602', name: '物业公司', parent: '0106' },
+  { code: '010603', name: '江垭温泉', parent: '0106' },
+  { code: '0107', name: '机电公司', parent: '01' },
+  { code: '010701', name: '银腾光伏项目', parent: '0107' },
+  { code: '010702', name: '长沙基地光伏项目', parent: '0107' },
+  { code: '010703', name: '国检光伏项目', parent: '0107' },
+  { code: '010704', name: '机电本部(非电业务)', parent: '0107' },
+];
 
-const BASE = 'http://127.0.0.1:3748';
-const TEMPLATE = '/tmp/budget-template.xlsx';
-
-/* ============ 科目树定义 ============ */
-/* 节点:[编码, 名称, 子节点?];根节点第 4 位为类型,子节点继承 */
 const TREE = [
   ['I1', '营业收入', 'income', [
     ['I11', '发电产业收入', [
@@ -327,191 +334,6 @@ const METRICS = [
 ];
 
 /* ============ 模板中"不是科目"的名称(汇总行/数量行/组织行/口径归位),交叉校验白名单 ============ */
-const TEMPLATE_EXCEPTIONS = new Set([
-  // 表头/汇总行
-  '序号', '项目', '汇总', '总收入', '总成本', '利润总额', '减：所得税费用', '净利润', '期间费用',
-  '管理类费用合计', '一、人工成本', '二、五项费用', '三、其他可控费用', '四、税费折旧摊销等不可控费用', '五、可控费用',
-  // 数量/单价/税率行(待数量型科目扩展)
-  '上网电量', '直供电量', '发电量', '含增值税上网电价', '增值税税率', '上网电量（万度）', '职工人数（平均）', '新进职工', '已在编职工',
-  // 归一化更名(科目存在但名称不同)
-  '发电产业', '发电产业收入', '发电收入', '水力发电收入', '资产减值损失', '增值税', '所得税', '其中：折旧', '社会保险费（劳保支出）',
-  // 组织/电站维度(对应组织树,非科目)
-  '澧水公司总部', '索溪分公司', '彩石公司', '澧能公司', '项目公司', '泽通公司', '泽通公司汇总', '泽通公司本部',
-  '江垭温泉', '博弘物业', '机电公司', '水力发电', '风力发电', '光伏发电',
-  '江垭电站', '皂市电站', '大熊山', '倪家洞', '六字界', '六字界风电场', '白竹', '白竹风电场', '磨子岭', '磨子岭风电场', '天子山',
-  '银腾光伏项目', '长沙基地光伏项目', '国检光伏项目',
-]);
 
-function fail(msg) { console.error('FATAL: ' + msg); process.exit(1); }
 const TYPE_BY_PREFIX = { I: 'income', C: 'cost', E: 'expense' };
-
-/* 登录:会话在 HttpOnly Cookie 中,写请求须附带 X-CSRF-Token;凭据只读取进程环境。 */
-async function apiLogin() {
-  const cfg = { username: process.env.NEWFC_SEED_USER, password: process.env.NEWFC_SEED_PASSWORD };
-  if (!cfg.username || !cfg.password) fail('请先设置 NEWFC_SEED_USER 和 NEWFC_SEED_PASSWORD(具备主数据维护权限的账号)');
-  const loginRes = await fetch(`${BASE}/api/auth/login`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cfg),
-  });
-  if (!loginRes.ok) return { ok: false, detail: 'HTTP ' + loginRes.status + ': ' + await loginRes.text() };
-  const { csrfToken } = await loginRes.json();
-  const cookie = (loginRes.headers.get('set-cookie') || '').split(';')[0];
-  return { ok: true, headers: { 'content-type': 'application/json', cookie, 'x-csrf-token': csrfToken } };
-}
-
-async function main() {
-  /* ---------- 登录 ---------- */
-  const login = await apiLogin();
-  if (!login.ok) fail('登录失败: ' + login.detail);
-  const H = login.headers;
-  console.log('[0] API 登录成功');
-
-  /* ---------- 外来数据守卫 ---------- */
-  const acct = await (await fetch(`${BASE}/api/account/tree`, { headers: H })).json();
-  const existing = new Map(acct.rows.map(r => [r.code, r]));
-  const treeCodes = new Set();
-  const walk = ns => ns.forEach(([c, , third, fourth] ) => {
-    treeCodes.add(c);
-    const children = Array.isArray(third) ? third : (Array.isArray(fourth) ? fourth : undefined);
-    if (children) walk(children);
-  });
-  walk(TREE);
-  const walkQ = ns => ns.forEach(n => {
-    treeCodes.add(n.code);
-    if (n.children) walkQ(n.children);
-  });
-  walkQ(QTREE);
-  for (const code of existing.keys()) if (!treeCodes.has(code)) fail(`科目表存在外来编码 ${code},为避免冲突已中止(请人工确认)`);
-
-  /* ---------- 递归创建(幂等) ---------- */
-  let created = 0, reused = 0, sortOrder = 0;
-  const idByCode = new Map(existing.size ? acct.rows.map(r => [r.code, r.id]) : []);
-  const createNode = async (node, parentId, type) => {
-    const [code, name, third, fourth] = node;
-    /* 根节点:[code, name, type, children];普通节点:[code, name, children] */
-    const children = Array.isArray(third) ? third : (Array.isArray(fourth) ? fourth : undefined);
-    sortOrder += 1;
-    if (existing.has(code)) {
-      const row = existing.get(code);
-      if (row.name !== name || row.type !== type) fail(`编码 ${code} 已存在但名称/类型不一致: 库内=${row.name}/${row.type}, 脚本=${name}/${type}`);
-      reused += 1;
-    } else {
-      const res = await fetch(`${BASE}/api/account`, {
-        method: 'POST', headers: H,
-        body: JSON.stringify({ parentId, code, name, type, sortOrder }),
-      });
-      if (!res.ok) fail(`创建 ${code} ${name} 失败: ${await res.text()}`);
-      const row = await res.json();
-      idByCode.set(code, row.id);
-      created += 1;
-    }
-    const myId = idByCode.get(code);
-    if (children) for (const ch of children) await createNode(ch, myId, type);
-  };
-  const createQuantityNode = async (node, parentId) => {
-    sortOrder += 1;
-    if (existing.has(node.code)) {
-      const row = existing.get(node.code);
-      if (row.name !== node.name || row.type !== 'quantity') fail(`编码 ${node.code} 已存在但名称/类型不一致: 库内=${row.name}/${row.type}`);
-      reused += 1;
-    } else {
-      const res = await fetch(`${BASE}/api/account`, {
-        method: 'POST', headers: H,
-        body: JSON.stringify({ parentId, code: node.code, name: node.name, type: 'quantity', unit: node.unit, quantityAgg: node.agg, sortOrder }),
-      });
-      if (!res.ok) fail(`创建数量科目 ${node.code} ${node.name} 失败: ${await res.text()}`);
-      const row = await res.json();
-      idByCode.set(node.code, row.id);
-      created += 1;
-    }
-    const myId = idByCode.get(node.code);
-    if (node.children) for (const ch of node.children) await createQuantityNode(ch, myId);
-  };
-  for (const root of TREE) {
-    const type = TYPE_BY_PREFIX[root[0][0]];
-    await createNode(root, null, type);
-  }
-  for (const qroot of QTREE) await createQuantityNode(qroot, null);
-  console.log(`[1] 科目创建完成: 新建 ${created} 个, 复用 ${reused} 个, 合计 ${treeCodes.size} 个`);
-
-  /* ---------- 结构检查 ---------- */
-  const check = await (await fetch(`${BASE}/api/account/check`, { headers: H })).json();
-  if (!check.ok) fail('科目结构检查未通过: ' + JSON.stringify(check.problems));
-  const after = await (await fetch(`${BASE}/api/account/tree`, { headers: H })).json();
-  const leaves = after.rows.filter(r => !after.rows.some(x => x.parent_id === r.id));
-  const typeCount = { income: 0, cost: 0, expense: 0 };
-  after.rows.forEach(r => typeCount[r.type] += 1);
-  console.log(`[2] 结构检查通过: 总数 ${after.rows.length}(收入 ${typeCount.income}/成本 ${typeCount.cost}/费用 ${typeCount.expense}), 叶子 ${leaves.length} 个`);
-
-  /* ---------- 利润表指标(幂等) ---------- */
-  const metricList = await (await fetch(`${BASE}/api/metrics`, { headers: H })).json();
-  const metricByCode = new Map(metricList.items.map(m => [m.code, m]));
-  let metricCreated = 0, metricUpdated = 0;
-  for (const m of METRICS) {
-    const terms = m.terms.map((t, i) => t.code
-      ? { sourceType: 'account', sourceAccountId: idByCode.get(t.code), sourceMetricId: null, coefficient: t.coefficient ?? 1, sortOrder: i + 1, role: t.role ?? 'term' }
-      : { sourceType: 'metric', sourceAccountId: null, sourceMetricId: metricByCode.get(t.metric)?.id, coefficient: t.coefficient ?? 1, sortOrder: i + 1, role: t.role ?? 'term' });
-    if (terms.some(t => t.sourceType === 'account' && !t.sourceAccountId)) fail(`指标 ${m.code} 引用了不存在的科目`);
-    if (terms.some(t => t.sourceType === 'metric' && !t.sourceMetricId)) fail(`指标 ${m.code} 引用了未创建的指标(顺序错误)`);
-    const existingMetric = metricByCode.get(m.code);
-    const res = await fetch(existingMetric ? `${BASE}/api/metrics/${existingMetric.id}` : `${BASE}/api/metrics`, {
-      method: existingMetric ? 'PATCH' : 'POST', headers: H,
-      body: JSON.stringify({
-        code: m.code,
-        name: m.name,
-        displayOrder: m.displayOrder,
-        status: 'active',
-        kind: m.kind ?? 'linear',
-        direction: m.direction ?? 'higher_better',
-        displayFormat: m.displayFormat ?? 'percent',
-        unit: m.unit ?? '',
-        displaySign: m.displaySign ?? 1,
-        terms,
-      }),
-    });
-    if (!res.ok) fail(`${existingMetric ? '更新' : '创建'}指标 ${m.code} ${m.name} 失败: ${await res.text()}`);
-    const row = await res.json();
-    metricByCode.set(m.code, row);
-    if (existingMetric) metricUpdated += 1; else metricCreated += 1;
-    console.log(`    ${existingMetric ? '=' : '+'} ${m.code}  ${m.name}  (${m.terms.map(t => `${t.coefficient === -1 ? '-' : ''}${t.code || t.metric}`).join(' + ')})`);
-  }
-  console.log(`[3] 利润表指标: 新建 ${metricCreated} 个, 更新 ${metricUpdated} 个, 共 ${METRICS.length} 个`);
-
-  /* ---------- 与模板逐名交叉校验 ---------- */
-  if (!fs.existsSync(TEMPLATE)) fail('模板文件不存在: ' + TEMPLATE);
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(TEMPLATE);
-  const accountNames = new Set(after.rows.map(r => r.name));
-  const review = [];
-  for (const ws of wb.worksheets) {
-    if (ws.name === '利润表') continue; // 利润表 = 指标,非科目
-    ws.eachRow({ includeEmpty: false }, row => {
-      const c = row.getCell(2);
-      const v = c.value;
-      if (v == null || typeof v !== 'string') return;
-      const name = v.trim();
-      if (!name || name === '项目') return;
-      if (!accountNames.has(name) && !TEMPLATE_EXCEPTIONS.has(name)) review.push(`${ws.name}: ${name}`);
-    });
-  }
-  if (review.length) {
-    console.error('[4] 模板交叉校验发现未覆盖名称:');
-    review.forEach(r => console.error('    ?? ' + r));
-    fail('存在模板名称未建成科目且不在白名单,请核对后重跑');
-  }
-  console.log('[4] 模板交叉校验通过: 模板全部明细名称均已覆盖(或属于白名单的汇总/数量/组织行)');
-
-  /* ---------- 汇总输出 ---------- */
-  const roots = after.tree;
-  console.log('[5] 科目森林根节点:');
-  for (const r of roots) {
-    const cnt = (function count(n) { return 1 + (n.children || []).reduce((s, c) => s + count(c), 0); })(r);
-    console.log(`    ${r.code}  ${r.name}  (${r.type}, ${cnt} 节点)`);
-  }
-  console.log('DONE: 澧水集团科目森林 + 利润表指标初始化完成');
-}
-
-/* 科目森林与利润表指标定义对外可复用(E2E 夹具构建脚本按同一份主数据建库),
-   但「登录 → 调 API 建科目 → 模板交叉校验」的运维流程只在直接执行本脚本时才跑。 */
-module.exports = { TREE, QTREE, METRICS, TYPE_BY_PREFIX };
-
-if (require.main === module) main().catch(e => fail(e.stack || String(e)));
+module.exports = { ORG_TREE, TREE, QTREE, METRICS, TYPE_BY_PREFIX };

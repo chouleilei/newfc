@@ -1,5 +1,6 @@
+import { DOMAIN_ENTITY_FIELDS } from './domain-scope';
 /**
- * PageCapabilityMap(方案《小澧助手全页面回答范围自动对齐开发计划》§7、§9.2、§9.4)。
+ * PageCapabilityMap(现行 specs/ai.md 页面上下文契约§7、§9.2、§9.4)。
  *
  * 一个普通 TypeScript Record：
  *   pageKey → 允许的 view 字段 → 允许的 entity/fact/draft 类型 → 默认领域能力 → 可使用的领域能力。
@@ -25,10 +26,11 @@ export type DomainCapability =
   | 'operations'
   | 'finance_data'
   | 'project_data'
-  | 'risk_investment';
+  | 'risk_investment'
+  | 'domain_support';
 
 /** 通用语义 entity 类型全集(§3.6、§5.5)：行/树节点/卡片/异常/日志/核验闸门等统一为 entity。 */
-export type AssistantEntityType =
+export type AssistantEntityType = keyof typeof DOMAIN_ENTITY_FIELDS
   | 'row'
   | 'tree_node'
   | 'card'
@@ -88,7 +90,18 @@ export interface PageCapability {
 /** 跨页通用的树/行/卡片焦点。 */
 const TREE_ROW_CARD: AssistantEntityType[] = ['row', 'tree_node', 'card'];
 
+const DOMAIN_PAGES: Record<string, string> = {
+  eas: 'EAS 工作区', governance: '数据治理', statements: '财务报表', mgmt: '管理会计', standard_reports: '标准报表',
+  project_budget: '项目预算', plan: '计划执行', contracts: '合同台账', contract_import: '合同导入', expense: '费用审核', expense_policies: '制度依据',
+  feasibility: '可行性测算', investment_control: '投资控制', forecast: '财务预测', risk: '风险台账', analysis_reports: '分析报告',
+  master_entities: '主数据', project_profile: '项目全景', search: '跨域检索', jobs: '任务中心', business_settings: '业务设置', security: '授权管理',
+};
 export const PAGE_CAPABILITY_MAP: Record<string, PageCapability> = {
+  ...Object.fromEntries(Object.entries(DOMAIN_PAGES).map(([key, label]) => [key, {
+    label, viewFields: ['tab', 'status', 'keyword', 'sourceType', 'kind', 'level', 'reportType', 'includeRetired', 'expenseType'],
+    entityTypes: ['row', 'card', ...Object.keys(DOMAIN_ENTITY_FIELDS)], factTypes: [], draftKinds: [],
+    defaultCapability: 'domain_support', capabilities: ['finance_data', 'project_data', 'risk_investment', 'domain_support'],
+  } as PageCapability])),
   dashboard: {
     label: '首页工作台',
     viewFields: ['dashboardSubject'],
@@ -96,16 +109,16 @@ export const PAGE_CAPABILITY_MAP: Record<string, PageCapability> = {
     factTypes: ['verification'],
     draftKinds: [],
     defaultCapability: 'overview',
-    capabilities: ['overview', 'execution', 'evidence', 'finance_data', 'project_data', 'risk_investment'],
+    capabilities: ['overview', 'execution', 'evidence', 'finance_data', 'project_data', 'risk_investment', 'domain_support'],
   },
   assistant: {
-    label: '小澧助手',
+    label: '财务助手',
     viewFields: [],
     entityTypes: ['insight', 'report_section', 'card'],
     factTypes: [],
     draftKinds: [],
     defaultCapability: 'assistant_content',
-    capabilities: ['assistant_content', 'execution', 'comparison', 'budget', 'actual', 'master_data', 'import_conversion', 'operations', 'overview', 'evidence', 'finance_data', 'project_data', 'risk_investment'],
+    capabilities: ['assistant_content', 'execution', 'comparison', 'budget', 'actual', 'master_data', 'import_conversion', 'operations', 'overview', 'evidence', 'finance_data', 'project_data', 'risk_investment', 'domain_support'],
   },
   insights: {
     label: '洞察报告',
@@ -383,6 +396,7 @@ const CAPABILITY_TOOLS: Record<DomainCapability, string[]> = {
   // T-4 项目、合同与费用(只读,同源 service,org_scope;合同详情由 service 判定可见性)
   project_data: ['project_budget_summary', 'plan_execution_overview', 'contract_summary', 'contract_detail', 'expense_audit_queue'],
   // T-5 可研测算、投资控制、财务预测、风险与分析报告(只读,同源 service,org_scope;按 ID 读取由 service 判定可见性)
+  domain_support: ['domain_ledger', 'mgmt_analysis', 'authorization_scope', 'domain_batch_read', 'statement_trends', 'mgmt_workspace', 'domain_workspace', 'feasibility_report_read', 'project_profile', 'master_entities', 'expense_detail', 'policy_search', 'governance_issues', 'standard_report_read', 'analysis_report_read', 'risk_detail', 'forecast_result', 'task_status', 'configuration_overview'],
   risk_investment: ['feasibility_result', 'investment_comparison', 'forecast_runs', 'risk_summary', 'report_list'],
 };
 
@@ -437,6 +451,11 @@ export const INTENT_CAPABILITY: Record<string, DomainCapability> = {
   // 单元格备注查询:get_cell_notes 在 budget/actual/evidence 能力下均暴露,
   // 预算编辑与实际维护页都带 evidence,归此与模型工具路径同口径
   cell_note: 'evidence',
+  eas_status: 'finance_data', statements: 'finance_data', mgmt_metrics: 'finance_data', mgmt_alerts: 'finance_data',
+  project_budget: 'project_data', plan_execution: 'project_data', contracts: 'project_data', expenses: 'project_data',
+  feasibility: 'risk_investment', investment_control: 'risk_investment', forecast: 'risk_investment', risks: 'risk_investment', analysis_reports: 'risk_investment',
+  authorization: 'domain_support', policies: 'domain_support', standard_reports: 'domain_support', governance: 'domain_support', project_profile: 'domain_support', master_entities: 'domain_support',
+  cross_search: 'domain_support', tasks: 'domain_support', configuration: 'domain_support',
 };
 
 /**

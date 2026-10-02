@@ -1,5 +1,5 @@
 /**
- * pageKey 目录契约测试(方案《小澧助手全页面回答范围自动对齐开发计划》§7.1)。
+ * pageKey 目录契约测试(现行 specs/ai.md 页面上下文契约§7.1)。
  *
  * 前端 pageKey 目录(frontend/src/assistant/context.ts PAGE_KEYS)与后端
  * PageCapabilityMap(src/assistant/page-capabilities.ts)各保留一份，
@@ -20,9 +20,9 @@ function frontendPageKeys(): string[] {
 }
 
 describe('pageKey 目录契约', () => {
-  it('恰好 28 个 pageKey', () => {
-    expect(PAGE_KEYS.length).toBe(28);
-    expect(frontendPageKeys().length).toBe(28);
+  it('经营预算与新增业务页均登记', () => {
+    expect(PAGE_KEYS.length).toBe(50);
+    expect(frontendPageKeys().length).toBe(50);
   });
 
   it('前端 PAGE_KEYS 与后端 PageCapabilityMap 完全一致(双向)', () => {

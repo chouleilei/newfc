@@ -13,6 +13,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { DB } from '../../db/connection';
+import type { PageDto, PageQuery } from '../../contracts/common';
 import { AppError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalString, parseDecimalToCents } from '../../core/decimal';
@@ -499,15 +500,31 @@ export function getClaimDetail(db: DB, id: number): ClaimDetailDto {
   };
 }
 
-export function listClaims(db: DB, q: ClaimListQuery = {}): ClaimDto[] {
+function claimListFilter(db: DB, q: ClaimListQuery) {
   const scope = scopeFilterSql(currentOrgScope(db), 'org_id');
   const where = [scope.sql];
   const params: unknown[] = [...scope.params];
   if (q.status) { where.push('status = ?'); params.push(q.status); }
   if (q.orgId) { where.push('org_id = ?'); params.push(q.orgId); }
   if (q.keyword) { where.push('(claim_no LIKE ? OR applicant LIKE ? OR description LIKE ?)'); const k = `%${q.keyword}%`; params.push(k, k, k); }
-  const rows = db.prepare(`SELECT * FROM ex_claim WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT 500`).safeIntegers(true).all(...params) as Record<string, unknown>[];
+  return { clause: where.join(' AND '), params };
+}
+
+export function listClaims(db: DB, q: ClaimListQuery = {}): ClaimDto[] {
+  const { clause, params } = claimListFilter(db, q);
+  const rows = db.prepare(`SELECT * FROM ex_claim WHERE ${clause} ORDER BY id DESC LIMIT 500`).safeIntegers(true).all(...params) as Record<string, unknown>[];
   return rows.map((r) => claimDto(db, normalizeClaim(r)));
+}
+
+export function listClaimsPage(db: DB, q: ClaimListQuery & PageQuery): PageDto<ClaimDto> {
+  const { clause, params } = claimListFilter(db, q);
+  return db.transaction(() => {
+    const { total } = db.prepare(`SELECT COUNT(*) AS total FROM ex_claim WHERE ${clause}`).get(...params) as { total: number };
+    const page = Math.min(q.page, Math.max(1, Math.ceil(total / q.pageSize)));
+    const rows = db.prepare(`SELECT * FROM ex_claim WHERE ${clause} ORDER BY id DESC LIMIT ? OFFSET ?`)
+      .safeIntegers(true).all(...params, q.pageSize, (page - 1) * q.pageSize) as Record<string, unknown>[];
+    return { items: rows.map((r) => claimDto(db, normalizeClaim(r))), total, page, pageSize: q.pageSize };
+  })();
 }
 
 /** 待办队列:按状态计数与待复核列表(工作台、助手 expense_audit_queue 共用)。 */

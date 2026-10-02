@@ -1,3 +1,4 @@
+import { DOMAIN_TOOLS } from './domain-tools';
 import type { DB } from '../db/connection';
 import * as budget from '../modules/budget/budget.service';
 import * as actual from '../modules/actual/actual.service';
@@ -44,6 +45,7 @@ import { SEARCH_TYPES, type SearchType } from '../contracts/search';
 import { authorizeToolCall, orgTreeFilter } from './tool-policy';
 
 const rawTools = {
+  ...Object.fromEntries(Object.entries(DOMAIN_TOOLS).map(([name, t]) => [name, t.read])),
   get_org_tree: (db: DB) => org.getOrgTree(db, orgTreeFilter(db)),
   get_account_tree: (db: DB) => account.getAccountTree(db),
   list_budget_versions: (db: DB, year?: number) => budget.listVersions(db, year),
@@ -298,6 +300,7 @@ const schemas: Record<string, any> = {
   forecast_runs: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, modelId: { type: ['integer', 'null'], description: '预测模型 ID,给出时返回版本与运行' } }, additionalProperties: false },
   risk_summary: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, level: { type: 'string', enum: ['high', 'medium', 'low'], description: '缺省全部等级' } }, additionalProperties: false },
   report_list: { type: 'object', properties: { orgScopeId: { type: ['integer', 'null'], description: '组织 ID(含下级)' }, kind: { type: 'string', enum: [...RPT_KINDS], description: '缺省全部类型' } }, additionalProperties: false },
+  ...Object.fromEntries(Object.entries(DOMAIN_TOOLS).map(([name, t]) => [name, t.schema])),
   cross_search: { type: 'object', properties: { q: { type: 'string', description: '关键词(编码或名称片段,1-64 字)' }, types: { type: 'array', items: { type: 'string', enum: [...SEARCH_TYPES] }, description: '限定对象类型,缺省全部有权限的类型' } }, required: ['q'], additionalProperties: false },
 };
 
@@ -326,7 +329,7 @@ export const toolDefinitions = Object.keys(tools).map((name) => ({
   type: 'function',
   function: {
     name,
-    description: `只读查询${name}相关预算事实`,
+    description: DOMAIN_TOOLS[name as keyof typeof DOMAIN_TOOLS]?.label ?? `只读查询 ${name} 的同源业务事实；金额和单位遵循该工具所属领域契约`,
     parameters: sanitizeSchema(schemas[name] || { type: 'object', additionalProperties: false }),
   },
 }));
@@ -403,6 +406,7 @@ const TOOL_LABELS: Record<string, string> = {
   forecast_runs: '读取财务预测运行',
   risk_summary: '读取风险概况',
   report_list: '读取分析报告列表',
+  ...Object.fromEntries(Object.entries(DOMAIN_TOOLS).map(([name, t]) => [name, t.label])),
   cross_search: '跨域检索',
 };
 
@@ -415,6 +419,7 @@ export function executeTool(db: DB, name: string, args: any = {}) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) args = {};
   const fn = (tools as any)[name];
   if (typeof fn !== 'function') throw new Error(`未知工具: ${name}`);
+  if (Object.prototype.hasOwnProperty.call(DOMAIN_TOOLS, name)) return fn(db, args);
   // Explicit argument mapping avoids allowing a model to pass the DB handle.
   const integer = (value: unknown, label: string): number => {
     if (typeof value !== 'number' && typeof value !== 'string') throw new Error(`${label}必须是正整数`);

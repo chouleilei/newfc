@@ -283,7 +283,7 @@ function planEstimateNearLimitHits(db: DB, rule: RuleRow, t: bigint): RiskHit[] 
   return hits;
 }
 
-/** 投资计划明细未关联主数据项目(lishui PROJECT_CODE_MISSING:缺项目编码影响跨系统核对)。 */
+/** 投资计划明细未关联主数据项目(缺项目编码影响跨系统核对)。 */
 function planProjectUnmappedHits(db: DB, rule: RuleRow): RiskHit[] {
   const batch = currentPlanBatch(db);
   if (!batch) return [];
@@ -321,7 +321,7 @@ function contractOverCapHits(db: DB, rule: RuleRow): RiskHit[] {
   return hits;
 }
 
-/** 已支付的正常付款缺凭证号(lishui CONTRACT_CODE_MISSING:付款追溯断点);导入基线不在此列。 */
+/** 已支付的正常付款缺凭证号(付款追溯断点);导入基线不在此列。 */
 function contractPayNoVoucherHits(db: DB, rule: RuleRow): RiskHit[] {
   const rows = db.prepare(`SELECT p.id, p.node_name, p.amount_cents, p.paid_date, c.id AS contract_id, c.contract_no, c.name, c.org_id, c.project_id
     FROM ct_payment p JOIN ct_contract c ON c.id = p.contract_id
@@ -452,7 +452,7 @@ function easProjectMissingHits(db: DB, rule: RuleRow, t: bigint): RiskHit[] {
 
 const UNCLEARED_KEYWORDS = ['预付', '暂估', '挂账'];
 
-/** 凭证摘要含预付/暂估/挂账(lishui 首版按关键词触发),按凭证聚合。 */
+/** 凭证摘要含预付/暂估/挂账(按关键词触发),按凭证聚合。 */
 function easUnclearedHits(db: DB, rule: RuleRow): RiskHit[] {
   const hits: RiskHit[] = [];
   const lines = db.prepare(`SELECT voucher_no, MIN(voucher_date) AS voucher_date, GROUP_CONCAT(DISTINCT summary) AS summaries, SUM(debit_cents) AS debit, COUNT(*) AS n
@@ -841,7 +841,7 @@ function sourceRefs(db: DB, e: RiskEventDto): { label: string; path: string }[] 
   return refs;
 }
 
-/** 整改清单:按风险来源、当前状态与证据确定性生成(对应 lishui rectification-checklist),不写库。 */
+/** 整改清单:按风险来源、当前状态与证据确定性生成,不写库。 */
 export function riskChecklist(db: DB, id: number): RiskChecklistDto {
   const r = eventRow(db, id);
   const e = eventDto(r);

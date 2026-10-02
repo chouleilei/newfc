@@ -85,7 +85,7 @@ describe('T-5 联动', () => {
     expect(pageCapability('assistant')!.capabilities).toContain('risk_investment');
     expect(pageCapability('dashboard')!.capabilities).toContain('risk_investment');
     // 扫描、状态流转、审批、发布等写操作没有对应工具
-    expect(toolDefinitions.map((d) => d.function.name).filter((n) => /risk|report_|feasib|investment|forecast/.test(n)).sort()).toEqual([...NEW_TOOLS].sort());
+    expect(toolDefinitions.map((d) => d.function.name).filter((n) => /risk|report_|feasib|investment|forecast/.test(n)).sort()).toEqual([...NEW_TOOLS, 'feasibility_report_read', 'analysis_report_read', 'forecast_result', 'risk_detail', 'standard_report_read'].sort());
   });
 
   it('计算器、待办与助手工具按范围取数;扫描前风险金额不可用而不是 0', async () => {

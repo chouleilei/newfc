@@ -9,7 +9,7 @@ import { memoryUpload, uploadName } from '../files/http';
 import { id as idSchema } from '../../contracts/common';
 import {
   ffImportForm, ffModelCreate, ffModelListQuery, ffModelUpdate, ffPublicationListQuery, ffPublicationWithdraw, ffRunPublish, ffRunRequest, ffVersionCommand,
-  ffVersionCreate, ffVersionReview, ffVersionUpdate,
+  ffReviewQueueQuery, ffVersionCreate, ffVersionReview, ffVersionUpdate,
 } from '../../contracts/finance-forecast';
 import { formFields, queryFields } from '../project-budget/routes';
 import {
@@ -17,7 +17,7 @@ import {
   getForecastVersion, importForecastVersion, listForecastFolders, listForecastModels, listForecastRuns, startForecastRun, updateForecastModel, updateForecastVersion,
 } from './forecast.service';
 import {
-  forecastBaselineTimeline, generateForecastInsight, listForecastInsights, listForecastPublications, publishForecastRun, reviewForecastVersion,
+  forecastBaselineTimeline, generateForecastInsight, listForecastInsights, listForecastPublications, listForecastReviewQueue, publishForecastRun, reviewForecastVersion,
   withdrawForecastPublication,
 } from './forecast-workflow.service';
 
@@ -33,6 +33,7 @@ const id = (v: unknown) => parseInput(idSchema, v);
 export function registerForecastRoutes(app: Express, db: () => DB, wrap: Wrap, store: () => ObjectStore): void {
   const upload = memoryUpload(['.xlsx']);
   const base = '/api/forecast';
+  app.get(`${base}/review-queue`, wrap((req, res) => { res.json(listForecastReviewQueue(db(), parseInput(ffReviewQueueQuery, queryFields(req)))); }));
   app.get(`${base}/models`, wrap((req, res) => { res.json(listForecastModels(db(), parseInput(ffModelListQuery, queryFields(req)))); }));
   app.post(`${base}/models`, wrap((req, res) => { res.status(201).json(createForecastModel(db(), parseInput(ffModelCreate, req.body))); }));
   app.get(`${base}/models/:id`, wrap((req, res) => { res.json(getForecastModel(db(), id(req.params.id))); }));

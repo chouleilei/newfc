@@ -1,5 +1,5 @@
 /**
- * 主数据字典项(T-7,AC-F07,对应 lishui /master-data/dict-items):全局主数据,读需 master:read,写需 master:write 且全组织(路由表)。
+ * 主数据字典项(T-7,AC-F07):全局主数据,读需 master:read,写需 master:write 且全组织(路由表)。
  * 类型与取值是引用键(自定义字段下拉等),创建后不可改;显示名、排序、状态可改,带期望版本;停用代替删除。
  */
 import type { DB } from '../../db/connection';

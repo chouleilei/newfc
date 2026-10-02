@@ -1,3 +1,5 @@
+> newfc 现行助手接口与实现参考。继承章节中的版本号是来源历史，需求与权限契约以 specs/ai.md 为准。
+
 # AI 助手后端交接
 
 助手路由挂载在 `/api/assistant`，与其余 API 共用 `x-access-token` 认证。未配置模型时仍可使用事实查询、确定性分析和全部预览/确认流程；模型适配器负责意图路由与组织文字。
@@ -305,28 +307,28 @@ DELETE /api/assistant/conversations/:id
 ```bash
 curl -H 'content-type: application/json' -H 'x-access-token: TOKEN' \
   -d '{"message":"列出2026年预算版本","context":{"year":2026}}' \
-  http://127.0.0.1:3748/api/assistant/chat
+  http://127.0.0.1:3760/api/assistant/chat
 
 # 差异归因:逐层展开 + 方向排序
 curl -H 'content-type: application/json' -H 'x-access-token: TOKEN' \
   -d '{"versionId":3,"maxDepth":3,"topN":10,"direction":"unfavorable"}' \
-  http://127.0.0.1:3748/api/assistant/attribution
+  http://127.0.0.1:3760/api/assistant/attribution
 
 # 报告生成:执行月报 / 年度复盘 / 预算讨论材料
 curl -H 'content-type: application/json' -H 'x-access-token: TOKEN' \
   -d '{"kind":"monthly_execution","versionId":3}' \
-  http://127.0.0.1:3748/api/assistant/report
+  http://127.0.0.1:3760/api/assistant/report
 
 # 导入辅助:解释错误 + 匹配建议 + 未匹配与重复清单
 curl -H 'content-type: application/json' -H 'x-access-token: TOKEN' \
   -d '{"errors":[{"row":3,"field":"orgCode","message":"组织编码不存在: SH1"}]}' \
-  http://127.0.0.1:3748/api/assistant/import-help
+  http://127.0.0.1:3760/api/assistant/import-help
 
 curl -H 'content-type: application/json' -H 'x-access-token: TOKEN' \
   -d '{"type":"copy_budget","params":{"sourceVersionId":3,"targetYear":2027,"name":"AI草案","growthRate":0.05,"idempotencyKey":"demo-1"}}' \
-  http://127.0.0.1:3748/api/assistant/preview
+  http://127.0.0.1:3760/api/assistant/preview
 
 curl -X POST -H 'content-type: application/json' -H 'x-access-token: TOKEN' \
   -d '{"confirmationToken":"PREVIEW返回的confirmationToken"}' \
-  http://127.0.0.1:3748/api/assistant/actions/1/confirm
+  http://127.0.0.1:3760/api/assistant/actions/1/confirm
 ```

@@ -9,6 +9,7 @@ import { TOOL_POLICIES } from '../src/assistant/tool-policy';
 import { allowedToolsForCapabilities } from '../src/assistant/page-capabilities';
 import { SEARCH_TYPES } from '../src/contracts/search';
 import { crossDomainSearch } from '../src/modules/search/search.service';
+import { listProjectBudgetBatches } from '../src/modules/project-budget/project-budget.service';
 import { boot, get, json } from './t3-helpers';
 import { createScopedUser } from './http-helpers';
 import { createProject, createSupplier } from './t4-helpers';
@@ -43,6 +44,37 @@ function frontendRoutes(): RegExp[] {
 }
 
 describe('T-6 跨域检索', () => {
+  it('旧预算批次先按关键词筛选再限量,搜索与联想均遵守明细组织范围', async () => {
+    const { base, db, admin, fx } = await boot('newfc-t6-search-old-batch-');
+    const shProject = await createProject(base, admin, 'OLD-SH', '上海旧项目', fx.orgIds.shanghai);
+    const njProject = await createProject(base, admin, 'OLD-NJ', '南京旧项目', fx.orgIds.nanjing);
+    const fileId = Number(db.prepare(`INSERT INTO file_object (sha256, size_bytes, original_name, created_at)
+      VALUES (?, 0, 'budget.xlsx', ?)`).run('0'.repeat(64), now).lastInsertRowid);
+    const insertBatch = db.prepare(`INSERT INTO pb_batch (year, period, name, file_object_id, file_sha256, file_name, row_count, created_at)
+      VALUES (2026, '2026-06', ?, ?, ?, 'budget.xlsx', 1, ?)`);
+    const insertEntry = db.prepare(`INSERT INTO pb_entry (batch_id, row_no, project_id, project_code, project_name, org_id,
+      fund_source, budget_cents, executed_cents, exec_month) VALUES (?, 1, ?, ?, ?, ?, '自有资金', 10000, 1000, '2026-06')`);
+    let oldId = 0;
+    db.transaction(() => {
+      for (let i = 0; i < 302; i++) {
+        const name = i < 2 ? '历史泵站预算' : `近期批次${i}`;
+        const batchId = Number(insertBatch.run(name, fileId, String(i).padStart(64, '0'), now).lastInsertRowid);
+        const orgId = i === 1 ? fx.orgIds.nanjing : fx.orgIds.shanghai;
+        const projectId = i === 1 ? njProject : shProject;
+        insertEntry.run(batchId, projectId, i === 1 ? 'OLD-NJ' : 'OLD-SH', '预算项目', orgId);
+        if (i === 0) oldId = batchId;
+      }
+    })();
+    const sh = createScopedUser(db, { username: 't6-old-sh', roleCodes: ['viewer'], orgIds: [fx.orgIds.shanghai] });
+    const result = await json(get(base, sh.session, `/api/search?q=${encodeURIComponent('历史泵站')}&types=project_budget_batch`));
+    expect(result.items.map((i: { id: number }) => i.id)).toEqual([oldId]);
+    expect(result.items[0].path).toBe(`/project-budget?batchId=${oldId}`);
+    const suggestions = await json(get(base, sh.session, `/api/search/suggestions?q=${encodeURIComponent('历史泵站')}`));
+    expect(suggestions.items.filter((i: { type: string }) => i.type === 'project_budget_batch').map((i: { id: number }) => i.id)).toEqual([oldId]);
+    // 领域列表的关键词按字面匹配,不能借通配符扩大结果。
+    as(db, sh.userId, () => expect(listProjectBudgetBatches(db, { keyword: '%' })).toEqual([]));
+  });
+
   it('按权限与组织范围检索,排序、截断、通配符与路由', async () => {
     const { base, db, admin, fx } = await boot('newfc-t6-search-');
     await createProject(base, admin, 'SW-SH-01', '临港水厂', fx.orgIds.shanghai);

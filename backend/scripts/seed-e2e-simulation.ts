@@ -6,8 +6,8 @@
  * 而 harness 过去只 seed 了 `finance-e2e` 那套四组织七科目的最小夹具，用例自然全红。
  * 这里从**代码里已有的同一份主数据定义**重建整套夹具，不依赖任何本地数据库、备份文件或线上服务：
  *
- *   1. 组织树取 `seed-lishui-org.cjs` 的 ORG_TREE(与运维脚本同源，避免两处漂移)；
- *   2. 科目森林与利润表指标取 `seed-lishui-account.cjs` 的 TREE / QTREE / METRICS；
+ *   1. 组织树取 `fixtures/water-finance-master-data.cjs` 的 ORG_TREE(纯数据定义，无运行副作用)；
+ *   2. 科目森林与利润表指标取 `fixtures/water-finance-master-data.cjs` 的 TREE / QTREE / METRICS；
  *   3. 预设表格由迁移内置，无需额外 seed；
  *   4. 2026 当前年度与 2022–2025 历史年度分别复用 `seed-full-simulation` / `seed-historical-simulation`
  *      导出的生成函数，数字与人工模拟库完全一致。
@@ -34,13 +34,13 @@ import {
 } from './seed-full-simulation';
 import { seedHistoricalYears } from './seed-historical-simulation';
 
-/* 运维脚本是 CJS 且只在直接执行时才跑 main，这里只取其中的主数据定义。 */
+/* CJS 夹具仅导出主数据定义，没有运维入口。 */
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ORG_TREE } = require('./seed-lishui-org.cjs') as {
+const { ORG_TREE } = require('./fixtures/water-finance-master-data.cjs') as {
   ORG_TREE: { code: string; name: string; parent: string | null }[];
 };
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { TREE, QTREE, METRICS, TYPE_BY_PREFIX } = require('./seed-lishui-account.cjs') as {
+const { TREE, QTREE, METRICS, TYPE_BY_PREFIX } = require('./fixtures/water-finance-master-data.cjs') as {
   TREE: unknown[][];
   QTREE: QuantityNode[];
   METRICS: MetricDef[];
@@ -73,7 +73,7 @@ function resetDataDir(dir: string): string {
   return file;
 }
 
-/** 组织编码是层级式数字码，sort_order 直接取码的数值即天然保序(与运维脚本一致)。 */
+/** 组织编码是层级式数字码，sort_order 直接取码的数值即天然保序(与夹具定义一致)。 */
 function seedOrgs(db: ReturnType<typeof openDatabase>): Map<string, number> {
   const idByCode = new Map<string, number>();
   for (const node of ORG_TREE) {

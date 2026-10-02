@@ -12,12 +12,12 @@ import multer from 'multer';
 import { id as idSchema } from '../../contracts/common';
 import {
   contractAdvanceRequest, contractChangeRequest, contractCommandRequest, contractCreateRequest, contractDocumentForm, contractListQuery, contractPaymentRequest,
-  contractPayRequest, contractReopenRequest, contractReviewSubmitRequest, contractUpdateRequest, decisionRequest,
+  contractPageQuery, contractPayRequest, contractReopenRequest, contractReviewSubmitRequest, contractUpdateRequest, decisionRequest,
 } from '../../contracts/project-contract';
 import { formFields, queryFields } from '../project-budget/routes';
 import {
   addContractDocument, advanceContract, contractDocumentContent, contractSummary, createContract, decideContractChange, decideContractPayment, decideContractReview,
-  getContractDetail, listContracts, payContractPayment, reopenContract, submitContractChange, submitContractPayment, submitContractReview, terminateContract,
+  getContractDetail, listContracts, listContractsPage, payContractPayment, reopenContract, submitContractChange, submitContractPayment, submitContractReview, terminateContract,
   updateContract, voidContract,
 } from './contract.service';
 import { confirmContractImport, getContractImport, previewContractImport } from './contract-import.service';
@@ -50,6 +50,7 @@ export function registerContractRoutes(app: Express, db: () => DB, wrap: Wrap, s
   }));
 
   app.get('/api/contracts', wrap((req, res) => { res.json(listContracts(db(), parseInput(contractListQuery, queryFields(req)))); }));
+  app.get('/api/contracts/page', wrap((req, res) => { res.json(listContractsPage(db(), parseInput(contractPageQuery, req.query))); }));
   app.get('/api/contracts/summary', wrap((req, res) => {
     const q = queryFields(req);
     res.json(contractSummary(db(), { orgId: q.orgId ? id(q.orgId) : undefined, projectId: q.projectId ? id(q.projectId) : undefined }));

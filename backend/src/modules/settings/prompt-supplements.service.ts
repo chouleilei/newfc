@@ -1,5 +1,5 @@
 /**
- * AI 提示补充(T-7,AC-F23,对应 lishui sys_ai_prompt_template 的“可配置提示词”):
+ * AI 提示补充(T-7,AC-F23):
  * newfc 的提示词集中在 assistant/prompts.ts 并随版本号审阅,不开放整段替换;设置页只能为每个改写任务追加
  * 业务补充说明(风格、关注点),附在硬约束之后,数字守卫不变;非空时 prompt 版本带内容哈希,生成物 provenance 可追溯。
  */

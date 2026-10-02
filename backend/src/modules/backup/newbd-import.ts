@@ -182,7 +182,7 @@ export async function importNewbdSnapshot(input: { source: string; target: strin
       const notMigrated: NewbdImportReport['notMigrated'] = [
         { item: '访问口令与登录会话', detail: 'newbd 使用环境变量口令与进程内会话,不在库中,不迁入;newfc 首个管理员用 npm run admin:create 创建' },
         { item: '账号', detail: '迁入不创建任何账号,也不迁入任何凭据' },
-        { item: 'lishui 历史(审批流水、会话、模型日志)', detail: '无导入入口,待 OPEN-03 确认保留范围;业务数据经各域标准文件导入' },
+        { item: 'lishui 历史(审批流水、会话、模型日志)', detail: '历史审批、会话与模型日志不迁入;业务数据经各域标准文件导入' },
       ];
       for (const t of userTables(src)) {
         const srcRows = (src.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get() as { n: number }).n;
