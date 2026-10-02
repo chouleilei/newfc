@@ -139,6 +139,7 @@ test('比率公式的实际分子分母可检查，保持未保存且不重算�
     const side = dialog.locator('.ant-form-item').filter({ has: page.locator('label', { hasText: label }) }).first();
     await side.locator('.ant-tree-select .ant-select-selector').click();
     await page.locator('.ant-select-dropdown:visible .ant-select-tree-title:visible').filter({ hasText: /I01 / }).first().click();
+    await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);
   }
   await dialog.getByRole('button', { name: '检查当前修改', exact: true }).click();
   const body = await ask(page, '解释当前比率公式与依赖');

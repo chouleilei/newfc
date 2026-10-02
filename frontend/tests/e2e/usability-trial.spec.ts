@@ -87,13 +87,13 @@ interface ActualMatrixLite {
 }
 interface BatchLite { id: number; year: number; snapshot_date: string; updates_current: number; status: string }
 
-/** 网格单元格录入:点击 -> 全选(实际页格内可能已有累计值,避免追加成串) -> 输入 -> Enter 提交 */
+/** 网格业务录入:选中 -> 整值填入(覆盖原累计值) -> Enter 提交。
+ * 避免逐字符录入在大矩阵的慢速渲染中触发多轮防抖保存；逐键交互由 grid-interaction 覆盖。 */
 async function typeIntoCell(page: Page, selector: string, value: string) {
   const cell = page.locator(selector);
   await cell.click();
-  await page.keyboard.press('ControlOrMeta+a');
-  await page.keyboard.type(value);
-  await page.keyboard.press('Enter');
+  await cell.fill(value);
+  await cell.press('Enter');
 }
 
 /**
@@ -121,7 +121,7 @@ test('UX31-S1 第一次编制:新建下一年度草稿并直接填写两家单�
   await expect(page.getByText('预算与预测复用同一套编制与定稿机制')).toBeVisible();
 
   trial.step('点击「创建版本」并填写 2027 年草稿信息');
-  await page.getByRole('button', { name: '创建版本' }).click();
+  await page.getByRole('button', { name: '创建版本', exact: true }).first().click();
   const createModal = page.locator('.ant-modal').filter({ hasText: '创建预算或全年预测草稿' });
   await createModal.locator('.ant-input-number-input').first().fill('2027');
   await createModal.getByPlaceholder('如 年初版 / 年中调整版').fill(name);
