@@ -18,7 +18,7 @@ import { createScopedUser, ensureAdmin, fetchAs, sessionFor } from './http-helpe
 type TestSession = ReturnType<typeof sessionFor>;
 import { runWithContext, systemContext } from '../src/core/request-context';
 import { loadAuthContext, updateUser } from '../src/modules/security/security.service';
-import { tools } from '../src/assistant/tools';
+import { executeTool } from '../src/assistant/tools';
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -92,15 +92,15 @@ describe('AC-X04 助手工具按同一 AuthContext 裁剪', () => {
     const sh = createScopedUser(db, { username: 'sh-analyst', roleCodes: ['finance_analyst'], orgIds: [fx.orgIds.shanghai] });
     as(db, sh.userId, () => {
       const outputs: Record<string, unknown> = {
-        calculate_execution: tools.calculate_execution(db, { versionId: v.id } as any),
-        calculate_trend: tools.calculate_trend(db, { year: 2026, versionId: v.id } as any),
-        calculate_anomalies: tools.calculate_anomalies(db, { versionId: v.id } as any),
-        calculate_attribution: tools.calculate_attribution(db, { versionId: v.id } as any),
-        calculate_structure: tools.calculate_structure(db, { versionId: v.id } as any),
-        calculate_multi_year_trend: tools.calculate_multi_year_trend(db, { baseYear: 2026 } as any),
-        generate_report: tools.generate_report(db, { kind: 'monthly_execution', versionId: v.id } as any),
-        get_metric_evidence: tools.get_metric_evidence(db, { versionId: v.id, metricId: fx.metricIds.gross } as any),
-        get_org_tree: tools.get_org_tree(db),
+        calculate_execution: executeTool(db, 'calculate_execution', { versionId: v.id } as any),
+        calculate_trend: executeTool(db, 'calculate_trend', { year: 2026, versionId: v.id } as any),
+        calculate_anomalies: executeTool(db, 'calculate_anomalies', { versionId: v.id } as any),
+        calculate_attribution: executeTool(db, 'calculate_attribution', { versionId: v.id } as any),
+        calculate_structure: executeTool(db, 'calculate_structure', { versionId: v.id } as any),
+        calculate_multi_year_trend: executeTool(db, 'calculate_multi_year_trend', { baseYear: 2026 } as any),
+        generate_report: executeTool(db, 'generate_report', { kind: 'monthly_execution', versionId: v.id } as any),
+        get_metric_evidence: executeTool(db, 'get_metric_evidence', { versionId: v.id, metricId: fx.metricIds.gross } as any),
+        get_org_tree: executeTool(db, 'get_org_tree', {  }),
       };
       for (const [name, out] of Object.entries(outputs)) expectNoLeak(name, out);
       // 上海收入预算 100 元确实被算出来(不是空结果冒充通过)
@@ -115,20 +115,20 @@ describe('AC-X04 助手工具按同一 AuthContext 裁剪', () => {
     const v = seed(fx);
     const sh = createScopedUser(db, { username: 'sh-forge', roleCodes: ['finance_analyst'], orgIds: [fx.orgIds.shanghai] });
     as(db, sh.userId, () => {
-      expect(codeOf(() => tools.calculate_execution(db, { versionId: v.id, orgScopeId: fx.orgIds.nanjing } as any))).toBe('NOT_FOUND');
-      expect(codeOf(() => tools.calculate_execution(db, { versionId: v.id, orgScopeId: fx.orgIds.root } as any))).toBe('NOT_FOUND');
-      expect(codeOf(() => tools.calculate_multi_year_trend(db, { baseYear: 2026, orgCodes: ['NJ'] } as any))).toBe('NOT_FOUND');
-      expect(codeOf(() => tools.get_budget_matrix(db, v.id))).toBe('SCOPE_RESTRICTED');
-      expect(codeOf(() => tools.get_historical_comparison(db))).toBe('SCOPE_RESTRICTED');
-      expect(codeOf(() => tools.generate_report(db, { kind: 'annual_review', year: 2026 } as any))).toBe('SCOPE_RESTRICTED');
-      expect(codeOf(() => tools.get_cell_evidence(db, { versionId: v.id, accountId: fx.accIds.incomeMain } as any))).toBe('SCOPE_REQUIRED');
-      expect(codeOf(() => tools.get_cell_evidence(db, { versionId: v.id, accountId: fx.accIds.incomeMain, orgId: fx.orgIds.nanjing } as any))).toBe('NOT_FOUND');
-      expect(codeOf(() => tools.get_budget_cell_history(db, v.id, fx.orgIds.hangzhou, fx.accIds.incomeMain))).toBe('NOT_FOUND');
+      expect(codeOf(() => executeTool(db, 'calculate_execution', { versionId: v.id, orgScopeId: fx.orgIds.nanjing } as any))).toBe('NOT_FOUND');
+      expect(codeOf(() => executeTool(db, 'calculate_execution', { versionId: v.id, orgScopeId: fx.orgIds.root } as any))).toBe('NOT_FOUND');
+      expect(codeOf(() => executeTool(db, 'calculate_multi_year_trend', { baseYear: 2026, orgCodes: ['NJ'] } as any))).toBe('NOT_FOUND');
+      expect(codeOf(() => executeTool(db, 'get_budget_matrix', { versionId: v.id }))).toBe('SCOPE_RESTRICTED');
+      expect(codeOf(() => executeTool(db, 'get_historical_comparison', {  }))).toBe('SCOPE_RESTRICTED');
+      expect(codeOf(() => executeTool(db, 'generate_report', { kind: 'annual_review', year: 2026 } as any))).toBe('SCOPE_RESTRICTED');
+      expect(codeOf(() => executeTool(db, 'get_cell_evidence', { source: 'budget', sourceId: v.id, accountId: fx.accIds.incomeMain } as any))).toBe('SCOPE_REQUIRED');
+      expect(codeOf(() => executeTool(db, 'get_cell_evidence', { source: 'budget', sourceId: v.id, accountId: fx.accIds.incomeMain, orgId: fx.orgIds.nanjing } as any))).toBe('NOT_FOUND');
+      expect(codeOf(() => executeTool(db, 'get_budget_cell_history', { versionId: v.id, orgId: fx.orgIds.hangzhou, accountId: fx.accIds.incomeMain }))).toBe('NOT_FOUND');
     });
     // 无操作权限:只读查看角色没有 import:run
     const viewer = createScopedUser(db, { username: 'viewer-all', roleCodes: ['viewer'], allOrgs: true });
     as(db, viewer.userId, () => {
-      expect(codeOf(() => tools.explain_import(db, {} as any))).toBe('FORBIDDEN');
+      expect(codeOf(() => executeTool(db, 'explain_import', {} as any))).toBe('FORBIDDEN');
     });
   });
 
@@ -139,8 +139,8 @@ describe('AC-X04 助手工具按同一 AuthContext 裁剪', () => {
     const v = seed(fx);
     const multi = createScopedUser(db, { username: 'multi-root', roleCodes: ['finance_analyst'], orgIds: [fx.orgIds.shanghai, fx.orgIds.nanjing] });
     as(db, multi.userId, () => {
-      expect(codeOf(() => tools.calculate_execution(db, { versionId: v.id } as any))).toBe('SCOPE_REQUIRED');
-      const out = tools.calculate_execution(db, { versionId: v.id, orgScopeId: fx.orgIds.nanjing } as any);
+      expect(codeOf(() => executeTool(db, 'calculate_execution', { versionId: v.id } as any))).toBe('SCOPE_REQUIRED');
+      const out = executeTool(db, 'calculate_execution', { versionId: v.id, orgScopeId: fx.orgIds.nanjing } as any);
       expect(JSON.stringify(out)).toContain('98765');
     });
   });
@@ -159,7 +159,7 @@ describe('AC-X04 分析接口与工作台(HTTP)', () => {
     expectNoLeak('/api/report/completion', page.body);
 
     // AC-F20 同源:页面接口与助手工具在同一身份、同一范围下逐字段一致
-    const toolOut = as(db, sh.userId, () => tools.calculate_execution(db, { versionId: v.id, sheetKey: 'all' } as any));
+    const toolOut = as(db, sh.userId, () => executeTool(db, 'calculate_execution', { versionId: v.id, sheetKey: 'all' } as any));
     expect(JSON.parse(JSON.stringify(toolOut)).analysisAccounts).toEqual(page.body.analysisAccounts);
 
     expect((await fetchAs(sh.session, `${base}/api/report/completion?versionId=${v.id}&orgScopeId=${fx.orgIds.nanjing}`)).status).toBe(404);

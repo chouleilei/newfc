@@ -1,3 +1,4 @@
+import { pageDefinition } from '@contracts/page-catalog';
 /**
  * AI 助手页面(方案《AI助手完整方案》4.1/4.2/4.3 的前端入口)。
  *
@@ -20,7 +21,9 @@ import {
 } from 'antd';
 import type { TextAreaRef } from 'antd/es/input/TextArea';
 import { ApiError, can } from '../api/client';
-import { DOMAIN_PAGES } from '../assistant/domainContext';
+import { DOMAIN_PROMPTS } from '../assistant/domainContext';
+import { PAGE_CATALOG, pagePath } from '@contracts/page-catalog';
+import type { PageId } from '@contracts/page-catalog';
 import {
   assistantApi, previewIdempotencyKey,
   type AssistantAction, type InsightKind,
@@ -28,7 +31,7 @@ import {
 import { useAssistant, type ChatTurn } from '../assistant/AssistantProvider';
 import { useAssistantPageContext } from '../assistant/contextHooks';
 import { READ_INTENT_LABEL } from '../assistant/labels';
-import { PAGE_LABEL } from '../assistant/pageContext';
+
 import { isTurnOriginStale } from '../assistant/scopeDisplay';
 import { Markdown } from '../components/assistant/Markdown';
 import { CitationList, FactsPanel, factLabel } from '../components/assistant/FactsPanel';
@@ -85,7 +88,7 @@ function hasWideContent(turn: ChatTurn): boolean {
  */
 function WelcomePanel({ onPick }: { onPick: (prompt: string) => void }) {
   const [domain, setDomain] = useState('all');
-  const available = Object.entries(DOMAIN_PAGES).filter(([k, p]) => can(p.permission) && !['security', 'project_profile', 'contract_import', 'business_settings', 'jobs', 'search'].includes(k));
+  const available = Object.entries(DOMAIN_PROMPTS).map(([k, prompts]) => [k, { ...PAGE_CATALOG[k as PageId], path: pagePath(k as PageId), prompts }] as const).filter(([k, p]) => can(p.permission) && !['security', 'project_profile', 'contract_import', 'business_settings', 'jobs', 'search'].includes(k));
   const selected = available.find(([k]) => k === domain)?.[1];
   const prompts = domain === 'budget' ? QUICK_PROMPTS : selected ? selected.prompts : available.flatMap(([, p]) => p.prompts.slice(0, 1)).slice(0, 8);
   const skills = domain === 'budget' ? WELCOME_SKILLS : (selected ? [[domain, selected] as const] : available.filter(([k]) => ['contracts', 'expense', 'risk', 'statements'].includes(k))).map(([k, p]) => ({ key: k, icon: 'insight' as const, title: p.label, desc: p.prompts[0], prompt: p.prompts[0] }));
@@ -178,7 +181,7 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
         {isTurnOriginStale(turn.origin?.pageKey, currentPage) && (
           <Tooltip title="这条回答的范围以发起时所在页面为准，与当前页面不同，不代表你正在看的对象">
             <Tag bordered={false} className="newfc-ai-meta" color="gold" data-testid="assistant-turn-origin">
-              基于「{PAGE_LABEL[turn.origin!.pageKey] ?? turn.origin!.pageKey}」当时的范围
+              基于「{pageDefinition(turn.origin!.pageKey)?.label ?? turn.origin!.pageKey}」当时的范围
             </Tag>
           </Tooltip>
         )}

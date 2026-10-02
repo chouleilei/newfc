@@ -1,3 +1,4 @@
+import { toolPolicy } from '../src/assistant/tools';
 /**
  * T-4 助手只读工具(AC-F09/F15/F16/F22/AC-X04):项目预算、计划执行、合同汇总/详情、费用审核队列
  * 调用页面同源 service;受限用户缺省落在唯一授权根,范围外组织/合同 404;无权限不暴露;写操作不是工具。
@@ -7,8 +8,9 @@ import type { DB } from '../src/db/connection';
 import { runWithContext } from '../src/core/request-context';
 import { loadAuthContext } from '../src/modules/security/security.service';
 import { executeTool, toolDefinitions } from '../src/assistant/tools';
-import { toolAllowed, TOOL_POLICIES } from '../src/assistant/tool-policy';
-import { allowedToolsForCapabilities, pageCapability } from '../src/assistant/page-capabilities';
+import { toolAllowed } from '../src/assistant/tool-policy';
+import { pageDefinition } from '../src/contracts/page-catalog';
+import { allowedToolsForCapabilities } from '../src/assistant/page-capabilities';
 import { createScopedUser } from './http-helpers';
 import { boot } from './t3-helpers';
 
@@ -27,11 +29,11 @@ const now = '2026-06-30T00:00:00.000Z';
 describe('T-4 助手只读工具', () => {
   it('登记为只读工具并暴露定义;没有写操作工具', () => {
     for (const name of NEW_TOOLS) {
-      expect(TOOL_POLICIES[name]?.scope).toBe(name === 'contract_detail' ? 'global' : 'org_scope');
+      expect(toolPolicy(name)?.scope).toBe(name === 'contract_detail' ? 'global' : 'org_scope');
       expect(toolDefinitions.some((d) => d.function.name === name)).toBe(true);
       expect(allowedToolsForCapabilities(['project_data'])).toContain(name);
     }
-    expect(pageCapability('assistant')!.capabilities).toContain('project_data');
+    expect(pageDefinition('assistant')!.capabilities).toContain('project_data');
     const names = toolDefinitions.map((d) => d.function.name);
     expect(names.filter((n) => /contract|expense|plan_|project_budget/.test(n)).sort()).toEqual([...NEW_TOOLS, 'expense_detail'].sort());
   });
@@ -64,11 +66,11 @@ describe('T-4 助手只读工具', () => {
       expect((executeTool(db, 'plan_execution_overview', { year: 2026 }) as any)).toMatchObject({ year: 2026, batch: null });
 
       for (const name of NEW_TOOLS.filter((n) => n !== 'contract_detail')) {
-        expect(codeOf(() => executeTool(db, name, { orgScopeId: fx.orgIds.nanjing, year: 2026 }))).toBe('NOT_FOUND');
+        expect(codeOf(() => executeTool(db, name, { orgScopeId: fx.orgIds.nanjing, ...(name === 'plan_execution_overview' ? { year: 2026 } : {}) }))).toBe('NOT_FOUND');
       }
-      expect(codeOf(() => executeTool(db, 'plan_execution_overview', {}))).toMatch(/year/);
+      expect(codeOf(() => executeTool(db, 'plan_execution_overview', {}))).toBe('TOOL_ARGUMENTS_INVALID');
       expect(codeOf(() => executeTool(db, 'plan_execution_overview', { year: 2026, asOfPeriod: '2025-12' }))).toMatch(/计划年度/);
-      expect(codeOf(() => executeTool(db, 'contract_detail', { contractId: 'x' }))).toMatch(/contractId/);
+      expect(codeOf(() => executeTool(db, 'contract_detail', { contractId: 'x' }))).toBe('TOOL_ARGUMENTS_INVALID');
     });
 
     const all = createScopedUser(db, { username: 'as4-all', roleCodes: ['viewer'], allOrgs: true });
@@ -82,7 +84,7 @@ describe('T-4 助手只读工具', () => {
     as(db, noPerm.userId, () => {
       for (const name of NEW_TOOLS) {
         expect(toolAllowed(name)).toBe(false);
-        expect(codeOf(() => executeTool(db, name, { year: 2026, contractId: sh }))).toBe('FORBIDDEN');
+        expect(codeOf(() => executeTool(db, name, name === 'contract_detail' ? { contractId: sh } : name === 'plan_execution_overview' ? { year: 2026 } : {}))).toBe('FORBIDDEN');
       }
     });
   });

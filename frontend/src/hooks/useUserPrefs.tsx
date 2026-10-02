@@ -6,7 +6,8 @@
  * 以便「导航时记录最近访问」这类 effect 不会因回调身份变化而反复触发。
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { PageKey } from '../assistant/context';
+import { PageId } from '@contracts/page-catalog';
+
 import {
   addSavedView,
   deleteSavedView,
@@ -27,17 +28,17 @@ import {
 export interface UserPrefsApi {
   prefs: UserPrefs;
   /** 某路由已保存的命名视图(按创建时间升序)。 */
-  savedViewsFor: (pageKey: PageKey) => SavedViewEntry[];
+  savedViewsFor: (pageKey: PageId) => SavedViewEntry[];
   /** 保存命名视图;返回 null 表示拒绝(名称为空/路由不支持/已达上限)。 */
-  saveView: (input: { name: string; pageKey: PageKey; search: string }) => SavedViewEntry | null;
+  saveView: (input: { name: string; pageKey: PageId; search: string }) => SavedViewEntry | null;
   renameView: (id: string, name: string) => void;
   deleteView: (id: string) => void;
   /** 当前 路由+路径 是否已收藏(返回收藏项便于取 id)。 */
-  favoriteFor: (pageKey: PageKey, path: string) => FavoriteEntry | undefined;
+  favoriteFor: (pageKey: PageId, path: string) => FavoriteEntry | undefined;
   /** 切换收藏;返回操作后是否处于已收藏(超上限/不支持时返回 false 且不变更)。 */
-  toggleFavoriteEntry: (input: { pageKey: PageKey; path: string; label: string }) => boolean;
+  toggleFavoriteEntry: (input: { pageKey: PageId; path: string; label: string }) => boolean;
   removeFavoriteEntry: (id: string) => void;
-  recordRecent: (input: { pageKey: PageKey; path: string; label: string }) => void;
+  recordRecent: (input: { pageKey: PageId; path: string; label: string }) => void;
   /** 清空本账号全部偏好(视图/收藏/最近),不影响任何业务数据。 */
   resetPrefs: () => void;
 }

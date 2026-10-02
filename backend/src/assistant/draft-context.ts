@@ -19,7 +19,8 @@ import { rollup, type RollupResult } from '../core/rollup';
 import { loadSnapshotNodes } from '../modules/tree/snapshot';
 import { listRows } from '../modules/actual/actual.helpers';
 import { listMetricsForVersion } from '../modules/metric/metric.service';
-import type { DraftKind } from './page-capabilities';
+import { type DraftKind } from '../contracts/page-catalog';
+
 
 /** 草稿 wire 格式(§5.7)：kind + base(最小基线) + changes(对应保存接口的受控 DTO)。 */
 export interface DraftDescriptor {

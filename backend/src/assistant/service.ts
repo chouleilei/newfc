@@ -46,7 +46,7 @@ import { PROMPT_VERSION, REPORT_REWRITE_TASK, TREND_SECTION_REWRITE_TASK } from 
 import { trendNarrativeAiEnabled } from './feature-flags';
 import { executeTool, toolAcceptsParam, toolDefinitions, toolLabel } from './tools';
 import { authorizeToolCall, requireActionPermission, requireAllOrgsForAction, scopedOrgId, toolAllowed } from './tool-policy';
-import type { Permission } from '../modules/security/permissions';
+import type { Permission } from '../contracts/permissions';
 import { assertOrgVisible } from '../modules/security/scope';
 import { currentAuth } from '../core/request-context';
 import type { AssistantContext } from './schemas';
@@ -54,9 +54,9 @@ import {
   buildContextSummary, detectOverrides, resolveBackendContext,
   type FocusDescriptor, type ResolvedBackendContext,
 } from './context-v2';
-import {
-  allowedToolsForCapabilities, filterIntentsByCapability, pageCapability, pickCapability, type DomainCapability,
-} from './page-capabilities';
+import { pageDefinition } from '../contracts/page-catalog';
+import { type DomainCapability } from '../contracts/page-catalog';
+import { allowedToolsForCapabilities, filterIntentsByCapability, pickCapability } from './page-capabilities';
 import { computeDraftImpact, draftSummary } from './draft-context';
 import { completionReport } from '../modules/report/report.service';
 import { structureReport } from '../modules/report/structure.service';
@@ -1596,7 +1596,7 @@ export async function chat(
   if (backendCtx) (digest as unknown as Record<string, unknown>).pageView = backendCtx.view;
 
   /* ===== V2 页面范围落地(§9.1、§9.4、§9.6、§9.7) ===== */
-  const pageCap = backendCtx ? pageCapability(backendCtx.pageKey) : null;
+  const pageCap = backendCtx ? pageDefinition(backendCtx.pageKey) : null;
   const capability: DomainCapability | null = backendCtx && pageCap
     ? pickCapability(pageCap, detection.read, { hasVerificationFocus: backendCtx.focus?.kind === 'fact' })
     : null;
@@ -2759,7 +2759,7 @@ export async function reportDraft(db: DB, input: Record<string, unknown>): Promi
   // §9.1：与 chat 共用统一解析入口；页面范围作为参数的缺省来源。
   const pageCtx = resolveBackendContext(db, p.pageContext);
   // 与 generate_report 工具同一道授权(AC-X04):权限、组织范围与集团口径章节限制。
-  const [authorized] = authorizeToolCall(db, 'generate_report', [{
+  const authorized = authorizeToolCall(db, 'generate_report', {
     kind: normalizeReportKind(p.kind),
     versionId: p.versionId == null ? pageCtx?.pageContext.budgetVersionId ?? null : positiveInt(p.versionId, 'versionId'),
     year: p.year == null ? pageCtx?.pageContext.year ?? null : validYear(p.year, 'year'),
@@ -2769,8 +2769,8 @@ export async function reportDraft(db: DB, input: Record<string, unknown>): Promi
     accountScopeId: p.accountScopeId == null ? pageCtx?.pageContext.accountId ?? null : positiveInt(p.accountScopeId, 'accountScopeId'),
     sheetKey: p.sheetKey == null ? (typeof pageCtx?.view.sheetKey === 'string' ? pageCtx.view.sheetKey : null) : boundedText(p.sheetKey, 'sheetKey', 80),
     topN: p.topN == null ? null : positiveInt(p.topN, 'topN'),
-  }]);
-  const draft = buildReportDraft(db, authorized as Parameters<typeof buildReportDraft>[1]);
+  });
+  const draft = buildReportDraft(db, authorized as unknown as Parameters<typeof buildReportDraft>[1]);
   const wantsNarrative = p.narrative == null ? true : Boolean(p.narrative);
   if (!wantsNarrative) return { ...draft, model: 'template' };
   if (draft.kind === 'annual_review') return annualReviewTrendRewrite(db, draft);

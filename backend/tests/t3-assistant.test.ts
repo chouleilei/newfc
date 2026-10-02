@@ -1,3 +1,4 @@
+import { toolPolicy } from '../src/assistant/tools';
 /**
  * T-3 助手只读工具(AC-F05/F10/F14/AC-X04):EAS 期间状态、财报总览、管理会计快照与预警
  * 调用页面同源 service;受限用户缺省落在唯一授权根,显式指定范围外组织 404,不泄漏范围外数据。
@@ -7,8 +8,9 @@ import type { DB } from '../src/db/connection';
 import { runWithContext } from '../src/core/request-context';
 import { loadAuthContext } from '../src/modules/security/security.service';
 import { executeTool, toolDefinitions } from '../src/assistant/tools';
-import { toolAllowed, TOOL_POLICIES } from '../src/assistant/tool-policy';
-import { allowedToolsForCapabilities, pageCapability } from '../src/assistant/page-capabilities';
+import { toolAllowed } from '../src/assistant/tool-policy';
+import { pageDefinition } from '../src/contracts/page-catalog';
+import { allowedToolsForCapabilities } from '../src/assistant/page-capabilities';
 import { budget, saveActualSnapshot, standardBudgetVersion } from './helpers';
 import { createScopedUser } from './http-helpers';
 import { boot, json, post, upload } from './t3-helpers';
@@ -29,11 +31,11 @@ const NEW_TOOLS = ['eas_period_status', 'statement_overview', 'mgmt_metric_snaps
 describe('T-3 助手只读工具', () => {
   it('登记为只读 org_scope 工具,向模型暴露定义', () => {
     for (const name of NEW_TOOLS) {
-      expect(TOOL_POLICIES[name]?.scope).toBe('org_scope');
+      expect(toolPolicy(name)?.scope).toBe('org_scope');
       expect(toolDefinitions.some((d) => d.function.name === name)).toBe(true);
       expect(allowedToolsForCapabilities(['finance_data'])).toContain(name);
     }
-    expect(pageCapability('assistant')!.capabilities).toContain('finance_data');
+    expect(pageDefinition('assistant')!.capabilities).toContain('finance_data');
   });
 
   it('受限用户只看到授权组织的快照/预警/财报;范围外组织 404;参数显式校验', async () => {
@@ -73,8 +75,8 @@ describe('T-3 助手只读工具', () => {
       for (const name of NEW_TOOLS) {
         expect(codeOf(() => executeTool(db, name, { orgScopeId: fx.orgIds.hangzhou, period: '2026-05' }))).toBe('NOT_FOUND');
       }
-      expect(codeOf(() => executeTool(db, 'eas_period_status', { period: '2026-13' }))).toMatch(/period/);
-      expect(codeOf(() => executeTool(db, 'mgmt_alerts', { status: 'deleted' }))).toMatch(/status/);
+      expect(codeOf(() => executeTool(db, 'eas_period_status', { period: '2026-13' }))).toBe('TOOL_ARGUMENTS_INVALID');
+      expect(codeOf(() => executeTool(db, 'mgmt_alerts', { status: 'deleted' }))).toBe('TOOL_ARGUMENTS_INVALID');
     });
 
     // 全组织用户:未指定组织时看全部,指定组织时含下级

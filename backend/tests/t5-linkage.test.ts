@@ -1,10 +1,12 @@
+import { toolPolicy } from '../src/assistant/tools';
 import { describe, expect, it } from 'vitest';
 import type { DB } from '../src/db/connection';
 import { runWithContext } from '../src/core/request-context';
 import { loadAuthContext } from '../src/modules/security/security.service';
 import { executeTool, toolDefinitions } from '../src/assistant/tools';
-import { toolAllowed, TOOL_POLICIES } from '../src/assistant/tool-policy';
-import { allowedToolsForCapabilities, pageCapability } from '../src/assistant/page-capabilities';
+import { toolAllowed } from '../src/assistant/tool-policy';
+import { pageDefinition } from '../src/contracts/page-catalog';
+import { allowedToolsForCapabilities } from '../src/assistant/page-capabilities';
 import { boot, get, json, post, type Session } from './t3-helpers';
 import { createScopedUser } from './http-helpers';
 import { createProject } from './t4-helpers';
@@ -78,12 +80,12 @@ async function metric(base: string, s: Session, code: string, calculator: string
 describe('T-5 联动', () => {
   it('助手工具登记为只读 org_scope 工具并挂到工作台/助手页能力', () => {
     for (const name of NEW_TOOLS) {
-      expect(TOOL_POLICIES[name]?.scope).toBe('org_scope');
+      expect(toolPolicy(name)?.scope).toBe('org_scope');
       expect(toolDefinitions.some((d) => d.function.name === name)).toBe(true);
       expect(allowedToolsForCapabilities(['risk_investment'])).toContain(name);
     }
-    expect(pageCapability('assistant')!.capabilities).toContain('risk_investment');
-    expect(pageCapability('dashboard')!.capabilities).toContain('risk_investment');
+    expect(pageDefinition('assistant')!.capabilities).toContain('risk_investment');
+    expect(pageDefinition('dashboard')!.capabilities).toContain('risk_investment');
     // 扫描、状态流转、审批、发布等写操作没有对应工具
     expect(toolDefinitions.map((d) => d.function.name).filter((n) => /risk|report_|feasib|investment|forecast/.test(n)).sort()).toEqual([...NEW_TOOLS, 'feasibility_report_read', 'analysis_report_read', 'forecast_result', 'risk_detail', 'standard_report_read'].sort());
   });
@@ -156,8 +158,8 @@ describe('T-5 联动', () => {
       expect(codeOf(() => executeTool(db, 'investment_comparison', { comparisonId: ic.comparisonId }))).toBe('NOT_FOUND');
       expect(codeOf(() => executeTool(db, 'feasibility_result', { scenarioId: scenarioHz }))).toBe('NOT_FOUND');
       expect(codeOf(() => executeTool(db, 'forecast_runs', { modelId: modelNj }))).toBe('NOT_FOUND');
-      expect(codeOf(() => executeTool(db, 'risk_summary', { level: 'urgent' }))).toMatch(/level/);
-      expect(codeOf(() => executeTool(db, 'report_list', { kind: 'weekly' }))).toMatch(/kind/);
+      expect(codeOf(() => executeTool(db, 'risk_summary', { level: 'urgent' }))).toBe('TOOL_ARGUMENTS_INVALID');
+      expect(codeOf(() => executeTool(db, 'report_list', { kind: 'weekly' }))).toBe('TOOL_ARGUMENTS_INVALID');
     });
 
     const all = createScopedUser(db, { username: 't5-viewer-all', roleCodes: ['viewer'], allOrgs: true });

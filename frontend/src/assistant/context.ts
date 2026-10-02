@@ -1,3 +1,5 @@
+import { isPageId } from '@contracts/page-catalog';
+import type { PageId } from '@contracts/page-catalog';
 import type { DomainContext } from './domainContext';
 /**
  * AssistantPageContextV2 前端共享类型与 pageKey 目录
@@ -5,7 +7,7 @@ import type { DomainContext } from './domainContext';
  *
  * 约定：
  * - 本文件只放类型、pageKey 目录、规范化和快照逻辑，不拆分出 fingerprint/selection/overlay 等小模块；
- * - PAGE_KEYS 与后端 backend/src/assistant/page-capabilities.ts 的 PAGE_CAPABILITY_MAP
+ * - PAGE_IDS 与后端 backend/src/assistant/page-capabilities.ts 的 PAGE_CAPABILITY_MAP
  *   由后端契约测试 tests/page-capabilities.contract.test.ts 双向比较，遗漏即失败；
  * - 不发送：客户端 SHA 指纹、自称的 ready 状态、拼接好的范围文案、DOM/截图/整页数据、
  *   密钥/令牌/密码/文件正文(§5.1)。
@@ -80,7 +82,7 @@ export interface AssistantPageContextV2 {
   schemaVersion: 2;
   /** 本轮随机 UUID：关联请求、错误回执与排错定位；不提供幂等去重。 */
   snapshotId: string;
-  pageKey: string;
+  pageKey: PageId;
   /** 当前路由实例 UUID：前端隔离迟到更新。 */
   routeInstanceId: string;
   /** 当前页面语义状态递增版本。 */
@@ -99,48 +101,6 @@ export const CONTEXT_MAX_BYTES = 64 * 1024;
 export const DRAFT_MAX_BYTES = 5 * 1024 * 1024;
 export const DRAFT_MAX_CHANGES = 10_000;
 export const SELECTION_MAX_REFS = 500;
-
-/**
- * 28 个 pageKey(§7.2)：覆盖 App.tsx 全部业务路由与 DataManage 全部实际页签。
- * 顺序即展示顺序；与后端 PageCapabilityMap 一键不差。
- */
-export const PAGE_KEYS = [
-'eas', 'governance', 'statements', 'mgmt', 'standard_reports', 'project_budget', 'plan', 'contracts', 'contract_import', 'expense', 'expense_policies', 'feasibility', 'investment_control', 'forecast', 'risk', 'analysis_reports', 'master_entities', 'project_profile', 'search', 'jobs', 'business_settings', 'security',
-  'dashboard',
-  'assistant',
-  'insights',
-  'master_health',
-  'cleaning_config',
-  'budget_progress',
-  'anomaly_center',
-  'metric_trend',
-  'ai_settings',
-  'org',
-  'account',
-  'metric',
-  'budget_versions',
-  'budget_edit',
-  'actual',
-  'finance_import',
-  'analysis',
-  'structure',
-  'history',
-  'version_compare',
-  'calculations',
-  'imports',
-  'data_check',
-  'yearclose',
-  'backup',
-  'migration',
-  'data_export',
-  'logs',
-] as const;
-
-export type PageKey = (typeof PAGE_KEYS)[number];
-
-export function isPageKey(value: string): value is PageKey {
-  return (PAGE_KEYS as readonly string[]).includes(value);
-}
 
 /**
  * 带业务范围的跨页导航(§7.4)：目标页校验参数、更新自身筛选，再登记实际生效上下文。

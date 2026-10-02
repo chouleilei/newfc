@@ -1,57 +1,37 @@
-/**
- * pageKey 目录契约测试(现行 specs/ai.md 页面上下文契约§7.1)。
- *
- * 前端 pageKey 目录(frontend/src/assistant/context.ts PAGE_KEYS)与后端
- * PageCapabilityMap(src/assistant/page-capabilities.ts)各保留一份，
- * 本测试双向比较：发现遗漏即失败，不引入代码生成器或路由源码扫描器。
- */
 import { describe, expect, it } from 'vitest';
-import fs from 'fs';
-import path from 'path';
-import { PAGE_CAPABILITY_MAP, PAGE_KEYS, allowedToolsForCapabilities, capabilityOfTool } from '../src/assistant/page-capabilities';
+import { PAGE_CATALOG, PAGE_IDS, matchPage, pagePath, pageVisible } from '../src/contracts/page-catalog';
+import { allowedToolsForCapabilities } from '../src/assistant/page-capabilities';
+import { navigationCatalog, resolveNavigation } from '../src/assistant/navigation';
+import { toolDefinitions } from '../src/assistant/tools';
 
-/** 从前端 context.ts 源码中提取 PAGE_KEYS 数组字面量。 */
-function frontendPageKeys(): string[] {
-  const file = path.resolve(__dirname, '../../frontend/src/assistant/context.ts');
-  const source = fs.readFileSync(file, 'utf8');
-  const match = source.match(/export const PAGE_KEYS = \[([\s\S]*?)\] as const;/);
-  if (!match) throw new Error('未能在 frontend/src/assistant/context.ts 中找到 PAGE_KEYS');
-  return [...match[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-}
-
-describe('pageKey 目录契约', () => {
-  it('经营预算与新增业务页均登记', () => {
-    expect(PAGE_KEYS.length).toBe(50);
-    expect(frontendPageKeys().length).toBe(50);
-  });
-
-  it('前端 PAGE_KEYS 与后端 PageCapabilityMap 完全一致(双向)', () => {
-    const frontend = new Set(frontendPageKeys());
-    const backend = new Set(PAGE_KEYS);
-    const missingInBackend = [...frontend].filter((key) => !backend.has(key));
-    const missingInFrontend = [...backend].filter((key) => !frontend.has(key));
-    expect(missingInBackend, `后端缺少: ${missingInBackend.join(', ')}`).toEqual([]);
-    expect(missingInFrontend, `前端缺少: ${missingInFrontend.join(', ')}`).toEqual([]);
-  });
-
-  it('每个页面都有默认能力且默认能力在允许列表内', () => {
-    for (const [key, page] of Object.entries(PAGE_CAPABILITY_MAP)) {
-      expect(page.label, `${key} 缺少 label`).toBeTruthy();
-      expect(page.capabilities.length, `${key} 没有能力映射`).toBeGreaterThan(0);
-      expect(page.capabilities, `${key} 的默认能力不在允许列表内`).toContain(page.defaultCapability);
-      expect(new Set(page.capabilities).size, `${key} 的能力列表有重复`).toBe(page.capabilities.length);
+describe('T-8.1 shared page contract', () => {
+  it('resolves every actual route/tab and its dynamic object paths', () => {
+    for (const id of PAGE_IDS) {
+      const page = PAGE_CATALOG[id];
+      const path = page.path.includes(':id') ? pagePath(id, { id: 17 }) : pagePath(id);
+      const url = new URL(path, 'https://newfc.local');
+      expect(matchPage(url.pathname, url.search), id).toBe(id);
+      expect(page.capabilities).toContain(page.defaultCapability);
     }
+    expect(matchPage('/budget/17')).toBe('budget_edit');
+    expect(matchPage('/projects/17')).toBe('project_profile');
+    for (const path of ['/budget/evil', '/budget/17/more', '/projects', '/settings/other', '/unknown']) expect(matchPage(path)).toBeNull();
+    expect(matchPage('/data')).toBe('backup');
+    expect(matchPage('/data', '?tab=unknown')).toBe('backup');
   });
-
-  it('每个页面映射出的模型工具都是真实存在的工具名', () => {
-    for (const capability of ['overview', 'assistant_content', 'master_data', 'budget', 'actual', 'execution', 'comparison', 'import_conversion', 'evidence', 'operations'] as const) {
-      for (const tool of allowedToolsForCapabilities([capability])) {
-        // capabilityOfTool 只覆盖领域工具；通用工具(explain_terms 等)返回 null。
-        expect(tool.length).toBeGreaterThan(0);
-      }
-    }
-    expect(capabilityOfTool('calculate_execution')).toBe('execution');
-    expect(capabilityOfTool('get_metric_evidence')).toBe('evidence');
-    expect(capabilityOfTool('nonexistent_tool')).toBeNull();
+  it('navigation uses the same routes and labels, including object links', () => {
+    expect(resolveNavigation('跳转到编制页面', { budgetVersionId: 17 })).toMatchObject({ path: '/budget/17', label: PAGE_CATALOG.budget_edit.label });
+    for (const entry of navigationCatalog()) expect(entry).toMatchObject({ path: pagePath(entry.page), label: PAGE_CATALOG[entry.page].label });
+  });
+  it('filters domain permission and whole-organization requirements', () => {
+    const has = (permission: string) => ['analysis:read', 'tasks:read'].includes(permission);
+    expect(pageVisible('analysis', has, false)).toBe(true);
+    expect(pageVisible('history', has, false)).toBe(false);
+    expect(pageVisible('jobs', has, false)).toBe(true);
+    expect(pageVisible('contracts', has, true)).toBe(false);
+  });
+  it('all advertised capabilities point to existing executable tools', () => {
+    const names = new Set(toolDefinitions.map((t) => t.function.name));
+    for (const page of Object.values(PAGE_CATALOG)) for (const name of allowedToolsForCapabilities(page.capabilities)) expect(names.has(name), name).toBe(true);
   });
 });

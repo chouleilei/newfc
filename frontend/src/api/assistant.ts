@@ -6,7 +6,7 @@ import type { DomainContext } from '../assistant/domainContext';
  * 经营预算金额是整数分,新领域遵循各自工具/契约的元字符串与显式单位。
  */
 import { ApiError, api, assertSessionGeneration, csrfHeaders, getSessionGeneration, handleUnauthorized, request, type RequestOptions } from './client';
-import type { AssistantPageContextV2 } from '../assistant/context';
+import { AssistantPageContextV2 } from '../assistant/context';
 
 export interface AssistantContext extends DomainContext {
   year?: number;

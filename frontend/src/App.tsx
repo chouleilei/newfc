@@ -1,3 +1,5 @@
+import { PAGE_CATALOG, pagePath, matchPage, pageVisible } from '@contracts/page-catalog';
+import type { PageId, PageDefinition } from '@contracts/page-catalog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserRouter, RouterProvider, Outlet, useLocation, useNavigate, useNavigationType, Navigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -14,7 +16,8 @@ import { AssistantDock } from './components/assistant/AssistantDock';
 import { BrandLogo } from './components/BrandLogo';
 import { HeaderSearch } from './components/HeaderSearch';
 import { derivePageContext } from './assistant/pageContext';
-import { isPageKey } from './assistant/context';
+import { isPageId } from '@contracts/page-catalog';
+
 import { UserPrefsProvider, useUserPrefs } from './hooks/useUserPrefs';
 import { entryPathFor, prefsNamespaceFor, MAX_FAVORITES } from './utils/userPrefs';
 import Login from './pages/Login';
@@ -76,7 +79,7 @@ const { Sider, Header, Content, Footer } = Layout;
  * 经营预算集中为一个领域入口,保留已有叶子路由与权限。
  */
 export const menuItems: MenuProps['items'] = [
-  { key: '/', icon: <i className="ri-dashboard-line" aria-hidden />, label: '首页' },
+  { ...menuPage('dashboard'), icon: <i className="ri-dashboard-line" aria-hidden />, },
   {
     key: 'grp-ai',
     /* AI 相关图标单独用紫色系,与主色可点击项区分开(方案《AI助手体验升级与界面格调提升方案》) */
@@ -84,8 +87,8 @@ export const menuItems: MenuProps['items'] = [
     label: '财务助手',
     children: [
       /* 子项避免与组名重名:组名「财务助手」+子项同名在面包屑/标题里无法区分 */
-      { key: '/assistant', label: '对话' },
-      { key: '/insights', label: '洞察报告' },
+      { ...menuPage('assistant'), },
+      { ...menuPage('insights'), },
     ],
   },
   {
@@ -95,19 +98,19 @@ export const menuItems: MenuProps['items'] = [
     /* 「测算模板」已从侧栏移除:它是预算编制的前置配置,入口收进「预算与预测」页。
        路由 /data?tab=calculations 保留,书签与页内跳转仍然有效。 */
     children: [
-      { key: '/budget', label: '预算与预测' },
-      { key: '/progress', label: '进度总览' },
+      { ...menuPage('budget_versions'), },
+      { ...menuPage('budget_progress'), },
       /* 导入批次保留独立叶子入口,录入页的「更多」入口也保留。 */
-      { key: '/actual', label: '实际录入与快照' },
-      { key: '/data?tab=imports', label: '导入批次' },
-      { key: '/cleaning-config', label: '清洗模板与别名' },
-      { key: '/finance', label: '财务系统转换' },
-      { key: '/analysis', label: '年度执行分析' },
-      { key: '/alerts', label: '预警中心' },
-      { key: '/structure', label: '结构占比' },
-      { key: '/metric-trend', label: '指标趋势' },
-      { key: '/history', label: '历年对比' },
-      { key: '/compare', label: '版本对比' },
+      { ...menuPage('actual'), },
+      { ...menuPage('imports'), },
+      { ...menuPage('cleaning_config'), },
+      { ...menuPage('finance_import'), },
+      { ...menuPage('analysis'), },
+      { ...menuPage('anomaly_center'), },
+      { ...menuPage('structure'), },
+      { ...menuPage('metric_trend'), },
+      { ...menuPage('history'), },
+      { ...menuPage('version_compare'), },
     ],
   },
   {
@@ -116,9 +119,9 @@ export const menuItems: MenuProps['items'] = [
     label: '财务数据',
     /* T-3(AC-F05/F06/F10):EAS 原始事实与经营预算实际快照是两条事实链。 */
     children: [
-      { key: '/eas', label: 'EAS 工作区' },
-      { key: '/governance', label: '数据治理' },
-      { key: '/statements', label: '财务报表' },
+      { ...menuPage('eas'), },
+      { ...menuPage('governance'), },
+      { ...menuPage('statements'), },
     ],
   },
   {
@@ -127,10 +130,10 @@ export const menuItems: MenuProps['items'] = [
     label: '项目与合同',
     /* T-4(AC-F09/F15/F16/F04):项目预算与计划执行是项目口径事实,与经营预算互不读写。 */
     children: [
-      { key: '/project-budget', label: '项目预算' },
-      { key: '/plan', label: '计划执行' },
-      { key: '/contracts', label: '合同台账' },
-      { key: '/contracts/import', label: '合同导入' },
+      { ...menuPage('project_budget'), },
+      { ...menuPage('plan'), },
+      { ...menuPage('contracts'), },
+      { ...menuPage('contract_import'), },
     ],
   },
   {
@@ -138,8 +141,8 @@ export const menuItems: MenuProps['items'] = [
     icon: <i className="ri-receipt-line" aria-hidden />,
     label: '费用审核',
     children: [
-      { key: '/expense', label: '报销单' },
-      { key: '/expense/policies', label: '制度依据' },
+      { ...menuPage('expense'), },
+      { ...menuPage('expense_policies'), },
     ],
   },
   {
@@ -147,9 +150,9 @@ export const menuItems: MenuProps['items'] = [
     icon: <i className="ri-line-chart-line" aria-hidden />,
     label: '投资与预测',
     children: [
-      { key: '/feasibility', label: '可行性测算' },
-      { key: '/investment-control', label: '投资控制' },
-      { key: '/forecast', label: '财务预测' },
+      { ...menuPage('feasibility'), },
+      { ...menuPage('investment_control'), },
+      { ...menuPage('forecast'), },
     ],
   },
   {
@@ -157,22 +160,22 @@ export const menuItems: MenuProps['items'] = [
     icon: <i className="ri-shield-check-line" aria-hidden />,
     label: '风险与报告',
     children: [
-      { key: '/risk', label: '风险台账' },
-      { key: '/analysis-reports', label: '分析报告' },
+      { ...menuPage('risk'), },
+      { ...menuPage('analysis_reports'), },
     ],
   },
-  { key: '/mgmt', icon: <i className="ri-scales-3-line" aria-hidden />, label: '管理会计' },
-  { key: '/standard-reports', icon: <i className="ri-file-list-3-line" aria-hidden />, label: '标准报表' },
+  { ...menuPage('mgmt'), icon: <i className="ri-scales-3-line" aria-hidden />, },
+  { ...menuPage('standard_reports'), icon: <i className="ri-file-list-3-line" aria-hidden />, },
   {
     key: 'grp-master',
     icon: <i className="ri-organization-chart" aria-hidden />,
     label: '主数据',
     children: [
-      { key: '/org', label: '组织' },
-      { key: '/account', label: '科目' },
-      { key: '/metric', label: '指标' },
-      { key: '/master-entities', label: '项目·供应商·映射' },
-      { key: '/master-health', label: '健康体检' },
+      { ...menuPage('org'), },
+      { ...menuPage('account'), },
+      { ...menuPage('metric'), },
+      { ...menuPage('master_entities'), },
+      { ...menuPage('master_health'), },
     ],
   },
   {
@@ -180,14 +183,14 @@ export const menuItems: MenuProps['items'] = [
     icon: <i className="ri-settings-3-line" aria-hidden />,
     label: '系统',
     children: [
-      { key: '/data?tab=check', label: '一致性检查' },
-      { key: '/data?tab=yearclose', label: '年度关闭' },
-      { key: '/data?tab=backup', label: '备份与迁移' },
-      { key: '/data?tab=logs', label: '操作日志' },
-      { key: '/jobs', label: '任务中心' },
-      { key: '/settings/business', label: '业务设置' },
-      { key: '/settings/ai', label: 'AI 渠道设置' },
-      { key: '/settings/security', label: '用户与权限' },
+      { ...menuPage('data_check'), },
+      { ...menuPage('yearclose'), },
+      { ...menuPage('backup'), },
+      { ...menuPage('logs'), },
+      { ...menuPage('jobs'), },
+      { ...menuPage('business_settings'), },
+      { ...menuPage('ai_settings'), },
+      { ...menuPage('security'), },
     ],
   },
 ];
@@ -196,61 +199,9 @@ export const menuItems: MenuProps['items'] = [
  * 侧栏入口所需权限:无权限的入口不显示(只是体验优化,后端仍逐请求校验)。
  * 未登记的键(任务中心、助手会话项等)对所有已登录用户可见。
  */
-export const MENU_PERMISSION: Record<string, string> = {
-  '/': 'dashboard:read',
-  '/assistant': 'assistant:use',
-  '/insights': 'assistant:use',
-  '/budget': 'budget:read',
-  '/progress': 'budget:read',
-  '/actual': 'actual:read',
-  '/data?tab=imports': 'import:run',
-  '/cleaning-config': 'import:run',
-  '/finance': 'finance_import:manage',
-  '/analysis': 'analysis:read',
-  '/alerts': 'analysis:read',
-  '/structure': 'analysis:read',
-  '/metric-trend': 'analysis:read',
-  '/history': 'analysis:read',
-  '/compare': 'analysis:read',
-  '/eas': 'eas:read',
-  '/governance': 'governance:read',
-  '/statements': 'statements:read',
-  '/project-budget': 'project_budget:read',
-  '/plan': 'plan:read',
-  '/contracts': 'contract:read',
-  '/contracts/import': 'contract:import',
-  '/expense': 'expense:read',
-  '/expense/policies': 'expense:read',
-  '/feasibility': 'investment:read',
-  '/investment-control': 'investment:read',
-  '/forecast': 'forecast:read',
-  '/risk': 'risk:read',
-  '/analysis-reports': 'report:read',
-  '/mgmt': 'mgmt:read',
-  '/standard-reports': 'report:read',
-  '/org': 'master:read',
-  '/account': 'master:read',
-  '/metric': 'master:read',
-  '/master-entities': 'master:read',
-  '/master-health': 'master:read',
-  '/data?tab=check': 'master:read',
-  '/data?tab=yearclose': 'actual:finalize',
-  '/data?tab=backup': 'system:backup',
-  '/data?tab=logs': 'audit:read',
-  '/settings/business': 'settings:read',
-  '/settings/ai': 'settings:read',
-  '/settings/security': 'security:manage',
-};
-
-/**
- * 集团口径页面:主体数据是整版矩阵、全组织对比或系统级检查,后端对只授权部分组织的
- * 账号返回 SCOPE_RESTRICTED(AC-X04)。对这类账号直接不展示入口,而不是点进去才报错。
- * 执行分析、结构、趋势、预警与工作台按授权范围裁剪,照常展示。
- */
-export const MENU_ALL_ORGS = new Set([
-  '/budget', '/progress', '/actual', '/data?tab=imports', '/cleaning-config', '/finance',
-  '/history', '/compare', '/master-health', '/data?tab=check', '/data?tab=yearclose', '/data?tab=backup',
-]);
+function menuPage(id: PageId) {
+  return { key: pagePath(id), label: PAGE_CATALOG[id].menuLabel };
+}
 
 /** 按权限裁剪菜单:去掉无权限的叶子,子项全被裁掉的分组一并去掉;受限范围账号再去掉集团口径入口。 */
 export function filterMenuByPermission(items: MenuProps['items'], has: (permission: string) => boolean, allOrgs = true): MenuProps['items'] {
@@ -263,38 +214,16 @@ export function filterMenuByPermission(items: MenuProps['items'], has: (permissi
       continue;
     }
     const key = 'key' in item && typeof item.key === 'string' ? item.key : '';
-    const need = MENU_PERMISSION[key];
-    if (!allOrgs && MENU_ALL_ORGS.has(key)) continue;
-    if (!need || has(need)) out.push(item);
+    const url = new URL(key, 'https://newfc.local');
+    const page = matchPage(url.pathname, url.search);
+    if (page && pageVisible(page, has, allOrgs)) out.push(item);
   }
   return out;
 }
 
-function leafLabel(key: string): string {
-  const walk = (nodes?: MenuProps['items']): string | undefined => {
-    for (const n of nodes ?? []) {
-      if (!n || !('key' in n)) continue;
-      if (n.key === key && 'label' in n) return String(n.label);
-      if ('children' in n && n.children) {
-        const hit = walk(n.children as MenuProps['items']);
-        if (hit) return hit;
-      }
-    }
-    return undefined;
-  };
-  return walk(menuItems) ?? '';
-}
-
-export function pageTitle(pathname: string, search: string, selected: string): string {
-  if (pathname === '/search') return '跨域检索';
-  if (pathname.startsWith('/projects/')) return '项目档案';
-  if (pathname.split('/')[1] === 'data') {
-    const tab = new URLSearchParams(search).get('tab');
-    if (tab === 'calculations') return '测算模板';
-    if (tab === 'imports') return '导入批次';
-    if (tab === 'check') return '一致性检查';
-  }
-  return leafLabel(selected);
+export function pageTitle(pathname: string, search: string, _selected: string): string {
+  const id = matchPage(pathname, search);
+  return id ? PAGE_CATALOG[id].label : '当前页面';
 }
 
 export function groupOf(key: string): string | undefined {
@@ -316,43 +245,21 @@ export function groupOf(key: string): string | undefined {
  * 「导入批次」与「一致性检查」已恢复为独立侧栏入口,这里返回其自身的 key。
  */
 export function dataMenuKey(tab: string | null): string {
-  if (tab === 'calculations') return '/budget';
-  if (tab === 'imports') return '/data?tab=imports';
-  if (tab === 'check') return '/data?tab=check';
-  if (tab === 'yearclose') return '/data?tab=yearclose';
-  if (tab === 'logs') return '/data?tab=logs';
-  return '/data?tab=backup';
+  return selectedKey('/data', tab ? `?tab=${tab}` : '');
 }
-
 export function selectedKey(pathname: string, search: string): string {
-  const seg = '/' + (pathname.split('/')[1] ?? '');
-  if (seg === '/' || seg === '') return '/';
-  if (seg === '/search') return '/search';
-  if (seg === '/budget') return '/budget';
-  if (seg === '/settings') {
-    if (pathname.startsWith('/settings/ai')) return '/settings/ai';
-    if (pathname.startsWith('/settings/security')) return '/settings/security';
-    if (pathname.startsWith('/settings/business')) return '/settings/business';
-    return '/';
-  }
-  if (seg === '/data') return dataMenuKey(new URLSearchParams(search).get('tab'));
-  if (seg === '/projects') return '/master-entities'; // 项目档案归属主数据菜单
-  if (pathname.startsWith('/contracts/import')) return '/contracts/import';
-  if (pathname.startsWith('/expense/policies')) return '/expense/policies';
-  const leaves = ['/org', '/account', '/metric', '/actual', '/finance', '/analysis', '/structure', '/history', '/compare', '/assistant', '/insights', '/master-health', '/cleaning-config', '/progress', '/alerts', '/metric-trend', '/master-entities', '/jobs', '/eas', '/governance', '/statements', '/mgmt', '/standard-reports', '/project-budget', '/plan', '/contracts', '/expense', '/feasibility', '/investment-control', '/forecast', '/risk', '/analysis-reports'];
-  return leaves.includes(seg) ? seg : '/';
+  const id = matchPage(pathname, search);
+  if (!id) return '/';
+  const page: PageDefinition = PAGE_CATALOG[id];
+  return pagePath(page.menuHost ?? id);
 }
 
 /** 收藏与最近访问也必须服从当前会话的导航权限和组织范围。 */
 export function canAccessPreferencePath(path: string): boolean {
   if (!path.startsWith('/') || path.startsWith('//')) return false;
   const url = new URL(path, 'https://newfc.local');
-  const key = selectedKey(url.pathname, url.search);
-  if (url.origin !== 'https://newfc.local' || (key === '/' && url.pathname !== '/')) return false;
-  const need = MENU_PERMISSION[key];
-  if (!need && key !== '/jobs') return false;
-  if (need && !can(need)) return false;
-  return (getSession()?.user.allOrgs ?? false) || !MENU_ALL_ORGS.has(key);
+  const id = matchPage(url.pathname, url.search);
+  return url.origin === 'https://newfc.local' && id != null && pageVisible(id, can, getSession()?.user.allOrgs ?? false);
 }
 
 function Brand({ collapsed }: { collapsed: boolean }) {
@@ -431,7 +338,7 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
   useEffect(() => {
     if (navType === 'REPLACE') return;
     const routeInfo = derivePageContext(loc.pathname, loc.search);
-    if (!isPageKey(routeInfo.page) || routeInfo.page === 'dashboard') return;
+    if (!isPageId(routeInfo.page) || routeInfo.page === 'dashboard') return;
     recordRecent({
       pageKey: routeInfo.page,
       path: entryPathFor(routeInfo.page, loc.pathname, loc.search),
@@ -442,7 +349,7 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
   /* UX-25 页头收藏星标:收藏 = 当前页面入口 + 当前白名单范围;范围变化后星标跟随
      精确路径,同页不同范围是不同收藏。 */
   const currentRouteInfo = derivePageContext(loc.pathname, loc.search);
-  const currentPageKey = isPageKey(currentRouteInfo.page) ? currentRouteInfo.page : null;
+  const currentPageKey = isPageId(currentRouteInfo.page) ? currentRouteInfo.page : null;
   const currentPath = currentPageKey ? entryPathFor(currentPageKey, loc.pathname, loc.search) : null;
   const currentFav = currentPageKey && currentPath ? favoriteFor(currentPageKey, currentPath) : undefined;
 
@@ -483,14 +390,14 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
         return {
           ...item,
           children: [
-            { key: '/assistant', label: '对话' },
-            { key: '/insights', label: '洞察报告' },
+            { ...menuPage('assistant'), },
+            { ...menuPage('insights'), },
           ],
         };
       }
 
       const aiChildren: NonNullable<MenuProps['items']> = [
-        { key: '/assistant', label: '对话' },
+        { ...menuPage('assistant'), },
         {
           key: 'ai-new-chat',
           label: (
@@ -532,7 +439,7 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
         });
       }
 
-      aiChildren.push({ key: '/insights', label: '洞察报告' });
+      aiChildren.push({ ...menuPage('insights'), });
 
       return {
         ...item,
@@ -929,48 +836,48 @@ function getRouter() {
     element: <AuthGate />,
     children: [
       { index: true, element: <Dashboard /> },
-      { path: 'assistant', element: <Assistant /> },
-      { path: 'insights', element: <Insights /> },
-      { path: 'master-health', element: <MasterDataHealthPage /> },
-      { path: 'cleaning-config', element: <CleaningConfig /> },
-      { path: 'progress', element: <BudgetProgress /> },
-      { path: 'alerts', element: <AnomalyCenter /> },
-      { path: 'metric-trend', element: <MetricTrend /> },
-      { path: 'settings/ai', element: <SettingsAi /> },
-      { path: 'settings/security', element: <SecurityAdmin /> },
-      { path: 'settings/business', element: <SettingsBusiness /> },
-      { path: 'master-entities', element: <MasterEntities /> },
-      { path: 'projects/:id', element: <ProjectProfile /> },
-      { path: 'jobs', element: <JobsCenter /> },
-      { path: 'eas', element: <EasWorkspace /> },
-      { path: 'governance', element: <Governance /> },
-      { path: 'statements', element: <Statements /> },
-      { path: 'mgmt', element: <ManagementAccounting /> },
-      { path: 'standard-reports', element: <StandardReports /> },
-      { path: 'project-budget', element: <ProjectBudget /> },
-      { path: 'plan', element: <PlanExecution /> },
-      { path: 'contracts', element: <Contracts /> },
-      { path: 'contracts/import', element: <ContractImport /> },
-      { path: 'expense', element: <ExpenseClaims /> },
-      { path: 'expense/policies', element: <ExpensePolicies /> },
-      { path: 'feasibility', element: <Feasibility /> },
-      { path: 'investment-control', element: <InvestmentControl /> },
-      { path: 'forecast', element: <Forecast /> },
-      { path: 'risk', element: <RiskLedger /> },
-      { path: 'analysis-reports', element: <AnalysisReports /> },
-      { path: 'search', element: <Search /> },
-      { path: 'org', element: <OrgManage /> },
-      { path: 'account', element: <AccountManage /> },
-      { path: 'metric', element: <MetricManage /> },
-      { path: 'budget', element: <BudgetVersions /> },
-      { path: 'budget/:id', element: <BudgetEdit /> },
-      { path: 'actual', element: <ActualMaintain /> },
-      { path: 'finance', element: <FinanceImport /> },
-      { path: 'analysis', element: <Analysis /> },
-      { path: 'structure', element: <Structure /> },
-      { path: 'history', element: <History /> },
-      { path: 'compare', element: <VersionCompare /> },
-      { path: 'data', element: <DataManage /> },
+      { path: PAGE_CATALOG['assistant'].path.slice(1), element: <Assistant /> },
+      { path: PAGE_CATALOG['insights'].path.slice(1), element: <Insights /> },
+      { path: PAGE_CATALOG['master_health'].path.slice(1), element: <MasterDataHealthPage /> },
+      { path: PAGE_CATALOG['cleaning_config'].path.slice(1), element: <CleaningConfig /> },
+      { path: PAGE_CATALOG['budget_progress'].path.slice(1), element: <BudgetProgress /> },
+      { path: PAGE_CATALOG['anomaly_center'].path.slice(1), element: <AnomalyCenter /> },
+      { path: PAGE_CATALOG['metric_trend'].path.slice(1), element: <MetricTrend /> },
+      { path: PAGE_CATALOG['ai_settings'].path.slice(1), element: <SettingsAi /> },
+      { path: PAGE_CATALOG['security'].path.slice(1), element: <SecurityAdmin /> },
+      { path: PAGE_CATALOG['business_settings'].path.slice(1), element: <SettingsBusiness /> },
+      { path: PAGE_CATALOG['master_entities'].path.slice(1), element: <MasterEntities /> },
+      { path: PAGE_CATALOG['project_profile'].path.slice(1), element: <ProjectProfile /> },
+      { path: PAGE_CATALOG['jobs'].path.slice(1), element: <JobsCenter /> },
+      { path: PAGE_CATALOG['eas'].path.slice(1), element: <EasWorkspace /> },
+      { path: PAGE_CATALOG['governance'].path.slice(1), element: <Governance /> },
+      { path: PAGE_CATALOG['statements'].path.slice(1), element: <Statements /> },
+      { path: PAGE_CATALOG['mgmt'].path.slice(1), element: <ManagementAccounting /> },
+      { path: PAGE_CATALOG['standard_reports'].path.slice(1), element: <StandardReports /> },
+      { path: PAGE_CATALOG['project_budget'].path.slice(1), element: <ProjectBudget /> },
+      { path: PAGE_CATALOG['plan'].path.slice(1), element: <PlanExecution /> },
+      { path: PAGE_CATALOG['contracts'].path.slice(1), element: <Contracts /> },
+      { path: PAGE_CATALOG['contract_import'].path.slice(1), element: <ContractImport /> },
+      { path: PAGE_CATALOG['expense'].path.slice(1), element: <ExpenseClaims /> },
+      { path: PAGE_CATALOG['expense_policies'].path.slice(1), element: <ExpensePolicies /> },
+      { path: PAGE_CATALOG['feasibility'].path.slice(1), element: <Feasibility /> },
+      { path: PAGE_CATALOG['investment_control'].path.slice(1), element: <InvestmentControl /> },
+      { path: PAGE_CATALOG['forecast'].path.slice(1), element: <Forecast /> },
+      { path: PAGE_CATALOG['risk'].path.slice(1), element: <RiskLedger /> },
+      { path: PAGE_CATALOG['analysis_reports'].path.slice(1), element: <AnalysisReports /> },
+      { path: PAGE_CATALOG['search'].path.slice(1), element: <Search /> },
+      { path: PAGE_CATALOG['org'].path.slice(1), element: <OrgManage /> },
+      { path: PAGE_CATALOG['account'].path.slice(1), element: <AccountManage /> },
+      { path: PAGE_CATALOG['metric'].path.slice(1), element: <MetricManage /> },
+      { path: PAGE_CATALOG['budget_versions'].path.slice(1), element: <BudgetVersions /> },
+      { path: PAGE_CATALOG['budget_edit'].path.slice(1), element: <BudgetEdit /> },
+      { path: PAGE_CATALOG['actual'].path.slice(1), element: <ActualMaintain /> },
+      { path: PAGE_CATALOG['finance_import'].path.slice(1), element: <FinanceImport /> },
+      { path: PAGE_CATALOG['analysis'].path.slice(1), element: <Analysis /> },
+      { path: PAGE_CATALOG['structure'].path.slice(1), element: <Structure /> },
+      { path: PAGE_CATALOG['history'].path.slice(1), element: <History /> },
+      { path: PAGE_CATALOG['version_compare'].path.slice(1), element: <VersionCompare /> },
+      { path: PAGE_CATALOG['backup'].path.slice(1), element: <DataManage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

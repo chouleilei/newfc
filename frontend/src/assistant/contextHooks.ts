@@ -11,7 +11,7 @@ import { useCallback, useContext, useEffect, useRef } from 'react';
 import {
   AssistantSurfaceParentContext, useAssistantRegistry, useOptionalAssistantRegistry, type PageRegistrationInit,
 } from './AssistantContextRegistry';
-import type { FocusDescriptor, SelectionDescriptor, SurfaceDescriptor } from './context';
+import { FocusDescriptor, SelectionDescriptor, SurfaceDescriptor } from './context';
 
 /**
  * 登记页面范围、view 与 ready 状态。

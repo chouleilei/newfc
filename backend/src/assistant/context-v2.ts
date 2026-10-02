@@ -16,9 +16,9 @@ import { AppError, Errors } from '../core/errors';
 import type { DB } from '../db/connection';
 import { insightRowsFilter } from './ownership';
 import type { AssistantContext } from './schemas';
-import {
-  PAGE_CAPABILITY_MAP, pageCapability, type DomainCapability, type DraftKind, type PageCapability,
-} from './page-capabilities';
+import { PAGE_CATALOG, pageDefinition } from '../contracts/page-catalog';
+import { type DomainCapability, type DraftKind, type PageDefinition as PageCapability } from '../contracts/page-catalog';
+
 import { normalizeDraftInput, type DraftDescriptor, type NormalizedDraft } from './draft-context';
 
 export type { DraftDescriptor, NormalizedDraft } from './draft-context';
@@ -373,7 +373,7 @@ export function parsePageContextV2(raw: unknown): AssistantPageContextV2 | null 
   const snapshotId = typeof raw.snapshotId === 'string' ? raw.snapshotId.trim() : '';
   if (!snapshotId || snapshotId.length > 80) throw contextError('CONTEXT_INVALID', 'pageContext.snapshotId 必须是 1-80 字符', { field: 'snapshotId' });
   const pageKey = typeof raw.pageKey === 'string' ? raw.pageKey.trim() : '';
-  const page = pageCapability(pageKey);
+  const page = pageDefinition(pageKey);
   // 未知 pageKey 不回退 dashboard(§9.4)。
   if (!page) throw contextError('CONTEXT_INVALID', `未知页面「${pageKey}」`, { field: 'pageKey', snapshotId, reason: 'pageKey 不在 PageCapabilityMap 内' });
   const routeInstanceId = typeof raw.routeInstanceId === 'string' ? raw.routeInstanceId.trim() : '';
@@ -532,7 +532,7 @@ export interface ResolvedBackendContext {
 export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendContext | null {
   const parsed = parsePageContextV2(raw);
   if (!parsed) return null;
-  const page = pageCapability(parsed.pageKey)!;
+  const page = pageDefinition(parsed.pageKey)!;
   const { snapshotId } = parsed;
   const scope = parsed.scope ?? {};
   const warnings: string[] = [];

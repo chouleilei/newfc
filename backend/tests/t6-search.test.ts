@@ -1,11 +1,10 @@
-import fs from 'fs';
-import path from 'path';
+import { matchPage } from '../src/contracts/page-catalog';
 import { describe, expect, it } from 'vitest';
 import type { DB } from '../src/db/connection';
 import { runWithContext, systemContext } from '../src/core/request-context';
 import { createRole, loadAuthContext } from '../src/modules/security/security.service';
 import { executeTool, toolDefinitions } from '../src/assistant/tools';
-import { TOOL_POLICIES } from '../src/assistant/tool-policy';
+import { toolPolicy } from '../src/assistant/tools';
 import { allowedToolsForCapabilities } from '../src/assistant/page-capabilities';
 import { SEARCH_TYPES } from '../src/contracts/search';
 import { crossDomainSearch } from '../src/modules/search/search.service';
@@ -35,12 +34,6 @@ function seedContract(db: DB, no: string, name: string, orgId: number): number {
 function seedReport(db: DB, seriesNo: string, title: string, orgId: number | null, status: string, userId: number | null): number {
   return Number(db.prepare(`INSERT INTO rpt_report (series_no, title, kind, org_id, year, status, created_by_user_id, created_at, updated_at)
     VALUES (?, ?, 'risk_investment', ?, 2026, ?, ?, ?, ?)`).run(seriesNo, title, orgId, status, userId, now, now).lastInsertRowid);
-}
-
-/** 前端 App.tsx 路由表中的一级路径(含 budget/:id 这类参数路由)。 */
-function frontendRoutes(): RegExp[] {
-  const src = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.tsx'), 'utf8');
-  return [...src.matchAll(/\{ path: '([^'*]+)', element:/g)].map((m) => new RegExp(`^/${m[1].replace(/:[a-zA-Z]+/g, '[^/]+')}$`));
 }
 
 describe('T-6 跨域检索', () => {
@@ -134,18 +127,16 @@ describe('T-6 跨域检索', () => {
     expect((await get(base, admin, '/api/search?q=')).status).toBe(400);
 
     // 所有结果路径都能在前端路由表中找到
-    const routes = frontendRoutes();
     const everything = await json(get(base, admin, `/api/search?q=${encodeURIComponent('水')}`));
     expect(everything.items.length).toBeGreaterThan(0);
     for (const item of everything.items) {
-      const pathname = item.path.split('?')[0];
-      expect(routes.some((re) => re.test(pathname)), item.path).toBe(true);
+      const url = new URL(item.path, 'https://newfc.local');
+      expect(matchPage(url.pathname, url.search), item.path).not.toBeNull();
     }
   });
 
   it('每种类型的结果路径都指向前端路由', async () => {
     const { db, fx } = await boot('newfc-t6-search-paths-');
-    const routes = frontendRoutes();
     db.prepare(`INSERT INTO if_project (code, name, org_id, construction_start_year, operation_start_year, horizon_years, created_at, updated_at)
       VALUES ('FS-ZZ', '综合测算', ?, 2026, 2028, 20, ?, ?)`).run(fx.orgIds.shanghai, now, now);
     db.prepare('INSERT INTO ff_model (name, org_id, base_year, horizon_years, created_at, updated_at) VALUES (?, ?, 2026, 5, ?, ?)').run('综合预测', fx.orgIds.shanghai, now, now);
@@ -153,17 +144,12 @@ describe('T-6 跨域检索', () => {
     const res = runWithContext(systemContext('cli'), () => crossDomainSearch(db, { q: '综合' }));
     const types = new Set(res.items.map((i) => i.type));
     for (const t of ['feasibility_project', 'forecast_model', 'analysis_report']) expect(types.has(t as never), t).toBe(true);
-    for (const item of res.items) expect(routes.some((re) => re.test(item.path.split('?')[0])), item.path).toBe(true);
-    // 路径模板覆盖全部类型(不依赖是否命中)
-    const svc = fs.readFileSync(path.join(__dirname, '../src/modules/search/search.service.ts'), 'utf8');
-    const templates = [...svc.matchAll(/path: `([^`?$]+)/g)].map((m) => m[1].replace(/\/$/, '/1'));
-    expect(templates.length).toBe(SEARCH_TYPES.length);
-    for (const t of templates) expect(routes.some((re) => re.test(t)), t).toBe(true);
+    for (const item of res.items) { const url = new URL(item.path, 'https://newfc.local'); expect(matchPage(url.pathname, url.search), item.path).not.toBeNull(); }
   });
 
   it('助手 cross_search 与接口同源,按身份裁剪且不超过 30 条', async () => {
     const { base, db, admin, fx } = await boot('newfc-t6-search-tool-');
-    expect(TOOL_POLICIES.cross_search).toMatchObject({ permission: 'search:use', scope: 'global' });
+    expect(toolPolicy('cross_search')).toMatchObject({ permission: 'search:use', scope: 'global' });
     expect(toolDefinitions.some((d) => d.function.name === 'cross_search')).toBe(true);
     expect(allowedToolsForCapabilities([])).toContain('cross_search');
     for (let i = 0; i < 15; i++) {

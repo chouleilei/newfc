@@ -1,3 +1,4 @@
+import { matchPage } from '@contracts/page-catalog';
 import { useState, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -829,7 +830,7 @@ export default function DataManage() {
 
   /* 财务助手页面登记(§7.2)：登记组件最终算出的 active 页签，
      无效 tab 最终显示 backup 时 pageKey 也必须是 backup;tab=check 必须是 data_check。 */
-  const activePageKey = active === 'check' ? 'data_check' : active === 'export' ? 'data_export' : active;
+  const activePageKey = matchPage('/data', `?tab=${active}`)!;
   useAssistantPageContext({ pageKey: activePageKey, ready: true, scope: {}, view: {} });
 
   return (

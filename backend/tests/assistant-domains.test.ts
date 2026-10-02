@@ -11,7 +11,7 @@ import { resolveBackendContext } from '../src/assistant/context-v2';
 import { runWithContext } from '../src/core/request-context';
 import { loadAuthContext } from '../src/modules/security/security.service';
 import { executeTool, toolDefinitions } from '../src/assistant/tools';
-import { DOMAIN_TOOLS } from '../src/assistant/domain-tools';
+import { DOMAIN_TOOL_DEFINITIONS } from '../src/assistant/domain-tools';
 
 beforeEach(() => { vi.stubEnv('AI_BASE_URL', ''); vi.stubEnv('AI_API_KEY', ''); });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
@@ -123,7 +123,7 @@ describe('助手跨域问答闭环 AC-F20/AC-X04/X06', () => {
     const r = await json(post(base, admin, '/api/assistant/chat', { message: '打开财务预测页面', pageContext: pc('assistant') }));
     expect(r.navigation.path).toBe('/forecast');
     const names = toolDefinitions.map((d) => d.function.name);
-    for (const name of Object.keys(DOMAIN_TOOLS)) expect(names).toContain(name);
+    for (const name of Object.keys(DOMAIN_TOOL_DEFINITIONS)) expect(names).toContain(name);
     expect(names.some((n) => /^(create|approve|pay|publish|scan|import|delete)_/.test(n))).toBe(false);
   });
 });

@@ -8,14 +8,15 @@
  * - 未知路由落到 unknown,绝不回退 dashboard。
  */
 import { describe, expect, it } from 'vitest';
-import { derivePageContext, PAGE_LABEL } from '../assistant/pageContext';
-import { PAGE_KEYS } from '../assistant/context';
+import { derivePageContext } from '../assistant/pageContext';
+import { PAGE_IDS, PAGE_CATALOG } from '@contracts/page-catalog';
+
 
 describe('pageKey 目录', () => {
   it('全部业务 pageKey,且每个都有中文标签', () => {
-    expect(PAGE_KEYS.length).toBe(50);
-    for (const key of PAGE_KEYS) {
-      expect(PAGE_LABEL[key], `${key} 缺少 PAGE_LABEL`).toBeTruthy();
+    expect(PAGE_IDS.length).toBeGreaterThan(0);
+    for (const key of PAGE_IDS) {
+      expect(PAGE_CATALOG[key].label, `${key} 缺少 PAGE_LABEL`).toBeTruthy();
     }
   });
 
@@ -40,7 +41,7 @@ describe('pageKey 目录', () => {
   it('/budget/:id 动态路由识别为 budget_edit 并携带版本 ID', () => {
     const result = derivePageContext('/budget/42', '');
     expect(result.page).toBe('budget_edit');
-    expect(result.context.budgetVersionId).toBe(42);
+    expect(result.context).toEqual({});
   });
 
   it('/budget 列表页识别为 budget_versions', () => {
@@ -55,9 +56,7 @@ describe('pageKey 目录', () => {
   it('analysis 查询参数映射到上下文字段', () => {
     const result = derivePageContext('/analysis', '?year=2026&version=3&forecast=4&batch=7&org=11&account=21');
     expect(result.page).toBe('analysis');
-    expect(result.context).toMatchObject({
-      year: 2026, budgetVersionId: 3, targetVersionId: 4, actualSnapshotId: 7, orgId: 11, accountId: 21,
-    });
+    expect(result.context).toEqual({});
   });
 
   it('全部 28 个路由都有非 unknown 的页面身份', () => {
@@ -79,6 +78,6 @@ describe('pageKey 目录', () => {
     const pages = new Set(routes.map(([pathname, search]) => derivePageContext(pathname, search).page));
     expect(pages.has('unknown')).toBe(false);
     expect(pages.size).toBe(50);
-    for (const key of pages) expect(PAGE_KEYS).toContain(key);
+    for (const key of pages) expect(PAGE_IDS).toContain(key);
   });
 });

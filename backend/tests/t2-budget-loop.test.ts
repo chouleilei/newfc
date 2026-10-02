@@ -22,7 +22,7 @@ import { buildFixture, account, budget, testDb, type Fixture } from './helpers';
 import { createScopedUser, ensureAdmin, fetchAs, sessionFor } from './http-helpers';
 import { runWithContext } from '../src/core/request-context';
 import { loadAuthContext } from '../src/modules/security/security.service';
-import { tools } from '../src/assistant/tools';
+import { executeTool } from '../src/assistant/tools';
 import * as assistant from '../src/assistant/service';
 import * as io from '../src/modules/io/excel';
 import * as importBatch from '../src/modules/import/import.service';
@@ -233,7 +233,7 @@ describe('T-2 预算导入 → 汇总 → 同源问答', () => {
     expect(accountCell(page, 'I').budgetCents).toBe(123456789);
     expect(accountCell(page, 'Q01').budgetQuantity).toBe(125000);
 
-    const tool = as(db, sh.userId, () => tools.calculate_execution(db, { versionId: version.id, sheetKey: 'all' } as any)) as any;
+    const tool = as(db, sh.userId, () => executeTool(db, 'calculate_execution', { versionId: version.id, sheetKey: 'all' } as any)) as any;
     expect(accountCell(tool, 'I')).toEqual(accountCell(page, 'I'));
 
     const chat = await (await postJson(sh.session, `${base}/api/assistant/chat`, { message: '2026年预算执行情况', context: { year: 2026, budgetVersionId: version.id } })).json() as any;

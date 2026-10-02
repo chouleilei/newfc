@@ -1,3 +1,4 @@
+import type { PageId } from '@contracts/page-catalog';
 /**
  * AssistantContextRegistry(现行 specs/ai.md 页面上下文契约§8.1)。
  *
@@ -18,17 +19,12 @@ import {
   createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
 import { useLocation } from 'react-router-dom';
-import {
-  newContextId, normalizeScope, normalizeView,
-  CONTEXT_MAX_BYTES, DRAFT_MAX_BYTES,
-  type AssistantPageContextV2, type DraftDescriptor, type FocusDescriptor,
-  type PageScope, type SelectionDescriptor, type SurfaceDescriptor,
-} from './context';
+import { newContextId, normalizeScope, normalizeView, CONTEXT_MAX_BYTES, DRAFT_MAX_BYTES, type AssistantPageContextV2, type DraftDescriptor, type FocusDescriptor, type PageScope, type SelectionDescriptor, type SurfaceDescriptor,  } from './context';
 
 export type PageReadyState = 'loading' | 'ready' | 'error';
 
 export interface PageRegistrationInit {
-  pageKey: string;
+  pageKey: PageId;
   ready: boolean;
   /** ready=false 时的原因(错误态文案)；页面自行决定何时就绪。 */
   notReadyReason?: string | null;
@@ -47,7 +43,7 @@ export interface PageRegistrationInit {
   serializeDraft?: (() => DraftDescriptor | null) | null;
 }
 
-export type PageRegistrationPatch = Partial<Omit<PageRegistrationInit, 'pageKey' | 'readyState'>> & { pageKey?: string; readyState?: 'loading' | 'error' };
+export type PageRegistrationPatch = Partial<Omit<PageRegistrationInit, 'pageKey' | 'readyState'>> & { pageKey?: PageId; readyState?: 'loading' | 'error' };
 
 interface PageEntry extends Required<Omit<PageRegistrationInit, 'notReadyReason' | 'serializeDraft' | 'readyState'>> {
   token: symbol;

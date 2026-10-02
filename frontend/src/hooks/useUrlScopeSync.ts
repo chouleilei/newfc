@@ -14,7 +14,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { PageKey } from '../assistant/context';
+import { PageId } from '@contracts/page-catalog';
+
 import {
   parseWorkspaceScope,
   scopeFieldOfParam,
@@ -34,7 +35,7 @@ export interface UrlScopeSyncResult {
 }
 
 export function useUrlScopeSync(
-  pageKey: PageKey,
+  pageKey: PageId,
   scope: WorkspaceScope,
   onApply: (parsed: ScopeParseResult) => void,
   options?: { keys?: readonly string[] },

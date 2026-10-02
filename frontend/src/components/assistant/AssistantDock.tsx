@@ -1,3 +1,4 @@
+import { pageDefinition } from '@contracts/page-catalog';
 /**
  * 全局悬浮助手「财务助手」:右下悬浮球 + 400×600 小窗。
  *
@@ -22,7 +23,7 @@ import { Alert, Button, ConfigProvider, Grid, Space, Spin, Tag, Tooltip, Typogra
 import type { TextAreaRef } from 'antd/es/input/TextArea';
 import { useAssistant, type ChatTurn } from '../../assistant/AssistantProvider';
 import { can } from '../../api/client';
-import { PAGE_LABEL, permittedPagePrompts } from '../../assistant/pageContext';
+import { permittedPagePrompts } from '../../assistant/pageContext';
 import { isTurnOriginStale } from '../../assistant/scopeDisplay';
 import { READ_INTENT_LABEL } from '../../assistant/labels';
 import { Markdown } from './Markdown';
@@ -85,7 +86,7 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
               {isTurnOriginStale(turn.origin?.pageKey, currentPage) ? (
                 <Tooltip title="这条回答的范围以发起时所在页面为准，与当前页面不同，不代表你正在看的对象">
                   <Tag bordered={false} className="newfc-ai-meta" color="gold" data-testid="assistant-dock-turn-origin">
-                    基于「{PAGE_LABEL[turn.origin!.pageKey] ?? turn.origin!.pageKey}」当时的范围
+                    基于「{pageDefinition(turn.origin!.pageKey)?.label ?? turn.origin!.pageKey}」当时的范围
                   </Tag>
                 </Tooltip>
               ) : null}

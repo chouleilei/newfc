@@ -31,7 +31,7 @@ import {
 } from '../api/assistant';
 import { derivePageContext, type ContextField, type RoutePageInfo } from './pageContext';
 import { AssistantRegistryProvider, useAssistantRegistry } from './AssistantContextRegistry';
-import type { AssistantPageContextV2 } from './context';
+import { AssistantPageContextV2 } from './context';
 
 export interface VersionRow {
   id: number; year: number; name: string; status: string; is_current: 0 | 1; kind: 'budget' | 'forecast';

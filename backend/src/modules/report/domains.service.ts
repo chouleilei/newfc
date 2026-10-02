@@ -1,7 +1,7 @@
 import type { DB } from '../../db/connection';
 import { currentAuth } from '../../core/request-context';
 import { currentOrgScope, scopeFilterSql } from '../security/scope';
-import type { Permission } from '../security/permissions';
+import type { Permission } from '../../contracts/permissions';
 import { contractSummary } from '../contracts/contract.service';
 import { projectBudgetSummary } from '../project-budget/project-budget.service';
 import { riskSummary } from '../risk/risk.service';

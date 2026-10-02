@@ -3,7 +3,8 @@ import type { DB } from '../../db/connection';
 import { AppError, Errors } from '../../core/errors';
 import type { AuthContext } from '../../core/request-context';
 import { writeLog } from '../audit/log';
-import { ALL_PERMISSIONS, BUILTIN_ROLES, isPermission, PERMISSION_CATALOG, type Permission } from './permissions';
+import { BUILTIN_ROLES } from './permissions';
+import { ALL_PERMISSIONS, isPermission, PERMISSION_CATALOG, type Permission } from '../../contracts/permissions';
 import { hashPassword, validatePasswordPolicy, verifyPassword } from './password';
 
 /** 用户、角色、组织授权与会话(platform_auth / security_administration)。 */

@@ -14,102 +14,22 @@
 import type { DB } from '../db/connection';
 import { AppError } from '../core/errors';
 import { currentAuth, type AuthContext } from '../core/request-context';
-import type { Permission } from '../modules/security/permissions';
+import type { Permission } from '../contracts/permissions';
 import { assertOrgVisible, currentOrgScopeId, effectiveOrgScopeId, orgInScope, requireAllOrgs, resolveOrgScope } from '../modules/security/scope';
 
-export type ToolScope = 'global' | 'org_tree' | 'org_scope' | 'org_cell' | 'all_orgs';
-
-export interface ToolPolicy { permission: Permission; scope: ToolScope }
-
-const P = (permission: Permission, scope: ToolScope): ToolPolicy => ({ permission, scope });
-
-export const TOOL_POLICIES: Record<string, ToolPolicy> = {
-  domain_ledger: P('assistant:use', 'org_scope'),
-  domain_batch_read: P('assistant:use', 'org_scope'), statement_trends: P('statements:read', 'org_scope'), mgmt_workspace: P('mgmt:read', 'org_scope'), domain_workspace: P('assistant:use', 'org_scope'), feasibility_report_read: P('investment:read', 'global'),
-  get_org_tree: P('master:read', 'org_tree'),
-  get_account_tree: P('master:read', 'global'),
-  list_budget_versions: P('budget:read', 'global'),
-  list_actual_snapshots: P('actual:read', 'global'),
-  get_year_states: P('actual:read', 'global'),
-  list_sheets: P('master:read', 'global'),
-  list_metrics: P('master:read', 'global'),
-  list_calculation_rules: P('budget:read', 'global'),
-  explain_terms: P('assistant:use', 'global'),
-  get_navigation_catalog: P('assistant:use', 'global'),
-
-  calculate_execution: P('analysis:read', 'org_scope'),
-  calculate_trend: P('analysis:read', 'org_scope'),
-  calculate_anomalies: P('analysis:read', 'org_scope'),
-  calculate_attribution: P('analysis:read', 'org_scope'),
-  calculate_structure: P('analysis:read', 'org_scope'),
-  calculate_multi_year_trend: P('analysis:read', 'org_scope'),
-  generate_report: P('analysis:read', 'org_scope'),
-  get_metric_evidence: P('analysis:read', 'org_scope'),
-
-  get_budget_cell_history: P('budget:read', 'org_cell'),
-  get_cell_evidence: P('analysis:read', 'org_cell'),
-  get_cell_notes: P('analysis:read', 'org_cell'),
-
-  get_budget_matrix: P('budget:read', 'all_orgs'),
-  get_budget_quality: P('budget:read', 'all_orgs'),
-  get_budget_progress: P('budget:read', 'all_orgs'),
-  get_actual_snapshot: P('actual:read', 'all_orgs'),
-  calculate_variance: P('analysis:read', 'all_orgs'),
-  calculate_accuracy: P('analysis:read', 'all_orgs'),
-  get_historical_comparison: P('analysis:read', 'all_orgs'),
-  get_dashboard_overview: P('dashboard:read', 'global'), // service 自身按身份裁剪组织计数/结构问题/日志
-  list_insights: P('analysis:read', 'all_orgs'),
-  get_master_data_health: P('master:read', 'all_orgs'),
-  check_consistency: P('master:read', 'all_orgs'),
-  explain_import: P('import:run', 'all_orgs'),
-  validate_import: P('import:run', 'all_orgs'),
-  get_import_batch: P('import:run', 'all_orgs'),
-  list_cleaning_templates: P('import:run', 'global'),
-  list_cleaning_aliases: P('import:run', 'all_orgs'),
-  get_operation_log: P('audit:read', 'all_orgs'),
-  list_finance_conversions: P('finance_import:manage', 'all_orgs'),
-  get_finance_conversion: P('finance_import:manage', 'all_orgs'),
-  list_finance_mapping_versions: P('finance_import:manage', 'all_orgs'),
-  get_finance_mapping_version: P('finance_import:manage', 'all_orgs'),
-  list_finance_parallel_trials: P('finance_import:manage', 'all_orgs'),
-  list_finance_source_profiles: P('finance_import:manage', 'all_orgs'),
-  list_backups: P('system:backup', 'all_orgs'),
-  eas_period_status: P('eas:read', 'org_scope'),
-  statement_overview: P('statements:read', 'org_scope'),
-  mgmt_analysis: P('mgmt:read', 'org_scope'),
-  mgmt_metric_snapshots: P('mgmt:read', 'org_scope'),
-  mgmt_alerts: P('mgmt:read', 'org_scope'),
-  project_budget_summary: P('project_budget:read', 'org_scope'),
-  plan_execution_overview: P('plan:read', 'org_scope'),
-  contract_summary: P('contract:read', 'org_scope'),
-  /** 单合同:service 按合同 org_id 判定可见性(范围外 404),与页面同源 */
-  contract_detail: P('contract:read', 'global'),
-  expense_audit_queue: P('expense:read', 'org_scope'),
-  feasibility_result: P('investment:read', 'org_scope'),
-  investment_comparison: P('investment:read', 'org_scope'),
-  forecast_runs: P('forecast:read', 'org_scope'),
-  risk_summary: P('risk:read', 'org_scope'),
-  report_list: P('report:read', 'org_scope'),
-  /** 跨域检索:service 内逐类型校验读权限并复用各域列表的组织范围裁剪,与 /api/search 同源 */
-  cross_search: P('search:use', 'global'),
-  project_profile: P('project:read', 'global'),
-  master_entities: P('master:read', 'org_scope'),
-  expense_detail: P('expense:read', 'global'),
-  policy_search: P('expense:read', 'global'),
-  governance_issues: P('governance:read', 'org_scope'),
-  standard_report_read: P('report:read', 'org_scope'),
-  analysis_report_read: P('report:read', 'global'),
-  risk_detail: P('risk:read', 'global'),
-  forecast_result: P('forecast:read', 'global'),
-  task_status: P('tasks:read', 'global'),
-  authorization_scope: P('assistant:use', 'global'),
-  configuration_overview: P('settings:read', 'global'),
-};
+import { toolDefinition, toolPolicy } from './tools';
+import type { ToolPolicy } from './tool-definition';
 
 /** 工具在当前身份下是否可用(用于向模型暴露的工具清单,避免诱导模型反复调用必然被拒的工具)。 */
 export function toolAllowed(name: string, auth: AuthContext | undefined = currentAuth()): boolean {
-  const policy = TOOL_POLICIES[name];
-  if (!policy) return false;
+  const policy = toolPolicy(name);
+  if (!policy) {
+    const definition = toolDefinition(name);
+    if (!definition || typeof definition.policy !== 'function') return false;
+    const field = definition.schema.shape.kind;
+    const values: string[] = field && 'options' in field ? field.options : [];
+    return values.some((kind) => { const p = toolPolicy(name, { kind }); return p && (!auth || auth.permissions.has(p.permission)); });
+  }
   if (!auth) return true;
   if (!auth.permissions.has(policy.permission)) return false;
   return policy.scope !== 'all_orgs' || auth.allOrgs;
@@ -123,8 +43,8 @@ function toolDenied(name: string, permission: Permission): AppError {
  * 在调用工具实现前执行授权并改写范围参数。返回改写后的参数数组(不修改入参)。
  * args 为工具实现的位置参数(不含 db)。
  */
-export function authorizeToolCall(db: DB, name: string, args: unknown[]): unknown[] {
-  const policy = TOOL_POLICIES[name];
+export function authorizeToolCall(db: DB, name: string, args: Record<string, unknown>): Record<string, unknown> {
+  const policy = toolPolicy(name, args);
   if (!policy) throw new AppError('FORBIDDEN', `工具 ${name} 未登记授权策略,拒绝执行`, 403);
   const auth = currentAuth();
   if (!auth) return args;
@@ -138,7 +58,7 @@ export function authorizeToolCall(db: DB, name: string, args: unknown[]): unknow
       requireAllOrgs(auth, `查询「${name}」`);
       return args;
     case 'org_scope': {
-      const input = { ...((args[0] ?? {}) as Record<string, unknown>) };
+      const input = { ...args };
       /* 年度复盘(历年对比/准确率)与编制讨论(整版质量检查)含集团口径章节,
          只有月度执行报告完整按组织范围计算。 */
       if (name === 'generate_report' && input.kind !== 'monthly_execution') {
@@ -153,14 +73,10 @@ export function authorizeToolCall(db: DB, name: string, args: unknown[]): unknow
           if (!row || !orgInScope(scope, row.id)) throw new AppError('NOT_FOUND', `组织 ${code} 不存在或无权访问`, 404);
         }
       }
-      return [input, ...args.slice(1)];
+      return input;
     }
     case 'org_cell': {
-      if (name === 'get_budget_cell_history') {
-        assertOrgVisible(db, auth, Number(args[1]));
-        return args;
-      }
-      const input = (args[0] ?? {}) as Record<string, unknown>;
+      const input = args;
       if (input.orgId == null) {
         throw new AppError('SCOPE_REQUIRED', '当前账号只授权了部分组织,请指定要穿透的组织', 400);
       }

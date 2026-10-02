@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { executeTool, toolDefinitions, toolLabel, tools } from '../src/assistant/tools';
-import { allowedToolsForCapabilities, capabilityOfTool, pageCapability } from '../src/assistant/page-capabilities';
+import { executeTool, toolDefinitions, toolLabel, TOOL_REGISTRY } from '../src/assistant/tools';
+import { pageDefinition } from '../src/contracts/page-catalog';
+import { allowedToolsForCapabilities, capabilityOfTool } from '../src/assistant/page-capabilities';
 import { detectIntents } from '../src/assistant/intent';
 import { queryFacts } from '../src/assistant/facts';
 import { testDb, buildFixture, budget, actual } from './helpers';
@@ -45,7 +46,7 @@ describe('目录类工具:注册完整性', () => {
   it('新工具全部注册,且 schema 与流式标签同步存在', () => {
     const declared = toolDefinitions.map((t) => t.function.name);
     for (const name of NEW_TOOLS) {
-      expect(Object.prototype.hasOwnProperty.call(tools, name), `${name} 未注册`).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(TOOL_REGISTRY, name), `${name} 未注册`).toBe(true);
       expect(declared, `${name} 缺少 toolDefinitions/schema`).toContain(name);
       expect(toolLabel(name), `${name} 缺少中文标签`).not.toBe(name);
     }
@@ -68,7 +69,7 @@ describe('目录类工具:注册完整性', () => {
     expect(capabilityOfTool('get_cell_notes')).toBe('budget');
     // 指标/工作表目录是 ID 发现工具,与 list_budget_versions 一样全页面可用
     for (const page of ['analysis', 'metric_trend', 'metric', 'history']) {
-      const cap = pageCapability(page)!;
+      const cap = pageDefinition(page)!;
       const allowed = allowedToolsForCapabilities(cap.capabilities);
       expect(allowed, `${page} 页应能列出指标`).toContain('list_metrics');
       expect(allowed, `${page} 页应能列出工作表`).toContain('list_sheets');
@@ -76,7 +77,7 @@ describe('目录类工具:注册完整性', () => {
   });
 
   it('编制进度页默认能力改为 budget,且允许调用进度工具', () => {
-    const page = pageCapability('budget_progress')!;
+    const page = pageDefinition('budget_progress')!;
     expect(page.defaultCapability).toBe('budget');
     expect(allowedToolsForCapabilities(page.capabilities)).toContain('get_budget_progress');
   });
@@ -103,10 +104,11 @@ describe('目录类工具:执行与参数白名单', () => {
     expect(trend.baseYear).toBe(2026);
   });
 
-  it('无参目录/运维工具直接返回,忽略模型多给的参数', () => {
+  it('无参目录/运维工具直接返回,拒绝模型多给的参数', () => {
     const db = testDb();
     buildFixture(db);
-    const overview = executeTool(db, 'get_dashboard_overview', { hacker: 1 }) as any;
+    expect(() => executeTool(db, 'get_dashboard_overview', { hacker: 1 })).toThrow(/hacker/);
+    const overview = executeTool(db, 'get_dashboard_overview', {}) as any;
     expect(overview.counts.orgs).toBeGreaterThan(0);
     // 操作日志不随总览进模型上下文——日志一律走带脱敏的 get_operation_log
     expect('recentLogs' in overview).toBe(false);
@@ -136,8 +138,8 @@ describe('目录类工具:执行与参数白名单', () => {
     expect(() => executeTool(db, 'calculate_structure', { versionId: 1, basisMode: 'x' })).toThrow(/basisMode/);
     expect(() => executeTool(db, 'calculate_structure', { versionId: 1, basisId: -1 })).toThrow(/basisId/);
     expect(() => executeTool(db, 'list_metrics', { versionId: 0 })).toThrow(/versionId/);
-    expect(() => executeTool(db, 'list_insights', { limit: 999 })).toThrow(/1-200/);
-    expect(() => executeTool(db, 'calculate_multi_year_trend', { baseYear: 1800 })).toThrow(/year/);
+    expect(() => executeTool(db, 'list_insights', { limit: 999 })).toThrow(/limit/);
+    expect(() => executeTool(db, 'calculate_multi_year_trend', { baseYear: 1800 })).toThrow(/baseYear/);
     expect(() => executeTool(db, 'calculate_multi_year_trend', { baseYear: 2026, depth: 99 })).toThrow(/depth/);
     expect(() => executeTool(db, 'calculate_multi_year_trend', { baseYear: 2026, orgCodes: 'EAST' })).toThrow(/orgCodes/);
     expect(() => executeTool(db, 'list_cleaning_templates', { targetKind: 'x' })).toThrow(/targetKind/);

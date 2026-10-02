@@ -518,3 +518,13 @@ T-0～T-7；AC-F01～F26、AC-X01～X10 的已记录场景。用户明确要求�
 T-0/T-7；AC-X01/X10。用户明确要求“开源 mit”，添加标准 MIT LICENSE（Copyright 2026 newfc contributors），前后端 package.json 与锁文件根包元数据声明 MIT；README、NOTICE、来源记录、公开版说明和远程事项同步。MIT 授权明确包含本仓库源码及 v0.1.0 发布源码，第三方依赖保留原有授权。
 
 本次仅修改许可、文档和包元数据，依赖版本、业务代码与生产服务没有变化。本地核对 MIT 标准文本、包/锁文件一致性、文档链接及 git diff --check；沿用已通过的本地发布验证，不重跑业务测试或启用 GitHub CI。v0.1.0 已发布标签保持原提交，发布说明明确授权范围并附 LICENSE 文件，避免改写已发布版本。
+
+## T-8.1 / T-8.2 页面与工具统一来源（2026-10-02）
+
+F07/F20/F24/F26；T-8.1、T-8.2；AC-T8-01/02/03 的源码与聚焦测试证据。页面目录及权限码迁入纯数据 contracts，50 个实际页面/页签由前后端共同引用；菜单、标题、授权导航、收藏/最近访问以及检索结果路径改用目录。未知路由不猜范围，任务中心要求 tasks:read。实际覆盖见 [页面与工具清单](t8-assistant-inventory.md)。
+
+79 个既有工具统一为按域 ToolDefinition，Zod 同时负责运行参数解析与模型 schema（锁定 zod-to-json-schema 3.25.0），标签、能力、权限与分发由定义派生；规则与模型均进入 executeTool。未知工具/字段拒绝；多类型工具按解析后的 kind 校验领域权限。删除平行权限/标签/schema/能力工具表、逐工具分发 switch 和读取前端源码的目录/检索契约测试。保留领域 service 的二次权限和组织检查。
+
+Node 24.21.0；后端 `npx tsc --noEmit` 与 9 文件 / 47 用例通过（t8-tool-contract、page-capabilities.contract、assistant.catalog-tools、assistant-scope、assistant.extensions、t6-search、t3-assistant、t4-assistant、t5-linkage）。前端 `npx tsc -b` 与 5 文件 / 53 用例通过（App、pageContext、domainContext、AssistantContextRegistry、userPrefs）。CommonJS 实际加载注册表为 79 项；git diff --check 通过。此前未知参数忽略的测试改为明确拒绝，并用合法参数验证越权，避免参数错误掩盖授权问题。
+
+这是两个相互引用目录及消费者的连续迁移提交；T-8.3～T-8.6、最终浏览器/全量/构建/迁移/资源门禁仍待完成，不标记全阶段完成。测试只用临时/内存数据库，未部署或迁移生产库。

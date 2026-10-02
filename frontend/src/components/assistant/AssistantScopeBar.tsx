@@ -1,3 +1,4 @@
+import { pageDefinition } from '@contracts/page-catalog';
 /**
  * AssistantScopeBar(现行 specs/ai.md 页面上下文契约§10.1；UX-26)。
  *
@@ -18,9 +19,9 @@ import { useLocation } from 'react-router-dom';
 import { Tag, Tooltip, Typography } from 'antd';
 import { useOptionalAssistantRegistryView } from '../../assistant/AssistantContextRegistry';
 import { useAssistant } from '../../assistant/AssistantProvider';
-import { PAGE_LABEL } from '../../assistant/pageContext';
+
 import { describeScopeEntry, focusActions, SCOPE_FIELD_LABEL } from '../../assistant/scopeDisplay';
-import type { PageScope } from '../../assistant/context';
+import { PageScope } from '../../assistant/context';
 
 export function AssistantScopeBar() {
   const view = useOptionalAssistantRegistryView();
@@ -38,7 +39,7 @@ export function AssistantScopeBar() {
     );
   }
 
-  const pageLabel = PAGE_LABEL[view.pageKey] ?? view.pageKey;
+  const pageLabel = pageDefinition(view.pageKey)?.label ?? view.pageKey;
   const scopeEntries = (Object.keys(SCOPE_FIELD_LABEL) as (keyof PageScope)[])
     .filter((field) => view.scope[field] != null)
     .map((field) => describeScopeEntry(field, view.scope[field] as string | number, {

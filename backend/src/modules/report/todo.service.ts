@@ -1,7 +1,7 @@
 import type { DB } from '../../db/connection';
 import { currentAuth } from '../../core/request-context';
 import { currentOrgScope, scopeFilterSql } from '../security/scope';
-import type { Permission } from '../security/permissions';
+import type { Permission } from '../../contracts/permissions';
 
 /**
  * 工作台待办数(T-4/T-5):按权限与组织范围统计项目合同、费用审核、风险处理与分析报告的待处理事项。

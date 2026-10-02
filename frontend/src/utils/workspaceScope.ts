@@ -12,7 +12,8 @@ import { DOMAIN_ID_FIELDS } from '../assistant/domainContext';
  * - 版本绑定的年度不可被全局年度选择器覆盖(resolveEffectiveYear 版本优先);
  * - 历史补录模式只由显式 mode=history 决定,不按年度早于当前年推断。
  */
-import type { PageKey, PageScope } from '../assistant/context';
+import { PageId } from '@contracts/page-catalog';
+import { PageScope } from '../assistant/context';
 
 export type ActualViewMode = 'orgs' | 'years';
 export type ActualEditMode = 'current' | 'history';
@@ -55,7 +56,7 @@ export interface ScopeIssue {
 }
 
 export interface ScopeParseResult {
-  pageKey: PageKey;
+  pageKey: PageId;
   /** 只包含通过格式检查的值;被拒绝的原始参数不会进入 scope。 */
   scope: WorkspaceScope;
   issues: ScopeIssue[];
@@ -151,14 +152,14 @@ export const ROUTE_SCOPE_WHITELIST = {
   migration: [],
   data_export: [],
   logs: [],
-} as const satisfies Record<PageKey, readonly string[]>;
+} as const satisfies Record<PageId, readonly string[]>;
 
 /**
  * 旧参数适配:现行参数缺失时才把旧参数映射过来,现行参数优先。
  * budget_edit 现行契约保留 orgId/accountId(§5.1);助手 buildScopedPath 生成的
  * org/account 旧形式链接必须继续有效。
  */
-const LEGACY_PARAM_ALIASES: Partial<Record<PageKey, Record<string, string>>> = {
+const LEGACY_PARAM_ALIASES: Partial<Record<PageId, Record<string, string>>> = {
   budget_edit: { org: 'orgId', account: 'accountId' },
 };
 
@@ -256,18 +257,18 @@ export function scopeFieldOfParam(key: string): keyof WorkspaceScope | undefined
 }
 
 
-const DOMAIN_ROUTE_FIELDS: Partial<Record<PageKey, Record<string, keyof WorkspaceScope>>> = {
+const DOMAIN_ROUTE_FIELDS: Partial<Record<PageId, Record<string, keyof WorkspaceScope>>> = {
   eas: { batchId: 'easBatchId' }, statements: { batchId: 'statementBatchId' }, project_budget: { batchId: 'projectBudgetBatchId' }, plan: { batchId: 'planBatchId' },
   contracts: { id: 'contractId' }, expense: { id: 'claimId' }, feasibility: { id: 'feasProjectId', reportId: 'feasReportId' }, investment_control: { id: 'icProjectId' },
   forecast: { id: 'modelId', versionId: 'forecastVersionId' }, risk: { id: 'riskId' }, analysis_reports: { id: 'reportId' }, standard_reports: { id: 'standardReportId' },
 };
-function paramDef(pageKey: PageKey, key: string): ParamDef | undefined {
+function paramDef(pageKey: PageId, key: string): ParamDef | undefined {
   const field = DOMAIN_ROUTE_FIELDS[pageKey]?.[key];
   return field ? { field, kind: 'id', label: '业务对象' } : PARAM_DEFS[key];
 }
 
 /** 解析 URL 查询串为工作范围:只处理路由白名单内的参数,非法值记入 issues 不进入 scope。 */
-export function parseWorkspaceScope(pageKey: PageKey, search: string | URLSearchParams): ScopeParseResult {
+export function parseWorkspaceScope(pageKey: PageId, search: string | URLSearchParams): ScopeParseResult {
   const params = typeof search === 'string' ? new URLSearchParams(search) : search;
   const whitelist = ROUTE_SCOPE_WHITELIST[pageKey] ?? [];
   const aliases = LEGACY_PARAM_ALIASES[pageKey] ?? {};
@@ -301,7 +302,7 @@ export function parseWorkspaceScope(pageKey: PageKey, search: string | URLSearch
 }
 
 /** 把范围序列化为该路由的规范查询串(不含 ?);只输出白名单参数,非法/不支持字段被丢弃。 */
-export function buildScopeSearch(pageKey: PageKey, scope: WorkspaceScope): string {
+export function buildScopeSearch(pageKey: PageId, scope: WorkspaceScope): string {
   const params = new URLSearchParams();
   const source = scope as Record<string, unknown>;
   for (const key of ROUTE_SCOPE_WHITELIST[pageKey] ?? []) {
@@ -319,12 +320,12 @@ export function buildScopeSearch(pageKey: PageKey, scope: WorkspaceScope): strin
  * 旧参数被改写为现行参数,非法值被丢弃(原因需由 parseWorkspaceScope 单独获取),
  * 对合法范围幂等,往返不改变有效范围。
  */
-export function normalizeScopeSearch(pageKey: PageKey, search: string | URLSearchParams): string {
+export function normalizeScopeSearch(pageKey: PageId, search: string | URLSearchParams): string {
   return buildScopeSearch(pageKey, parseWorkspaceScope(pageKey, search).scope);
 }
 
 /** 该路由是否支持范围保存/恢复。 */
-export function isScopeRestorable(pageKey: PageKey): boolean {
+export function isScopeRestorable(pageKey: PageId): boolean {
   return (ROUTE_SCOPE_WHITELIST[pageKey]?.length ?? 0) > 0;
 }
 

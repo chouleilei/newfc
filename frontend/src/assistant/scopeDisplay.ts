@@ -6,7 +6,7 @@
  * - 名称目录未加载（或对象不存在）时回退 #id，绝不编造名称；
  * - 焦点动作只生成提问文案，发送仍走 buildSnapshot 冻结的页面上下文。
  */
-import type { PageScope } from './context';
+import { PageScope } from './context';
 
 export interface ScopeNameLookup {
   code: string;

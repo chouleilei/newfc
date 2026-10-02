@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import crypto from 'crypto';
-import type { Permission } from '../modules/security/permissions';
+import type { Permission } from '../contracts/permissions';
 
 /**
  * 服务端构建的身份与组织范围(specs/data-contracts.md「认证与授权」)。

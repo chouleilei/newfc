@@ -7,7 +7,7 @@ import type { DB } from '../../db/connection';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalOrNull, centsToDecimalString, ratioString } from '../../core/decimal';
 import { currentOrgScope, hasPermission, scopeFilterSql, type OrgScope } from '../security/scope';
-import type { Permission } from '../security/permissions';
+import type { Permission } from '../../contracts/permissions';
 import { getProject } from './master.service';
 import { factValueText, fieldLabel, type PlanValueType } from '../plan-execution/plan.parse';
 import type { PlanSheetCode } from '../../contracts/plan-execution';

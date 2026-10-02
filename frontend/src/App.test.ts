@@ -1,9 +1,11 @@
+import { matchPage, PAGE_CATALOG } from '@contracts/page-catalog';
+const permissionFor = (path: string) => { const url = new URL(path, 'https://newfc.local'); const page = matchPage(url.pathname, url.search); return page && PAGE_CATALOG[page].permission; };
 /**
  * 侧栏导航扩展计划 阶段一验收:5 个新叶子项的 selectedKey 白名单、
  * dataMenuKey 归并(导入批次/一致性检查恢复为独立入口)与 pageTitle 特判。
  */
 import { describe, expect, it } from 'vitest';
-import { canAccessPreferencePath, dataMenuKey, filterMenuByPermission, groupOf, menuItems, MENU_PERMISSION, pageTitle, selectedKey } from './App';
+import { canAccessPreferencePath, dataMenuKey, filterMenuByPermission, groupOf, menuItems, pageTitle, selectedKey } from './App';
 import { setSession } from './api/client';
 
 describe('侧栏高亮与归并(阶段一)', () => {
@@ -42,12 +44,12 @@ describe('侧栏高亮与归并(阶段一)', () => {
     expect(pageTitle('/data', '?tab=check', '/data?tab=check')).toBe('一致性检查');
     expect(pageTitle('/data', '?tab=imports', '/data?tab=imports')).toBe('导入批次');
     expect(pageTitle('/data', '?tab=calculations', '/budget')).toBe('测算模板');
-    expect(pageTitle('/progress', '', '/progress')).toBe('进度总览');
-    expect(pageTitle('/alerts', '', '/alerts')).toBe('预警中心');
+    expect(pageTitle('/progress', '', '/progress')).toBe('编制进度');
+    expect(pageTitle('/alerts', '', '/alerts')).toBe('异常预警中心');
     expect(pageTitle('/metric-trend', '', '/metric-trend')).toBe('指标趋势');
     expect(pageTitle('/insights', '', '/insights')).toBe('洞察报告');
-    expect(pageTitle('/master-health', '', '/master-health')).toBe('健康体检');
-    expect(pageTitle('/cleaning-config', '', '/cleaning-config')).toBe('清洗模板与别名');
+    expect(pageTitle('/master-health', '', '/master-health')).toBe('主数据健康');
+    expect(pageTitle('/cleaning-config', '', '/cleaning-config')).toBe('清洗配置');
     expect(pageTitle('/settings/ai', '', '/settings/ai')).toBe('AI 渠道设置');
   });
 });
@@ -64,8 +66,8 @@ describe('侧栏按权限裁剪(AC-X04)', () => {
 
   it('去掉无权限叶子,子项全空的分组一并去掉;未登记入口始终可见', () => {
     const viewer = new Set(['dashboard:read', 'master:read']);
-    expect(keys(filterMenuByPermission(items, (p) => viewer.has(p)))).toEqual(['/', 'grp-master', '/org', '/master-entities', 'grp-system', '/jobs']);
-    expect(keys(filterMenuByPermission(items, () => false))).toEqual(['grp-system', '/jobs']);
+    expect(keys(filterMenuByPermission(items, (p) => viewer.has(p)))).toEqual(['/', 'grp-master', '/org', '/master-entities']);
+    expect(keys(filterMenuByPermission(items, () => false))).toEqual([]);
   });
 
   it('只授权部分组织的账号不展示集团口径入口,按范围裁剪的分析页照常展示', () => {
@@ -87,7 +89,7 @@ describe('T-5 投资与预测、风险与报告入口', () => {
     ] as const) {
       expect(selectedKey(key, '?status=open')).toBe(key);
       expect(pageTitle(key, '', key)).toBe(title);
-      expect(MENU_PERMISSION[key]).toBe(perm);
+      expect(permissionFor(key)).toBe(perm);
     }
   });
 });
@@ -107,7 +109,7 @@ describe('独立项目领域导航', () => {
       expect(canAccessPreferencePath('/budget')).toBe(false);
       expect(canAccessPreferencePath('/actual')).toBe(false);
       expect(canAccessPreferencePath('/history')).toBe(false);
-      expect(canAccessPreferencePath('/jobs')).toBe(true);
+      expect(canAccessPreferencePath('/jobs')).toBe(false);
       expect(canAccessPreferencePath('/no-such-page')).toBe(false);
       expect(canAccessPreferencePath('//other.example/analysis')).toBe(false);
     } finally {
@@ -120,7 +122,7 @@ describe('独立项目领域导航', () => {
     expect(budget && 'children' in budget && budget.children?.map((item) => item?.key)).toEqual(expected);
     for (const key of expected) {
       expect(groupOf(key)).toBe('grp-budget');
-      expect(MENU_PERMISSION[key]).toBeTruthy();
+      expect(permissionFor(key)).toBeTruthy();
       expect(pageTitle(key.split('?')[0], key.includes('?') ? `?${key.split('?')[1]}` : '', key)).toBeTruthy();
     }
     expect(menuItems?.some((item) => ['grp-plan', 'grp-actual', 'grp-analysis'].includes(String(item?.key)))).toBe(false);

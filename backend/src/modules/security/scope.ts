@@ -1,7 +1,7 @@
 import type { DB } from '../../db/connection';
 import { AppError } from '../../core/errors';
 import { currentAuth, type AuthContext } from '../../core/request-context';
-import type { Permission } from './permissions';
+import type { Permission } from '../../contracts/permissions';
 
 /**
  * 组织数据范围(specs/data-contracts.md「认证与授权」):组织树不是数据授权,

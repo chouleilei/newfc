@@ -15,7 +15,8 @@ import {
   CONTEXT_MAX_BYTES, DRAFT_MAX_CHANGES,
 } from '../src/assistant/context-v2';
 import { normalizeDraftInput, computeDraftImpact, draftSummary } from '../src/assistant/draft-context';
-import { pageCapability, filterIntentsByCapability, PAGE_KEYS } from '../src/assistant/page-capabilities';
+import { pageDefinition, PAGE_IDS } from '../src/contracts/page-catalog';
+import { filterIntentsByCapability } from '../src/assistant/page-capabilities';
 import { AppError } from '../src/core/errors';
 import { buildFixture, standardBudgetVersion, saveActualSnapshot, testDb, budget, type Fixture } from './helpers';
 
@@ -104,7 +105,7 @@ describe('parsePageContextV2 · schema 与白名单', () => {
   });
 
   it('28 个 pageKey 都能通过 parsePageContextV2', () => {
-    for (const pageKey of PAGE_KEYS) {
+    for (const pageKey of PAGE_IDS) {
       const parsed = parsePageContextV2(baseContext({ pageKey }));
       expect(parsed?.pageKey).toBe(pageKey);
     }
@@ -267,9 +268,9 @@ describe('resolveBackendContext · 资源与关系校验', () => {
 
 describe('领域能力调度', () => {
   it('28 个 pageKey 均有能力映射', () => {
-    expect(PAGE_KEYS.length).toBe(50);
-    for (const key of PAGE_KEYS) {
-      const page = pageCapability(key);
+    expect(PAGE_IDS.length).toBe(50);
+    for (const key of PAGE_IDS) {
+      const page = pageDefinition(key);
       expect(page, key).not.toBeNull();
       expect(page!.capabilities.length).toBeGreaterThan(0);
     }
@@ -277,14 +278,14 @@ describe('领域能力调度', () => {
 
   it('未允许领域能力的意图被拒绝(filterIntentsByCapability)', () => {
     // logs 页只有 operations 能力,不允许 execution 意图
-    const page = pageCapability('logs')!;
+    const page = pageDefinition('logs')!;
     const [allowed, denied] = filterIntentsByCapability(page, ['execution', 'operation_log']);
     expect(allowed).toEqual(['operation_log']);
     expect(denied).toEqual(['execution']);
   });
 
   it('主数据页不允许写类能力', () => {
-    const page = pageCapability('org')!;
+    const page = pageDefinition('org')!;
     expect(page.capabilities).toContain('master_data');
     expect(page.capabilities).not.toContain('execution');
   });

@@ -4,7 +4,7 @@ import type { DB } from '../db/connection';
 import * as budget from '../modules/budget/budget.service';
 import * as actual from '../modules/actual/actual.service';
 import { budgetQualityReport } from '../modules/check/budget-quality';
-import { tools } from './tools';
+import { executeTool } from './tools';
 import { explainTerms, looksLikeExplainQuestion } from './glossary';
 import { looksLikeNavigation, navigationCatalog, resolveNavigation } from './navigation';
 import { detectDirection, detectIntents, detectReportKind, type IntentDetection, type ReadIntent } from './intent';
@@ -16,8 +16,8 @@ export type { FactRecord, FactSource };
 
 export function budgetFacts(db: DB, year?: number): { versions: unknown; snapshots: unknown; citations: AssistantCitation[] } {
   const facts = [
-    fact('budget_versions', tools.list_budget_versions(db, year), { year }),
-    fact('actual_snapshots', tools.list_actual_snapshots(db, year), { year }),
+    fact('budget_versions', executeTool(db, 'list_budget_versions', { year: year }), { year }),
+    fact('actual_snapshots', executeTool(db, 'list_actual_snapshots', { year: year }), { year }),
   ];
   return { versions: facts[0].data, snapshots: facts[1].data, citations: citationsForFacts(facts) };
 }
@@ -137,45 +137,45 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
   };
 
   if (intents.has('budget_versions')) {
-    add('budget_versions', () => tools.list_budget_versions(db, year), { year, budgetVersionId: context.budgetVersionId ?? null });
+    add('budget_versions', () => executeTool(db, 'list_budget_versions', { year: year }), { year, budgetVersionId: context.budgetVersionId ?? null });
   }
   if (intents.has('actual_snapshots')) {
-    if (context.actualSnapshotId != null && /快照/.test(m)) add('actual_snapshot', () => tools.get_actual_snapshot(db, context.actualSnapshotId!), batchSrc);
-    else add('actual_snapshots', () => tools.list_actual_snapshots(db, year), { year, actualSnapshotId: context.actualSnapshotId ?? null });
+    if (context.actualSnapshotId != null && /快照/.test(m)) add('actual_snapshot', () => executeTool(db, 'get_actual_snapshot', { batchId: context.actualSnapshotId! }), batchSrc);
+    else add('actual_snapshots', () => executeTool(db, 'list_actual_snapshots', { year: year }), { year, actualSnapshotId: context.actualSnapshotId ?? null });
   }
-  if (intents.has('org_tree')) add('org_tree', () => tools.get_org_tree(db), { year });
-  if (intents.has('account_tree')) add('account_tree', () => tools.get_account_tree(db), { year });
+  if (intents.has('org_tree')) add('org_tree', () => executeTool(db, 'get_org_tree', {  }), { year });
+  if (intents.has('account_tree')) add('account_tree', () => executeTool(db, 'get_account_tree', {  }), { year });
   if (intents.has('import')) {
     if (context.importBatchId != null) {
-      add('import_batch', () => tools.get_import_batch(db, context.importBatchId!), { year });
+      add('import_batch', () => executeTool(db, 'get_import_batch', { batchId: context.importBatchId! }), { year });
       // 导入辅助(方案 4.1):错误解释 + 组织/科目匹配建议 + 未匹配与重复清单。
-      add('import_help', () => tools.explain_import(db, { batchId: context.importBatchId! }), { year });
-    } else add('import_batches', () => tools.validate_import(db), { year });
+      add('import_help', () => executeTool(db, 'explain_import', { batchId: context.importBatchId! }), { year });
+    } else add('import_batches', () => executeTool(db, 'validate_import', {  }), { year });
   }
-  if (intents.has('operation_log')) add('operation_log', () => tools.get_operation_log(db, { page: 1, pageSize: 50 }), { year });
+  if (intents.has('operation_log')) add('operation_log', () => executeTool(db, 'get_operation_log', { page: 1, pageSize: 50 }), { year });
   // 财务实际数转换(独立模块)：先给批次列表，再自动下钻到「问的那一批」。
   // 没有显式批次号时取最近一批——用户说「上次转换」指的就是它。
   if (intents.has('finance_conversion')) {
-    add('finance_conversions', () => tools.list_finance_conversions(db, 20), { year });
+    add('finance_conversions', () => executeTool(db, 'list_finance_conversions', { limit: 20 }), { year });
     const listed = facts[facts.length - 1]?.data as { batches?: { id: number }[] } | undefined;
     const explicit = /(?:转换批次|批次)\s*#?(\d+)/.exec(m);
     const targetId = explicit ? Number(explicit[1]) : listed?.batches?.[0]?.id ?? null;
     if (targetId != null && Number.isSafeInteger(targetId) && targetId > 0) {
-      add('finance_conversion_detail', () => tools.get_finance_conversion(db, targetId), { year });
+      add('finance_conversion_detail', () => executeTool(db, 'get_finance_conversion', { conversionId: targetId }), { year });
       const detail = facts[facts.length - 1]?.data as { mappingVersionId?: number } | undefined;
       if (/映射|漏|未映射|冲突|权重|拆分/.test(m) && detail?.mappingVersionId != null) {
-        add('finance_mapping_version', () => tools.get_finance_mapping_version(db, detail.mappingVersionId!), { year });
+        add('finance_mapping_version', () => executeTool(db, 'get_finance_mapping_version', { mappingVersionId: detail.mappingVersionId! }), { year });
       }
       if (/并行|试运行|手工|比对|对得上|复核/.test(m)) {
-        add('finance_parallel_trials', () => tools.list_finance_parallel_trials(db, targetId), { year });
+        add('finance_parallel_trials', () => executeTool(db, 'list_finance_parallel_trials', { conversionId: targetId }), { year });
       }
     }
-    if (/映射版本|有哪些映射|映射列表|映射清单/.test(m)) add('finance_mapping_versions', () => tools.list_finance_mapping_versions(db), { year });
-    if (/拥有范围|数据源|适配器/.test(m)) add('finance_source_profiles', () => tools.list_finance_source_profiles(db), { year });
+    if (/映射版本|有哪些映射|映射列表|映射清单/.test(m)) add('finance_mapping_versions', () => executeTool(db, 'list_finance_mapping_versions', {  }), { year });
+    if (/拥有范围|数据源|适配器/.test(m)) add('finance_source_profiles', () => executeTool(db, 'list_finance_source_profiles', {  }), { year });
   }
 
   if (intents.has('trend') && requireVersion('趋势分析需要预算版本')) {
-    add('trend', () => tools.calculate_trend(db, {
+    add('trend', () => executeTool(db, 'calculate_trend', {
       year: Number(year || budget.getVersion(db, versionId!).year), versionId: versionId!,
       orgScopeId: context.orgId ?? null, accountScopeId: context.accountId ?? null,
       batchId: context.actualSnapshotId ?? null,
@@ -184,17 +184,17 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
   if (intents.has('version_variance')) {
     if (versionId == null || context.targetVersionId == null) {
       facts.push(fact('missing_context', { fields: ['budgetVersionId', 'targetVersionId'], reason: '版本对比需要两个版本' }, { year }));
-    } else add('version_variance', () => tools.calculate_variance(db, versionId, context.targetVersionId!), () => ({ ...versionSrc(), targetVersionId: context.targetVersionId }));
+    } else add('version_variance', () => executeTool(db, 'calculate_variance', { baseVersionId: versionId, targetVersionId: context.targetVersionId! }), () => ({ ...versionSrc(), targetVersionId: context.targetVersionId }));
   }
   if (intents.has('execution') && requireVersion('执行分析需要预算版本')) {
-    add('execution', () => tools.calculate_execution(db, {
+    add('execution', () => executeTool(db, 'calculate_execution', {
       versionId: versionId!, batchId: context.actualSnapshotId ?? null,
       orgScopeId: context.orgId ?? null, accountScopeId: context.accountId ?? null,
     }), analysisSrc);
   }
   // 差异归因(方案 4.3):按组织、科目和方向排序,逐层展开且可逐层核对。
   if (intents.has('attribution') && requireVersion('差异归因需要预算版本')) {
-    add('attribution', () => tools.calculate_attribution(db, {
+    add('attribution', () => executeTool(db, 'calculate_attribution', {
       versionId: versionId!, batchId: context.actualSnapshotId ?? null,
       orgScopeId: context.orgId ?? null, accountScopeId: context.accountId ?? null,
       maxDepth: 3, topN: 10, direction: detectDirection(m),
@@ -208,7 +208,7 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
     } else if (kind !== 'annual_review' && versionId == null) {
       facts.push(fact('missing_context', { field: 'budgetVersionId', reason: '报告生成需要预算版本' }, { year }));
     } else {
-      add('report_draft', () => tools.generate_report(db, {
+      add('report_draft', () => executeTool(db, 'generate_report', {
         kind,
         versionId: versionId ?? null,
         year: year ?? null,
@@ -220,48 +220,48 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
     }
   }
   if (intents.has('budget_quality') && requireVersion('质量检查需要预算版本')) {
-    add('budget_quality', () => tools.get_budget_quality(db, versionId!), versionSrc);
+    add('budget_quality', () => executeTool(db, 'get_budget_quality', { versionId: versionId! }), versionSrc);
   }
   if (intents.has('anomalies') && requireVersion('异常检查需要预算版本')) {
-    add('anomalies', () => tools.calculate_anomalies(db, { versionId: versionId!, batchId: context.actualSnapshotId ?? null }), analysisSrc);
+    add('anomalies', () => executeTool(db, 'calculate_anomalies', { versionId: versionId!, batchId: context.actualSnapshotId ?? null }), analysisSrc);
   }
   if (intents.has('accuracy')) {
     if (year == null) facts.push(fact('missing_context', { field: 'year', reason: '准确率需要年度' }));
-    else add('accuracy', () => tools.calculate_accuracy(db, year), { year });
+    else add('accuracy', () => executeTool(db, 'calculate_accuracy', { year: year }), { year });
   }
   if (intents.has('historical_comparison')) {
-    add('historical_comparison', () => tools.get_historical_comparison(db), { year });
+    add('historical_comparison', () => executeTool(db, 'get_historical_comparison', {  }), { year });
     // 历年对比页同时展示多年趋势(/report/multi-year-trend):基准年取上下文年度,
     // 缺省取最近一个有年度状态的年份,都没有时退回当前日历年。
-    add('multi_year_trend', () => tools.calculate_multi_year_trend(db, { baseYear: multiYearBaseYear(db, year), depth: 3 }), { year });
+    add('multi_year_trend', () => executeTool(db, 'calculate_multi_year_trend', { baseYear: multiYearBaseYear(db, year), depth: 3 }), { year });
   }
   if (intents.has('budget_progress') && requireVersion('编制进度需要预算版本')) {
-    add('budget_progress', () => tools.get_budget_progress(db, versionId!), versionSrc);
+    add('budget_progress', () => executeTool(db, 'get_budget_progress', { versionId: versionId! }), versionSrc);
   }
   if (intents.has('structure') && requireVersion('结构分析需要预算版本')) {
     // 确定性路径没有 metricId 上下文,只有科目焦点能作为基准;其余情况回落到 parent 口径。
     const basisMode = context.accountId != null && /科目/.test(m) ? 'account' : 'parent';
-    add('structure', () => tools.calculate_structure(db, {
+    add('structure', () => executeTool(db, 'calculate_structure', {
       versionId: versionId!, batchId: context.actualSnapshotId ?? null,
       orgScopeId: context.orgId ?? null, accountScopeId: context.accountId ?? null,
       basisMode, ...(basisMode === 'account' ? { basisId: context.accountId! } : {}),
     }), analysisSrc);
   }
-  if (intents.has('metric_catalog')) add('metric_catalog', () => tools.list_metrics(db, versionId ?? undefined), versionId != null ? versionSrc : { year });
-  if (intents.has('insights')) add('insights', () => tools.list_insights(db, 20), { year });
-  if (intents.has('master_health')) add('master_data_health', () => tools.get_master_data_health(db), { year });
-  if (intents.has('consistency_check')) add('consistency_check', () => tools.check_consistency(db), { year });
-  if (intents.has('calculation_rules')) add('calculation_rules', () => tools.list_calculation_rules(db, true), { year });
+  if (intents.has('metric_catalog')) add('metric_catalog', () => executeTool(db, 'list_metrics', { versionId: versionId ?? undefined }), versionId != null ? versionSrc : { year });
+  if (intents.has('insights')) add('insights', () => executeTool(db, 'list_insights', { limit: 20 }), { year });
+  if (intents.has('master_health')) add('master_data_health', () => executeTool(db, 'get_master_data_health', {  }), { year });
+  if (intents.has('consistency_check')) add('consistency_check', () => executeTool(db, 'check_consistency', {  }), { year });
+  if (intents.has('calculation_rules')) add('calculation_rules', () => executeTool(db, 'list_calculation_rules', { includeInactive: true }), { year });
   if (intents.has('cleaning_config')) {
-    add('cleaning_templates', () => tools.list_cleaning_templates(db), { year });
-    add('cleaning_aliases', () => tools.list_cleaning_aliases(db), { year });
+    add('cleaning_templates', () => executeTool(db, 'list_cleaning_templates', {  }), { year });
+    add('cleaning_aliases', () => executeTool(db, 'list_cleaning_aliases', {}), { year });
   }
   // 单元格备注：预算侧按版本快照口径、实际侧按当前年度口径，能查哪侧查哪侧。
   // 不属于 VERSION_REQUIRED——只有年度时查实际侧也成立；两侧都缺才报 missing_context。
   if (intents.has('cell_note')) {
     let noteYear: number | null | undefined = year;
     if (versionId != null) {
-      add('cell_notes_budget', () => tools.get_cell_notes(db, {
+      add('cell_notes_budget', () => executeTool(db, 'get_cell_notes', {
         source: 'budget', versionId: versionId!,
         orgId: context.orgId ?? null, accountId: context.accountId ?? null,
       }), versionSrc);
@@ -271,7 +271,7 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
     }
     if (noteYear != null) {
       const queryYear = noteYear;
-      add('cell_notes_actual', () => tools.get_cell_notes(db, {
+      add('cell_notes_actual', () => executeTool(db, 'get_cell_notes', {
         source: 'actual', year: queryYear,
         orgId: context.orgId ?? null, accountId: context.accountId ?? null,
       }), { year: queryYear });
@@ -284,6 +284,6 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
   if (options.includeExtras !== false) facts.push(...deterministicExtras(db, m, context));
 
   // 没有命中任何意图时，至少返回当前上下文的轻量版本列表，便于助手继续追问。
-  if (facts.length === 0 && year != null && !detection.read.some(isDomainIntent)) add('budget_versions', () => tools.list_budget_versions(db, year), { year });
+  if (facts.length === 0 && year != null && !detection.read.some(isDomainIntent)) add('budget_versions', () => executeTool(db, 'list_budget_versions', { year: year }), { year });
   return facts;
 }

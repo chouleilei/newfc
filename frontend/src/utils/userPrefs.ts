@@ -13,7 +13,8 @@
  * - 恢复只是导航:应用视图/收藏/最近访问一律由调用方 navigate,本模块不产生任何提交。
  */
 import { readBrowserStorage, removeBrowserStorage } from './browserStorage';
-import { isPageKey, type PageKey } from '../assistant/context';
+import { isPageId, type PageId, PAGE_CATALOG } from '@contracts/page-catalog';
+
 import { isScopeRestorable, normalizeScopeSearch, ROUTE_SCOPE_WHITELIST } from './workspaceScope';
 
 export const PREFS_SCHEMA_VERSION = 1;
@@ -30,7 +31,7 @@ const MAX_PATH_LENGTH = 512;
 export interface SavedViewEntry {
   id: string;
   name: string;
-  pageKey: PageKey;
+  pageKey: PageId;
   /** 规范化后的查询串(不含 ?);只含该路由白名单参数。 */
   search: string;
   createdAt: number;
@@ -40,7 +41,7 @@ export interface SavedViewEntry {
 /** 页面收藏:稳定的入口路径(含规范化范围)与显示名。 */
 export interface FavoriteEntry {
   id: string;
-  pageKey: PageKey;
+  pageKey: PageId;
   path: string;
   label: string;
   createdAt: number;
@@ -48,7 +49,7 @@ export interface FavoriteEntry {
 
 /** 最近访问:路由 + 范围 + 时间,新的在前。 */
 export interface RecentEntry {
-  pageKey: PageKey;
+  pageKey: PageId;
   path: string;
   label: string;
   visitedAt: number;
@@ -84,13 +85,13 @@ export function emptyUserPrefs(): UserPrefs {
 }
 
 /** /data 的子页身份由 tab 决定;tab 不是范围参数,但必须随入口保留(只认已知页签值)。 */
-const DATA_TABS = new Set(['calculations', 'imports', 'check', 'yearclose', 'migration', 'export', 'logs', 'backup']);
+const DATA_TABS = new Set(Object.values(PAGE_CATALOG).flatMap((page) => 'tab' in page ? [page.tab] : []));
 
 /**
  * 受支持页面的规范化入口路径:范围参数按路由白名单重建,其余参数一律丢弃
  * (一次性定位参数、凭证样参数不会进收藏/最近记录);/data 额外保留合法 tab。
  */
-export function entryPathFor(pageKey: PageKey, pathname: string, search: string): string {
+export function entryPathFor(pageKey: PageId, pathname: string, search: string): string {
   const params = new URLSearchParams(normalizeScopeSearch(pageKey, search));
   if (pathname === '/data') {
     const tab = new URLSearchParams(search).get('tab') ?? '';
@@ -104,9 +105,9 @@ export function entryPathFor(pageKey: PageKey, pathname: string, search: string)
   return query ? `${pathname}?${query}` : pathname;
 }
 
-/** 该路由是否可作为偏好入口(收录进 PAGE_KEYS 即受支持;视图另要求支持范围)。 */
-export function isPrefsSupportedPage(pageKey: string): pageKey is PageKey {
-  return isPageKey(pageKey) && pageKey in ROUTE_SCOPE_WHITELIST;
+/** 该路由是否可作为偏好入口(收录进 PAGE_IDS 即受支持;视图另要求支持范围)。 */
+export function isPrefsSupportedPage(pageKey: string): pageKey is PageId {
+  return isPageId(pageKey) && pageKey in ROUTE_SCOPE_WHITELIST;
 }
 
 function asFiniteNumber(value: unknown): number {
@@ -124,13 +125,13 @@ function sanitizeSavedView(raw: unknown): SavedViewEntry | null {
   const item = raw as Record<string, unknown>;
   const id = asCleanText(item.id, 64);
   const name = asCleanText(item.name, MAX_NAME_LENGTH);
-  const pageKey = typeof item.pageKey === 'string' && isScopeRestorable(item.pageKey as PageKey) && isPageKey(item.pageKey) ? item.pageKey : null;
+  const pageKey = typeof item.pageKey === 'string' && isScopeRestorable(item.pageKey as PageId) && isPageId(item.pageKey) ? item.pageKey : null;
   if (!id || !name || !pageKey || typeof item.search !== 'string' || item.search.length > MAX_PATH_LENGTH) return null;
   return {
     id,
     name,
-    pageKey: pageKey as PageKey,
-    search: normalizeScopeSearch(pageKey as PageKey, item.search),
+    pageKey: pageKey as PageId,
+    search: normalizeScopeSearch(pageKey as PageId, item.search),
     createdAt: asFiniteNumber(item.createdAt),
     updatedAt: asFiniteNumber(item.updatedAt),
   };
@@ -243,7 +244,7 @@ function defaultId(): string {
  */
 export function addSavedView(
   prefs: UserPrefs,
-  input: { name: string; pageKey: PageKey; search: string },
+  input: { name: string; pageKey: PageId; search: string },
   now: number,
   idGen: IdGenerator = defaultId,
 ): { prefs: UserPrefs; entry: SavedViewEntry } | null {
@@ -277,14 +278,14 @@ export function deleteSavedView(prefs: UserPrefs, id: string): UserPrefs {
 }
 
 /** 按 路由+规范化路径 查找收藏(同一路径只收藏一次)。 */
-export function findFavorite(prefs: UserPrefs, pageKey: PageKey, path: string): FavoriteEntry | undefined {
+export function findFavorite(prefs: UserPrefs, pageKey: PageId, path: string): FavoriteEntry | undefined {
   return prefs.favorites.find((item) => item.pageKey === pageKey && item.path === path);
 }
 
 /** 切换收藏:已收藏则取消;未收藏则新增(超上限返回 favorited=false 且不改动)。 */
 export function toggleFavorite(
   prefs: UserPrefs,
-  input: { pageKey: PageKey; path: string; label: string },
+  input: { pageKey: PageId; path: string; label: string },
   now: number,
   idGen: IdGenerator = defaultId,
 ): { prefs: UserPrefs; favorited: boolean } {
@@ -311,7 +312,7 @@ export function removeFavorite(prefs: UserPrefs, id: string): UserPrefs {
  */
 export function recordRecentPage(
   prefs: UserPrefs,
-  input: { pageKey: PageKey; path: string; label: string },
+  input: { pageKey: PageId; path: string; label: string },
   visitedAt: number,
 ): UserPrefs {
   if (!isPrefsSupportedPage(input.pageKey)) return prefs;

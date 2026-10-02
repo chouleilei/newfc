@@ -12,7 +12,7 @@ import { AppError, Errors } from '../../core/errors';
 import { currentContext, runWithContext, type AuthContext } from '../../core/request-context';
 import { sanitizeDetail, writeLog } from '../audit/log';
 import { loadAuthContext } from '../security/security.service';
-import type { Permission } from '../security/permissions';
+import type { Permission } from '../../contracts/permissions';
 import { orgInScope, resolveOrgScope } from '../security/scope';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';

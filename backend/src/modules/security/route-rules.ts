@@ -1,4 +1,4 @@
-import type { Permission } from './permissions';
+import type { Permission } from '../../contracts/permissions';
 
 /**
  * 路由权限表:每个 /api 路由必须命中一条规则,未登记的路由默认拒绝(403)。
