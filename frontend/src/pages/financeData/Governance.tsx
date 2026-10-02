@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Col, Descriptions, Drawer, Form, Input, List, Modal, Progress, Row, Select, Space, Statistic, Table, Tag, Timeline, Tooltip, Typography } from 'antd';
@@ -130,7 +131,7 @@ function IssueDrawer({ issueId, onClose }: { issueId: number | null; onClose: ()
               )}
             </Card>
           )}
-          <pre style={{ margin: 0, maxHeight: 220, overflow: 'auto', fontSize: 12, background: 'var(--bd-fill)', padding: 8, borderRadius: 6 }}>{JSON.stringify(issue.detail, null, 2)}</pre>
+          <pre style={{ margin: 0, maxHeight: 220, overflow: 'auto', fontSize: 12, background: 'var(--newfc-fill)', padding: 8, borderRadius: 6 }}>{JSON.stringify(issue.detail, null, 2)}</pre>
           <Typography.Title level={5} style={{ margin: 0 }}>处置记录</Typography.Title>
           {(issue.dispositions ?? []).length === 0 ? <Typography.Text type="secondary">暂无处置</Typography.Text> : (
             <Timeline items={(issue.dispositions ?? []).map((d) => ({
@@ -195,6 +196,7 @@ export default function Governance() {
   const [period, setPeriod] = useState<string | undefined>();
   const [openId, setOpenId] = useState<number | null>(null);
   const list = useQuery({ queryKey: ['gov-issues', status, sourceType, orgId, period], queryFn: () => govApi.issues({ status, sourceType, orgId, period }) });
+  useAssistantDomainPage({ pageKey: 'governance', ready: !list.isLoading && !list.error, scope: { orgScopeId: orgId, period, governanceIssueId: openId ?? undefined }, view: { status, sourceType } });
   const scan = useMutation({
     mutationFn: () => govApi.scan(compact({ orgId, period })),
     onSuccess: (r) => { message.success(`扫描完成:新增 ${r.created},更新 ${r.updated},重新打开 ${r.reopened},未变 ${r.unchanged}`); void qc.invalidateQueries({ queryKey: ['gov-issues'] }); void qc.invalidateQueries({ queryKey: ['gov-quality'] }); },

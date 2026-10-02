@@ -95,12 +95,12 @@ export function SetCurrentConfirmModal(props: {
         <Alert type="error" showIcon style={{ marginBottom: 12 }} message="设置未完成" description={props.error} />
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 12px', flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--bd-text-secondary)' }}>原采用版本</span>
+        <span style={{ color: 'var(--newfc-text-secondary)' }}>原采用版本</span>
         <Typography.Text strong={Boolean(previousCurrent)} type={previousCurrent ? undefined : 'secondary'}>
           {previousCurrent ? previousCurrent.name : '(当前没有采用版本)'}
         </Typography.Text>
         <i className="ri-arrow-right-line" aria-hidden />
-        <span style={{ color: 'var(--bd-text-secondary)' }}>新采用版本</span>
+        <span style={{ color: 'var(--newfc-text-secondary)' }}>新采用版本</span>
         <Typography.Text strong>{version.name}</Typography.Text>
       </div>
       <Alert

@@ -61,6 +61,6 @@ describe('WorkspaceScopeBar', () => {
     expect(noOrg).toContain('全部');
     const longName = render(<WorkspaceScopeBar year={2026} orgName="某超长名称的集团下属区域分公司一号电站" />);
     expect(longName).toContain('某超长名称的集团下属区域分公司一号电站');
-    expect(longName).toContain('bd-scope-bar-value');
+    expect(longName).toContain('newfc-scope-bar-value');
   });
 });

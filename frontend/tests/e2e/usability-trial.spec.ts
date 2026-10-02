@@ -380,7 +380,7 @@ test('UX31-S7 追查异常:预警定位到年度执行分析同口径对象,浏�
   }
   const anchor = page.locator('#analysis-locate-account, #analysis-locate-org').first();
   await expect(anchor, '目标对象应在分析表中定位渲染').toBeAttached();
-  await expect(page.locator('.bd-row-locate').first(), '目标行应有高亮样式').toBeAttached();
+  await expect(page.locator('.newfc-row-locate').first(), '目标行应有高亮样式').toBeAttached();
   await expect(page.getByText('预算版本').first()).toBeVisible();
   await trial.shot(page, '07_追查异常_分析页定位高亮.png');
 
@@ -513,7 +513,7 @@ test('UX31-S9 数字核对:混合金额/负数冲回/数量/零值/细小差额,
 
   trial.step('核对:悬停精确到元(含 0.49 元细小差额进入合计)');
   await expect(
-    page.locator('.bd-money-text[title="精确值 1,000,000.49 元"]').first(),
+    page.locator('.newfc-money-text[title="精确值 1,000,000.49 元"]').first(),
     '营业收入合计应为 100.00 万元 + 0.49 元 = 1,000,000.49 元,悬停可核对精确元(指标汇总表多指标可能同值,取首处)',
   ).toBeAttached();
   await trial.shot(page, '09_数字核对_汇总与精确值.png');

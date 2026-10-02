@@ -1,5 +1,5 @@
 /**
- * AssistantContextRegistry(方案《小澧助手全页面回答范围自动对齐开发计划》§8.1)。
+ * AssistantContextRegistry(现行 specs/ai.md 页面上下文契约§8.1)。
  *
  * 注册中心维护：
  * - 当前 pageKey、routeInstanceId 和 contextVersion；

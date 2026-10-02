@@ -73,7 +73,7 @@ export function QualityIssueList(props: {
               <Button size="small" type="link" onClick={() => props.onLocate!(issue.orgId!, issue.accountId!)}>定位</Button>
             )}
             {help && (
-              <div style={{ fontSize: 12, color: 'var(--bd-text-tertiary)', marginTop: 2, paddingLeft: 4 }}>
+              <div style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)', marginTop: 2, paddingLeft: 4 }}>
                 为什么是问题：{help.why}；影响：{help.impact}；处理：{help.fix}
               </div>
             )}
@@ -101,7 +101,7 @@ export function QualityAdviceBlock(props: { versionId: number }) {
           {query.data.source === 'model' ? 'AI 建议(仅供参考)' : '确定性处理建议'}
         </Tag>
       </div>
-      <div style={{ border: '1px solid var(--bd-border)', borderRadius: 6, padding: '4px 10px', background: 'var(--bd-bg-fill)', maxHeight: 260, overflow: 'auto' }}>
+      <div style={{ border: '1px solid var(--newfc-border)', borderRadius: 6, padding: '4px 10px', background: 'var(--newfc-bg-fill)', maxHeight: 260, overflow: 'auto' }}>
         <Markdown text={query.data.advice} />
       </div>
     </div>
@@ -125,7 +125,7 @@ export function QualityReportContent(props: {
         <Tag color="orange">提醒 {quality.warningCount}</Tag>
       </div>
       {(quality.groups?.length ?? 0) > 0 && (
-        <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--bd-text-secondary)' }}>
+        <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--newfc-text-secondary)' }}>
           {quality.groups!.map((group) => (
             <div key={group.code}>· {group.summary}</div>
           ))}

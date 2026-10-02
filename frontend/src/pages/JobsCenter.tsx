@@ -1,7 +1,8 @@
+import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App as AntdApp, Button, Card, Descriptions, Drawer, Popconfirm, Progress, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
-import { api, can, errorText } from '../api/client';
+import { api, can, errorText, getSession } from '../api/client';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
 
@@ -65,6 +66,7 @@ function JobsTab() {
   const [status, setStatus] = useState<JobStatus | undefined>();
   const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState<number | null>(null);
+  useAssistantDomainPage({ pageKey: 'jobs', ready: true, scope: { jobId: openId ?? undefined }, view: { status } });
   const jobs = useQuery({
     queryKey: ['jobs', status, page],
     queryFn: () => api.get<{ total: number; items: JobItem[] }>(`/jobs?page=${page}&pageSize=${PAGE_SIZE}${status ? `&status=${status}` : ''}`),
@@ -228,7 +230,7 @@ function ModelCallsTab() {
 /** 任务中心(AC-F21):我的后台任务进度/取消/步骤;有 tasks:read 权限的全组织用户另可查看模型调用记录。 */
 export default function JobsCenter() {
   const items = [{ key: 'jobs', label: '后台任务', children: <JobsTab /> }];
-  if (can('tasks:read')) items.push({ key: 'model-calls', label: '模型调用', children: <ModelCallsTab /> });
+  if (can('tasks:read') && getSession()?.user.allOrgs) items.push({ key: 'model-calls', label: '模型调用', children: <ModelCallsTab /> });
   return (
     <Card>
       <Tabs items={items} />

@@ -3,7 +3,7 @@ import { expect, login, test } from './access';
 
 /**
  * T-6 跨域链路(AC-F26):顶栏检索 → /search 按类型分组 → 点击结果进入真实页面并打开对应详情(?id= 定位),
- * 关闭详情后参数移除;主数据结果进入对应页签并预填关键词。
+ * 关闭详情后参数移除;项目结果进入项目档案,显示同一项目的编码与名称。
  */
 
 async function json<T>(res: APIResponse, status = 200): Promise<T> {
@@ -24,14 +24,14 @@ async function orgId(request: APIRequestContext, name: string): Promise<number> 
 }
 
 test.describe('跨域检索', () => {
-  test('顶栏检索 → 分组结果 → 进入投资控制详情与主数据页签', async ({ page, request }) => {
+  test('顶栏检索 → 分组结果 → 进入投资控制详情与项目档案', async ({ page, request }) => {
     const code = `E2E-SR-${Date.now()}`;
     const md = await json<{ id: number }>(await request.post('/api/master/projects', { data: { code, name: '检索泵站', orgId: await orgId(request, '上海公司') } }), 201);
     const ic = await json<{ id: number }>(await request.post('/api/investment/control/projects', { data: { mdProjectId: md.id } }), 201);
 
     await login(page);
     await page.goto('/');
-    const box = page.getByRole('searchbox', { name: '跨域检索' });
+    const box = page.getByRole('combobox', { name: '跨域检索' });
     await box.fill(code);
     await box.press('Enter');
     await expect(page).toHaveURL(new RegExp(`/search\\?q=${code}`));
@@ -51,9 +51,10 @@ test.describe('跨域检索', () => {
     await page.goBack();
     await expect(page).toHaveURL(/\/search\?q=/);
     await mdCard.getByRole('link', { name: new RegExp(code) }).click();
-    await expect(page).toHaveURL(/\/master-entities\?tab=projects&keyword=/);
-    await expect(page.getByRole('tab', { name: '项目', selected: true })).toBeVisible();
-    await expect(page.locator('.ant-table-row', { hasText: code })).toHaveCount(1);
+    await expect(page).toHaveURL(new RegExp(`/projects/${md.id}$`));
+    await expect(page.locator('.ant-descriptions-title')).toContainText(code);
+    await expect(page.locator('.ant-descriptions-title')).toContainText('检索泵站');
+    await expect(page.getByRole('tab', { name: '项目预算' })).toBeVisible();
   });
 });
 

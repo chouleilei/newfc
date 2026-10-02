@@ -169,7 +169,7 @@ export default function AnomalyCenter() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batches, batchId]);
 
-  /* 小澧助手页面登记(§7.2 anomaly_center)：版本/快照与三个阈值的生效值。 */
+  /* 财务助手页面登记(§7.2 anomaly_center)：版本/快照与三个阈值的生效值。 */
   useAssistantPageContext({
     pageKey: 'anomaly_center',
     ready: effectiveVersionId != null,
@@ -242,7 +242,7 @@ export default function AnomalyCenter() {
   };
 
   return (
-    <Card className="bd-root-card">
+    <Card className="newfc-root-card">
       {scopeIssues.length > 0 && (
         <Alert
           type="warning"
@@ -265,15 +265,15 @@ export default function AnomalyCenter() {
       {!isLoading && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', marginBottom: 12 }} data-testid="anomaly-summary">
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <span className="bd-status-icon bd-status-icon-bad"><i className="ri-close-line" aria-hidden /></span>
+            <span className="newfc-status-icon newfc-status-icon-bad"><i className="ri-close-line" aria-hidden /></span>
             <Typography.Text>阻塞 <Typography.Text strong className="tabular-numbers">{severityCounts.blocking}</Typography.Text></Typography.Text>
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <span className="bd-status-icon bd-status-icon-warn"><i className="ri-alert-line" aria-hidden /></span>
+            <span className="newfc-status-icon newfc-status-icon-warn"><i className="ri-alert-line" aria-hidden /></span>
             <Typography.Text>提醒 <Typography.Text strong className="tabular-numbers">{severityCounts.warning}</Typography.Text></Typography.Text>
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <span className="bd-status-icon bd-status-icon-ok"><i className="ri-check-line" aria-hidden /></span>
+            <span className="newfc-status-icon newfc-status-icon-ok"><i className="ri-check-line" aria-hidden /></span>
             <Typography.Text>观察 <Typography.Text strong className="tabular-numbers">{severityCounts.info}</Typography.Text></Typography.Text>
           </span>
         </div>

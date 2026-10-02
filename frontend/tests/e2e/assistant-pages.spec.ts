@@ -2,12 +2,12 @@ import { type APIRequestContext, type Page } from '@playwright/test';
 import { expect, test } from './access';
 
 /**
- * 数据驱动页面测试(方案《小澧助手全页面回答范围自动对齐开发计划》§13.4)。
+ * 数据驱动页面测试(现行 specs/ai.md 页面上下文契约§13.4)。
  *
  * 28 个 pageKey 共用一个测试函数与页面数据表:
  * 1. 进入路由或页签;
  * 2. 等待页面 ready(ScopeBar 出现「已对齐」);
- * 3. 打开小澧助手;
+ * 3. 打开财务助手;
  * 4. 检查 pageKey 与主范围(请求体 pageContext);
  * 5. 支持时改变一个筛选,确认范围跟随变化;
  * 6. 发送页面通用问题;
@@ -113,7 +113,7 @@ interface PageCase {
 
 const PAGE_CASES: PageCase[] = [
   { key: 'dashboard', path: '/', label: '首页工作台', scopeField: 'year' },
-  { key: 'assistant', path: '/assistant', label: '小澧助手' },
+  { key: 'assistant', path: '/assistant', label: '财务助手' },
   { key: 'insights', path: '/insights', label: '洞察报告' },
   { key: 'master_health', path: '/master-health', label: '主数据健康' },
   { key: 'cleaning_config', path: '/cleaning-config', label: '清洗配置' },
@@ -182,9 +182,9 @@ test.describe('全页面回答范围自动对齐(§13.4)', () => {
       const path = typeof pageCase.path === 'function' ? pageCase.path(ids) : pageCase.path;
       await page.goto(path);
 
-      // 2. 等待页面 ready + 3. 打开小澧助手(ScopeBar 在抽屉里;完整页也有一条,用容器限定)
+      // 2. 等待页面 ready + 3. 打开财务助手(ScopeBar 在抽屉里;完整页也有一条,用容器限定)
       await page.getByTestId('assistant-dock-trigger').click();
-      const dock = page.locator('.bd-assistant-dock');
+      const dock = page.locator('.newfc-assistant-dock');
       const scopeBar = dock.getByTestId('assistant-scope-bar');
       await expect(scopeBar).toBeVisible();
       // 就绪后徽标出现「已对齐 · {页面标签}」;异步默认值的页面多等一会

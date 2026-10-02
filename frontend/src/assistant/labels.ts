@@ -24,6 +24,7 @@ export const RESOLUTION_FIELD_LABEL: Record<ContextResolution['field'], string> 
 
 /** 只读意图 → 中文标签，用于「沿用上一轮话题」提示。与后端 intent.ts 的标签保持一致。 */
 export const READ_INTENT_LABEL: Record<string, string> = {
+  eas_status: 'EAS 对账', statements: '财务报表', mgmt_metrics: '管理会计', mgmt_alerts: '管理会计预警', project_budget: '项目预算', plan_execution: '计划执行', contracts: '合同与付款', expenses: '费用审核', policies: '制度条款', feasibility: '可行性测算', investment_control: '投资控制', forecast: '财务预测', risks: '风险与整改', analysis_reports: '分析报告', standard_reports: '标准报表', governance: '数据治理', project_profile: '项目全景', master_entities: '项目与供应商', cross_search: '跨域检索', tasks: '任务状态', configuration: '配置与能力', authorization: '权限与范围',
   budget_versions: '版本',
   actual_snapshots: '实际与快照',
   org_tree: '组织树',

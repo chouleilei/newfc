@@ -24,20 +24,20 @@ export interface RankBarRowProps {
 export function RankBarRow({ color, label, value, share, shareLabel }: RankBarRowProps) {
   const clamped = Math.min(Math.max(Number.isFinite(share) ? share : 0, 0), 1);
   return (
-    <div className="bd-rank-row">
-      <div className="bd-rank-row-main">
-        <span className="bd-rank-dot" style={{ background: color }} aria-hidden />
-        <span className="bd-rank-label" title={label}>{label}</span>
-        <span className="bd-rank-value">{value}</span>
-        <span className="bd-rank-share">{shareLabel}</span>
+    <div className="newfc-rank-row">
+      <div className="newfc-rank-row-main">
+        <span className="newfc-rank-dot" style={{ background: color }} aria-hidden />
+        <span className="newfc-rank-label" title={label}>{label}</span>
+        <span className="newfc-rank-value">{value}</span>
+        <span className="newfc-rank-share">{shareLabel}</span>
       </div>
       <div
-        className="bd-rank-track"
+        className="newfc-rank-track"
         role="img"
         aria-label={`${label} 占比 ${shareLabel}`}
         style={{ '--rank-share': clamped } as CSSProperties}
       >
-        <span className="bd-rank-bar" style={{ background: color }} />
+        <span className="newfc-rank-bar" style={{ background: color }} />
       </div>
     </div>
   );

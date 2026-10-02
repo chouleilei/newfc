@@ -62,7 +62,7 @@ export function TreeManage({
   const [form] = Form.useForm<NodeFormValues>();
   const [checkResult, setCheckResult] = useState<{ ok: boolean; problems: string[] } | null>(null);
   const [keyword, setKeyword] = useState('');
-  /* 小澧助手页面登记(§7.2 org)：当前树与搜索关键字。 */
+  /* 财务助手页面登记(§7.2 org)：当前树与搜索关键字。 */
   useAssistantPageContext({ pageKey: kind === 'org' ? 'org' : 'account', ready: nodes != null, notReadyReason: '正在读取树数据', readyState: 'loading', scope: {}, view: { search: keyword.trim() || undefined } });
   const [loadError, setLoadError] = useState<unknown>(null);
   const [renameTarget, setRenameTarget] = useState<TreeNodeDto | null>(null);
@@ -120,7 +120,7 @@ export function TreeManage({
   return (
     /* 无壳 + 无标题:调用方传的 title(如「组织管理」)与侧栏菜单项同名,顶栏已显示一遍 */
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       extra={
         <Space wrap>
           <Input

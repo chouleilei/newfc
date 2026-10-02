@@ -59,15 +59,15 @@ export function GridFilterBar(props: {
         justifyContent: 'space-between',
         gap: 10,
         padding: '10px 14px',
-        background: 'var(--bd-header)',
+        background: 'var(--newfc-header)',
         borderRadius: 8,
-        border: '1px solid var(--bd-border-subtle)',
+        border: '1px solid var(--newfc-border-subtle)',
         marginBottom: 12,
       }}
     >
       <Space size="middle" wrap>
         <Space size="small">
-          <span style={{ fontSize: 13, color: 'var(--bd-text-tertiary)', fontWeight: 500 }}>表格</span>
+          <span style={{ fontSize: 13, color: 'var(--newfc-text-tertiary)', fontWeight: 500 }}>表格</span>
           <Select
             id="budget-sheet-select"
             style={{ width: 170 }}
@@ -77,7 +77,7 @@ export function GridFilterBar(props: {
               value: s.key,
               label: (
                 <span>
-                  <span style={{ color: props.hasDataInSheet(s.key) ? statusColor(mode).good : 'var(--bd-text-tertiary)', marginRight: 6 }}>●</span>
+                  <span style={{ color: props.hasDataInSheet(s.key) ? statusColor(mode).good : 'var(--newfc-text-tertiary)', marginRight: 6 }}>●</span>
                   {s.name}
                 </span>
               ),
@@ -85,7 +85,7 @@ export function GridFilterBar(props: {
           />
         </Space>
         <Space size="small">
-          <span style={{ fontSize: 13, color: 'var(--bd-text-tertiary)', fontWeight: 500 }}>组织范围</span>
+          <span style={{ fontSize: 13, color: 'var(--newfc-text-tertiary)', fontWeight: 500 }}>组织范围</span>
           <TreeSelect
             style={{ width: orgSelectWidth }}
             treeData={props.orgTreeData}

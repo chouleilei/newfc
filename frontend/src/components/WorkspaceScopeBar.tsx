@@ -45,7 +45,7 @@ export interface WorkspaceScopeBarProps {
 function ScopeValue({ children, title }: { children: ReactNode; title?: string }) {
   return (
     <Tooltip title={title} mouseEnterDelay={0.3}>
-      <Typography.Text className="bd-scope-bar-value" title={undefined}>
+      <Typography.Text className="newfc-scope-bar-value" title={undefined}>
         {children}
       </Typography.Text>
     </Tooltip>
@@ -61,7 +61,7 @@ export default function WorkspaceScopeBar(props: WorkspaceScopeBarProps) {
 
   if (status === 'loading') {
     return (
-      <div className={`bd-scope-bar${className ? ` ${className}` : ''}`} style={style} aria-busy="true" aria-label="工作范围加载中">
+      <div className={`newfc-scope-bar${className ? ` ${className}` : ''}`} style={style} aria-busy="true" aria-label="工作范围加载中">
         <Skeleton.Input active size="small" style={{ width: 280, height: 22 }} />
       </div>
     );
@@ -73,7 +73,7 @@ export default function WorkspaceScopeBar(props: WorkspaceScopeBarProps) {
   if (year != null) items.push(<ScopeValue key="year" title={`${year} 年`}>{year} 年</ScopeValue>);
   items.push(
     <ScopeValue key="org" title={orgName ?? '全部组织'}>
-      <span className="bd-scope-bar-label">组织</span> {orgName ?? '全部'}
+      <span className="newfc-scope-bar-label">组织</span> {orgName ?? '全部'}
     </ScopeValue>,
   );
   if (versionName) items.push(<ScopeValue key="version" title={versionName}>{versionName}</ScopeValue>);
@@ -81,41 +81,41 @@ export default function WorkspaceScopeBar(props: WorkspaceScopeBarProps) {
     items.push(
       <span
         key="status"
-        className={`bd-scope-bar-status${status === 'invalid' ? ' bd-scope-bar-status-invalid' : status === 'readonly' ? ' bd-scope-bar-status-readonly' : ''}`}
+        className={`newfc-scope-bar-status${status === 'invalid' ? ' newfc-scope-bar-status-invalid' : status === 'readonly' ? ' newfc-scope-bar-status-readonly' : ''}`}
       >
         {statusLabel}
       </span>,
     );
   }
-  if (asOfDate) items.push(<ScopeValue key="asof" title={`服务器现有累计实际截至 ${asOfDate}`}><span className="bd-scope-bar-label">实际截至</span> {asOfDate}</ScopeValue>);
+  if (asOfDate) items.push(<ScopeValue key="asof" title={`服务器现有累计实际截至 ${asOfDate}`}><span className="newfc-scope-bar-label">实际截至</span> {asOfDate}</ScopeValue>);
   if (showPending) {
     items.push(
-      <span key="pending" className="bd-scope-bar-pending" title={`本次保存将写入截至 ${pendingDate} 的累计值`}>
+      <span key="pending" className="newfc-scope-bar-pending" title={`本次保存将写入截至 ${pendingDate} 的累计值`}>
         待提交截止 {pendingDate}
       </span>,
     );
   }
-  items.push(<ScopeValue key="unit"><span className="bd-scope-bar-label">金额</span> {unit}</ScopeValue>);
+  items.push(<ScopeValue key="unit"><span className="newfc-scope-bar-label">金额</span> {unit}</ScopeValue>);
   if (extra) items.push(extra);
 
   return (
     <div
-      className={`bd-scope-bar${status === 'invalid' ? ' bd-scope-bar-invalid' : ''}${className ? ` ${className}` : ''}`}
+      className={`newfc-scope-bar${status === 'invalid' ? ' newfc-scope-bar-invalid' : ''}${className ? ` ${className}` : ''}`}
       style={style}
       aria-label="当前工作范围"
     >
       {status === 'invalid' && (
         <Tooltip title={(issues ?? []).length ? (issues ?? []).join('；') : '范围参数无效'}>
-          <span className="bd-scope-bar-status bd-scope-bar-status-invalid" role="alert">
+          <span className="newfc-scope-bar-status newfc-scope-bar-status-invalid" role="alert">
             <i className="ri-error-warning-line" aria-hidden /> 范围已失效
             {/* Tooltip 内容悬停才进 DOM;原因同时给屏幕阅读器一份纯文本 */}
-            {(issues ?? []).length > 0 && <span className="bd-sr-only">:{(issues ?? []).join('；')}</span>}
+            {(issues ?? []).length > 0 && <span className="newfc-sr-only">:{(issues ?? []).join('；')}</span>}
           </span>
         </Tooltip>
       )}
       {items.map((item, index) => (
-        <span key={index} className="bd-scope-bar-item">
-          {index > 0 && <span className="bd-scope-bar-sep" aria-hidden>·</span>}
+        <span key={index} className="newfc-scope-bar-item">
+          {index > 0 && <span className="newfc-scope-bar-sep" aria-hidden>·</span>}
           {item}
         </span>
       ))}

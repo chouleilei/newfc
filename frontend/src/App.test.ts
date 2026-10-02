@@ -3,7 +3,8 @@
  * dataMenuKey 归并(导入批次/一致性检查恢复为独立入口)与 pageTitle 特判。
  */
 import { describe, expect, it } from 'vitest';
-import { dataMenuKey, filterMenuByPermission, MENU_PERMISSION, pageTitle, selectedKey } from './App';
+import { canAccessPreferencePath, dataMenuKey, filterMenuByPermission, groupOf, menuItems, MENU_PERMISSION, pageTitle, selectedKey } from './App';
+import { setSession } from './api/client';
 
 describe('侧栏高亮与归并(阶段一)', () => {
   it('新增叶子项均在 selectedKey 白名单内', () => {
@@ -94,6 +95,44 @@ describe('T-5 投资与预测、风险与报告入口', () => {
 describe('T-6 跨域检索入口', () => {
   it('/search 有独立标题,不高亮任何业务菜单', () => {
     expect(pageTitle('/search', '?q=水厂', selectedKey('/search', '?q=水厂'))).toBe('跨域检索');
-    expect(selectedKey('/search', '')).toBe('/');
+    expect(selectedKey('/search', '')).toBe('/search');
+  });
+});
+
+describe('独立项目领域导航', () => {
+  it('收藏/最近访问按当前权限和组织范围裁剪,未知路径不冒充首页', () => {
+    try {
+      setSession({ authenticated: true, csrfToken: 't', expiresAt: '', user: { id: 1, username: 'analyst', displayName: '分析员', permissions: ['dashboard:read', 'budget:read', 'analysis:read'], allOrgs: false, orgIds: [3], mustChangePassword: false } });
+      expect(canAccessPreferencePath('/analysis?year=2026')).toBe(true);
+      expect(canAccessPreferencePath('/budget')).toBe(false);
+      expect(canAccessPreferencePath('/actual')).toBe(false);
+      expect(canAccessPreferencePath('/history')).toBe(false);
+      expect(canAccessPreferencePath('/jobs')).toBe(true);
+      expect(canAccessPreferencePath('/no-such-page')).toBe(false);
+      expect(canAccessPreferencePath('//other.example/analysis')).toBe(false);
+    } finally {
+      setSession(null);
+    }
+  });
+  it('经营预算集中在一个一级栏目,保留全部既有入口、标题和权限', () => {
+    const expected = ['/budget', '/progress', '/actual', '/data?tab=imports', '/cleaning-config', '/finance', '/analysis', '/alerts', '/structure', '/metric-trend', '/history', '/compare'];
+    const budget = menuItems?.find((item) => item?.key === 'grp-budget');
+    expect(budget && 'children' in budget && budget.children?.map((item) => item?.key)).toEqual(expected);
+    for (const key of expected) {
+      expect(groupOf(key)).toBe('grp-budget');
+      expect(MENU_PERMISSION[key]).toBeTruthy();
+      expect(pageTitle(key.split('?')[0], key.includes('?') ? `?${key.split('?')[1]}` : '', key)).toBeTruthy();
+    }
+    expect(menuItems?.some((item) => ['grp-plan', 'grp-actual', 'grp-analysis'].includes(String(item?.key)))).toBe(false);
+    expect(groupOf('/')).toBeUndefined();
+    expect(groupOf('/search')).toBeUndefined();
+    expect(groupOf('/contracts')).toBe('grp-project');
+    expect(groupOf('/eas')).toBe('grp-finance');
+  });
+
+  it('合并后仍按权限与组织范围裁剪经营预算叶子', () => {
+    const filtered = filterMenuByPermission(menuItems, (p) => p === 'analysis:read', false);
+    const budget = filtered?.find((item) => item?.key === 'grp-budget');
+    expect(budget && 'children' in budget && budget.children?.map((item) => item?.key)).toEqual(['/analysis', '/alerts', '/structure', '/metric-trend']);
   });
 });

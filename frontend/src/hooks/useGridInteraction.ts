@@ -12,6 +12,7 @@
  * 所有批量写必须走 applyCells;只读守卫由 isCellEditable 注入,跳过数如实反馈。
  */
 
+import { readBrowserStorage } from '../utils/browserStorage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { amountSchema, quantitySchema, signOfType, cellValueEquivalent } from '../utils/money';
@@ -1083,7 +1084,7 @@ export function useGridInteraction(opts: GridInteractionOptions) {
   const restoreFocus = useCallback(() => {
     if (!opts.persistKey) return;
     try {
-      const raw = sessionStorage.getItem(`${opts.persistKey}:gridpos`);
+      const raw = readBrowserStorage(sessionStorage, `${opts.persistKey}:gridpos`);
       if (!raw) return;
       const { rowId, colId } = JSON.parse(raw) as { rowId: number; colId: number };
       const r = rowsRef.current.findIndex((x) => x.id === rowId);

@@ -1,13 +1,14 @@
+import type { DomainContext } from '../assistant/domainContext';
 /**
  * AI 助手 API 客户端(对应 backend/AI_ASSISTANT.md 与 backend/assistant-openapi.json)。
  *
  * 前端只负责展示、交互和调用：不做预算计算、金额转换规则判断、版本状态判断或快照逻辑。
- * 金额字段一律是后端的整数分(利润方向带符号)，展示时用 utils/money 换算成万元。
+ * 经营预算金额是整数分,新领域遵循各自工具/契约的元字符串与显式单位。
  */
-import { ApiError, api, csrfHeaders, handleUnauthorized, request, type RequestOptions } from './client';
+import { ApiError, api, assertSessionGeneration, csrfHeaders, getSessionGeneration, handleUnauthorized, request, type RequestOptions } from './client';
 import type { AssistantPageContextV2 } from '../assistant/context';
 
-export interface AssistantContext {
+export interface AssistantContext extends DomainContext {
   year?: number;
   budgetVersionId?: number;
   targetVersionId?: number;
@@ -18,6 +19,9 @@ export interface AssistantContext {
   page?: string;
 }
 export interface AssistantCitation {
+  period?: string;
+  orgScopeId?: number;
+  references?: { kind: string; id: number; label: string; path: string; hash?: string }[];
   source: string;
   asOf: string;
   year?: number | null;
@@ -31,6 +35,9 @@ export interface AssistantFact {
   type: string;
   data: unknown;
   source: {
+    period?: string;
+    orgScopeId?: number;
+    references?: { kind: string; id: number; label: string; path: string; hash?: string }[];
     year?: number;
     budgetVersionId?: number | null;
     targetVersionId?: number | null;
@@ -502,12 +509,18 @@ export async function streamChat(
   handlers: StreamHandlers = {},
   signal?: AbortSignal,
 ): Promise<AssistantChatResponse> {
+  const generation = getSessionGeneration();
   const headers: Record<string, string> = { 'content-type': 'application/json', ...csrfHeaders('POST') };
   const res = await fetch('/api/assistant/chat/stream', { method: 'POST', headers, credentials: 'same-origin', body: JSON.stringify(body), signal });
+  try { assertSessionGeneration(generation); } catch (error) {
+    await res.body?.cancel().catch(() => undefined);
+    throw error;
+  }
   if (!res.ok) {
     const contentType = res.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       const data = await res.json();
+      assertSessionGeneration(generation);
       // 流式路径与非流式 request() 对齐:401 清会话并广播全局登出
       handleUnauthorized(data);
       throw new ApiError(data, res.status);
@@ -532,36 +545,45 @@ export async function streamChat(
   let buffer = '';
   let done: AssistantChatResponse | null = null;
   let failure: { code: string; message: string } | null = null;
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    buffer += decoder.decode(chunk.value, { stream: true });
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary >= 0) {
-      const block = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf('\n\n');
-      let event = 'message';
-      const dataLines: string[] = [];
-      for (const line of block.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim();
-        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-      }
-      if (!dataLines.length) continue;
-      let payload: any;
-      try { payload = JSON.parse(dataLines.join('\n')); } catch { continue; }
-      if (event === 'token' && typeof payload?.text === 'string') handlers.onToken?.(payload.text);
-      if (event === 'progress' && typeof payload?.label === 'string') handlers.onProgress?.(payload as AssistantProgress);
-      if (event === 'error') {
-        failure = { code: String(payload?.code || 'INTERNAL_ERROR'), message: String(payload?.message || '助手请求失败') };
-        handlers.onError?.(failure);
-      }
-      if (event === 'done') {
-        if (payload?.failed) continue;
-        done = payload as AssistantChatResponse;
-        handlers.onDone?.(done);
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      assertSessionGeneration(generation);
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        assertSessionGeneration(generation);
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf('\n\n');
+        let event = 'message';
+        const dataLines: string[] = [];
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+        }
+        if (!dataLines.length) continue;
+        let payload: any;
+        try { payload = JSON.parse(dataLines.join('\n')); } catch { continue; }
+        if (event === 'token' && typeof payload?.text === 'string') handlers.onToken?.(payload.text);
+        if (event === 'progress' && typeof payload?.label === 'string') handlers.onProgress?.(payload as AssistantProgress);
+        if (event === 'error') {
+          failure = { code: String(payload?.code || 'INTERNAL_ERROR'), message: String(payload?.message || '助手请求失败') };
+          handlers.onError?.(failure);
+        }
+        if (event === 'done') {
+          if (payload?.failed) continue;
+          done = payload as AssistantChatResponse;
+          handlers.onDone?.(done);
+        }
       }
     }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
   if (failure) throw new ApiError({ code: failure.code, message: failure.message }, 500);
   if (!done) throw new Error('AI 助手流式响应缺少 done 事件');

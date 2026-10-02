@@ -77,7 +77,7 @@ interface ActualSaveSuccessInfo {
 }
 
 /** 本会话最近使用的报表(UX-31 遗留):下次进入回到同一张表,与预算页的视图记忆同语义 */
-const ACTUAL_SHEET_KEY = 'bd-actual-sheet';
+const ACTUAL_SHEET_KEY = 'newfc-actual-sheet';
 
 export default function ActualMaintain() {
   const { mode } = useThemeMode();
@@ -115,7 +115,7 @@ export default function ActualMaintain() {
   const [findState, setFindState] = useState<{ open: boolean; mode: 'find' | 'replace' }>({ open: false, mode: 'find' });
   const [pasteSpecialOpen, setPasteSpecialOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ open: boolean; x: number; y: number; r: number; c: number }>({ open: false, x: 0, y: 0, r: 0, c: 0 });
-  const [density, setDensity] = useSessionState<'compact' | 'standard' | 'relaxed'>('bd-actual-density', 'compact');
+  const [density, setDensity] = useSessionState<'compact' | 'standard' | 'relaxed'>('newfc-actual-density', 'compact');
   const [fullscreen, setFullscreen] = useState(false);
   const exitFullscreen = useCallback(() => setFullscreen(false), []);
   useFullscreenLayer(fullscreen, exitFullscreen);
@@ -270,7 +270,7 @@ export default function ActualMaintain() {
     onOpenFind: (mode) => setFindState({ open: true, mode }),
     onOpenPasteSpecial: () => setPasteSpecialOpen(true),
     notify: (type, text) => message[type](text),
-    persistKey: `bd-actual-${editYear}-${viewMode}-${singleLeafScope ?? 'multi'}`,
+    persistKey: `newfc-actual-${editYear}-${viewMode}-${singleLeafScope ?? 'multi'}`,
   });
   const { values, notes, invalidCells } = grid;
 
@@ -391,7 +391,7 @@ export default function ActualMaintain() {
     setGuard(null);
   }, [guard, guardSaving]);
 
-  /* ---------- 小澧助手页面登记(§7.2 actual) ---------- */
+  /* ---------- 财务助手页面登记(§7.2 actual) ---------- */
   useAssistantPageContext({
     pageKey: 'actual',
     ready: Boolean(orgTree && accTree) && editYearData?.actualLoadStatus === 'ready' && sheetKey !== '',
@@ -1024,10 +1024,10 @@ export default function ActualMaintain() {
   const gridActiveUnit = gridActiveAcc ? (gridActiveAcc.type === 'quantity' ? (gridActiveAcc.unit ?? '数量') : '万元') : null;
 
   return (
-    /* 无壳:外层 .bd-content 已是唯一的岛。
+    /* 无壳:外层 .newfc-content 已是唯一的岛。
        标题保留 —— 它带的是冻结状态、截止日等运行期信息,不是页面名的重复。 */
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {/* 原「录入与快照」标题与侧栏同名,已删(侧栏现名「实际录入与快照」);Tooltip 保留在原地继续承担口径说明 */}
@@ -1038,7 +1038,7 @@ export default function ActualMaintain() {
                 : '【多年趋势对比视图】: 行=科目; 列=各年度「预算数(当前生效版本)/ 实际数(当前累计)」对比; 金额单位万元，普通科目行按界面口径显示正数。'
             }
           >
-            <i className="ri-information-line" style={{ color: 'var(--bd-text-tertiary)', fontSize: 14, cursor: 'pointer' }} aria-hidden />
+            <i className="ri-information-line" style={{ color: 'var(--newfc-text-tertiary)', fontSize: 14, cursor: 'pointer' }} aria-hidden />
           </Tooltip>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span
@@ -1069,7 +1069,7 @@ export default function ActualMaintain() {
                 ● 未保存
               </span>
             )}
-            <span style={{ fontSize: 12, color: 'var(--bd-text-tertiary)' }}>
+            <span style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)' }}>
               当前累计截至: <b>{serverCutoff ?? '无快照'}</b>
             </span>
           </div>
@@ -1194,7 +1194,7 @@ export default function ActualMaintain() {
           }
         />
       )}
-      <div className={fullscreen ? 'bd-grid-fullscreen' : undefined}>
+      <div className={fullscreen ? 'newfc-grid-fullscreen' : undefined}>
       {/* UX-04:全屏与大表滚动时仍需确认录入对象;区分「实际截至(服务器现有累计)」与
           「待提交截止(本次保存将写入)」。切换年度加载期间显示骨架,不混显旧年度数值。 */}
       <WorkspaceScopeBar

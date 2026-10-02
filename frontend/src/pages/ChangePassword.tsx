@@ -33,8 +33,8 @@ export default function ChangePassword({ forced, username, onDone, onCancel }: {
   };
 
   return (
-    <div className="bd-login">
-      <div className="bd-login-card">
+    <div className="newfc-login">
+      <div className="newfc-login-card">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginBottom: 20 }}>
           <BrandLogo size={44} />
           <Typography.Title level={4} style={{ marginBottom: 0 }}>修改口令</Typography.Title>

@@ -3,6 +3,7 @@
  * GridStatusBar 状态栏 / GridFormulaBar 公式栏 / GridFindReplace 查找替换 /
  * PasteSpecialModal 选择性粘贴 / GridContextMenu 右键菜单 / 列宽拖拽与密度辅助
  */
+import { readBrowserStorage } from '../utils/browserStorage';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { CSSProperties, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import { App, Button, Checkbox, Input, Modal, Space, Typography, Dropdown, Tooltip } from 'antd';
@@ -14,7 +15,7 @@ import { useThemeMode, NUMERIC_FONT_FAMILY, statusColor, financeColor } from '..
 /* ============ 会话级持久化小工具(筛选/密度/列宽/位置记忆) ============ */
 export function loadSession<T>(key: string, fallback: T): T {
   try {
-    const raw = sessionStorage.getItem(key);
+    const raw = readBrowserStorage(sessionStorage, key);
     return raw == null ? fallback : (JSON.parse(raw) as T);
   } catch {
     return fallback;
@@ -56,31 +57,31 @@ export function GridStatusBar({ dirtyCount, hiddenDirtyCount, onShowAllDirty, ca
         alignItems: 'center',
         padding: '6px 12px',
         marginTop: 8,
-        background: 'var(--bd-header)',
-        border: '1px solid var(--bd-border-subtle)',
+        background: 'var(--newfc-header)',
+        border: '1px solid var(--newfc-border-subtle)',
         borderRadius: 6,
         fontSize: 12,
-        color: 'var(--bd-text-secondary)',
+        color: 'var(--newfc-text-secondary)',
       }}
     >
       {/* UX-23-3:活动格完整组织 · 科目 · 单位(长名称悬浮可读全文) */}
       {activeCell && (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--bd-text)', maxWidth: '46%' }} title={`${activeCell.label}${activeCell.unit ? ` · 单位：${activeCell.unit}` : ''}`}>
-          <i className="ri-focus-2-line" style={{ color: 'var(--bd-primary)' }} aria-hidden />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--newfc-text)', maxWidth: '46%' }} title={`${activeCell.label}${activeCell.unit ? ` · 单位：${activeCell.unit}` : ''}`}>
+          <i className="ri-focus-2-line" style={{ color: 'var(--newfc-primary)' }} aria-hidden />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            当前格 <b>{activeCell.label}</b>{activeCell.unit ? <span style={{ color: 'var(--bd-text-tertiary)' }}> · 单位 {activeCell.unit}</span> : null}
+            当前格 <b>{activeCell.label}</b>{activeCell.unit ? <span style={{ color: 'var(--newfc-text-tertiary)' }}> · 单位 {activeCell.unit}</span> : null}
           </span>
         </span>
       )}
       {/* 三档层次: 未保存(警告档状态圆图标) / 保存中(轻量指示) / 无修改(次级灰) */}
       {saving ? (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--bd-text-secondary)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--newfc-text-secondary)' }}>
           <i className="ri-loader-4-line" aria-hidden />
           保存中…
         </span>
       ) : dirtyCount > 0 ? (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: sc.warn, fontWeight: 500 }}>
-          <span className="bd-status-icon bd-status-icon-warn"><i className="ri-error-warning-line" aria-hidden /></span>
+          <span className="newfc-status-icon newfc-status-icon-warn"><i className="ri-error-warning-line" aria-hidden /></span>
           待保存修改共 {dirtyCount} 项
           {hiddenDirtyCount != null && hiddenDirtyCount > 0 && (
             <>
@@ -94,15 +95,15 @@ export function GridStatusBar({ dirtyCount, hiddenDirtyCount, onShowAllDirty, ca
           )}
         </span>
       ) : (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--bd-text-tertiary)' }}>
-          <span className="bd-status-icon bd-status-icon-ok"><i className="ri-check-line" aria-hidden /></span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--newfc-text-tertiary)' }}>
+          <span className="newfc-status-icon newfc-status-icon-ok"><i className="ri-check-line" aria-hidden /></span>
           无未保存修改
         </span>
       )}
       {stats && stats.count > 1 && (
         <>
-          <span style={{ color: 'var(--bd-border)' }}>|</span>
-          <span style={{ color: 'var(--bd-text-tertiary)' }}>选区 <b>{stats.count}</b> 格:</span>
+          <span style={{ color: 'var(--newfc-border)' }}>|</span>
+          <span style={{ color: 'var(--newfc-text-tertiary)' }}>选区 <b>{stats.count}</b> 格:</span>
           {stats.moneyCount > 0 && <span>求和 <b>{fmtNum(stats.sum)}</b> 万元</span>}
           {stats.moneyCount > 0 && <span>利润方向合计 <b>{fmtNum(stats.directional)}</b> 万元</span>}
           {stats.moneyCount > 0 && stats.avg != null && <span>均值 <b>{fmtNum(stats.avg)}</b> 万元</span>}
@@ -115,7 +116,7 @@ export function GridStatusBar({ dirtyCount, hiddenDirtyCount, onShowAllDirty, ca
           {stats.invalidCount > 0 && <Typography.Text type="danger">{stats.invalidCount} 格未计入(非法)</Typography.Text>}
         </>
       )}
-      <span style={{ marginLeft: 'auto', color: 'var(--bd-text-tertiary)', fontSize: 12 }}>
+      <span style={{ marginLeft: 'auto', color: 'var(--newfc-text-tertiary)', fontSize: 12 }}>
         {canUndo ? `可撤销 ${undoDepth} 步 (Ctrl+Z)` : '撤销栈空'}
       </span>
       {extra}
@@ -138,20 +139,20 @@ export function GridFormulaBar({ cellLabel, value, formula, note, onOpenNote, un
         alignItems: 'center',
         padding: '4px 10px',
         marginBottom: 8,
-        border: '1px solid var(--bd-border)',
+        border: '1px solid var(--newfc-border)',
         borderRadius: 6,
         fontSize: 12,
-        background: 'var(--bd-header)',
+        background: 'var(--newfc-header)',
       }}
     >
-      <span title={cellLabel ?? undefined} style={{ fontFamily: NUMERIC_FONT_FAMILY, fontWeight: 600, color: 'var(--bd-primary)', minWidth: 160, maxWidth: '45%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span title={cellLabel ?? undefined} style={{ fontFamily: NUMERIC_FONT_FAMILY, fontWeight: 600, color: 'var(--newfc-primary)', minWidth: 160, maxWidth: '45%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {cellLabel ?? '—'}
       </span>
       {unit && (
-        <span style={{ whiteSpace: 'nowrap', color: 'var(--bd-text-tertiary)' }}>单位 {unit}</span>
+        <span style={{ whiteSpace: 'nowrap', color: 'var(--newfc-text-tertiary)' }}>单位 {unit}</span>
       )}
-      <span style={{ fontFamily: NUMERIC_FONT_FAMILY, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--bd-text-secondary)' }}>
-        {formula ? <span style={{ color: 'var(--bd-primary)', fontWeight: 500 }}>📐 {formula} = {value || '(空)'}</span> : <span>{value || ''}</span>}
+      <span style={{ fontFamily: NUMERIC_FONT_FAMILY, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--newfc-text-secondary)' }}>
+        {formula ? <span style={{ color: 'var(--newfc-primary)', fontWeight: 500 }}>📐 {formula} = {value || '(空)'}</span> : <span>{value || ''}</span>}
       </span>
       {note && (
         <Tooltip title={note} placement="topLeft">
@@ -234,16 +235,16 @@ export function GridFindReplace({ open, mode, onClose, hasFormulaNotes, onSearch
         alignItems: 'center',
         padding: '8px 12px',
         marginBottom: 8,
-        border: '1px solid var(--bd-border)',
+        border: '1px solid var(--newfc-border)',
         borderRadius: 8,
-        background: 'var(--bd-bg-container)',
+        background: 'var(--newfc-bg-container)',
         boxShadow: '0 4px 16px -2px rgba(0, 0, 0, 0.08)',
       }}
     >
       <Input
         ref={inputRef}
         size="small" allowClear style={{ width: 210 }} placeholder="查找: 编码/名称/数值…"
-        prefix={<i className="ri-search-line" style={{ color: 'var(--bd-text-tertiary)' }} aria-hidden />}
+        prefix={<i className="ri-search-line" style={{ color: 'var(--newfc-text-tertiary)' }} aria-hidden />}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onPressEnter={doSearch}
@@ -252,7 +253,7 @@ export function GridFindReplace({ open, mode, onClose, hasFormulaNotes, onSearch
       {mode === 'replace' && (
         <Input
           size="small" allowClear style={{ width: 190 }} placeholder="替换为…"
-          prefix={<i className="ri-arrow-left-right-line" style={{ color: 'var(--bd-text-tertiary)' }} aria-hidden />}
+          prefix={<i className="ri-arrow-left-right-line" style={{ color: 'var(--newfc-text-tertiary)' }} aria-hidden />}
           value={replacement}
           onChange={(e) => setReplacement(e.target.value)}
         />
@@ -417,8 +418,8 @@ export function GridShortcutHelp({ variant }: { variant: 'budget' | 'actual' }) 
             <div style={{ fontWeight: 600, marginBottom: 4 }}>{g.title}</div>
             {g.items.map(([keys, desc]) => (
               <div key={keys} style={{ display: 'flex', gap: 12, padding: '2px 0', fontSize: 12 }}>
-                <span style={{ minWidth: 190, fontFamily: NUMERIC_FONT_FAMILY, color: 'var(--bd-primary)', fontWeight: 600 }}>{keys}</span>
-                <span style={{ color: 'var(--bd-text-secondary)' }}>{desc}</span>
+                <span style={{ minWidth: 190, fontFamily: NUMERIC_FONT_FAMILY, color: 'var(--newfc-primary)', fontWeight: 600 }}>{keys}</span>
+                <span style={{ color: 'var(--newfc-text-secondary)' }}>{desc}</span>
               </div>
             ))}
           </div>
@@ -472,7 +473,7 @@ export function ColResizeGrip({ onStart }: { onStart: (e: ReactMouseEvent) => vo
       title="拖拽调整列宽"
       style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: 7, cursor: 'col-resize', zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
-      <i className="ri-draggable" style={{ fontSize: 12, color: 'var(--bd-text-tertiary)' }} aria-hidden />
+      <i className="ri-draggable" style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)' }} aria-hidden />
     </span>
   );
 }

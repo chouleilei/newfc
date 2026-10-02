@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Col, DatePicker, Drawer, Form, Input, InputNumber, Modal, Row, Select, Space, Switch, Table, Tag, Typography, Upload } from 'antd';
@@ -86,6 +87,7 @@ export default function ExpensePolicies() {
   const [editing, setEditing] = useState<{ base?: PolicyDto } | null>(null);
   const [viewing, setViewing] = useState<PolicyDto | null>(null);
   const maintain = can('expense:review') && (getSession()?.user.allOrgs ?? false);
+  useAssistantDomainPage({ pageKey: 'expense_policies', ready: true, view: { includeRetired } });
   const list = useQuery({ queryKey: ['expense-policies', includeRetired], queryFn: () => expenseApi.policies(includeRetired) });
   const run = useMutation({
     mutationFn: (fn: () => Promise<PolicyDto>) => fn(),

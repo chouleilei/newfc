@@ -1,3 +1,4 @@
+import { DOMAIN_ID_FIELDS } from '../assistant/domainContext';
 /**
  * 公共工作范围与路由适配(方案《易用性与直觉化交互实施方案》§5.1,任务 UX-01)。
  *
@@ -79,7 +80,7 @@ export interface ScopeCatalog {
   sheetKeys?: readonly string[];
 }
 
-type ParamKind = 'id' | 'year' | 'date' | 'sheet' | 'view' | 'mode' | 'percent' | 'text';
+type ParamKind = 'period' | 'id' | 'year' | 'date' | 'sheet' | 'view' | 'mode' | 'percent' | 'text';
 
 interface ParamDef {
   field: keyof WorkspaceScope;
@@ -88,6 +89,9 @@ interface ParamDef {
 }
 
 const PARAM_DEFS: Record<string, ParamDef> = {
+  ...Object.fromEntries(DOMAIN_ID_FIELDS.map((field) => [field, { field, kind: 'id', label: '业务对象' } as ParamDef])),
+  period: { field: 'period', kind: 'period', label: '期间' }, periodFrom: { field: 'periodFrom', kind: 'period', label: '起始期间' }, periodTo: { field: 'periodTo', kind: 'period', label: '截至期间' },
+  statementScope: { field: 'statementScope', kind: 'text', label: '财报口径' },
   year: { field: 'year', kind: 'year', label: '年度' },
   version: { field: 'budgetVersionId', kind: 'id', label: '预算版本' },
   forecast: { field: 'targetVersionId', kind: 'id', label: '预测版本' },
@@ -118,6 +122,7 @@ const PARAM_DEFS: Record<string, ParamDef> = {
  * 参数键名与各页面当前读取的键名保持一致(§5.1:沿用现有参数,不全面改名)。
  */
 export const ROUTE_SCOPE_WHITELIST = {
+  eas: ['orgId', 'period', 'batchId'], statements: ['orgId', 'period', 'statementScope', 'tab', 'batchId'], governance: ['orgId', 'period', 'governanceIssueId'], mgmt: ['tab'], standard_reports: ['id'], project_budget: ['year', 'period', 'orgId', 'batchId'], plan: ['year', 'period', 'orgId', 'batchId'], contracts: ['id', 'orgId', 'projectId'], contract_import: [], expense: ['id', 'orgId'], expense_policies: [], feasibility: ['id', 'scenarioId', 'reportId', 'tab'], investment_control: ['id', 'comparisonId'], forecast: ['id', 'versionId', 'tab'], risk: ['id', 'orgId'], analysis_reports: ['id'], master_entities: ['tab'], project_profile: [], search: [], jobs: [], business_settings: [], security: [],
   dashboard: ['year'],
   assistant: [],
   insights: [],
@@ -186,9 +191,10 @@ function isValidDateText(raw: string): boolean {
   return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
-function parseParamValue(key: string, raw: string): { field: keyof WorkspaceScope; value: string | number } | ScopeIssue {
-  const def = PARAM_DEFS[key];
+function parseParamValue(key: string, raw: string, override?: ParamDef): { field: keyof WorkspaceScope; value: string | number } | ScopeIssue {
+  const def = override ?? PARAM_DEFS[key];
   switch (def.kind) {
+    case 'period': { if (!/^(?:19|20)\d{2}(?:-(?:0[1-9]|1[0-2]))?$/.test(raw)) return issue(key, def.field, raw, 'invalid_format', `${def.label}不是有效的 YYYY 或 YYYY-MM`); return { field: def.field, value: raw }; }
     case 'id': {
       const parsed = parseId(def, key, raw);
       if (typeof parsed !== 'number') return parsed;
@@ -249,6 +255,17 @@ export function scopeFieldOfParam(key: string): keyof WorkspaceScope | undefined
   return PARAM_DEFS[key]?.field;
 }
 
+
+const DOMAIN_ROUTE_FIELDS: Partial<Record<PageKey, Record<string, keyof WorkspaceScope>>> = {
+  eas: { batchId: 'easBatchId' }, statements: { batchId: 'statementBatchId' }, project_budget: { batchId: 'projectBudgetBatchId' }, plan: { batchId: 'planBatchId' },
+  contracts: { id: 'contractId' }, expense: { id: 'claimId' }, feasibility: { id: 'feasProjectId', reportId: 'feasReportId' }, investment_control: { id: 'icProjectId' },
+  forecast: { id: 'modelId', versionId: 'forecastVersionId' }, risk: { id: 'riskId' }, analysis_reports: { id: 'reportId' }, standard_reports: { id: 'standardReportId' },
+};
+function paramDef(pageKey: PageKey, key: string): ParamDef | undefined {
+  const field = DOMAIN_ROUTE_FIELDS[pageKey]?.[key];
+  return field ? { field, kind: 'id', label: '业务对象' } : PARAM_DEFS[key];
+}
+
 /** 解析 URL 查询串为工作范围:只处理路由白名单内的参数,非法值记入 issues 不进入 scope。 */
 export function parseWorkspaceScope(pageKey: PageKey, search: string | URLSearchParams): ScopeParseResult {
   const params = typeof search === 'string' ? new URLSearchParams(search) : search;
@@ -259,11 +276,11 @@ export function parseWorkspaceScope(pageKey: PageKey, search: string | URLSearch
   const adapted: ScopeParseResult['adapted'] = [];
 
   const readParam = (key: string, rawOverride?: string) => {
-    const def = PARAM_DEFS[key];
+    const def = paramDef(pageKey, key);
     if (!def) return;
     const raw = rawOverride ?? params.get(key);
     if (raw == null || raw === '') return;
-    const parsed = parseParamValue(key, raw);
+    const parsed = parseParamValue(key, raw, def);
     if ('reason' in parsed) {
       issues.push(parsed);
     } else {
@@ -288,7 +305,7 @@ export function buildScopeSearch(pageKey: PageKey, scope: WorkspaceScope): strin
   const params = new URLSearchParams();
   const source = scope as Record<string, unknown>;
   for (const key of ROUTE_SCOPE_WHITELIST[pageKey] ?? []) {
-    const def = PARAM_DEFS[key];
+    const def = paramDef(pageKey, key);
     if (!def) continue;
     const value = source[def.field];
     if (value === undefined || value === null || value === '') continue;

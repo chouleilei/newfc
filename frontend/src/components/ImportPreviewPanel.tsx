@@ -162,7 +162,7 @@ export function ImportSummaryView({ detail }: { detail: ImportBatchDetail }) {
           <Statistic title="备注变更" value={preview.actions.noteChange} />
           {preview.actions.skipped > 0 && <Statistic title="跳过" value={preview.actions.skipped} />}
           {preview.actions.excluded > 0 && <Statistic title="排除" value={preview.actions.excluded} />}
-          {preview.warnings > 0 && <Statistic title="警告行" value={preview.warnings} valueStyle={{ color: 'var(--bd-warning, #b25e09)' }} />}
+          {preview.warnings > 0 && <Statistic title="警告行" value={preview.warnings} valueStyle={{ color: 'var(--newfc-warning, #b25e09)' }} />}
         </Space>
       )}
       {detail.detailCapability === 'legacy-summary' && (

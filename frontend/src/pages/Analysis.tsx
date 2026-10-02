@@ -442,7 +442,7 @@ export default function Analysis() {
   );
 
   /**
-   * 小澧助手页面登记(§7.3)：sheet、level、threshold、trend 都会改变查询或核验，属于有效上下文；
+   * 财务助手页面登记(§7.3)：sheet、level、threshold、trend 都会改变查询或核验，属于有效上下文；
    * accountSearch 默认只属于 view——用户说「当前筛出的科目」时由后端用同一筛选重建 selection。
    * 异步默认值(年度/版本)写入 URL 之前不宣称已对齐。
    */
@@ -1148,9 +1148,9 @@ export default function Analysis() {
 
   return <>
     {/* 无壳 + 无标题:本页挂载在 /analysis 路由下,顶栏已显示「年度执行分析」 */}
-    <Card className="bd-root-card" extra={screens.sm ? actionButtons : undefined}>
+    <Card className="newfc-root-card" extra={screens.sm ? actionButtons : undefined}>
       {/* 眉题:每页仅首个内容区块带,避免满屏编号 */}
-      <div className="bd-eyebrow">执行分析</div>
+      <div className="newfc-eyebrow">执行分析</div>
       {!screens.sm && <div style={{ marginBottom: 12 }}>{actionButtons}</div>}
       <Space wrap size={[10, 10]} style={{ marginBottom: 8 }}>
         <Select aria-label="年份" placeholder="选择年份" style={{ width: 120 }} value={year} onChange={(value) => setFilter('year', value, ['version', 'forecast', 'batch'])} options={years.map((value) => ({ value, label: `${value} 年` }))} loading={versionsQuery.isLoading} />
@@ -1184,7 +1184,7 @@ export default function Analysis() {
                 </Typography.Text>
               )}
               {savedViews.map((view) => (
-                <div key={view.id} style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '2px 0', borderBottom: '1px solid var(--bd-border)' }}>
+                <div key={view.id} style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '2px 0', borderBottom: '1px solid var(--newfc-border)' }}>
                   <Button
                     type="link"
                     size="small"
@@ -1267,7 +1267,7 @@ export default function Analysis() {
         statusLabel={current ? `${current.status === 'draft' ? '草稿' : current.status === 'locked' ? '已定稿' : '已归档'}${current.is_current ? ' · 当前采用' : ''}` : null}
         status={versionsQuery.isLoading ? 'loading' : 'ready'}
         asOfDate={report?.asOfDate ?? null}
-        extra={report ? <span className="bd-scope-bar-label">{report.scopeBasis.sheetName}</span> : undefined}
+        extra={report ? <span className="newfc-scope-bar-label">{report.scopeBasis.sheetName}</span> : undefined}
         style={{ marginBottom: 12 }}
       />
 
@@ -1292,11 +1292,11 @@ export default function Analysis() {
         {/* 口径说明收敛为一行 + Tooltip:原文 73 字常驻首屏,把利润桥挤到折叠线以下。
             金额单位已在顶栏芯片常驻,不必在这里再说一遍。 */}
         <Space size={6} style={{ marginBottom: 12, alignItems: 'flex-start' }}>
-          <span className="bd-quote">
+          <span className="newfc-quote">
             差异为实际－预算(利润方向),进度偏差＝完成率－时间进度
           </span>
           <Tooltip title="金额统一以万元展示；预算差异为实际－预算的利润方向口径；完成率为业务金额口径；进度偏差＝完成率－均匀自然日进度。成本费用进度偏差为正表示发生偏快。">
-            <i className="ri-information-line" style={{ color: 'var(--bd-text-tertiary)', fontSize: 13, cursor: 'pointer', marginTop: 5 }} aria-hidden />
+            <i className="ri-information-line" style={{ color: 'var(--newfc-text-tertiary)', fontSize: 13, cursor: 'pointer', marginTop: 5 }} aria-hidden />
           </Tooltip>
         </Space>
         {noActual && <Alert
@@ -1383,13 +1383,13 @@ export default function Analysis() {
           <Table size="small" rowKey="accountId" pagination={{ pageSize: 30, showSizeChanger: true, pageSizeOptions: [20, 30, 50, 100], showTotal: (total) => `共 ${total} 个顶层节点` }} expandable={accountSearch.trim() ? { expandedRowKeys: controlledExpandedKeys, onExpandedRowsChange: setControlledExpandedKeys } : { defaultExpandAllRows: false }} dataSource={accountRows} columns={accountColumns} scroll={{ x: 1450 }} locale={{ emptyText: '当前预算表格和科目范围内没有数据' }}
             /* UX-03 跨页定位:预警/证据下钻的科目行给锚点 id 与高亮,供定位效应滚动 */
             onRow={(row) => ({ id: row.accountId === accountScopeId ? 'analysis-locate-account' : undefined })}
-            rowClassName={(row) => (row.accountId === accountScopeId ? 'bd-row-locate' : '')} />
+            rowClassName={(row) => (row.accountId === accountScopeId ? 'newfc-row-locate' : '')} />
         </Card>
         <Card size="small" title="按预算组织（所选预算表格净额）" style={{ marginBottom: 12 }}>
           {/* 速览带:一级组织完成率前 6 的排行行;完整树表保留在下方 */}
           {orgRateRank.length > 0 && (
             <div style={{ marginBottom: 10 }}>
-              <div className="bd-metric-label" style={{ marginBottom: 4 }}>一级组织完成率 · 前 6 速览</div>
+              <div className="newfc-metric-label" style={{ marginBottom: 4 }}>一级组织完成率 · 前 6 速览</div>
               {/* min(250px, 100%):窄容器(嵌套卡 ~235px)装不下 250px 硬最小轨道会撑出页面级横向滚动 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(250px, 100%), 1fr))', gap: '0 24px' }}>
                 {orgRateRank.map((row) => (
@@ -1401,7 +1401,7 @@ export default function Analysis() {
           <Table size="small" rowKey={(row) => 'orgId' in row ? row.orgId : row.code} pagination={false} expandable={{ defaultExpandAllRows: true, indentSize: 15 }} dataSource={orgRows}
             /* UX-03 跨页定位:预警/证据下钻的组织行给锚点 id 与高亮 */
             onRow={(row) => ({ id: 'orgId' in row && row.orgId === orgScopeId ? 'analysis-locate-org' : undefined })}
-            rowClassName={(row) => ('orgId' in row && row.orgId === orgScopeId ? 'bd-row-locate' : '')}
+            rowClassName={(row) => ('orgId' in row && row.orgId === orgScopeId ? 'newfc-row-locate' : '')}
             /* 树形表格不在首列强插窄 # 排名列:展开图标与层级缩进由首列承载,
                44px 定宽会挤压变形,且 rc-table 给子节点传的是兄弟组内局部索引,序号无全局意义 */
             columns={netColumns(forecastOrgs)}

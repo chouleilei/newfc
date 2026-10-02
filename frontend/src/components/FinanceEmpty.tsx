@@ -2,7 +2,7 @@
  * 空状态插画:线条 + 单色的极简风,替换 antd 默认 Empty 灰图。
  *
  * 三张高频场景:无数据(表格/柱状)、无会话(对话气泡)、无搜索结果(放大镜)。
- * 线条色走 --bd-text-tertiary,点缀色走 --bd-primary,亮暗主题自动适配;
+ * 线条色走 --newfc-text-tertiary,点缀色走 --newfc-primary,亮暗主题自动适配;
  * 不引入新色相,与全站「克制基底」的约束一致。
  *
  * 三种空状态要区分表达(UX-27):
@@ -16,8 +16,8 @@ import type { ReactNode } from 'react';
 export type EmptyKind = 'data' | 'chat' | 'search';
 
 function Illustration({ kind }: { kind: EmptyKind }) {
-  const stroke = 'var(--bd-text-tertiary)';
-  const accent = 'var(--bd-primary)';
+  const stroke = 'var(--newfc-text-tertiary)';
+  const accent = 'var(--newfc-primary)';
   const common = {
     width: 120,
     height: 90,
@@ -58,7 +58,7 @@ function Illustration({ kind }: { kind: EmptyKind }) {
 }
 
 /** 统一包装:插画 + 文案 + CTA 引导,样式与 antd Empty 兼容(可直接放进 List / Table locale.emptyText) */
-export function BdEmpty({ kind = 'data', description, onClearFilters, children, style }: {
+export function FinanceEmpty({ kind = 'data', description, onClearFilters, children, style }: {
   kind?: EmptyKind;
   description?: ReactNode;
   /** 筛选无结果:提供一键清空筛选;清空只恢复显示范围,不删除任何数据 */
@@ -76,7 +76,7 @@ export function BdEmpty({ kind = 'data', description, onClearFilters, children, 
       {onClearFilters && (
         <div style={{ marginBottom: 8 }}>
           <Button size="small" onClick={onClearFilters}>清空筛选</Button>
-          <div style={{ fontSize: 12, color: 'var(--bd-text-tertiary)', marginTop: 4 }}>清空筛选只是重新显示全部内容，不会删除任何数据</div>
+          <div style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)', marginTop: 4 }}>清空筛选只是重新显示全部内容，不会删除任何数据</div>
         </div>
       )}
       {children}

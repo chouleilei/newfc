@@ -104,7 +104,7 @@ test('各页面移动端均无页面级横向溢出', async ({ browser }) => {
     { path: '/data', marker: '备份恢复' },
     { path: '/data?tab=logs', marker: '导出日志' },
     { path: '/finance', marker: '月度转换' },
-    { path: '/assistant', marker: '小澧助手' },
+    { path: '/assistant', marker: '财务助手' },
   ];
   const overflowing: string[] = [];
   for (const route of routes) {

@@ -87,7 +87,7 @@ export default function BudgetProgress() {
     }
   }, [versions, urlScope]);
 
-  /* 小澧助手页面登记(§7.2 budget_progress)：年度/预算版本/填报状态。 */
+  /* 财务助手页面登记(§7.2 budget_progress)：年度/预算版本/填报状态。 */
   useAssistantPageContext({
     pageKey: 'budget_progress',
     ready: effectiveVersionId != null,
@@ -144,7 +144,7 @@ export default function BudgetProgress() {
   ], [effectiveVersionId, navigate]);
 
   return (
-    <Card className="bd-root-card">
+    <Card className="newfc-root-card">
       {scopeIssues.length > 0 && (
         <Alert
           type="warning"

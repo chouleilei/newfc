@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -77,6 +78,8 @@ function ProjectsTab({ initialKeyword = '' }: { initialKeyword?: string }) {
   });
   if (list.error) return <QueryErrorResult title="项目加载失败" error={list.error} refetch={list.refetch} />;
   const open = (p: Project | 'new') => {
+    if (!custom.isSuccess) return;
+    form.resetFields();
     setEditing(p);
     form.setFieldsValue(p === 'new'
       ? { code: '', name: '', projectType: '', orgId: undefined, extra: extraInitial(fields, undefined) }
@@ -86,9 +89,10 @@ function ProjectsTab({ initialKeyword = '' }: { initialKeyword?: string }) {
     <>
       <Space style={{ marginBottom: 12 }}>
         <Input.Search allowClear placeholder="编码或名称" defaultValue={keyword} onSearch={setKeyword} style={{ width: 220 }} />
-        {writable && <Button type="primary" onClick={() => open('new')}>新建项目</Button>}
+        {writable && <Button type="primary" disabled={!custom.isSuccess} onClick={() => open('new')}>新建项目</Button>}
         <Typography.Text type="secondary">只显示已授权组织下的项目;编码建立后不可修改,历史数据按项目 ID 关联。</Typography.Text>
       </Space>
+      {custom.error && <QueryErrorResult title="扩展字段加载失败,请重试后编辑项目" error={custom.error} refetch={custom.refetch} />}
       <Table<Project>
         rowKey="id" loading={list.isLoading} dataSource={list.data ?? []} pagination={{ pageSize: 20, showSizeChanger: false }}
         columns={[
@@ -102,7 +106,7 @@ function ProjectsTab({ initialKeyword = '' }: { initialKeyword?: string }) {
             title: '操作', width: 140,
             render: (_: unknown, p: Project) => (
               <Space>
-                <a onClick={() => open(p)}>编辑</a>
+                <Button type="link" size="small" disabled={!custom.isSuccess} onClick={() => open(p)}>编辑</Button>
                 <Popconfirm title={p.status === 'active' ? '停用后不再参与新数据匹配,历史数据不受影响。确认停用?' : '确认启用?'} onConfirm={() => toggle.mutate(p)}>
                   <a>{p.status === 'active' ? '停用' : '启用'}</a>
                 </Popconfirm>
@@ -112,7 +116,8 @@ function ProjectsTab({ initialKeyword = '' }: { initialKeyword?: string }) {
         ]}
       />
       <Modal open={editing !== null} title={editing === 'new' ? '新建项目' : '编辑项目'} onCancel={() => setEditing(null)}
-        onOk={() => form.validateFields().then((v) => save.mutate(v))} confirmLoading={save.isPending} destroyOnClose>
+        onOk={() => custom.isSuccess && form.validateFields().then((v) => save.mutate(v))}
+        okButtonProps={{ disabled: !custom.isSuccess }} confirmLoading={save.isPending} destroyOnClose>
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="项目编码" rules={[{ required: true, pattern: /^[A-Za-z0-9][A-Za-z0-9_.\-/]*$/, message: '字母或数字开头,可含 _ . - /' }]}>
             <Input disabled={editing !== 'new'} maxLength={64} />
@@ -159,6 +164,8 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
   });
   if (list.error) return <QueryErrorResult title="供应商加载失败" error={list.error} refetch={list.refetch} />;
   const open = (s: Supplier | 'new') => {
+    if (!custom.isSuccess) return;
+    form.resetFields();
     setEditing(s);
     form.setFieldsValue(s === 'new'
       ? { code: '', name: '', supplierType: '', creditCode: '', extra: extraInitial(fields, undefined) }
@@ -168,9 +175,10 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
     <>
       <Space style={{ marginBottom: 12 }}>
         <Input.Search allowClear placeholder="编码或名称" defaultValue={keyword} onSearch={setKeyword} style={{ width: 220 }} />
-        {writable && <Button type="primary" onClick={() => open('new')}>新建供应商</Button>}
+        {writable && <Button type="primary" disabled={!custom.isSuccess} onClick={() => open('new')}>新建供应商</Button>}
         <Typography.Text type="secondary">名称按全半角、空白与括号归一后查重。</Typography.Text>
       </Space>
+      {custom.error && <QueryErrorResult title="扩展字段加载失败,请重试后编辑供应商" error={custom.error} refetch={custom.refetch} />}
       <Table<Supplier>
         rowKey="id" loading={list.isLoading} dataSource={list.data ?? []} pagination={{ pageSize: 20, showSizeChanger: false }}
         columns={[
@@ -183,7 +191,7 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
             title: '操作', width: 120,
             render: (_: unknown, s: Supplier) => (
               <Space>
-                <a onClick={() => open(s)}>编辑</a>
+                <Button type="link" size="small" disabled={!custom.isSuccess} onClick={() => open(s)}>编辑</Button>
                 <Popconfirm title={s.status === 'active' ? '确认停用?' : '确认启用?'} onConfirm={() => toggle.mutate(s)}>
                   <a>{s.status === 'active' ? '停用' : '启用'}</a>
                 </Popconfirm>
@@ -193,7 +201,8 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
         ]}
       />
       <Modal open={editing !== null} title={editing === 'new' ? '新建供应商' : '编辑供应商'} onCancel={() => setEditing(null)}
-        onOk={() => form.validateFields().then((v) => save.mutate(v))} confirmLoading={save.isPending} destroyOnClose>
+        onOk={() => custom.isSuccess && form.validateFields().then((v) => save.mutate(v))}
+        okButtonProps={{ disabled: !custom.isSuccess }} confirmLoading={save.isPending} destroyOnClose>
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="供应商编码(可选,建立后不可修改)"><Input disabled={editing !== 'new' && !!(editing as Supplier | null)?.code} maxLength={64} /></Form.Item>
           <Form.Item name="name" label="供应商名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={200} /></Form.Item>
@@ -345,6 +354,7 @@ export default function MasterEntities() {
   const [params, setParams] = useSearchParams();
   const tab = TAB_KEYS.includes(params.get('tab') ?? '') ? params.get('tab')! : 'projects';
   const keyword = params.get('keyword') ?? '';
+  useAssistantDomainPage({ pageKey: 'master_entities', ready: true, view: { tab, keyword } });
   const onTab = (k: string) => setParams((p) => { const n = new URLSearchParams(p); n.set('tab', k); n.delete('keyword'); return n; }, { replace: true });
   return (
     <Card>

@@ -37,6 +37,7 @@ function form(file: File, fields: Record<string, string | number | undefined>): 
 }
 
 export const easApi = {
+  batch: (id: number) => api.get<EasBatchDto>(`/eas/batches/${id}`),
   periodStatus: (orgId: number, period: string) => api.get<EasPeriodStatusDto>(`/eas/period-status${qs({ orgId, period })}`),
   batches: (q: { orgId?: number; period?: string; dataType?: EasDataType; status?: string }) => api.get<EasBatchDto[]>(`/eas/batches${qs(q)}`),
   batchLines: (id: number, page = 1, pageSize = 100) => api.get<EasBatchLinesDto>(`/eas/batches/${id}/lines${qs({ page, pageSize })}`),
@@ -72,6 +73,7 @@ export const govApi = {
 };
 
 export const statementApi = {
+  batch: (id: number) => api.get<StatementBatchDto>(`/statements/batches/${id}`),
   overview: (q: { orgId?: number; period?: string; scope?: StatementScope }) => api.get<StatementOverviewDto>(`/statements/overview${qs(q)}`),
   trends: (q: { orgId?: number; scope?: StatementScope; from?: string; to?: string }) => api.get<StatementTrendDto>(`/statements/trends${qs(q)}`),
   batches: (q: { orgId?: number; period?: string; scope?: StatementScope; status?: string }) => api.get<StatementBatchDto[]>(`/statements/batches${qs(q)}`),

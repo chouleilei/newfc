@@ -36,8 +36,8 @@ export function SummaryCapsules({ summary }: { summary: SummaryResponse | null }
       }}
     >
       {items.map((item) => (
-        <div key={item.label} style={{ padding: '10px 14px', background: 'var(--bd-header)', borderRadius: 8, border: '1px solid var(--bd-border-subtle)' }}>
-          <div style={{ fontSize: 12, color: 'var(--bd-text-tertiary)' }}>{item.label}</div>
+        <div key={item.label} style={{ padding: '10px 14px', background: 'var(--newfc-header)', borderRadius: 8, border: '1px solid var(--newfc-border-subtle)' }}>
+          <div style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)' }}>{item.label}</div>
           <MoneyText cents={item.cents} size="lg" color={item.color} style={{ marginTop: 2 }} />
         </div>
       ))}

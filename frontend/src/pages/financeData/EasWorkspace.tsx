@@ -1,4 +1,7 @@
+import { useBatchDeepLink } from '../../hooks/useBatchDeepLink';
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert, App as AntdApp, Button, Card, Descriptions, Drawer, Empty, Form, Input, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, Upload,
@@ -70,15 +73,18 @@ function BatchLinesDrawer({ batch, onClose }: { batch: EasBatchDto | null; onClo
 }
 
 function PeriodTab() {
+  const [params] = useSearchParams();
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
-  const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
-  const [period, setPeriod] = useState<string | undefined>(lastPeriod());
+  const [orgId, setOrgId] = useState<number | undefined>(Number(params.get('orgId')) || defaultOrgId());
+  const [period, setPeriod] = useState<string | undefined>(params.get('period') ?? lastPeriod());
   const [dataType, setDataType] = useState<EasDataType>('voucher');
   const [viewBatch, setViewBatch] = useState<EasBatchDto | null>(null);
+  const linkedBatch = useBatchDeepLink('eas', easApi.batch, (batch) => { setViewBatch(batch); setOrgId(batch.orgId); setPeriod(batch.period); });
   const [prompt, promptHolder] = usePrompt();
   const ready = !!orgId && !!period;
   const status = useQuery({ queryKey: ['eas-status', orgId, period], queryFn: () => easApi.periodStatus(orgId!, period!), enabled: ready });
+  useAssistantDomainPage({ pageKey: 'eas', ready: ready && !status.isLoading && !status.error, scope: { orgScopeId: viewBatch?.orgId ?? orgId, period: viewBatch?.period ?? period, easBatchId: viewBatch?.id } });
   const sets = useQuery({ queryKey: ['eas-sets', orgId, period], queryFn: () => easApi.sets({ orgId, period }), enabled: ready });
   const batches = useQuery({ queryKey: ['eas-batches', orgId, period], queryFn: () => easApi.batches({ orgId, period }), enabled: ready });
   const refresh = () => { for (const k of ['eas-status', 'eas-sets', 'eas-batches', 'eas-locks', 'eas-corrections']) void qc.invalidateQueries({ queryKey: [k] }); };
@@ -110,6 +116,7 @@ function PeriodTab() {
 
   return (
     <>
+      {linkedBatch.error && <QueryErrorResult title="来源批次加载失败" error={linkedBatch.error} refetch={linkedBatch.refetch} />}
       {promptHolder}
       <Space wrap style={{ marginBottom: 12 }}>
         <OrgSelect value={orgId} onChange={setOrgId} allowClear={false} />
@@ -210,6 +217,7 @@ function CorrectionsTab() {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [pendingOnly, setPendingOnly] = useState(true);
+  useAssistantDomainPage({ pageKey: 'eas', ready: true, view: { tab: 'corrections', pendingOnly } });
   const [prompt, holder] = usePrompt();
   const list = useQuery({ queryKey: ['eas-corrections', pendingOnly], queryFn: () => easApi.corrections(pendingOnly) });
   const review = useMutation({
@@ -319,9 +327,11 @@ function AuxTab() {
 }
 
 export default function EasWorkspace() {
+  const [tab, setTab] = useState('period');
+  useAssistantDomainPage({ pageKey: 'eas', ready: true, view: { tab } }, tab !== 'period' && tab !== 'corrections');
   return (
     <div>
-      <Tabs
+      <Tabs destroyInactiveTabPane activeKey={tab} onChange={setTab}
         items={[
           { key: 'period', label: '期间工作台', children: <PeriodTab /> },
           { key: 'corrections', label: '锁后更正', children: <CorrectionsTab /> },

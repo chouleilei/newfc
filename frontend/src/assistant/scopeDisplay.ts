@@ -23,6 +23,10 @@ export interface ScopeLookups {
 }
 
 export const SCOPE_FIELD_LABEL: Record<keyof PageScope, string> = {
+  projectId: '主数据项目', contractId: '合同', claimId: '报销单', feasProjectId: '可研项目', scenarioId: '可研方案', icProjectId: '投资项目', comparisonId: '投资快照', modelId: '预测模型', forecastVersionId: '预测版本', forecastRunId: '预测运行', riskId: '风险', reportId: '分析报告', standardReportId: '标准报表', governanceIssueId: '治理问题', mgmtMetricId: '管理会计指标',
+  statementBatchId: '财报批次', projectBudgetBatchId: '项目预算批次', planBatchId: '计划批次', easBatchId: 'EAS 批次', feasReportId: '可行性报告', jobId: '后台任务',
+  periodFrom: '起始期间', periodTo: '截至期间',
+  period: '期间', statementScope: '财报口径',
   year: '年度',
   budgetVersionId: '预算版本',
   targetVersionId: '对比版本',

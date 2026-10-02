@@ -213,7 +213,7 @@ export function ConflictRecoveryDrawer(props: {
           {
             title: '本地未保存',
             render: (_: unknown, d: CellDiff) => (
-              <span style={d.localInvalid ? { color: 'var(--bd-danger, #cf1322)' } : undefined}>
+              <span style={d.localInvalid ? { color: 'var(--newfc-danger, #cf1322)' } : undefined}>
                 {sideText(d, d.local, d.localDelete)}
               </span>
             ),

@@ -1,5 +1,5 @@
 /**
- * 页面与通用组件的登记 Hook(方案《小澧助手全页面回答范围自动对齐开发计划》§8.2)。
+ * 页面与通用组件的登记 Hook(现行 specs/ai.md 页面上下文契约§8.2)。
  *
  * 三条铁律：
  * 1. Hook 只登记页面已有状态，不主动请求业务接口；助手关闭时不增加网络请求(§8.2)；
@@ -206,4 +206,17 @@ export function useAssistantSelection(selection: SelectionDescriptor | null): vo
     return () => registry.setSelection(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, selectionJson]);
+}
+
+/** 新领域页面登记：允许独立组件测试不带助手 Provider，产品运行时仍登记同一份实际筛选。 */
+export function useAssistantDomainPage(init: PageRegistrationInit, enabled = true): void {
+  const registry = useOptionalAssistantRegistry();
+  const tokenRef = useRef<symbol | null>(null);
+  useEffect(() => {
+    if (!registry || !enabled) return;
+    const token = registry.registerPage(init);
+    tokenRef.current = token;
+    return () => { registry.unregisterPage(token); if (tokenRef.current === token) tokenRef.current = null; };
+  }, [registry, enabled]);
+  useEffect(() => { if (enabled && registry && tokenRef.current) registry.updatePage(tokenRef.current, init); });
 }

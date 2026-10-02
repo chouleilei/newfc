@@ -85,7 +85,7 @@ export default function VersionCompare() {
     if (base == null && b) { next.set('base', String(b.id)); changed = true; }
     if (changed) setParams(next, { replace: true });
   }, [versions, base, target, params, setParams]);
-  /* 小澧助手页面登记(§7.2 version_compare)：基准/目标版本、组织与表格筛选。 */
+  /* 财务助手页面登记(§7.2 version_compare)：基准/目标版本、组织与表格筛选。 */
   useAssistantPageContext({
     pageKey: 'version_compare',
     ready: base != null && target != null,
@@ -274,7 +274,7 @@ export default function VersionCompare() {
     <>
     {/* 无壳 + 无标题:顶栏已显示「版本对比」,Card title 是重复的第二遍 */}
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       extra={<Button icon={<i className="ri-download-2-line" aria-hidden />} disabled={!cmp} title={cmp ? '导出当前两版本的对比明细' : '请先选择基准版本与对比版本'} onClick={() => void download(`/io/export/version-compare?base=${base}&target=${target}`, '版本对比.xlsx')}>导出</Button>}
     >
       {versionsError ? <Result status="error" title="版本列表加载失败" subTitle={versionsError instanceof Error ? versionsError.message : String(versionsError)} extra={<Button onClick={() => void refetchVersions()}>重试</Button>} /> : <Space wrap style={{ marginBottom: 16 }}>

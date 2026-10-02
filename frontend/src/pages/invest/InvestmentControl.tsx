@@ -1,3 +1,5 @@
+import { useOptionalAssistantSurface } from '../../assistant/contextHooks';
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -24,6 +26,7 @@ interface MasterOption { id: number; code: string | null; name: string }
 const ratioRule = { pattern: /^(0(\.\d{1,6})?|1(\.0{1,6})?)$/, message: '0～1 的小数,最多 6 位' };
 
 function ComparisonModal({ id, onClose }: { id: number | null; onClose: () => void }) {
+  useOptionalAssistantSurface({ open: id != null, kind: 'drawer', key: 'investment_comparison', entity: id != null ? { entityType: 'investment_comparison', id: id } : null });
   const q = useQuery({ queryKey: ['ic-comparison', id], queryFn: () => icApi.comparison(id!), enabled: id != null });
   const c = q.data;
   const [onlyFlagged, setOnlyFlagged] = useState(false);
@@ -343,6 +346,7 @@ export default function InvestmentControl() {
   const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
   const query = compact({ orgId, status, keyword: keyword.trim() });
+  useAssistantDomainPage({ pageKey: 'investment_control', ready: true, scope: { orgScopeId: orgId, icProjectId: openId ?? undefined }, view: { status, keyword } });
   const list = useQuery({ queryKey: ['ic-projects', query], queryFn: () => icApi.projects(query) });
   return (
     <div>

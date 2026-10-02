@@ -71,7 +71,7 @@ export default function SettingsAi() {
   const settingsLoading = channelsQuery.isLoading || bindingsQuery.isLoading;
   const settingsError = channelsQuery.isError || bindingsQuery.isError;
 
-  /* 小澧助手页面登记(§7.2 ai_settings)：不登记任何密钥字段，只登记页面身份与加载状态。 */
+  /* 财务助手页面登记(§7.2 ai_settings)：不登记任何密钥字段，只登记页面身份与加载状态。 */
   useAssistantPageContext({
     pageKey: 'ai_settings',
     ready: !settingsLoading && !settingsError,
@@ -146,7 +146,7 @@ export default function SettingsAi() {
   const draftOf = (feature: string, current: BindingItem) => bindingDraft?.[feature] ?? { primary: current.primaryChannelId, fallback: current.fallbackChannelId };
 
   return (
-    <Card className="bd-root-card">
+    <Card className="newfc-root-card">
       <Alert
         type="info"
         showIcon

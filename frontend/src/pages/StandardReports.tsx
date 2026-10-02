@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Descriptions, Drawer, Form, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd';
@@ -125,6 +126,7 @@ export default function StandardReports() {
   const [status, setStatus] = useState<string | undefined>();
   const [generating, setGenerating] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+  useAssistantDomainPage({ pageKey: 'standard_reports', ready: true, scope: { standardReportId: openId ?? undefined }, view: { reportType, status } });
   const list = useQuery({ queryKey: ['std-reports', reportType, status], queryFn: () => stdReportApi.list({ reportType, status }) });
   return (
     <div>

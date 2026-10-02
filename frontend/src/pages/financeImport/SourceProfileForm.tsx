@@ -220,9 +220,9 @@ export function SourceProfileForm({ form }: { form: any }) {
                 lineHeight: 1.7,
                 maxHeight: 240,
                 overflow: 'auto',
-                background: 'var(--bd-bg-fill)',
-                border: '1px solid var(--bd-border-subtle)',
-                color: 'var(--bd-text-secondary)',
+                background: 'var(--newfc-bg-fill)',
+                border: '1px solid var(--newfc-border-subtle)',
+                color: 'var(--newfc-text-secondary)',
                 fontFamily: "'IBM Plex Sans', Roboto, monospace",
               }}
             >

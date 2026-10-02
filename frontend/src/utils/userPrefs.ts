@@ -4,7 +4,7 @@
  * 约定:
  * - 内容只包括三类入口偏好:命名分析视图(savedViews)、页面收藏(favorites)、最近访问(recents);
  *   保存的是「入口 + 白名单范围参数」,绝不存金额、文件、草稿内容或确认凭证;
- * - 持久化在 localStorage,键为 `bd:prefs:<命名空间>`;命名空间由登录用户名派生
+ * - 持久化在 localStorage,键为 `newfc:prefs:<命名空间>`;登录后按服务端用户 ID 隔离
  *   (prefsNamespaceFor),不同账号互不可见,未登录/本机模式落到 default;
  * - schemaVersion 用于将来迁移;版本不符或 JSON 损坏时清空该键并返回空偏好,
  *   页面照常渲染(损坏偏好不阻塞页面);
@@ -12,12 +12,13 @@
  *   非法条目(被降级剔除时写回自愈),因此手改 localStorage 注入的越界参数不会进入页面;
  * - 恢复只是导航:应用视图/收藏/最近访问一律由调用方 navigate,本模块不产生任何提交。
  */
+import { readBrowserStorage, removeBrowserStorage } from './browserStorage';
 import { isPageKey, type PageKey } from '../assistant/context';
 import { isScopeRestorable, normalizeScopeSearch, ROUTE_SCOPE_WHITELIST } from './workspaceScope';
 
 export const PREFS_SCHEMA_VERSION = 1;
 
-const KEY_PREFIX = 'bd:prefs:';
+const KEY_PREFIX = 'newfc:prefs:';
 export const MAX_SAVED_VIEWS = 20;
 export const MAX_FAVORITES = 20;
 export const MAX_RECENTS = 8;
@@ -67,8 +68,9 @@ export interface PrefsStorage {
   removeItem(key: string): void;
 }
 
-/** 用户名 → 命名空间:小写、收敛为安全字符;空值(本机模式)落 default。 */
-export function prefsNamespaceFor(username: string | null | undefined): string {
+/** 登录会话用稳定用户 ID;无 ID 的旧调用保留用户名派生逻辑,不自动迁入可能共用的旧偏好。 */
+export function prefsNamespaceFor(username: string | null | undefined, userId?: number): string {
+  if (userId != null && Number.isSafeInteger(userId) && userId > 0) return `account:${userId}`;
   const clean = (username ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
   return clean ? `user-${clean}` : 'default';
 }
@@ -186,7 +188,7 @@ function sanitizeList<T>(raw: unknown, sanitize: (item: unknown) => T | null, ma
 export function loadUserPrefs(storage: PrefsStorage, namespace: string): UserPrefs {
   let raw: string | null = null;
   try {
-    raw = storage.getItem(prefsStorageKey(namespace));
+    raw = readBrowserStorage(storage, prefsStorageKey(namespace));
   } catch {
     return emptyUserPrefs();
   }
@@ -198,7 +200,7 @@ export function loadUserPrefs(storage: PrefsStorage, namespace: string): UserPre
       throw new Error('schema');
     }
   } catch {
-    try { storage.removeItem(prefsStorageKey(namespace)); } catch { /* 清理失败也按空偏好继续 */ }
+    try { removeBrowserStorage(storage, prefsStorageKey(namespace)); } catch { /* 清理失败也按空偏好继续 */ }
     return emptyUserPrefs();
   }
   const views = sanitizeList(parsed.savedViews, sanitizeSavedView, MAX_SAVED_VIEWS);
@@ -221,10 +223,10 @@ export function saveUserPrefs(storage: PrefsStorage, namespace: string, prefs: U
   } catch { /* 见函数注释 */ }
 }
 
-/** 重置入口:删除该命名空间全部偏好;只动 `bd:prefs:` 键,不涉及任何业务数据。 */
+/** 重置入口:删除该命名空间全部偏好;只动 `newfc:prefs:` 键,不涉及任何业务数据。 */
 export function resetUserPrefs(storage: PrefsStorage, namespace: string): void {
   try {
-    storage.removeItem(prefsStorageKey(namespace));
+    removeBrowserStorage(storage, prefsStorageKey(namespace));
   } catch { /* 同上 */ }
 }
 

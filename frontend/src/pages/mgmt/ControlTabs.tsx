@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Col, Descriptions, Empty, Form, Input, Modal, Row, Select, Space, Table, Tag, TreeSelect, Typography } from 'antd';
@@ -66,6 +67,7 @@ export function BudgetAdjustmentsTab() {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [status, setStatus] = useState<string | undefined>('pending');
+  useAssistantDomainPage({ pageKey: 'mgmt', ready: true, view: { tab: 'budget-adjust', status } });
   const [creating, setCreating] = useState(false);
   const [prompt, holder] = usePrompt();
   const list = useQuery({ queryKey: ['ma-budget-adjustments', status], queryFn: () => mgmtApi.budgetAdjustments(status) });
@@ -119,6 +121,7 @@ export function AlertsTab() {
   const [status, setStatus] = useState<string | undefined>('unclosed');
   const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
   const [period, setPeriod] = useState<string | undefined>();
+  useAssistantDomainPage({ pageKey: 'mgmt', ready: true, scope: { orgScopeId: orgId, period }, view: { tab: 'alerts', status } });
   const [prompt, holder] = usePrompt();
   const list = useQuery({ queryKey: ['ma-alerts', status, orgId, period], queryFn: () => mgmtApi.alerts({ status, orgId, period }) });
   const refresh = () => void qc.invalidateQueries({ queryKey: ['ma-alerts'] });
@@ -177,6 +180,7 @@ export function AlertsTab() {
 export function CentersTab() {
   const [period, setPeriod] = useState<string | undefined>(lastPeriod());
   const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
+  useAssistantDomainPage({ pageKey: 'mgmt', ready: true, scope: { orgScopeId: orgId, period }, view: { tab: 'centers' } });
   const q = useQuery({ queryKey: ['ma-centers', period, orgId], queryFn: () => mgmtApi.centers(period!, orgId), enabled: !!period });
   return (
     <>
@@ -261,6 +265,7 @@ export function PerformanceTab() {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [schemeId, setSchemeId] = useState<number | undefined>();
+  useAssistantDomainPage({ pageKey: 'mgmt', ready: true, view: { tab: 'performance', schemeId } });
   const [prompt, holder] = usePrompt();
   const schemes = useQuery({ queryKey: ['ma-schemes'], queryFn: () => mgmtApi.schemes() });
   const runs = useQuery({ queryKey: ['ma-calc-runs', undefined], queryFn: () => mgmtApi.calcRuns({}) });

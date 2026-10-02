@@ -1,9 +1,12 @@
+import { useOptionalAssistantSurface } from '../../assistant/contextHooks';
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert, App as AntdApp, Button, Card, Col, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tabs, Tag, Typography, Upload,
 } from 'antd';
-import { api, can, download, errorText, getSession } from '../../api/client';
+import { api, can, download, errorText } from '../../api/client';
 import {
   feasibilityApi, waitJob, type FeasCheckDto, type FeasImportDto, type FeasIndicatorDto, type FeasibilityAssumptionsInput, type FeasProjectDetailDto,
   type FeasProjectDto, type FeasReportDto, type FeasReportStatus, type FeasResultDto, type FeasRunDetailDto, type FeasRunSummaryDto, type FeasScenarioDto, type FeasSensitivityItemDto,
@@ -265,15 +268,16 @@ function ReportModal({ id, onClose }: { id: number | null; onClose: () => void }
   const [prompt, holder] = usePrompt();
   const q = useQuery({ queryKey: ['feas-report', id], queryFn: () => feasibilityApi.report(id!), enabled: id != null });
   const r = q.data;
-  const refresh = () => { void qc.invalidateQueries({ queryKey: ['feas-report', id] }); void qc.invalidateQueries({ queryKey: ['feas-reports'] }); };
+  const refresh = () => {
+    for (const key of ['feas-report', 'feas-reports', 'workbench-todos']) void qc.invalidateQueries({ queryKey: [key] });
+  };
   const submit = async () => {
     if (!r) return;
     try { await feasibilityApi.submitReport(r.id, r.version); message.success('已提交复核'); refresh(); } catch (e) { message.error(errorText(e)); }
   };
   const review = async (decision: 'approve' | 'return') => {
     if (!r) return;
-    const me = getSession()?.user;
-    const self = !!me && r.submittedBy != null && (r.submittedBy === me.displayName || r.submittedBy === me.username);
+    const self = r.submittedByCurrentUser;
     const v = await prompt({
       title: decision === 'approve' ? '复核通过' : '退回报告', danger: decision === 'return',
       description: decision === 'approve' ? '通过后报告冻结,作为可行性结论依据。' : '退回后编制人可重新提交;如需修改正文,请重新测算并生成新报告。',
@@ -292,10 +296,10 @@ function ReportModal({ id, onClose }: { id: number | null; onClose: () => void }
     <Modal open={id != null} onCancel={onClose} width={900} destroyOnClose title={r?.title ?? '可行性报告'}
       footer={r && (
         <Space>
-          {can('investment:write') && (r.status === 'draft' || r.status === 'returned') && <Button type="primary" onClick={() => void submit()}>提交复核</Button>}
+          {can('investment:write') && (r.status === 'draft' || r.status === 'returned') && <Button type="primary" disabled={r.stale} onClick={() => void submit()}>提交复核</Button>}
           {can('investment:review') && r.status === 'pending_review' && (
             <>
-              <Button type="primary" onClick={() => void review('approve')}>复核通过</Button>
+              <Button type="primary" disabled={r.stale} onClick={() => void review('approve')}>复核通过</Button>
               <Button danger onClick={() => void review('return')}>退回</Button>
             </>
           )}
@@ -305,7 +309,7 @@ function ReportModal({ id, onClose }: { id: number | null; onClose: () => void }
       {holder}
       {q.error ? <QueryErrorResult title="报告加载失败" error={q.error} refetch={q.refetch} /> : !r ? null : (
         <Space direction="vertical" style={{ width: '100%' }}>
-          {r.stale && <Alert type="warning" showIcon message="方案参数已修改,本报告依据的测算已过期" />}
+          {r.stale && <Alert type="warning" showIcon message="方案参数已修改,本报告依据的测算已过期;请重新测算并生成报告。过期报告不能提交或批准,待复核报告仍可退回。" />}
           <Descriptions size="small" column={2} bordered>
             <Descriptions.Item label="状态">{statusTag(FEAS_REPORT_STATUS, r.status)}</Descriptions.Item>
             <Descriptions.Item label="依据">{r.projectCode} · {r.scenarioCode} · 运行 #{r.runId}</Descriptions.Item>
@@ -343,8 +347,15 @@ function ReportTable({ items, loading, onOpen, showScenario }: { items: FeasRepo
 }
 
 function ReportsTab() {
-  const [status, setStatus] = useState<FeasReportStatus | undefined>(can('investment:review') ? 'pending_review' : undefined);
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [params, setParams] = useSearchParams();
+  const rawStatus = params.get('status');
+  const status = rawStatus && Object.prototype.hasOwnProperty.call(FEAS_REPORT_STATUS, rawStatus) ? rawStatus as FeasReportStatus
+    : can('investment:review') && rawStatus === null ? 'pending_review' : undefined;
+  const setStatus = (value: FeasReportStatus | undefined) => setParams((p) => {
+    const next = new URLSearchParams(p); next.set('status', value ?? 'all'); return next;
+  }, { replace: true });
+  const [openId, setOpenId] = useUrlId('reportId');
+  useAssistantDomainPage({ pageKey: 'feasibility', ready: true, scope: { feasReportId: openId ?? undefined }, view: { tab: 'reports', status } });
   const query = compact({ status });
   const list = useQuery({ queryKey: ['feas-reports', query], queryFn: () => feasibilityApi.reports(query) });
   return (
@@ -395,6 +406,7 @@ function ScenarioDrawer({ id, onClose }: { id: number | null; onClose: () => voi
   const [prompt, holder] = usePrompt();
   const [runId, setRunId] = useState<number | null>(null);
   const [sensBusy, setSensBusy] = useState(false);
+  useOptionalAssistantSurface({ open: id != null, kind: 'drawer', key: 'feasibility_scenario', entity: id != null ? { entityType: 'feasibility_scenario', id: id } : null });
   const q = useQuery({ queryKey: ['feas-scenario', id], queryFn: () => feasibilityApi.scenario(id!), enabled: id != null });
   const runs = useQuery({ queryKey: ['feas-runs', id], queryFn: () => feasibilityApi.runs(id!), enabled: id != null });
   const s = q.data;
@@ -404,6 +416,7 @@ function ScenarioDrawer({ id, onClose }: { id: number | null; onClose: () => voi
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['feas-scenario', id] }); void qc.invalidateQueries({ queryKey: ['feas-runs', id] });
     void qc.invalidateQueries({ queryKey: ['feas-project'] });
+    void qc.invalidateQueries({ queryKey: ['feas-report'] }); void qc.invalidateQueries({ queryKey: ['feas-reports'] });
   };
   const run = useMutation({
     mutationFn: () => feasibilityApi.run(s!.id, s!.version),
@@ -583,7 +596,9 @@ function ProjectDrawer({ id, onClose, onScenario }: { id: number | null; onClose
   const q = useQuery({ queryKey: ['feas-project', id], queryFn: () => feasibilityApi.project(id!), enabled: id != null });
   const p = q.data;
   const writable = can('investment:write') && p?.status === 'active';
-  const refresh = () => { void qc.invalidateQueries({ queryKey: ['feas-project', id] }); void qc.invalidateQueries({ queryKey: ['feas-projects'] }); };
+  const refresh = () => {
+    for (const key of ['feas-project', 'feas-projects', 'feas-scenario', 'feas-report', 'feas-reports']) void qc.invalidateQueries({ queryKey: [key] });
+  };
   const newScenario = async () => {
     if (!p) return;
     const v = await prompt({ title: '新建方案', description: '以默认参数创建,随后在“输入参数”中编辑;也可用标准模板导入。', fields: [{ name: 'code', label: '方案编码', required: true, initial: 'base' }, { name: 'name', label: '方案名称', required: true, initial: '基准方案' }] });
@@ -653,6 +668,7 @@ function ProjectsTab() {
   const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
   const query = compact({ orgId, status, keyword: keyword.trim() });
+  useAssistantDomainPage({ pageKey: 'feasibility', ready: true, scope: { orgScopeId: orgId, feasProjectId: projectId ?? undefined, scenarioId: scenarioId ?? undefined }, view: { status, keyword } });
   const list = useQuery({ queryKey: ['feas-projects', query], queryFn: () => feasibilityApi.projects(query) });
   return (
     <div>
@@ -685,5 +701,8 @@ function ProjectsTab() {
 }
 
 export default function Feasibility() {
-  return <Tabs items={[{ key: 'projects', label: '测算项目', children: <ProjectsTab /> }, { key: 'reports', label: '可行性报告', children: <ReportsTab /> }]} />;
+  const [params, setParams] = useSearchParams();
+  return <Tabs destroyInactiveTabPane activeKey={params.get('tab') === 'reports' ? 'reports' : 'projects'} onChange={(key) => setParams((p) => {
+    const next = new URLSearchParams(p); next.set('tab', key); return next;
+  }, { replace: true })} items={[{ key: 'projects', label: '测算项目', children: <ProjectsTab /> }, { key: 'reports', label: '可行性报告', children: <ReportsTab /> }]} />;
 }

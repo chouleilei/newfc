@@ -1,4 +1,7 @@
+import { useBatchDeepLink } from '../../hooks/useBatchDeepLink';
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Col, Descriptions, Drawer, Empty, Form, Popconfirm, Row, Select, Space, Table, Tabs, Tag, Typography, Upload } from 'antd';
 import { can, download, errorText } from '../../api/client';
@@ -52,7 +55,7 @@ function MetricGrid({ metrics, codes }: { metrics: Partial<Record<StatementMetri
     <Row gutter={[12, 12]}>
       {codes.map((k) => (
         <Col key={k} xs={24} sm={12} lg={8}>
-          <div style={{ padding: '10px 12px', background: 'var(--bd-fill)', borderRadius: 8 }}>
+          <div style={{ padding: '10px 12px', background: 'var(--newfc-fill)', borderRadius: 8 }}>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>{METRIC_LABEL[k]}</Typography.Text>
             <div className="kpi-value" style={{ fontSize: 20 }}>{metrics[k] == null ? <Typography.Text type="secondary">缺失</Typography.Text> : <Money value={metrics[k]} />}</div>
           </div>
@@ -63,10 +66,12 @@ function MetricGrid({ metrics, codes }: { metrics: Partial<Record<StatementMetri
 }
 
 function OverviewTab() {
-  const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
-  const [period, setPeriod] = useState<string | undefined>();
+  const [params] = useSearchParams();
+  const [orgId, setOrgId] = useState<number | undefined>(Number(params.get('orgId')) || defaultOrgId());
+  const [period, setPeriod] = useState<string | undefined>(params.get('period') ?? undefined);
   const [scope, setScope] = useState<StatementScope | undefined>();
   const q = useQuery({ queryKey: ['stmt-overview', orgId, period, scope], queryFn: () => statementApi.overview({ orgId, period, scope }) });
+  useAssistantDomainPage({ pageKey: 'statements', ready: !q.isLoading && !q.error, scope: { orgScopeId: orgId, period: period ?? q.data?.batch?.period, statementScope: scope ?? q.data?.batch?.scope } });
   const d = q.data;
   return (
     <>
@@ -123,6 +128,7 @@ function TrendsTab() {
   const [to, setTo] = useState<string | undefined>();
   const [metrics, setMetrics] = useState<StatementMetricCode[]>(['revenue_ytd', 'net_profit_ytd']);
   const [basis, setBasis] = useState<'ytd' | 'monthly'>('ytd');
+  useAssistantDomainPage({ pageKey: 'statements', ready: true, scope: { orgScopeId: orgId, period: to, statementScope: scope, periodFrom: from, periodTo: to }, view: { tab: 'trends', metrics, basis } });
   const q = useQuery({ queryKey: ['stmt-trends', orgId, scope, from, to], queryFn: () => statementApi.trends({ orgId, scope, from, to }) });
   const d = q.data;
   const valueOf = (p: StatementTrendPointDto, code: StatementMetricCode) =>
@@ -215,9 +221,13 @@ function BatchesTab() {
   const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
   const [period, setPeriod] = useState<string | undefined>();
   const [view, setView] = useState<StatementBatchDto | null>(null);
+  const linkedBatch = useBatchDeepLink('statements', statementApi.batch, setView);
+  useAssistantDomainPage({ pageKey: 'statements', ready: true, scope: { orgScopeId: orgId, period: view?.period ?? period, statementScope: view?.scope, statementBatchId: view?.id }, view: { tab: 'batches', historicalBatchId: view?.id } });
   const [prompt, holder] = usePrompt();
   const list = useQuery({ queryKey: ['stmt-batches', orgId, period], queryFn: () => statementApi.batches({ orgId, period }) });
-  const refresh = () => { void qc.invalidateQueries({ queryKey: ['stmt-batches'] }); void qc.invalidateQueries({ queryKey: ['stmt-overview'] }); };
+  const refresh = () => {
+    for (const key of ['stmt-batches', 'stmt-overview', 'stmt-trends']) void qc.invalidateQueries({ queryKey: [key] });
+  };
   const activate = useMutation({
     mutationFn: (b: StatementBatchDto) => {
       const current = (list.data ?? []).find((x) => x.isCurrent && x.orgId === b.orgId && x.period === b.period && x.scope === b.scope);
@@ -229,6 +239,7 @@ function BatchesTab() {
   const writable = can('statements:import');
   return (
     <>
+      {linkedBatch.error && <QueryErrorResult title="来源批次加载失败" error={linkedBatch.error} refetch={linkedBatch.refetch} />}
       {holder}
       <Space wrap style={{ marginBottom: 12 }}>
         <OrgSelect value={orgId} onChange={setOrgId} />
@@ -269,6 +280,7 @@ function BatchesTab() {
 }
 
 function ImportTab() {
+  useAssistantDomainPage({ pageKey: 'statements', ready: true, view: { tab: 'import' } });
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [form] = Form.useForm<{ orgId: number; period: string; scope: StatementScope }>();
@@ -319,8 +331,10 @@ function ImportTab() {
 }
 
 export default function Statements() {
+  const [params, setParams] = useSearchParams();
+  const tab = ['overview','trends','batches','import'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'overview';
   return (
-    <Tabs
+    <Tabs destroyInactiveTabPane activeKey={tab} onChange={(key) => setParams((previous) => { const next = new URLSearchParams(previous); next.set('tab', key); return next; }, { replace: true })}
       items={[
         { key: 'overview', label: '总览', children: <OverviewTab /> },
         { key: 'trends', label: '趋势', children: <TrendsTab /> },

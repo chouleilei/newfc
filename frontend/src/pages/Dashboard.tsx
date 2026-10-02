@@ -12,7 +12,7 @@ import { escapeHtml } from '../utils/escapeHtml';
 import { chartTheme, useThemeMode, areaGradient, glowLineStyle, statusColor, withAlpha } from '../theme';
 import EChart from '../components/EChart';
 import { EvidenceDrawer, type EvidenceTarget } from '../components/EvidenceDrawer';
-import { BdEmpty } from '../components/BdEmpty';
+import { FinanceEmpty } from '../components/FinanceEmpty';
 import { CardSkeleton, TableSkeleton } from '../components/Skeletons';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { useAssistantPageContext } from '../assistant/contextHooks';
@@ -225,40 +225,40 @@ function MonthCoverageCard({ year, frozen, batches, loading }: {
   );
   return (
     <div>
-      <div className="bd-eyebrow">01 / 月度执行覆盖</div>
+      <div className="newfc-eyebrow">01 / 月度执行覆盖</div>
       <Card size="small" data-testid="month-coverage-card">
         {loading ? (
           /* 骨架:12 个灰色格子占位,复用既有骨架手法,不转圈 */
-          <div className="bd-month-strip" aria-busy="true" aria-label="月度覆盖加载中">
+          <div className="newfc-month-strip" aria-busy="true" aria-label="月度覆盖加载中">
             {Array.from({ length: 12 }, (_, i) => (
               <Skeleton.Button key={i} active block size="small" style={{ height: 14, borderRadius: 3 }} />
             ))}
           </div>
         ) : (
           <>
-            <div className="bd-month-strip">
+            <div className="newfc-month-strip">
               {cells.map((cell, i) => (
                 /* UX-28:状态不只靠颜色/悬停——格子可聚焦,焦点与读屏都能拿到完整月份状态 */
                 <Tooltip key={i} title={cell.tip}>
-                  <span className={`bd-month-cell bd-month-cell-${cell.state}`} data-testid={`month-cell-${i + 1}`} tabIndex={0} role="img" aria-label={cell.tip} />
+                  <span className={`newfc-month-cell newfc-month-cell-${cell.state}`} data-testid={`month-cell-${i + 1}`} tabIndex={0} role="img" aria-label={cell.tip} />
                 </Tooltip>
               ))}
             </div>
-            <div className="bd-month-axis" aria-hidden>
+            <div className="newfc-month-axis" aria-hidden>
               {Array.from({ length: 12 }, (_, i) => (
                 <span key={i} style={{ textAlign: 'center' }}>{i + 1}月</span>
               ))}
             </div>
-            <div className="bd-month-legend">
+            <div className="newfc-month-legend">
               {MONTH_LEGEND.map((item) => (
-                <span key={item.state} className="bd-month-legend-item">
-                  <span className={`bd-month-legend-swatch bd-month-cell-${item.state}`} aria-hidden />
+                <span key={item.state} className="newfc-month-legend-item">
+                  <span className={`newfc-month-legend-swatch newfc-month-cell-${item.state}`} aria-hidden />
                   {item.label}
                 </span>
               ))}
               {frozen && (
-                <span className="bd-month-legend-item">
-                  <span className="bd-month-legend-swatch bd-month-cell-frozen" aria-hidden />
+                <span className="newfc-month-legend-item">
+                  <span className="newfc-month-legend-swatch newfc-month-cell-frozen" aria-hidden />
                   年度已冻结
                 </span>
               )}
@@ -270,7 +270,7 @@ function MonthCoverageCard({ year, frozen, batches, loading }: {
         {loading ? (
           <Skeleton.Input active size="small" block style={{ margin: '10px 0 0' }} />
         ) : (
-          <p className="bd-quote" style={{ margin: '10px 0 0' }}>
+          <p className="newfc-quote" style={{ margin: '10px 0 0' }}>
             {frozen
               ? `${year} 年度已冻结,快照不再变动`
               : maxSnapshot
@@ -356,7 +356,7 @@ function HeroItem({ label, num, sub, spark, onClick, actionHint, tone }: {
   }, [spark]);
   return (
     <div
-      className={`bd-hero-item${onClick ? ' bd-hero-item-action' : ''}`}
+      className={`newfc-hero-item${onClick ? ' newfc-hero-item-action' : ''}`}
       data-tone={tone}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
@@ -366,16 +366,16 @@ function HeroItem({ label, num, sub, spark, onClick, actionHint, tone }: {
         ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }
         : undefined}
     >
-      <div className="bd-hero-label">{label}</div>
-      <div className="bd-hero-num">
+      <div className="newfc-hero-label">{label}</div>
+      <div className="newfc-hero-num">
         {num != null ? num : <Skeleton.Input active size="small" style={{ width: 96, minWidth: 96 }} />}
       </div>
       {sparkOption ? (
-        <div className="bd-hero-spark">
+        <div className="newfc-hero-spark">
           <EChart option={sparkOption} height={22} />
         </div>
       ) : null}
-      <div className="bd-hero-sub">{sub}</div>
+      <div className="newfc-hero-sub">{sub}</div>
     </div>
   );
 }
@@ -428,7 +428,7 @@ export default function Dashboard() {
   const version = useMemo(() => dash?.currentVersions.find((v) => v.year === year), [dash, year]);
 
   /**
-   * 小澧助手页面登记(§7.3)：year 的异步默认值与对应 version 就绪前保持 loading；
+   * 财务助手页面登记(§7.3)：year 的异步默认值与对应 version 就绪前保持 loading；
    * 主数字 hero 为 m:metricId 时转换为 dashboardSubject=metric + metricId。
    */
   const heroMetricId = hero.startsWith('m:') ? Number(hero.slice(2)) : null;
@@ -647,7 +647,7 @@ export default function Dashboard() {
 
   if (isError) {
     return (
-      <div className="bd-page-narrow">
+      <div className="newfc-page-narrow">
         <QueryErrorResult title="首页工作台数据加载失败" error={dashError} refetch={() => void refetchDash()} />
       </div>
     );
@@ -655,9 +655,9 @@ export default function Dashboard() {
 
   if (isLoading || !dash) {
     return (
-      <div className="bd-page-narrow">
+      <div className="newfc-page-narrow">
         {/* 首屏骨架:深色带轮廓 + 卡片/表格骨架,替代整屏转圈 */}
-        <div className="bd-hero-band" style={{ marginBottom: 16 }}>
+        <div className="newfc-hero-band" style={{ marginBottom: 16 }}>
           {[0, 1, 2, 3].map((i) => <HeroItem key={i} label="加载中" num={null} sub="" />)}
         </div>
         <Row gutter={[16, 16]}>
@@ -690,7 +690,7 @@ export default function Dashboard() {
     const draft = canContinue ? dash.workState.recentDraft : null;
     const gaps = canContinue ? dash.workState.pendingAdoption : [];
     return (
-      <div className="bd-page-narrow">
+      <div className="newfc-page-narrow">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         {/* 待办不依赖预算版本:合同与报销流程可以先于经营预算上线 */}
         <WorkbenchTodoCard />
@@ -699,23 +699,23 @@ export default function Dashboard() {
           <Alert
             type="warning"
             showIcon
-            icon={<span className="bd-status-icon bd-status-icon-warn"><i className="ri-alert-line" aria-hidden /></span>}
+            icon={<span className="newfc-status-icon newfc-status-icon-warn"><i className="ri-alert-line" aria-hidden /></span>}
             message="主数据结构检查发现问题"
             description={[...dash.structure.org.problems, ...dash.structure.account.problems].join(';')} />
         )}
         <Card>
-          <Typography.Title level={4} style={{ marginTop: 0 }}>欢迎使用 newfc 水利财务分析</Typography.Title>
+          <Typography.Title level={4} style={{ marginTop: 0 }}>经营预算尚未初始化</Typography.Title>
           <Typography.Paragraph type="secondary">
-            尚未设置任何「当前采用」的预算版本。完成必要步骤后,仪表盘将展示年度执行总览;标注「非当前前提」的配置可在需要时再处理。
+            尚未设置「当前采用」的经营预算版本。完成以下步骤后可查看经营预算年度执行总览；项目、合同、费用等业务可从左侧栏目独立使用。
             {steps.some((step) => !step.done && !step.actionable) && ' 部分步骤需要预算维护人员(全组织授权)完成,请联系管理员。'}
           </Typography.Paragraph>
           <Row gutter={[16, 16]}>
             {steps.map((s, i) => (
               <Col xs={24} sm={12} lg={6} key={s.title}>
                 {/* 幽灵数字承担「第几步」的视觉张力,标题里不再写 "1." 前缀 */}
-                <Card size="small" className={s.actionable ? 'quick-tile bd-ghost-host' : 'bd-ghost-host'} {...(s.actionable ? clickableProps(() => navigate(s.path), `${s.title}:${s.desc}`) : {})}
+                <Card size="small" className={s.actionable ? 'quick-tile newfc-ghost-host' : 'newfc-ghost-host'} {...(s.actionable ? clickableProps(() => navigate(s.path), `${s.title}:${s.desc}`) : {})}
                   styles={{ body: { padding: 18 } }}>
-                  <span className="bd-ghost-num" aria-hidden>{i + 1}</span>
+                  <span className="newfc-ghost-num" aria-hidden>{i + 1}</span>
                   <Space align="start" size={12}>
                     <span style={{
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -787,7 +787,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="bd-page-narrow">
+    <div className="newfc-page-narrow">
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       {scopeIssues.length > 0 && (
         <Alert
@@ -804,12 +804,12 @@ export default function Dashboard() {
         const incomeRate = overallRate(totals.income.b, totals.income.a);
         const deviation = !noActual && incomeRate != null && tp != null ? incomeRate - tp : null;
         return (
-          <div className="bd-hero-band">
+          <div className="newfc-hero-band">
             {/* 图注位:主数据结构检查通过时以 ok 档状态圆图标常驻,与告警 Alert 互斥 */}
             {structureOk && (
               <Tooltip title="组织与科目结构检查均通过">
-                <span className="bd-hero-note" data-testid="structure-ok-note">
-                  <span className="bd-status-icon bd-status-icon-ok bd-hero-note-icon"><i className="ri-check-line" aria-hidden /></span>
+                <span className="newfc-hero-note" data-testid="structure-ok-note">
+                  <span className="newfc-status-icon newfc-status-icon-ok newfc-hero-note-icon"><i className="ri-check-line" aria-hidden /></span>
                   主数据结构检查通过
                 </span>
               </Tooltip>
@@ -874,13 +874,13 @@ export default function Dashboard() {
         {/* 主数据规模与口径公式都不是每次都要读的信息:
             规模收进 Tooltip(悬停可见),公式收进「口径」链接,首屏只留年度与状态。 */}
         <Tooltip title={`组织 ${dash.counts.orgs} · 科目 ${dash.counts.accounts} · 指标 ${dash.counts.metrics} · 版本 ${dash.counts.versions} · 快照批次 ${dash.counts.batches}`}>
-          <Typography.Text type="secondary" style={{ fontSize: 12, cursor: 'help', borderBottom: '1px dashed var(--bd-border)' }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12, cursor: 'help', borderBottom: '1px dashed var(--newfc-border)' }}>
             主数据
           </Typography.Text>
         </Tooltip>
         </Space>
         <Tooltip title={`完成率 = 累计实际 / 年度预算;节奏差 = 完成率 − 时间进度(当前 ${formatProgress(tp)})`}>
-          <Typography.Text type="secondary" style={{ fontSize: 12, cursor: 'help', borderBottom: '1px dashed var(--bd-border)' }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12, cursor: 'help', borderBottom: '1px dashed var(--newfc-border)' }}>
             口径
           </Typography.Text>
         </Tooltip>
@@ -890,7 +890,7 @@ export default function Dashboard() {
         <Alert
           type="warning"
           showIcon
-          icon={<span className="bd-status-icon bd-status-icon-warn"><i className="ri-alert-line" aria-hidden /></span>}
+          icon={<span className="newfc-status-icon newfc-status-icon-warn"><i className="ri-alert-line" aria-hidden /></span>}
           message="主数据结构检查发现问题"
           description={[...dash.structure.org.problems, ...dash.structure.account.problems].join(';')} />
       )}
@@ -900,9 +900,9 @@ export default function Dashboard() {
 
       {(() => {
         /**
-         * 音量守恒(《视觉高级感提升方案》一.5):页面级大数字一律墨色(--bd-text),
+         * 音量守恒(《视觉高级感提升方案》一.5):页面级大数字一律墨色(--newfc-text),
          * 主色只留给小面积「签」。因此下表不再携带 color 字段 —— .kpi-value 的
-         * 类定义即 var(--bd-text),删掉内联 color 后自动生效。
+         * 类定义即 var(--newfc-text),删掉内联 color 后自动生效。
          */
         const metricOpts = [...(completion?.metrics ?? [])].sort((a, b) => a.code.localeCompare(b.code)).map((m) => ({
           value: `m:${m.metricId}`, label: m.name, b: m.cell.budgetCents, a: m.cell.actualCents,
@@ -925,10 +925,10 @@ export default function Dashboard() {
         return (
           <>
             <div>
-              <div className="bd-eyebrow">02 / 本年主数字</div>
+              <div className="newfc-eyebrow">02 / 本年主数字</div>
               <Card styles={{ body: { padding: '28px 32px' } }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                  <span className="bd-metric-label">本年主数字 · {current.label}</span>
+                  <span className="newfc-metric-label">本年主数字 · {current.label}</span>
                   <div style={{ minWidth: 0, maxWidth: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
                     <Segmented size="small" value={current.value} onChange={(v) => setHero(String(v))} options={options.map((o) => ({ value: o.value, label: o.label }))} />
                   </div>
@@ -961,7 +961,7 @@ export default function Dashboard() {
               {options.filter((o) => o.value !== current.value).slice(0, 3).map((o) => (
                 <Col xs={24} sm={8} key={o.value}>
                   <Card size="small" hoverable className="quick-tile" onClick={() => setHero(o.value)}>
-                    <span className="bd-metric-label">{o.label}</span>
+                    <span className="newfc-metric-label">{o.label}</span>
                     <div className="kpi-value" style={{ fontSize: 24, marginTop: 4 }}>
                       {noActual ? '—' : <MoneyText cents={o.invert ? -o.a : o.a} format="compact" size="lg" />}
                     </div>
@@ -971,15 +971,15 @@ export default function Dashboard() {
             </Row>
             <Row gutter={[12, 12]}>
               <Col xs={24} lg={12}>
-                <div className="bd-eyebrow">03 / 执行趋势</div>
+                <div className="newfc-eyebrow">03 / 执行趋势</div>
                 <Card size="small" title={`${year} 年完成率 vs 时间进度`} extra={<Button size="small" type="link" onClick={() => navigate(analysisPath())}>年度执行分析</Button>}>
                   {trend && trend.points.length > 0
                     ? <EChart option={trendOption} height={320} onSemanticClick={handleTrendClick} />
-                    : <BdEmpty kind="data" description="暂无实际快照，请先录入实际数" style={{ padding: '48px 0' }} />}
+                    : <FinanceEmpty kind="data" description="暂无实际快照，请先录入实际数" style={{ padding: '48px 0' }} />}
                 </Card>
               </Col>
               <Col xs={24} lg={12}>
-                <div className="bd-eyebrow">04 / 组织构成</div>
+                <div className="newfc-eyebrow">04 / 组织构成</div>
                 <Card
                   size="small"
                   title="组织预算体量分布"
@@ -987,12 +987,12 @@ export default function Dashboard() {
                 >
                   {orgTreemap
                     ? <EChart option={treemapOption} height={320} onSemanticClick={handleTreemapClick} />
-                    : <BdEmpty kind="data" description="暂无组织预算数据" style={{ padding: '48px 0' }} />}
+                    : <FinanceEmpty kind="data" description="暂无组织预算数据" style={{ padding: '48px 0' }} />}
                 </Card>
               </Col>
             </Row>
             <div>
-              <div className="bd-eyebrow">05 / 下一步</div>
+              <div className="newfc-eyebrow">05 / 下一步</div>
               <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
                 {nextActions.map((s) => (
                   <Col {...actionSpan} key={s.key}>
@@ -1021,14 +1021,14 @@ export default function Dashboard() {
       {/* UX-25 最近访问:入口含当时的白名单筛选范围;目标失效由目标页说明并要求重选(恢复只是导航) */}
       {prefs.recents.length > 0 && (
         <div>
-          <div className="bd-eyebrow">06 / 最近访问</div>
+          <div className="newfc-eyebrow">06 / 最近访问</div>
           <Card size="small" title="最近访问" extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>记录入口与当时范围,最多 {MAX_RECENTS} 条</Typography.Text>}>
             {prefs.recents.slice(0, 6).map((item) => (
-              <div className="bd-log-row" key={`${item.pageKey}:${item.path}`}>
-                <div className="bd-log-row-main">
+              <div className="newfc-log-row" key={`${item.pageKey}:${item.path}`}>
+                <div className="newfc-log-row-main">
                   <Typography.Text ellipsis style={{ minWidth: 0 }} title={item.label}>{item.label}</Typography.Text>
                 </div>
-                <div className="bd-log-row-meta">
+                <div className="newfc-log-row-meta">
                   <span>{relativeTime(new Date(item.visitedAt).toISOString())}</span>
                   <Link to={item.path}>打开 →</Link>
                 </div>
@@ -1041,7 +1041,7 @@ export default function Dashboard() {
       {/* 年度版本与最近操作 */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
-          <div className="bd-eyebrow">07 / 年度版本</div>
+          <div className="newfc-eyebrow">07 / 年度版本</div>
           <Card size="small" title="各年度当前生效预算版本" extra={<Button size="small" type="link" onClick={() => navigate('/budget')}>版本管理</Button>}>
             <Table
               size="small" rowKey="id" pagination={false} dataSource={dash.currentVersions}
@@ -1069,7 +1069,7 @@ export default function Dashboard() {
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <div className="bd-eyebrow">08 / 最近操作</div>
+          <div className="newfc-eyebrow">08 / 最近操作</div>
           <Card size="small" title="最近操作" extra={can('audit:read') && !dash.scopeLimited ? <Button size="small" type="link" onClick={() => navigate('/data?tab=logs')}>全部日志</Button> : null}>
             {dash.recentLogs.length === 0 && (
               <Typography.Text type="secondary">
@@ -1086,14 +1086,14 @@ export default function Dashboard() {
               // 实体名为空且实体标签与操作相同时(如登录),主行回落展示系统事件,避免一行三个「登录」重复
               const mainTitle = entityName || (entityLabel !== actionText ? entityLabel : '系统会话');
               return (
-                <div className="bd-log-row" key={log.id}>
-                  <div className="bd-log-row-main">
+                <div className="newfc-log-row" key={log.id}>
+                  <div className="newfc-log-row-main">
                     <Tag bordered={false} style={{ flex: '0 0 auto' }}>{actionText}</Tag>
                     <Typography.Text ellipsis style={{ minWidth: 0 }} title={mainTitle}>
                       {mainTitle}
                     </Typography.Text>
                   </div>
-                  <div className="bd-log-row-meta">
+                  <div className="newfc-log-row-meta">
                     <span>{log.created_at.slice(0, 19).replace('T', ' ')}</span>
                     {entryPath
                       ? <Link to={entryPath}>{entityLabel} →</Link>

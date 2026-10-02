@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Descriptions, Input, InputNumber, Select, Skeleton, Space, Switch, Tabs, Tag, Typography } from 'antd';
@@ -119,6 +120,7 @@ function BusinessParams() {
 
 /** 业务设置页:业务参数 + T-7 自定义字段、导入字段模板。 */
 export default function SettingsBusiness() {
+  useAssistantDomainPage({ pageKey: 'business_settings', ready: true, view: {} });
   return (
     <Card>
       <Tabs items={[

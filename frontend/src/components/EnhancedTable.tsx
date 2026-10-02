@@ -17,14 +17,14 @@ export function EnhancedTable<T extends object = any>(props: EnhancedProps<T>) {
   const { tableKey, title, defaultFixed = true, density, size, onDensityChange, columns = [], ...tableProps } = props;
   const storageKey = tableKey ?? `auto-${(columns as AnyColumn[]).map((c, i) => columnKey(c, i)).join('_')}`;
   const defaults = useMemo<Config>(() => ({ hidden: [], order: (columns as AnyColumn[]).map((c, i) => columnKey(c, i)), fixed: defaultFixed, density: density ?? size ?? 'middle' }), [columns, defaultFixed, density, size]);
-  const [config, setConfig] = useState<Config>(() => ({ ...defaults, ...loadSession<Partial<Config>>(`bd-table-${storageKey}`, {}) }));
+  const [config, setConfig] = useState<Config>(() => ({ ...defaults, ...loadSession<Partial<Config>>(`newfc-table-${storageKey}`, {}) }));
   const [fullscreen, setFullscreen] = useState(false);
   const exitFullscreen = useCallback(() => setFullscreen(false), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const screens = Grid.useBreakpoint();
   useFullscreenLayer(fullscreen, exitFullscreen);
   useEffect(() => { setConfig(c => ({ ...defaults, ...c, order: c.order.filter(k => defaults.order.includes(k)).concat(defaults.order.filter(k => !c.order.includes(k))) })); }, [defaults]);
-  const update = (next: Partial<Config>) => { const value = { ...config, ...next }; setConfig(value); saveSession(`bd-table-${storageKey}`, value); };
+  const update = (next: Partial<Config>) => { const value = { ...config, ...next }; setConfig(value); saveSession(`newfc-table-${storageKey}`, value); };
   const entries = (columns as AnyColumn[]).map((column, index) => ({ key: columnKey(column, index), column }));
   const byKey = new Map(entries.map((entry) => [entry.key, entry]));
   const visible = configuredItemsByKey(entries, config.order, config.hidden).map(({ column }, index) => ({
@@ -40,8 +40,8 @@ export function EnhancedTable<T extends object = any>(props: EnhancedProps<T>) {
    * 最右侧的操作按钮跑到卡片外面去。调用方显式传 scroll 时以调用方为准。
    */
   const scroll = tableProps.scroll ?? (screens.md === false ? { x: 'max-content' as const } : undefined);
-  return <div className={fullscreen ? 'bd-table-fullscreen' : undefined}>
-    <div className="bd-table-toolbar"><span>{title}</span><Space size="small" wrap><Segmented size="small" value={config.density} onChange={v => { const d = v as Config['density']; update({ density: d }); onDensityChange?.(d); }} options={[{ label: '紧凑', value: 'small' }, { label: '标准', value: 'middle' }, { label: '宽松', value: 'large' }]} /><Button size="small" icon={<i className="ri-settings-3-line" aria-hidden />} onClick={() => setSettingsOpen(true)}>列配置</Button><Button size="small" icon={fullscreen ? <i className="ri-fullscreen-exit-line" aria-hidden /> : <i className="ri-fullscreen-line" aria-hidden />} onClick={() => setFullscreen(v => !v)} title={fullscreen ? '退出全屏(Esc)' : '全屏显示表格(Esc 退出)'}>{fullscreen ? '退出全屏(Esc)' : '全屏'}</Button></Space></div>
+  return <div className={fullscreen ? 'newfc-table-fullscreen' : undefined}>
+    <div className="newfc-table-toolbar"><span>{title}</span><Space size="small" wrap><Segmented size="small" value={config.density} onChange={v => { const d = v as Config['density']; update({ density: d }); onDensityChange?.(d); }} options={[{ label: '紧凑', value: 'small' }, { label: '标准', value: 'middle' }, { label: '宽松', value: 'large' }]} /><Button size="small" icon={<i className="ri-settings-3-line" aria-hidden />} onClick={() => setSettingsOpen(true)}>列配置</Button><Button size="small" icon={fullscreen ? <i className="ri-fullscreen-exit-line" aria-hidden /> : <i className="ri-fullscreen-line" aria-hidden />} onClick={() => setFullscreen(v => !v)} title={fullscreen ? '退出全屏(Esc)' : '全屏显示表格(Esc 退出)'}>{fullscreen ? '退出全屏(Esc)' : '全屏'}</Button></Space></div>
     <Table {...tableProps} scroll={scroll} columns={visible} size={config.density} />
     <Modal title="列显示配置" open={settingsOpen} onCancel={() => setSettingsOpen(false)} onOk={() => setSettingsOpen(false)} footer={null}>
       <Space direction="vertical" style={{ width: '100%' }}><Checkbox checked={config.fixed} onChange={e => update({ fixed: e.target.checked })}>固定首列</Checkbox>{all.map(({ key: k, column: c }, i) => { const locked = k === 'selection' || k === 'action' || k === 'actions'; return <div key={k} draggable={!locked} onDragStart={e => e.dataTransfer.setData('text/plain', k)} onDragOver={e => e.preventDefault()} onDrop={e => { const from = e.dataTransfer.getData('text/plain'); if (!from || from === k) return; const order = [...config.order], a = order.indexOf(from), b = order.indexOf(k); if (a < 0 || b < 0) return; order.splice(a, 1); order.splice(b, 0, from); update({ order }); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', cursor: locked ? 'default' : 'grab' }}><Checkbox disabled={locked} checked={!config.hidden.includes(k)} onChange={e => update({ hidden: e.target.checked ? config.hidden.filter(x => x !== k) : [...config.hidden, k] })}>{String(c.title ?? k)}</Checkbox><span style={{ marginLeft: 'auto' }}><Button size="small" disabled={i === 0} onClick={() => move(k, -1)}>↑</Button><Button size="small" disabled={i === all.length - 1} onClick={() => move(k, 1)}>↓</Button></span></div>})}<Button onClick={() => update(defaults)}>恢复默认</Button></Space>

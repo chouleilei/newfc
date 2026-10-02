@@ -8,7 +8,7 @@
 export function BrandLogo({ size = 28 }: { size?: number }) {
   return (
     <span
-      className="bd-brand-logo"
+      className="newfc-brand-logo"
      aria-hidden
       style={{
         width: size,

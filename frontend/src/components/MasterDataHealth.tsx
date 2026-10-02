@@ -69,7 +69,7 @@ export function SemanticNameBlock() {
     retry: false,
   });
   return (
-    <div style={{ marginTop: 14, borderTop: '1px dashed var(--bd-border)', paddingTop: 10 }}>
+    <div style={{ marginTop: 14, borderTop: '1px dashed var(--newfc-border)', paddingTop: 10 }}>
       {!requested ? (
         <Button size="small" onClick={() => setRequested(true)}>查找语义相似的重名候选(模型建议)</Button>
       ) : query.isLoading ? (
@@ -124,20 +124,20 @@ export function MasterDataHealthContent(props: {
           阻塞→红 / 提醒→橙 / 观察→绿,三档语义色从 STATUS_COLOR 派生透明度 */}
       <Space size={20} wrap style={{ marginBottom: 12 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span className="bd-status-icon bd-status-icon-bad"><i className="ri-close-line" aria-hidden /></span>
+          <span className="newfc-status-icon newfc-status-icon-bad"><i className="ri-close-line" aria-hidden /></span>
           <Typography.Text>阻塞 <Typography.Text strong className="tabular-numbers">{report.blockingCount}</Typography.Text></Typography.Text>
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span className="bd-status-icon bd-status-icon-warn"><i className="ri-alert-line" aria-hidden /></span>
+          <span className="newfc-status-icon newfc-status-icon-warn"><i className="ri-alert-line" aria-hidden /></span>
           <Typography.Text>提醒 <Typography.Text strong className="tabular-numbers">{report.warningCount}</Typography.Text></Typography.Text>
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span className="bd-status-icon bd-status-icon-ok"><i className="ri-check-line" aria-hidden /></span>
+          <span className="newfc-status-icon newfc-status-icon-ok"><i className="ri-check-line" aria-hidden /></span>
           <Typography.Text>观察 <Typography.Text strong className="tabular-numbers">{report.infoCount}</Typography.Text></Typography.Text>
         </span>
       </Space>
       {report.groups.length > 0 && (
-        <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--bd-text-secondary)' }}>
+        <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--newfc-text-secondary)' }}>
           {report.groups.map((group) => (
             <div key={group.code}>· {group.summary}</div>
           ))}
@@ -164,7 +164,7 @@ export function MasterDataHealthContent(props: {
                 </Button>
               )}
               {help && (
-                <div style={{ fontSize: 12, color: 'var(--bd-text-tertiary)', marginTop: 2, paddingLeft: 4 }}>
+                <div style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)', marginTop: 2, paddingLeft: 4 }}>
                   为什么是问题:{help.why};影响:{help.impact};处理:{help.fix}
                 </div>
               )}

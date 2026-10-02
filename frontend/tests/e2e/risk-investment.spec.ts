@@ -6,7 +6,7 @@ import { expect, login, test } from './access';
 
 /**
  * T-5 界面链路:AC-F13 投资控制(导入→确认→对比快照,偏差率 8% 为关注);AC-F12 可行性测算(宜冲桥样本测算与结果冻结);
- * AC-F11 财务预测(冻结→基准运行→情景运行→与基准对比);AC-F17 风险扫描→确认→整改→提交→复核关闭;
+ * AC-F11 财务预测(冻结→待复核队列→复核→基准运行→情景运行→与基准对比);AC-F17 风险扫描→确认→整改→提交→复核关闭;
  * AC-F18 风险与投资专题报告生成→提交→审批(管理员自审例外)→发布任务→导出 DOCX。
  */
 const OK = /确\s*[定认]|OK/;
@@ -141,7 +141,8 @@ test.describe('投资、预测、风险与报告页面', () => {
     await expect(sc.getByRole('tab', { name: '指标' })).toBeVisible();
 
     // 财务预测:样本工作簿 1000 → 增长率 10%/20%
-    const model = await json<{ id: number }>(await request.post('/api/forecast/models', { data: { name: `E2E 预测 ${Date.now()}`, orgId: sh, baseYear: 2026, horizonYears: 3 } }), 201);
+    const modelName = `E2E 预测 ${Date.now()}`;
+    const model = await json<{ id: number }>(await request.post('/api/forecast/models', { data: { name: modelName, orgId: sh, baseYear: 2026, horizonYears: 3 } }), 201);
     await json(await request.post(`/api/forecast/models/${model.id}/versions`, {
       data: {
         workbook: {
@@ -160,8 +161,19 @@ test.describe('投资、预测、风险与报告页面', () => {
     await topDrawer(page).locator('tr', { hasText: 'E2E 样本' }).click();
     const vd = topDrawer(page);
     await expect(vd.getByText('诊断通过')).toBeVisible();
-    await vd.getByRole('button', { name: /^冻\s*结$/ }).click();
-    await expect(page.getByText('已冻结,可以运行基准')).toBeVisible();
+    await vd.getByRole('button', { name: '冻结并提交复核' }).click();
+    await expect(page.getByText('已冻结并提交复核,可以运行基准')).toBeVisible();
+    // 首页待办深链进入队列,复核后该版本从队列移除。
+    await page.goto('/forecast?tab=reviews');
+    const pending = page.locator('.ant-table-tbody tr', { hasText: modelName });
+    await expect(pending).toBeVisible();
+    await pending.click();
+    await vd.getByRole('button', { name: '复核通过' }).click();
+    const review = topDialog(page);
+    await review.getByLabel(/例外原因/).fill('E2E 单人环境,管理员复核样本');
+    await review.getByRole('button', { name: OK }).click();
+    await expect(page.getByText('已复核', { exact: true })).toBeVisible();
+    await expect(pending).toHaveCount(0);
     await vd.getByRole('tab', { name: '运行与对比' }).click();
     await vd.getByRole('button', { name: '运行基准' }).click();
     await expect(vd.locator('tr', { hasText: '基准' }).getByText('成功')).toBeVisible({ timeout: 30_000 });

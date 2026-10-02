@@ -23,7 +23,7 @@ export function StatementSummaryCard() {
   ];
   return (
     <div data-testid="statement-summary-card">
-      <div className="bd-eyebrow">财报 / 当前批次摘要</div>
+      <div className="newfc-eyebrow">财报 / 当前批次摘要</div>
       <Card size="small" extra={<Typography.Link onClick={() => navigate('/statements')}>查看财务报表</Typography.Link>}
         title={<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{d.batch.orgName} · {d.batch.period} · 单位 元</Typography.Text>}>
         <Row gutter={[16, 12]}>

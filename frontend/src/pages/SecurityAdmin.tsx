@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, TreeSelect, Typography } from 'antd';
@@ -97,6 +98,7 @@ function toTreeData(nodes: OrgTreeNode[]): { value: number; title: string; child
  * 前端只做录入与展示,所有约束(最后管理员、内置角色锁定、口令策略)以服务端为准。
  */
 export default function SecurityAdmin() {
+  useAssistantDomainPage({ pageKey: 'security', ready: true, view: {} });
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const me = getSession()?.user;

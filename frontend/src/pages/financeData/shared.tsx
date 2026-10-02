@@ -62,7 +62,7 @@ export function lastPeriod(): string {
 /** 金额单元格:十进制字符串原样分组,不转 number。 */
 export function Money({ value, tone = false }: { value: string | null | undefined; tone?: boolean }) {
   const sign = decimalSign(value);
-  const color = tone && sign !== 0 ? (sign < 0 ? 'var(--bd-accent)' : undefined) : undefined;
+  const color = tone && sign !== 0 ? (sign < 0 ? 'var(--newfc-accent)' : undefined) : undefined;
   return <span className="tabular-nums" style={{ fontVariantNumeric: 'tabular-nums', color, whiteSpace: 'nowrap' }}>{formatMoney(value)}</span>;
 }
 

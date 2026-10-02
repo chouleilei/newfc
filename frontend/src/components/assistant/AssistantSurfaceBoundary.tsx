@@ -1,5 +1,5 @@
 /**
- * AssistantSurfaceBoundary(方案《小澧助手全页面回答范围自动对齐开发计划》§8.4)。
+ * AssistantSurfaceBoundary(现行 specs/ai.md 页面上下文契约§8.4)。
  *
  * Drawer、Modal、Popover 的共同生命周期由这一个轻量边界处理：
  * - open 时登记浮层(按打开顺序即优先顺序)，关闭或卸载时立即注销；

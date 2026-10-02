@@ -6,7 +6,7 @@
  * - 推荐问题「您是否想问」:一个描边容器里若干行,行尾 chevron,悬停整行变主色;
  * - 输入器:文本域与工具条包在同一个圆角框里,发送键是圆形图标键(不是一整块蓝按钮)。
  *
- * 样式都落在 index.css 的 .bd-ai-* 类里,这里只组装结构与无障碍属性。
+ * 样式都落在 index.css 的 .newfc-ai-* 类里,这里只组装结构与无障碍属性。
  */
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Alert, Button, Input, Space, Tag, Tooltip, Typography } from 'antd';
@@ -44,7 +44,7 @@ export function AssistantMark({ size = 24 }: { size?: number }) {
         borderRadius: Math.round(size / 3),
         color: '#fff',
         fontSize: Math.round(size * 0.56),
-        background: 'linear-gradient(135deg, var(--bd-ai-primary), var(--bd-ai-primary-deep))',
+        background: 'linear-gradient(135deg, var(--newfc-ai-primary), var(--newfc-ai-primary-deep))',
       }}
     >
       <i className="ri-flashlight-line" aria-hidden />
@@ -54,7 +54,7 @@ export function AssistantMark({ size = 24 }: { size?: number }) {
 
 /** 分区小标题:「我能帮您做」「您是否想问」 */
 export function SectionLabel({ children }: { children: ReactNode }) {
-  return <p className="bd-ai-section-label">{children}</p>;
+  return <p className="newfc-ai-section-label">{children}</p>;
 }
 
 /**
@@ -76,21 +76,21 @@ export function SkillCards({ page, items, columns = 1, onPick }: {
   const list = items ?? pageSkills(page ?? 'assistant');
   if (columns === 2) {
     return (
-      <div className="bd-ai-skill-grid">
+      <div className="newfc-ai-skill-grid">
         {list.map((item, index) => (
           <button
             key={item.key}
             type="button"
-            className="bd-ai-skill bd-ai-skill-grid-item bd-ghost-host"
+            className="newfc-ai-skill newfc-ai-skill-grid-item newfc-ghost-host"
             data-testid={`assistant-skill-${item.key}`}
             onClick={() => onPick(item)}
           >
             {/* 2×2 网格卡的角落幽灵编号(小号 40px,右上角),给网格一点编辑感 */}
-            <span className="bd-ghost-num bd-ghost-num-sm" aria-hidden>{index + 1}</span>
-            <span className="bd-ai-skill-icon">{SKILL_ICON[item.icon]}</span>
+            <span className="newfc-ghost-num newfc-ghost-num-sm" aria-hidden>{index + 1}</span>
+            <span className="newfc-ai-skill-icon">{SKILL_ICON[item.icon]}</span>
             <span style={{ minWidth: 0 }}>
-              <span className="bd-ai-skill-title" style={{ display: 'block' }}>{item.title}</span>
-              <span className="bd-ai-skill-desc" style={{ display: 'block' }}>{item.desc}</span>
+              <span className="newfc-ai-skill-title" style={{ display: 'block' }}>{item.title}</span>
+              <span className="newfc-ai-skill-desc" style={{ display: 'block' }}>{item.desc}</span>
             </span>
           </button>
         ))}
@@ -103,14 +103,14 @@ export function SkillCards({ page, items, columns = 1, onPick }: {
         <button
           key={item.key}
           type="button"
-          className={`bd-ai-skill${index === 0 ? ' bd-ai-skill-primary' : ''}`}
+          className={`newfc-ai-skill${index === 0 ? ' newfc-ai-skill-primary' : ''}`}
           data-testid={`assistant-skill-${item.key}`}
           onClick={() => onPick(item)}
         >
-          <span className="bd-ai-skill-icon">{SKILL_ICON[item.icon]}</span>
+          <span className="newfc-ai-skill-icon">{SKILL_ICON[item.icon]}</span>
           <span style={{ minWidth: 0 }}>
-            <span className="bd-ai-skill-title" style={{ display: 'block' }}>{item.title}</span>
-            <span className="bd-ai-skill-desc" style={{ display: 'block' }}>{item.desc}</span>
+            <span className="newfc-ai-skill-title" style={{ display: 'block' }}>{item.title}</span>
+            <span className="newfc-ai-skill-desc" style={{ display: 'block' }}>{item.desc}</span>
           </span>
         </button>
       ))}
@@ -128,12 +128,12 @@ export function RecommendList({ prompts, columns = 1, onPick }: {
   onPick: (prompt: string) => void;
 }) {
   return (
-    <div className={columns === 2 ? 'bd-ai-recommend bd-ai-recommend-two' : 'bd-ai-recommend'}>
+    <div className={columns === 2 ? 'newfc-ai-recommend newfc-ai-recommend-two' : 'newfc-ai-recommend'}>
       {prompts.map((prompt) => (
         <button
           key={prompt}
           type="button"
-          className="bd-ai-recommend-row"
+          className="newfc-ai-recommend-row"
           title={prompt}
           onClick={() => onPick(prompt)}
         >
@@ -193,7 +193,7 @@ export function Composer({
   };
 
   return (
-    <div className="bd-ai-composer">
+    <div className="newfc-ai-composer">
       <Input.TextArea
         ref={ref}
         value={value}
@@ -208,13 +208,13 @@ export function Composer({
           fire();
         }}
       />
-      <div className="bd-ai-composer-toolbar">
-        <span style={{ minWidth: 0, fontSize: 12, color: 'var(--bd-text-tertiary)' }}>{hint}</span>
+      <div className="newfc-ai-composer-toolbar">
+        <span style={{ minWidth: 0, fontSize: 12, color: 'var(--newfc-text-tertiary)' }}>{hint}</span>
         {sending ? (
           <Tooltip title="停止生成">
             <button
               type="button"
-              className="bd-ai-send bd-ai-send-stop"
+              className="newfc-ai-send newfc-ai-send-stop"
               aria-label="停止生成"
               data-testid={stopTestId}
               onClick={onStop}
@@ -226,7 +226,7 @@ export function Composer({
           <Tooltip title={empty ? '请先输入问题' : '发送（Enter）'}>
             <button
               type="button"
-              className="bd-ai-send"
+              className="newfc-ai-send"
               aria-label="发送"
               disabled={empty}
               data-testid={sendTestId}
@@ -244,7 +244,7 @@ export function Composer({
 /** 底部免责声明:一行小灰字,替代旧版那三行说明文 */
 export function Disclaimer({ children }: { children?: ReactNode }) {
   return (
-    <p className="bd-ai-disclaimer">
+    <p className="newfc-ai-disclaimer">
       {children ?? '数字来自后端事实，行文由 AI 生成，仅供参考'}
     </p>
   );
@@ -299,10 +299,10 @@ export function EvidenceFold({ turn, onAdoptContext, testId, hideFacts = false }
     response.facts?.length ? `事实 ${response.facts.length}` : null,
   ].filter(Boolean).join(' · ');
   return (
-    <div className={`bd-ai-evidence${warnings.length ? ' bd-ai-evidence-warn' : ''}`}>
+    <div className={`newfc-ai-evidence${warnings.length ? ' newfc-ai-evidence-warn' : ''}`}>
       <button
         type="button"
-        className="bd-ai-evidence-toggle"
+        className="newfc-ai-evidence-toggle"
         data-testid={testId}
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
@@ -310,14 +310,14 @@ export function EvidenceFold({ turn, onAdoptContext, testId, hideFacts = false }
         <i className={open ? 'ri-arrow-down-s-line' : 'ri-arrow-right-s-line'} aria-hidden />
         {warnings.length ? (
           <Tooltip title="本轮回答带有模型降级、后端提示或数值核对警告，展开查看">
-            <i className="ri-error-warning-line bd-ai-evidence-warn-icon" aria-hidden />
+            <i className="ri-error-warning-line newfc-ai-evidence-warn-icon" aria-hidden />
           </Tooltip>
         ) : null}
         <span>引用与依据</span>
-        <span className="bd-ai-evidence-summary">{summary}</span>
+        <span className="newfc-ai-evidence-summary">{summary}</span>
       </button>
       {open ? (
-        <div className="bd-ai-evidence-panel">
+        <div className="newfc-ai-evidence-panel">
           {warnings.length ? (
             <Space direction="vertical" size={4} style={{ width: '100%' }}>
               {response.modelError ? (
@@ -333,12 +333,12 @@ export function EvidenceFold({ turn, onAdoptContext, testId, hideFacts = false }
           ) : null}
           {response.resolution?.length ? (
             <Space size={[6, 6]} wrap>
-              <span className="bd-ai-scope-key">口径</span>
+              <span className="newfc-ai-scope-key">口径</span>
               {response.resolution.map((item, index) => {
                 const origin = RESOLUTION_ORIGIN_LABEL[item.origin] ?? { text: item.origin };
                 return (
                   <Tooltip key={`${item.field}-${index}`} title={item.reason}>
-                    <Tag bordered={false} className="bd-ai-meta" color={origin.color}>
+                    <Tag bordered={false} className="newfc-ai-meta" color={origin.color}>
                       {RESOLUTION_FIELD_LABEL[item.field] ?? item.field}：{item.label ?? item.value}
                       <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>{origin.text}</Typography.Text>
                     </Tag>

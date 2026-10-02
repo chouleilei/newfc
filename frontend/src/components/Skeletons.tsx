@@ -11,14 +11,14 @@ import { Skeleton } from 'antd';
 
 export function TableSkeleton({ columns = 3, rows = 5 }: { columns?: number; rows?: number }) {
   return (
-    <div className="bd-skeleton-table" aria-busy="true" aria-label="正在加载">
-      <div className="bd-skeleton-table-head" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+    <div className="newfc-skeleton-table" aria-busy="true" aria-label="正在加载">
+      <div className="newfc-skeleton-table-head" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
         {Array.from({ length: columns }, (_, i) => (
           <Skeleton.Button key={`h-${i}`} active size="small" block />
         ))}
       </div>
       {Array.from({ length: rows }, (_, r) => (
-        <div key={`r-${r}`} className="bd-skeleton-table-row" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+        <div key={`r-${r}`} className="newfc-skeleton-table-row" style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
           {Array.from({ length: columns }, (_, c) => (
             <Skeleton.Input key={`c-${c}`} active size="small" block />
           ))}
@@ -30,7 +30,7 @@ export function TableSkeleton({ columns = 3, rows = 5 }: { columns?: number; row
 
 export function CardSkeleton({ lines = 3, chart = false }: { lines?: number; chart?: boolean }) {
   return (
-    <div className="bd-skeleton-card" aria-busy="true" aria-label="正在加载">
+    <div className="newfc-skeleton-card" aria-busy="true" aria-label="正在加载">
       <Skeleton active title={{ width: '38%' }} paragraph={false} />
       {chart ? (
         <Skeleton.Node active style={{ width: '100%', height: 180, marginTop: 16, borderRadius: 8 }} />

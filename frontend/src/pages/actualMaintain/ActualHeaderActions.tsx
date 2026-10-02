@@ -86,7 +86,7 @@ export function ActualHeaderActions(props: {
         content: (
           <div>
             <div style={{ maxHeight: 300, overflow: 'auto' }}>{(err.body?.errors ?? []).map((x, i) => <div key={i}>第{x.row}行 [{x.field}]: {x.message}</div>)}</div>
-            <div style={{ marginTop: 8, color: 'var(--bd-text-secondary, rgba(0,0,0,0.65))' }}>请按以上行号修正文件后重新上传；格式特殊的文件可改用「导入 Excel → 非标准 Excel 清洗」手工匹配列。</div>
+            <div style={{ marginTop: 8, color: 'var(--newfc-text-secondary, rgba(0,0,0,0.65))' }}>请按以上行号修正文件后重新上传；格式特殊的文件可改用「导入 Excel → 非标准 Excel 清洗」手工匹配列。</div>
           </div>
         ),
       });

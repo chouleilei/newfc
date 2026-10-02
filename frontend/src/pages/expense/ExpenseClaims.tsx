@@ -1,6 +1,7 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { positiveQueryNumber, useListSearchParams } from '../../hooks/useListSearchParams';
 import {
   Alert, App as AntdApp, Button, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Radio, Row, Segmented, Select, Space, Table, Tag, Typography, Upload,
 } from 'antd';
@@ -24,6 +25,7 @@ const dateItem = { getValueProps: (v?: string) => ({ value: v ? dayjs(v) : null 
 
 function ClaimFormModal({ open, claim, onClose, onSaved }: { open: boolean; claim?: ClaimDetailDto; onClose: () => void; onSaved: (c: ClaimDetailDto) => void }) {
   const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
   const [form] = Form.useForm();
   const save = useMutation({
     mutationFn: (v: Record<string, unknown>) => {
@@ -31,7 +33,13 @@ function ClaimFormModal({ open, claim, onClose, onSaved }: { open: boolean; clai
       const body = { ...compact(v), lines } as never;
       return claim ? expenseApi.updateClaim(claim.id, { ...(body as object), expectedReviewVersion: claim.reviewVersion } as never) : expenseApi.createClaim(body);
     },
-    onSuccess: (c) => { message.success(claim ? '已保存' : `已创建报销单 ${c.claimNo}`); onSaved(c); onClose(); },
+    onSuccess: (c) => {
+      void qc.invalidateQueries({ queryKey: ['claims'] });
+      void qc.invalidateQueries({ queryKey: ['expense-queue'] });
+      void qc.invalidateQueries({ queryKey: ['workbench-todos'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard-domains'] });
+      message.success(claim ? '已保存' : `已创建报销单 ${c.claimNo}`); onSaved(c); onClose();
+    },
     onError: (e) => message.error(errorText(e)),
   });
   return (
@@ -164,6 +172,8 @@ function ClaimDrawer({ id, onClose }: { id: number | null; onClose: () => void }
   const refresh = (d?: ClaimDetailDto) => {
     if (d) qc.setQueryData(['claim', id], d); else void qc.invalidateQueries({ queryKey: ['claim', id] });
     void qc.invalidateQueries({ queryKey: ['claims'] }); void qc.invalidateQueries({ queryKey: ['expense-queue'] });
+    void qc.invalidateQueries({ queryKey: ['workbench-todos'] });
+    void qc.invalidateQueries({ queryKey: ['dashboard-domains'] });
   };
   const run = useMutation({
     mutationFn: (fn: () => Promise<unknown>) => fn(),
@@ -267,27 +277,51 @@ function ClaimDrawer({ id, onClose }: { id: number | null; onClose: () => void }
 }
 
 export default function ExpenseClaims() {
-  const [params, setParams] = useSearchParams();
+  const qc = useQueryClient();
+  const { params, setParams, page, pageSize, update } = useListSearchParams();
   const status = (params.get('status') ?? undefined) as ClaimStatus | undefined;
   const openId = params.get('id') ? Number(params.get('id')) : null;
   const patch = (k: string, v: string | null) => setParams((p) => { const n = new URLSearchParams(p); if (v == null) n.delete(k); else n.set(k, v); return n; }, { replace: true });
-  const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
-  const [keyword, setKeyword] = useState<string | undefined>();
+  // 未选组织时由服务端返回全部授权范围;授权根不等于单据所属组织。
+  const orgId = positiveQueryNumber(params.get('orgId'));
+  const keyword = params.get('keyword')?.trim() || undefined;
   const [creating, setCreating] = useState(false);
-  const queue = useQuery({ queryKey: ['expense-queue', orgId], queryFn: () => expenseApi.queue(orgId) });
-  const list = useQuery({ queryKey: ['claims', status, orgId, keyword], queryFn: () => expenseApi.claims(compact({ status, orgId, keyword })) });
-  const counts = queue.data?.counts;
+  const queue = useQuery({
+    queryKey: ['expense-queue', orgId], queryFn: () => expenseApi.queue(orgId),
+    refetchInterval: (query) => query.state.data?.counts.submitted ? 2000 : false,
+  });
+  const list = useQuery({
+    queryKey: ['claims', status, orgId, keyword, page, pageSize], queryFn: () => expenseApi.claimsPage({ ...compact({ status, orgId, keyword }), page, pageSize }),
+    refetchInterval: (query) => query.state.data?.items.some((c) => c.status === 'submitted') ? 2000 : false,
+  });
+  useEffect(() => { if (list.data && list.data.page !== page) update({ page: list.data.page }, false); }, [list.data?.page, page, update]);
+  useAssistantDomainPage({ pageKey: 'expense', ready: !list.isLoading && !list.error, scope: { orgScopeId: orgId, claimId: openId ?? undefined }, view: { status, keyword } });
+  const counts = queue.error ? undefined : queue.data?.counts;
+  const submittedCount = queue.data?.counts.submitted;
+  const auditedCount = queue.data?.counts.audited;
+  useEffect(() => {
+    if (submittedCount == null || auditedCount == null) return;
+    // 审核运行可能在详情关闭后结束;刷新当前状态筛选及首页待办。
+    void qc.invalidateQueries({ queryKey: ['claims'] });
+    void qc.invalidateQueries({ queryKey: ['workbench-todos'] });
+    void qc.invalidateQueries({ queryKey: ['dashboard-domains'] });
+  }, [qc, submittedCount, auditedCount]);
   return (
     <div>
       <Space wrap style={{ marginBottom: 12 }}>
-        <Segmented value={status ?? 'all'} onChange={(v) => patch('status', v === 'all' ? null : String(v))}
+        <Segmented value={status ?? 'all'} onChange={(v) => update({ status: v === 'all' ? undefined : String(v) })}
           options={[{ value: 'all', label: '全部' }, ...Object.entries(CLAIM_STATUS).map(([value, m]) => ({ value, label: `${m.text}${counts ? ` ${counts[value as ClaimStatus]}` : ''}` }))]} />
-        <OrgSelect value={orgId} onChange={setOrgId} />
-        <Input.Search allowClear placeholder="单号/申请人/事由" onSearch={(v) => setKeyword(v.trim() || undefined)} style={{ width: 200 }} />
+        <OrgSelect value={orgId} onChange={(v) => update({ orgId: v })} placeholder="全部授权组织" />
+        <Input.Search key={keyword ?? ''} defaultValue={keyword} maxLength={100} allowClear placeholder="单号/申请人/事由" onSearch={(v) => update({ keyword: v.trim() || undefined })} style={{ width: 200 }} />
         {can('expense:submit') && <Button type="primary" onClick={() => setCreating(true)}>新建报销单</Button>}
       </Space>
+      {queue.error && <Alert type="warning" showIcon message="状态统计加载失败" description={errorText(queue.error)}
+        action={<Button size="small" loading={queue.isFetching} onClick={() => void queue.refetch()}>重试</Button>} style={{ marginBottom: 12 }} />}
       {list.error ? <QueryErrorResult title="报销单加载失败" error={list.error} refetch={list.refetch} /> : (
-        <Table<ClaimDto> rowKey="id" size="small" loading={list.isLoading} dataSource={list.data ?? []} pagination={{ pageSize: 20, showSizeChanger: false }}
+        <Table<ClaimDto> rowKey="id" size="small" loading={list.isFetching} dataSource={list.data?.items ?? []} pagination={{
+          current: list.data?.page ?? page, pageSize, total: list.data?.total ?? 0, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100],
+          showTotal: (total) => `共 ${total} 条`, onChange: (p, size) => update({ page: size === pageSize ? p : 1, pageSize: size }, false),
+        }}
           locale={{ emptyText: <Empty description="没有报销单" /> }}
           onRow={(r) => ({ onClick: () => patch('id', String(r.id)), style: { cursor: 'pointer' } })}
           columns={[

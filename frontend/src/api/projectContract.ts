@@ -4,7 +4,8 @@
  */
 import { api } from './client';
 import { qs } from './financeData';
-import type { PbBatchDto, PbEntryDto, PbPreviewDto, PbSummaryDto } from '@contracts/project-budget';
+import type { PageDto, PageQuery } from '@contracts/common';
+import type { PbBatchDto, PbBatchListQuery, PbEntryDto, PbPreviewDto, PbSummaryDto } from '@contracts/project-budget';
 import type {
   PlanBatchDto, PlanItemDto, PlanOverviewDto, PlanPreviewDto, PlanProjectProgressListDto, PlanSheetCode,
 } from '@contracts/plan-execution';
@@ -34,6 +35,8 @@ export const projectBudgetApi = {
   preview: (file: File, f: PbUploadFields) => api.post<PbPreviewDto>('/project-budget/preview', form(file, { ...f })),
   importFile: (file: File, f: PbUploadFields) => api.post<PbBatchDto>('/project-budget/import', form(file, { ...f })),
   batches: (q: { year?: number; period?: string; status?: string }) => api.get<PbBatchDto[]>(`/project-budget/batches${qs(q)}`),
+  batchesPage: (q: PbBatchListQuery & PageQuery) => api.get<PageDto<PbBatchDto>>(`/project-budget/batches/page${qs({ ...q })}`),
+  batch: (id: number) => api.get<PbBatchDto>(`/project-budget/batches/${id}`),
   entries: (id: number) => api.get<PbEntryDto[]>(`/project-budget/batches/${id}/entries`),
   activate: (id: number, expectedCurrentBatchId: number | null) => api.post<PbBatchDto>(`/project-budget/batches/${id}/activate`, { expectedCurrentBatchId }),
   void: (id: number, reason: string) => api.post<PbBatchDto>(`/project-budget/batches/${id}/void`, { reason }),
@@ -43,6 +46,7 @@ export const projectBudgetApi = {
 export interface PlanUploadFields { year: number; actualPeriod: string }
 export interface PlanQueryFields { year: number; asOfPeriod?: string; orgId?: number; projectId?: number }
 export const planApi = {
+  batch: (id: number) => api.get<PlanBatchDto>(`/plan/batches/${id}`),
   preview: (file: File, f: PlanUploadFields) => api.post<PlanPreviewDto>('/plan/preview', form(file, { ...f })),
   importFile: (file: File, f: PlanUploadFields) => api.post<PlanBatchDto>('/plan/import', form(file, { ...f })),
   batches: (q: { year?: number; status?: string }) => api.get<PlanBatchDto[]>(`/plan/batches${qs(q)}`),
@@ -56,6 +60,7 @@ export const planApi = {
 type Decision = Partial<DecisionRequest> & Pick<DecisionRequest, 'decision'>;
 export const contractApi = {
   list: (q: Partial<ContractListQuery>) => api.get<ContractDto[]>(`/contracts${qs({ ...q })}`),
+  listPage: (q: ContractListQuery & PageQuery) => api.get<PageDto<ContractDto>>(`/contracts/page${qs({ ...q })}`),
   summary: (q: { orgId?: number; projectId?: number }) => api.get<ContractSummaryDto>(`/contracts/summary${qs(q)}`),
   get: (id: number) => api.get<ContractDetailDto>(`/contracts/${id}`),
   create: (body: Partial<ContractCreateRequest>) => api.post<ContractDetailDto>('/contracts', body),
@@ -88,6 +93,7 @@ export const expenseApi = {
   uploadPolicySource: (id: number, file: File) => api.post<PolicyDto>(`/expense/policies/${id}/source`, form(file, {})),
   queue: (orgId?: number) => api.get<ExpenseQueueDto>(`/expense/queue${qs({ orgId })}`),
   claims: (q: Partial<ClaimListQuery>) => api.get<ClaimDto[]>(`/expense/claims${qs({ ...q })}`),
+  claimsPage: (q: ClaimListQuery & PageQuery) => api.get<PageDto<ClaimDto>>(`/expense/claims/page${qs({ ...q })}`),
   claim: (id: number) => api.get<ClaimDetailDto>(`/expense/claims/${id}`),
   createClaim: (body: ClaimCreateRequest) => api.post<ClaimDetailDto>('/expense/claims', body),
   updateClaim: (id: number, body: ClaimUpdateRequest) => api.put<ClaimDetailDto>(`/expense/claims/${id}`, body),

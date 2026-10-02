@@ -1,6 +1,7 @@
+import type { DomainContext } from './domainContext';
 /**
  * AssistantPageContextV2 前端共享类型与 pageKey 目录
- * (方案《小澧助手全页面回答范围自动对齐开发计划》§5、§7.1)。
+ * (现行 specs/ai.md 页面上下文契约§5、§7.1)。
  *
  * 约定：
  * - 本文件只放类型、pageKey 目录、规范化和快照逻辑，不拆分出 fingerprint/selection/overlay 等小模块；
@@ -11,7 +12,7 @@
  */
 
 /** 页面真正用于取数的业务范围(§5.2)。页面没有某字段时不发送，不用 null 占位。 */
-export interface PageScope {
+export interface PageScope extends DomainContext {
   year?: number;
   periodStart?: string;
   periodEnd?: string;
@@ -104,6 +105,7 @@ export const SELECTION_MAX_REFS = 500;
  * 顺序即展示顺序；与后端 PageCapabilityMap 一键不差。
  */
 export const PAGE_KEYS = [
+'eas', 'governance', 'statements', 'mgmt', 'standard_reports', 'project_budget', 'plan', 'contracts', 'contract_import', 'expense', 'expense_policies', 'feasibility', 'investment_control', 'forecast', 'risk', 'analysis_reports', 'master_entities', 'project_profile', 'search', 'jobs', 'business_settings', 'security',
   'dashboard',
   'assistant',
   'insights',

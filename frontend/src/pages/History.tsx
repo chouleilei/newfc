@@ -97,7 +97,7 @@ function MultiYearTrendCard(props: { baseYear: number }) {
 export default function History() {
   const { data, error, isLoading, refetch } = useQuery({ queryKey: ['historical'], queryFn: () => api.get<{ years: YearRow[]; notes: string[] }>('/report/historical') });
 
-  /* 小澧助手页面登记(§7.2 history)：历年对比无筛选，ready 跟随报告加载;读取失败同样不算就绪。 */
+  /* 财务助手页面登记(§7.2 history)：历年对比无筛选，ready 跟随报告加载;读取失败同样不算就绪。 */
   useAssistantPageContext({ pageKey: 'history', ready: !isLoading && !error, readyState: isLoading ? 'loading' : 'error', notReadyReason: error ? '历年对比读取失败' : '正在读取历年对比', scope: {}, view: {} });
   const { mode } = useThemeMode();
 
@@ -191,7 +191,7 @@ export default function History() {
   const naText = (reason: string) => <Typography.Text type="secondary" title={reason}>不适用</Typography.Text>;
   const cols = [
     /* 序号列:居中降色 tnum(方案《排版工具与数据组件》一.6),金额与完成率等信息列不动 */
-    { title: '#', key: 'rank', width: 42, className: 'bd-col-rank', render: (_: unknown, __: YearRow, index: number) => index + 1 },
+    { title: '#', key: 'rank', width: 42, className: 'newfc-col-rank', render: (_: unknown, __: YearRow, index: number) => index + 1 },
     { title: '年度', dataIndex: 'year', width: 62 },
     { title: '预算版本', dataIndex: 'budgetVersionName', width: 110, ellipsis: true, render: (v: string | null) => v ?? naText('该年度未设置当前采用的预算版本') },
     { title: '最终快照', dataIndex: 'finalSnapshotDate', width: 95, render: (v: string | null) => v ?? naText('该年度关闭时未指定最终快照') },
@@ -217,19 +217,19 @@ export default function History() {
   return (
     /* 无壳 + 无标题:顶栏已显示「历年对比」,Card title 是重复的第二遍 */
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       extra={<Button icon={<i className="ri-download-2-line" aria-hidden />} onClick={() => download('/io/export/historical', '历年预实对比.xlsx')}>导出</Button>}
     >
       {/* 眉题:每页仅首个内容区块带,避免满屏编号 */}
-      <div className="bd-eyebrow">历年对比</div>
+      <div className="newfc-eyebrow">历年对比</div>
       {/* 口径说明收敛为一行 + Tooltip:原文 79 字常驻首屏,把数据挤到折叠线以下。
           这是「看一次就够」的元信息,不该天天占着首屏。 */}
       <Space size={6} style={{ marginBottom: 12, alignItems: 'flex-start' }}>
-        <span className="bd-quote">
+        <span className="newfc-quote">
           历史年度读取年度关闭时的最终快照,不按当前结构重算
         </span>
         <Tooltip title="历史年度一律读取年度关闭时指定的最终快照及其绑定树，不按当前组织/科目结构重算。金额单位万元；收入、成本、费用均按业务正数展示，利润与差异保留带符号利润方向。">
-          <i className="ri-information-line" style={{ color: 'var(--bd-text-tertiary)', fontSize: 13, cursor: 'pointer', marginTop: 5 }} aria-hidden />
+          <i className="ri-information-line" style={{ color: 'var(--newfc-text-tertiary)', fontSize: 13, cursor: 'pointer', marginTop: 5 }} aria-hidden />
         </Tooltip>
       </Space>
       {error ? <Result status="error" title="历史数据加载失败" subTitle={error instanceof Error ? error.message : String(error)} extra={<Button onClick={() => void refetch()}>重试</Button>} /> : (!data || data.years.length === 0) ? (

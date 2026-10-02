@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -219,6 +220,7 @@ function EventsTab() {
   const query: Partial<RiskListQuery> = compact({ status, level, source: source as RiskListQuery['source'], orgId, keyword: keyword.trim(), open: openOnly && !status ? '1' as const : undefined });
   const events = useQuery({ queryKey: ['risk-events', query], queryFn: () => riskApi.events(query) });
   const summary = useQuery({ queryKey: ['risk-summary', orgId], queryFn: () => riskApi.summary(compact({ orgId })) });
+  useAssistantDomainPage({ pageKey: 'risk', ready: !events.isLoading && !events.error, scope: { orgScopeId: orgId, riskId: openId ?? undefined }, view: { status, level, keyword } });
   const scan = useMutation({
     mutationFn: () => riskApi.scan(orgId),
     onSuccess: (s) => {
@@ -398,9 +400,11 @@ function RulesTab() {
 }
 
 export default function RiskLedger() {
+  const [tab, setTab] = useState('events');
+  useAssistantDomainPage({ pageKey: 'risk', ready: true, view: { tab } }, tab !== 'events');
   return (
     <div>
-      <Tabs items={[
+      <Tabs destroyInactiveTabPane activeKey={tab} onChange={setTab} items={[
         { key: 'events', label: '风险事件', children: <EventsTab /> },
         { key: 'scans', label: '扫描记录', children: <ScansTab /> },
         { key: 'rules', label: '规则', children: <RulesTab /> },

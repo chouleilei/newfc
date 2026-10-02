@@ -16,7 +16,9 @@ export default function DictItemsTab() {
   const [form] = Form.useForm<{ dictType: string; itemValue: string; itemLabel: string; sortOrder?: number }>();
   const types = useQuery({ queryKey: ['dict-types'], queryFn: () => dictApi.types() });
   const list = useQuery({ queryKey: ['dict-items', dictType], queryFn: () => dictApi.items({ dictType }) });
-  const refresh = () => { void qc.invalidateQueries({ queryKey: ['dict-items'] }); void qc.invalidateQueries({ queryKey: ['dict-types'] }); };
+  const refresh = () => {
+    for (const key of ['dict-items', 'dict-types', 'custom-fields-active', 'settings-custom-fields']) void qc.invalidateQueries({ queryKey: [key] });
+  };
   const save = useMutation({
     mutationFn: (v: { dictType: string; itemValue: string; itemLabel: string; sortOrder?: number }) => editing === 'new'
       ? dictApi.create({ ...v, sortOrder: v.sortOrder ?? undefined })

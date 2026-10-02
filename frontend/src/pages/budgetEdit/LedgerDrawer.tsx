@@ -172,7 +172,7 @@ export function LedgerDrawer(props: {
             width: 160,
             render: (name: string, r) => (
               <div>
-                <div><span style={{ fontFamily: 'monospace', fontWeight: 600, color: typeChips[r.accType]?.color ?? 'var(--bd-text-tertiary)' }}>{r.accCode}</span> {name}</div>
+                <div><span style={{ fontFamily: 'monospace', fontWeight: 600, color: typeChips[r.accType]?.color ?? 'var(--newfc-text-tertiary)' }}>{r.accCode}</span> {name}</div>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {r.summary ? <Tag style={{ marginRight: 4 }}>汇总格</Tag> : null}
                   {r.summary ? '备注不参与数值汇总' : `${r.value || '0.00'} ${r.accType === 'quantity' ? (r.unit ?? '') : '万元'}`}
@@ -217,7 +217,7 @@ export function LedgerDrawer(props: {
         ]}
       />
       <Modal title={historyTarget ? `附注变更历史 · ${historyTarget.label}` : '附注变更历史'} open={historyTarget != null} onCancel={() => setHistoryTarget(null)} footer={null} width={680} destroyOnClose>
-        {historyQuery.isLoading ? <Typography.Text type="secondary">正在加载历史…</Typography.Text> : (historyQuery.data?.changes?.length ?? 0) === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无附注变更记录" /> : <Space direction="vertical" style={{ width: '100%' }}>{historyQuery.data!.changes.map((c) => <div key={`${c.checkpointId}-${c.sequenceNo}`} style={{ borderBottom: '1px solid var(--bd-border-subtle)', paddingBottom: 10 }}><Space><Tag color="blue">#{c.sequenceNo}</Tag><strong>{c.title}</strong><Typography.Text type="secondary">{c.createdAt.slice(0, 19).replace('T', ' ')}</Typography.Text></Space><div style={{ marginTop: 6, whiteSpace: 'pre-wrap' }}><div style={{ background: `color-mix(in srgb, ${statusColor(useThemeMode().mode).warn} 12%, transparent)`, padding: 5 }}>修改前：{c.before.note || '无附注'}</div><div style={{ background: 'var(--bd-primary-bg)', padding: 5, marginTop: 3 }}>修改后：{c.after.note || '无附注'}</div></div></div>)}</Space>}
+        {historyQuery.isLoading ? <Typography.Text type="secondary">正在加载历史…</Typography.Text> : (historyQuery.data?.changes?.length ?? 0) === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无附注变更记录" /> : <Space direction="vertical" style={{ width: '100%' }}>{historyQuery.data!.changes.map((c) => <div key={`${c.checkpointId}-${c.sequenceNo}`} style={{ borderBottom: '1px solid var(--newfc-border-subtle)', paddingBottom: 10 }}><Space><Tag color="blue">#{c.sequenceNo}</Tag><strong>{c.title}</strong><Typography.Text type="secondary">{c.createdAt.slice(0, 19).replace('T', ' ')}</Typography.Text></Space><div style={{ marginTop: 6, whiteSpace: 'pre-wrap' }}><div style={{ background: `color-mix(in srgb, ${statusColor(useThemeMode().mode).warn} 12%, transparent)`, padding: 5 }}>修改前：{c.before.note || '无附注'}</div><div style={{ background: 'var(--newfc-primary-bg)', padding: 5, marginTop: 3 }}>修改后：{c.after.note || '无附注'}</div></div></div>)}</Space>}
       </Modal>
     </Drawer>
   );

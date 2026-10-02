@@ -496,9 +496,9 @@ function MonthlyConversion({ initialScope, onGoToMapping }: { initialScope?: Pic
   return (
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={8}>
-        <Card title="月度文件与口径" className="bd-ghost-host">
+        <Card title="月度文件与口径" className="newfc-ghost-host">
           {/* 幽灵数字表达「先左后右」的两段流程:此卡是第 1 步;叠 sm 变体移至右上角,避开底部满宽提交按钮 */}
-          <span className="bd-ghost-num bd-ghost-num-sm" aria-hidden>1</span>
+          <span className="newfc-ghost-num newfc-ghost-num-sm" aria-hidden>1</span>
           {loadError ? (
             <QueryErrorResult title="数据源与映射版本加载失败" error={loadError} refetch={() => { void profiles.refetch(); void mappings.refetch(); }} />
           ) : (
@@ -540,7 +540,7 @@ function MonthlyConversion({ initialScope, onGoToMapping }: { initialScope?: Pic
       </Col>
       <Col xs={24} lg={16}>
         <Card
-          title="校验报告" className="bd-ghost-host"
+          title="校验报告" className="newfc-ghost-host"
           extra={result?.status === 'validated' && (
             <Space>
               <Button onClick={() => download(`/finance/conversions/${result.id}/output`, `标准实际数-${result.snapshot_date}.xlsx`)}>下载标准文件</Button>
@@ -549,7 +549,7 @@ function MonthlyConversion({ initialScope, onGoToMapping }: { initialScope?: Pic
           )}
         >
           {/* 第 2 步:左侧文件与口径就绪后,在此读校验结果;幽灵数字与左卡同落右上角保持成对 */}
-          <span className="bd-ghost-num bd-ghost-num-sm" aria-hidden>2</span>
+          <span className="newfc-ghost-num newfc-ghost-num-sm" aria-hidden>2</span>
           {!result ? <Alert type="info" showIcon message="正式金额全程由固定程序转换；序时簿仅做独立逐分核验，任一强制校验失败将关闭输出。" /> : <ReportView conversion={result} />}
         </Card>
       </Col>
@@ -859,7 +859,7 @@ function ParallelTrials() {
 const FINANCE_TABS = ['convert', 'mapping', 'parallel', 'history'] as const;
 
 export default function FinanceImport() {
-  /* 小澧助手页面登记(§7.2 finance_import)：当前步骤(页签)即工作区。 */
+  /* 财务助手页面登记(§7.2 finance_import)：当前步骤(页签)即工作区。 */
   const [tab, setTab] = useState('convert');
   const [scopeIssues, setScopeIssues] = useState<ScopeIssue[]>([]);
 

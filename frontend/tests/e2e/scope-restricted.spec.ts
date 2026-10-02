@@ -60,5 +60,10 @@ test('受限账号:侧栏与首页按范围裁剪,越权接口与问答拒绝', 
   expect(chat.status()).toBe(404);
   expect(await chat.text()).not.toMatch(/"budgetCents"/);
 
+  await page.goto('/jobs');
+  await expect(page.getByRole('tab', { name: '后台任务' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '模型调用' })).toHaveCount(0);
+  expect((await page.request.get('/api/model-calls')).status()).toBe(403);
+
   await context.close();
 });

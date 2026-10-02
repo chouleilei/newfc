@@ -43,7 +43,7 @@ test('跨年度页面功能、筛选、追溯、下载与管理工具深度交�
   page.on('response', (response) => { if (response.status() >= 400) runtimeErrors.push(`http ${response.status()}: ${response.url()}`); });
 
   // 首页年度切换：冻结状态、最终快照和 KPI 必须一起切换。
-  await page.locator('.ant-select').first().click();
+  await page.locator('.newfc-content .ant-select').first().click();
   await page.getByText(/2025 年 · 2025年度全覆盖模拟预算/).click();
   await expect(page.getByText('年度已冻结', { exact: true })).toBeVisible();
   await expect(page.getByText('实际数据截至 2025-12-31')).toBeVisible();
@@ -107,7 +107,7 @@ test('跨年度页面功能、筛选、追溯、下载与管理工具深度交�
   await page.getByRole('tab', { name: '迁移管理' }).click();
   await expect(page.getByText('已是最新版本', { exact: true })).toBeVisible();
   await page.goto('/data?tab=yearclose');
-  await page.getByRole('combobox').click();
+  await page.locator('.newfc-content').getByRole('combobox').click();
   await page.getByText('2025 年', { exact: true }).click();
   await expect(page.getByText('已冻结', { exact: true })).toBeVisible();
   await expect(page.getByText(/该年度已冻结/)).toBeVisible();

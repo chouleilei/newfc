@@ -60,8 +60,21 @@ export interface SessionInfo {
 
 /* CSRF 令牌只放内存:刷新页面后由 /auth/session 重新取得,不落 localStorage */
 let currentSession: SessionInfo | null = null;
+let sessionGeneration = 0;
+
+/** 令牌刷新不改变身份;账号、授权或强制改密状态变化则使旧请求失效。 */
+function authorityKey(session: SessionInfo | null): string {
+  if (!session) return 'guest';
+  const user = session.user;
+  return JSON.stringify([user.id, [...user.permissions].sort(), user.allOrgs, [...user.orgIds].sort((a, b) => a - b), user.mustChangePassword]);
+}
+export function getSessionGeneration(): number { return sessionGeneration; }
+export function assertSessionGeneration(generation: number): void {
+  if (generation !== sessionGeneration) throw new ApiError({ code: 'SESSION_CHANGED', message: '登录账号或授权已变化，请在当前会话重新操作。' }, 401);
+}
 
 export function setSession(session: SessionInfo | null): void {
+  if (authorityKey(session) !== authorityKey(currentSession)) sessionGeneration += 1;
   currentSession = session;
 }
 export function getSession(): SessionInfo | null {
@@ -92,6 +105,8 @@ export function handleUnauthorized(body: { code?: string } | null | undefined): 
 }
 
 export async function request<T>(method: string, path: string, body?: unknown, extra?: RequestOptions): Promise<T> {
+  const generation = sessionGeneration;
+  const originSession = currentSession;
   const headers: Record<string, string> = { ...csrfHeaders(method) };
   if (body !== undefined && !(body instanceof FormData)) headers['content-type'] = 'application/json';
   const res = await fetch(`/api${path}`, {
@@ -101,16 +116,20 @@ export async function request<T>(method: string, path: string, body?: unknown, e
     body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
     signal: extra?.signal,
   });
+  assertSessionGeneration(generation);
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get('content-type') ?? '';
   if (!ct.includes('application/json')) {
     if (!res.ok) throw new Error(`请求失败: HTTP ${res.status}`);
-    return (await res.blob()) as unknown as T;
+    const blob = await res.blob();
+    assertSessionGeneration(generation);
+    return blob as unknown as T;
   }
   const data = await res.json();
+  assertSessionGeneration(generation);
   if (!res.ok) {
-    // CSRF 令牌过时(例如其他标签页重新登录换了会话):刷新会话取新令牌后重试一次
-    if ((data as ApiErrorBody).code === 'CSRF_REJECTED' && !extra?.csrfRetried && !path.startsWith('/auth/session') && await refreshSession()) {
+    // 只有同一账号且授权未变化才能补令牌重试,不能把旧操作转交给另一账号。
+    if ((data as ApiErrorBody).code === 'CSRF_REJECTED' && !extra?.csrfRetried && !path.startsWith('/auth/session') && await refreshSession(generation, originSession)) {
       return request<T>(method, path, body, { ...extra, csrfRetried: true });
     }
     handleUnauthorized(data as ApiErrorBody);
@@ -119,11 +138,18 @@ export async function request<T>(method: string, path: string, body?: unknown, e
   return data as T;
 }
 
-async function refreshSession(): Promise<boolean> {
+async function refreshSession(generation: number, originSession: SessionInfo | null): Promise<boolean> {
   try {
-    setSession(await request<SessionInfo>('GET', '/auth/session'));
+    const fresh = await request<SessionInfo>('GET', '/auth/session');
+    assertSessionGeneration(generation);
+    if (authorityKey(fresh) !== authorityKey(originSession)) {
+      handleUnauthorized({ code: 'UNAUTHORIZED' });
+      throw new ApiError({ code: 'SESSION_CHANGED', message: '登录账号或授权已变化，请重新登录后核对并操作。' }, 401);
+    }
+    setSession(fresh);
     return true;
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError && error.body.code === 'SESSION_CHANGED') throw error;
     return false;
   }
 }

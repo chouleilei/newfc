@@ -1,3 +1,5 @@
+import { DOMAIN_TOOL_LABELS, DomainFactView } from './DomainFactView';
+import { Link } from 'react-router-dom';
 /**
  * 助手事实与引用展示。
  *
@@ -38,7 +40,7 @@ const FACT_LABEL: Record<string, string> = {
 };
 
 export function factLabel(type: string): string {
-  if (type.startsWith('tool:')) return `模型只读工具 ${type.slice(5)}`;
+  if (type.startsWith('tool:')) return DOMAIN_TOOL_LABELS[type.slice(5)] ?? `只读工具 ${type.slice(5)}`;
   if (type.startsWith('insight:')) return `洞察 ${type.slice(8)}`;
   return FACT_LABEL[type] ?? type;
 }
@@ -264,6 +266,8 @@ function FactBody({ fact }: { fact: AssistantFact }) {
   if (fact.type === 'import_help' || fact.type === 'tool:explain_import') return <ImportHelpFact data={data} />;
   if (fact.type === 'execution' || fact.type === 'tool:calculate_execution') return <ExecutionSummary data={data} />;
   if (fact.type === 'glossary' || fact.type === 'tool:explain_terms') return <GlossaryFact data={fact.type === 'glossary' ? data : { entries: data?.matched }} />;
+  if (fact.type.startsWith('tool:') && DOMAIN_TOOL_LABELS[fact.type.slice(5)]) return <DomainFactView fact={fact} />;
+  if (fact.type.startsWith('domain_')) return <DomainFactView fact={fact} />;
   return <RawJson data={data} />;
 }
 
@@ -299,6 +303,8 @@ export function CitationList({ citations }: { citations: AssistantCitation[] }) 
             <div style={{ fontSize: 12 }}>
               <div>来源：{factLabel(citation.source)}</div>
               <div>截至：{citation.asOf}</div>
+              {citation.period && <div>期间：{citation.period}</div>}
+              {citation.references?.map((r) => <div key={`${r.kind}:${r.id}`}>{r.label} #{r.id}{r.hash ? ` · ${r.hash}` : ''}</div>)}
               {citation.year != null && <div>年度：{citation.year}</div>}
               {citation.budgetVersionId != null && <div>预算版本：#{citation.budgetVersionId}</div>}
               {citation.targetVersionId != null && <div>对比版本：#{citation.targetVersionId}</div>}
@@ -310,11 +316,13 @@ export function CitationList({ citations }: { citations: AssistantCitation[] }) 
         >
           <Tag style={{ cursor: 'help' }}>
             [{index + 1}] {factLabel(citation.source)}
+            {citation.period ? ` · ${citation.period}` : ''}
             {citation.budgetVersionId != null ? ` · V#${citation.budgetVersionId}` : ''}
             {citation.actualSnapshotId != null ? ` · S#${citation.actualSnapshotId}` : ''}
           </Tag>
         </Tooltip>
       ))}
+      {citations.flatMap((c) => c.references ?? []).filter((r, i, a) => a.findIndex((x) => x.kind === r.kind && x.id === r.id) === i).map((r) => <Link key={`${r.kind}:${r.id}`} to={r.path}>{r.label}</Link>)}
     </Space>
   );
 }

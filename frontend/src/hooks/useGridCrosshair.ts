@@ -4,7 +4,7 @@
  * 两条约束:
  * 1. **只加视觉层,不动交互逻辑** —— 不触碰 applyCells、撤销栈与粘贴反馈,
  *    事件一律走委托(容器上挂 data-* 属性),不逐格挂监听、不引入依赖。
- * 2. **动效引用既有令牌** —— 阴影过渡走 --bd-dur-lift,不写死时长。
+ * 2. **动效引用既有令牌** —— 阴影过渡走 --newfc-dur-lift,不写死时长。
  *
  * 准星的实现:容器上维护 data-crosshair-r / data-crosshair-c 两个索引属性,
  * 单元格与表头带 data-gr / data-gc;命中与否完全由 CSS 选择器判定,
@@ -83,7 +83,7 @@ export function useGridCrosshair(enabled = true): GridCrosshair {
       onMouseLeave,
     },
     frozenProps: {
-      className: enabled ? 'bd-grid-frozen-x' : '',
+      className: enabled ? 'newfc-grid-frozen-x' : '',
       'data-scrolled': scrolled ? '1' : '0',
       onScroll,
     },

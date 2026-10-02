@@ -38,7 +38,7 @@ export default function MetricTrend() {
   const [selectedVersionIds, setSelectedVersionIds] = useState<number[]>([]);
   const [selectedMetricIds, setSelectedMetricIds] = useState<number[]>([]);
 
-  /* 小澧助手页面登记(§7.2 metric_trend)：指标与版本序列选择。 */
+  /* 财务助手页面登记(§7.2 metric_trend)：指标与版本序列选择。 */
   useAssistantPageContext({
     pageKey: 'metric_trend',
     ready: true,
@@ -168,7 +168,7 @@ export default function MetricTrend() {
   }, [assistantRegistry]);
 
   return (
-    <Card className="bd-root-card">
+    <Card className="newfc-root-card">
       <Space style={{ marginBottom: 12 }} wrap>
         <Typography.Text strong>预算版本</Typography.Text>
         <Select

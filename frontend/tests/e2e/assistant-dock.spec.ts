@@ -2,7 +2,7 @@ import { type APIRequestContext, type Page } from '@playwright/test';
 import { expect, test } from './access';
 
 /**
- * 全局侧边抽屉「小澧助手」的端到端。
+ * 全局侧边抽屉「财务助手」的端到端。
  *
  * 覆盖需求里可自动化的验收点：
  * 1. 页面感知：在 /budget/:id 提问，请求体必须带 page='budget_edit' 与该版本 ID，
@@ -106,7 +106,7 @@ test.describe('全局助手抽屉', () => {
     await openDock(page);
 
     // 范围条如实标出当前页面与版本
-    const badge = page.locator('.bd-assistant-dock').getByTestId('assistant-scope-bar');
+    const badge = page.locator('.newfc-assistant-dock').getByTestId('assistant-scope-bar');
     await expect(badge).toContainText('回答范围');
     await expect(badge).toContainText('预算编制表格');
     await expect(badge).toContainText(VERSION_NAME);
@@ -140,7 +140,7 @@ test.describe('全局助手抽屉', () => {
     await expect(page.getByTestId('assistant-dock-action')).toBeVisible();
     await expect(page.getByTestId('assistant-dock-action-fullpage')).toBeVisible();
     // 抽屉里没有「创建预览」这个动作
-    await expect(page.locator('.bd-assistant-dock').getByRole('button', { name: '创建预览' })).toHaveCount(0);
+    await expect(page.locator('.newfc-assistant-dock').getByRole('button', { name: '创建预览' })).toHaveCount(0);
     expect(previewCalls, '抽屉不得创建预览').toBe(0);
 
     // 进完整页后才可以创建预览
@@ -153,7 +153,7 @@ test.describe('全局助手抽屉', () => {
     await page.goto('/analysis');
     await openDock(page);
     // 范围条跟着分析页走(该页会把 year/version 写进查询参数，一并纳入登记)
-    await expect(page.locator('.bd-assistant-dock').getByTestId('assistant-scope-bar')).toContainText('年度执行分析');
+    await expect(page.locator('.newfc-assistant-dock').getByTestId('assistant-scope-bar')).toContainText('年度执行分析');
 
     await askInDock(page, `${YEAR} 年有哪些预算版本`);
     const dockText = (await page.getByTestId('assistant-dock-answer').last().innerText()).slice(0, 20);
@@ -186,14 +186,14 @@ test.describe('全局助手抽屉', () => {
     // (口径筛选器默认折叠,先展开再选)
     await page.goto('/assistant');
     await page.getByTestId('assistant-filters-toggle').click();
-    await page.getByRole('combobox').first().click();
+    await page.getByRole('combobox', { name: '默认年度', exact: true }).click();
     await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: `${YEAR + 2} 年` }).first().click();
     await expect(page.locator(`.ant-select-selection-item[title="${YEAR + 2} 年"]`)).toBeVisible();
 
     // 业务页面(编制页):助手页选过的年度绝不泄漏过来,页面自己的版本/年度生效
     await page.goto(`/budget/${versionId}`);
     await openDock(page);
-    const badge = page.locator('.bd-assistant-dock').getByTestId('assistant-scope-bar');
+    const badge = page.locator('.newfc-assistant-dock').getByTestId('assistant-scope-bar');
     await expect(badge).toContainText('预算编制表格');
     await expect(badge).toContainText(VERSION_NAME);
     await askInDock(page, '执行情况怎么样');

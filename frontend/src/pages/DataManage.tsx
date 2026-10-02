@@ -6,7 +6,7 @@ import {
   Select, Row, Col, Statistic, Alert, List, Form, InputNumber, Switch, Result,
 } from 'antd';
 import { EnhancedTable as Table } from '../components/EnhancedTable';
-import { BdEmpty } from '../components/BdEmpty';
+import { FinanceEmpty } from '../components/FinanceEmpty';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { TechDetail } from '../components/TechDetail';
 import ImportBatchDetailDrawer from '../components/ImportBatchDetailDrawer';
@@ -369,13 +369,13 @@ function ImportHistoryTab() {
         pagination={{ pageSize: 20 }}
         locale={{
           emptyText: filterActive ? (
-            <BdEmpty
+            <FinanceEmpty
               kind="search"
               description="当前筛选条件下没有导入批次"
               onClearFilters={() => updateFilter({ year: undefined, kind: undefined, status: undefined })}
             />
           ) : (
-            <BdEmpty kind="data" description="暂无导入批次记录">
+            <FinanceEmpty kind="data" description="暂无导入批次记录">
               <Space style={{ marginTop: 8 }}>
                 <Button type="primary" size="small" onClick={() => navigate('/actual')}>
                   前往实际录入与快照导入
@@ -384,7 +384,7 @@ function ImportHistoryTab() {
                   财务系统转换
                 </Button>
               </Space>
-            </BdEmpty>
+            </FinanceEmpty>
           ),
         }}
         columns={[
@@ -496,11 +496,11 @@ function CalculationRulesTab() {
         pagination={false}
         locale={{
           emptyText: (
-            <BdEmpty kind="data" description="暂无测算模板">
+            <FinanceEmpty kind="data" description="暂无测算模板">
               <Button type="primary" size="small" onClick={() => edit()} style={{ marginTop: 8 }}>
                 + 新增测算模板
               </Button>
-            </BdEmpty>
+            </FinanceEmpty>
           ),
         }}
         columns={[
@@ -827,7 +827,7 @@ export default function DataManage() {
   const items = all.filter((t) => preset.keys.includes(t.key));
   const active = preset.keys.includes(tab) ? tab : preset.keys[0];
 
-  /* 小澧助手页面登记(§7.2)：登记组件最终算出的 active 页签，
+  /* 财务助手页面登记(§7.2)：登记组件最终算出的 active 页签，
      无效 tab 最终显示 backup 时 pageKey 也必须是 backup;tab=check 必须是 data_check。 */
   const activePageKey = active === 'check' ? 'data_check' : active === 'export' ? 'data_export' : active;
   useAssistantPageContext({ pageKey: activePageKey, ready: true, scope: {}, view: {} });
@@ -835,7 +835,7 @@ export default function DataManage() {
   return (
     /* 无壳 + 无标题:原 preset.title 与侧栏菜单项同名,顶栏已显示一遍。
        多页签分支由 Tabs 自己承担分区,不需要再叠一层标题。 */
-    <Card className="bd-root-card">
+    <Card className="newfc-root-card">
       {items.length === 1 ? items[0].children : (
         <Tabs
           activeKey={active}

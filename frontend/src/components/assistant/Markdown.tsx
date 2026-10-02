@@ -239,7 +239,7 @@ function renderBlocks(text: string): ReactNode[] {
         && lines.slice(index).some((remaining) => remaining.trim());
       out.push(
         isSummaryLead ? (
-          <div key={`b${key++}`} className="bd-quote bd-quote-ai" style={{ margin: '0 0 8px' }}>
+          <div key={`b${key++}`} className="newfc-quote newfc-quote-ai" style={{ margin: '0 0 8px' }}>
             {renderInline(lead, `p${key}`)}
           </div>
         ) : (

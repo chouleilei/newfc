@@ -1,7 +1,8 @@
+import { DOMAIN_ID_FIELDS } from './domainContext';
 /**
  * AI 助手的全局会话状态(唯一实例)。
  *
- * 为什么要有它：助手现在有两个界面——独立页 /assistant 和全局悬浮小窗「小澧助手」。
+ * 为什么要有它：助手现在有两个界面——独立页 /assistant 和全局悬浮小窗「财务助手」。
  * 两边必须共享同一份会话(含进行中的 SSE 流)，否则在小窗里问一半、切到完整页就断了。
  * 因此把原来内嵌在 pages/Assistant.tsx 里的聊天核心整体上移到这里，语义**原样保留**：
  *   1. 切会话 / 新会话前先 abort 在途的流，否则旧流的 onDone 会把 conversationId 拽回去；
@@ -9,7 +10,7 @@
  *      不然旧流会把 token 写进已经换掉的 turn；
  *   3. 卸载时 abort，避免离开界面后流还在读、回调还在 setState。
  *
- * 页面范围(方案《小澧助手全页面回答范围自动对齐开发计划》)：
+ * 页面范围(现行 specs/ai.md 页面上下文契约)：
  *   - 业务页面的真实筛选由各页面适配器登记进 AssistantContextRegistry，
  *     发送时 buildSnapshot() 冻结成 AssistantPageContextV2 随请求发出；
  *   - manualContext 只保留在内存里，作为 /assistant 页自身筛选器的状态，
@@ -171,6 +172,7 @@ export function mergeAssistantContext(
 function scopeToLegacyContext(pageContext: AssistantPageContextV2): AssistantContext {
   const scope = pageContext.scope ?? {};
   return cleanContext({
+    ...Object.fromEntries([...DOMAIN_ID_FIELDS, 'period', 'periodFrom', 'periodTo', 'statementScope'].filter((k) => (scope as any)[k] != null).map((k) => [k, (scope as any)[k]])),
     page: pageContext.pageKey,
     year: scope.year,
     budgetVersionId: scope.budgetVersionId,

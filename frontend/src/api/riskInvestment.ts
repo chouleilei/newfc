@@ -9,7 +9,7 @@ import type {
 } from '@contracts/investment-feasibility';
 import type { IcComparisonRowDto, IcComparisonSummaryDto, IcLevel, IcVersionType } from '@contracts/investment-control';
 import type {
-  FfBaselineTimelineDto, FfInsightDto, FfPublicationDto, FfReviewStatus, FfVersionReviewDto, ForecastDiagnostic, ForecastOutput, ForecastParam,
+  FfBaselineTimelineDto, FfInsightDto, FfPublicationDto, FfReviewQueueItemDto, FfReviewStatus, FfVersionReviewDto, ForecastDiagnostic, ForecastOutput, ForecastParam,
 } from '@contracts/finance-forecast';
 import type {
   RiskChecklistDto, RiskCommand, RiskEventDetailDto, RiskEventDto, RiskExplanationDto, RiskLevel, RiskListQuery, RiskRuleCreate, RiskRuleDto, RiskRuleUpdate, RiskScanDto,
@@ -166,6 +166,7 @@ export interface FfVersionDto {
   id: number; modelId: number; versionNo: number; status: 'draft' | 'frozen'; note: string; contentHash: string; sourceFileName: string | null;
   sheets: { name: string; cellCount: number }[]; cellCount: number; params: ForecastParam[]; outputs: ForecastOutput[]; errorCount: number; warningCount: number;
   baselineRunId: number | null; version: number; createdAt: string; createdBy: string | null; frozenAt: string | null; frozenBy: string | null;
+  frozenByCurrentUser: boolean;
   reviewStatus: FfReviewStatus | null; review: FfVersionReviewDto | null;
   diagnostics?: ForecastDiagnostic[];
 }
@@ -183,6 +184,7 @@ export interface FfCompareDto {
 }
 
 export const forecastApi = {
+  reviewQueue: (q: { orgId?: number } = {}) => api.get<{ items: FfReviewQueueItemDto[] }>(`/forecast/review-queue${qs(q)}`),
   models: (q: { orgId?: number; status?: string; keyword?: string; folder?: string }) => api.get<{ items: FfModelDto[] }>(`/forecast/models${qs(q)}`),
   createModel: (body: { name: string; orgId: number; baseYear: number; horizonYears: number; description?: string; folder?: string }) => api.post<FfModelDto>('/forecast/models', body),
   model: (id: number) => api.get<FfModelDetailDto>(`/forecast/models/${id}`),

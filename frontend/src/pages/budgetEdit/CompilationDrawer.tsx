@@ -33,12 +33,12 @@ export function NoteDiff({ before, after }: { before: string; after: string }) {
       <div>{value || '无附注'}</div>
     </div>
   );
-  return <div style={{ minWidth: 180, maxWidth: 300 }}><Tag color={kind === 'cleared' ? 'red' : kind === 'added' ? 'green' : 'gold'}>{label}</Tag>{block('修改前', before, `color-mix(in srgb, ${statusColor(useThemeMode().mode).warn} 12%, transparent)`)}{block('修改后', after, 'var(--bd-primary-bg)')}<Button type="link" size="small" style={{ padding: 0 }} onClick={() => setExpanded((v) => !v)}>{expanded ? '收起' : '展开全文'}</Button></div>;
+  return <div style={{ minWidth: 180, maxWidth: 300 }}><Tag color={kind === 'cleared' ? 'red' : kind === 'added' ? 'green' : 'gold'}>{label}</Tag>{block('修改前', before, `color-mix(in srgb, ${statusColor(useThemeMode().mode).warn} 12%, transparent)`)}{block('修改后', after, 'var(--newfc-primary-bg)')}<Button type="link" size="small" style={{ padding: 0 }} onClick={() => setExpanded((v) => !v)}>{expanded ? '收起' : '展开全文'}</Button></div>;
 }
 
 export function FormulaDiff({ before, after }: { before: string; after: string }) {
   if (before === after) return null;
-  return <div style={{ marginTop: 4, maxWidth: 320, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}><Tag color="blue">公式已修改</Tag><div style={{ padding: '3px 6px', background: `color-mix(in srgb, ${statusColor(useThemeMode().mode).warn} 12%, transparent)`, borderRadius: 4, fontSize: 12 }}>修改前：{before || '无公式'}</div><div style={{ padding: '3px 6px', background: 'var(--bd-primary-bg)', borderRadius: 4, fontSize: 12 }}>修改后：{after || '无公式'}</div></div>;
+  return <div style={{ marginTop: 4, maxWidth: 320, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}><Tag color="blue">公式已修改</Tag><div style={{ padding: '3px 6px', background: `color-mix(in srgb, ${statusColor(useThemeMode().mode).warn} 12%, transparent)`, borderRadius: 4, fontSize: 12 }}>修改前：{before || '无公式'}</div><div style={{ padding: '3px 6px', background: 'var(--newfc-primary-bg)', borderRadius: 4, fontSize: 12 }}>修改后：{after || '无公式'}</div></div>;
 }
 
 /** 变化分类标志:消费后端 kind 判别(AI 功能增强计划 §四.阶段六.1);旧数据无 kind 时按 before/after 兜底推导。 */
@@ -113,7 +113,7 @@ function CheckpointSummaryBlock({ item }: { item: CompilationCheckpoint }) {
         {data.source === 'model' ? 'AI 改写小结' : '确定性小结'}
       </Tag>
       {data.guardOk === false && <Tag color="orange">数字守卫未通过,已回退模板稿</Tag>}
-      <div style={{ border: '1px solid var(--bd-border)', borderRadius: 6, padding: '4px 10px', background: 'var(--bd-bg-fill)', maxHeight: 240, overflow: 'auto' }}>
+      <div style={{ border: '1px solid var(--newfc-border)', borderRadius: 6, padding: '4px 10px', background: 'var(--newfc-bg-fill)', maxHeight: 240, overflow: 'auto' }}>
         <Markdown text={data.summary} />
       </div>
     </div>

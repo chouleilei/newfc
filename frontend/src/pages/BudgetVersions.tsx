@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import type { MenuProps, TableProps } from 'antd';
 import { api, download } from '../api/client';
 import { errorText } from '../components/TreeNodePage';
-import { BdEmpty } from '../components/BdEmpty';
+import { FinanceEmpty } from '../components/FinanceEmpty';
 import { centsToWan } from '../utils/money';
 import { EnhancedTable } from '../components/EnhancedTable';
 import { useAssistantPageContext } from '../assistant/contextHooks';
@@ -53,7 +53,7 @@ export default function BudgetVersions() {
     }
   });
 
-  /* 小澧助手页面登记(§7.2 budget_versions)：年度筛选。 */
+  /* 财务助手页面登记(§7.2 budget_versions)：年度筛选。 */
   useAssistantPageContext({ pageKey: 'budget_versions', ready: true, scope: { year: yearFilter }, view: {} });
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm();
@@ -295,7 +295,7 @@ export default function BudgetVersions() {
   return (
     /* 无壳 + 无标题:本页挂载在 /budget 路由下,顶栏已显示「预算与预测」 */
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       extra={
         <Space wrap size={4}>
           <Select
@@ -330,7 +330,7 @@ export default function BudgetVersions() {
           预算与预测复用同一套编制与定稿机制
         </Typography.Text>
         <Tooltip title="预算与全年预测复用同一套编制、记录、定稿和快照机制；每个年度的预算与预测各自维持一个当前采用版本。草稿实时自动保存；定稿只冻结内容、不自动成为当前采用，后续修订通过「复制」生成新草稿。">
-          <i className="ri-information-line" style={{ color: 'var(--bd-text-tertiary)', fontSize: 13, cursor: 'pointer' }} aria-hidden />
+          <i className="ri-information-line" style={{ color: 'var(--newfc-text-tertiary)', fontSize: 13, cursor: 'pointer' }} aria-hidden />
         </Tooltip>
       </Space>
       {versionsError ? <Result status="error" title="版本加载失败" subTitle={versionsError instanceof Error ? versionsError.message : String(versionsError)} extra={<Button type="primary" onClick={() => void refetchVersions()}>重试</Button>} /> : <>
@@ -342,10 +342,10 @@ export default function BudgetVersions() {
           dataSource={activeVersions}
           locale={{
             emptyText: yearFilter != null
-              ? <BdEmpty kind="search" description={`没有 ${yearFilter} 年的预算或预测版本`} onClearFilters={() => setYearFilter(undefined)} />
-              : <BdEmpty kind="data" description="还没有预算或预测版本">
+              ? <FinanceEmpty kind="search" description={`没有 ${yearFilter} 年的预算或预测版本`} onClearFilters={() => setYearFilter(undefined)} />
+              : <FinanceEmpty kind="data" description="还没有预算或预测版本">
                   <Button type="primary" size="small" style={{ marginTop: 8 }} onClick={() => { form.resetFields(); setCreateOpen(true); }}>创建版本</Button>
-                </BdEmpty>,
+                </FinanceEmpty>,
           }}
           columns={versionColumns}
         />

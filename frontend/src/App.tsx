@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createBrowserRouter, RouterProvider, Outlet, useLocation, useNavigate, useNavigationType, Navigate, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout, Menu, Typography, Button, theme, Dropdown, Avatar, Spin, Space, App as AntdApp, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/zh-cn';
 import { useThemeMode, SIDER_INSET, SIDER_MENU_MARGIN } from './theme';
-import { api, can, getSession, setSession, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_EVENT, DOWNLOAD_FEEDBACK_EVENT, type DownloadFeedbackDetail, type SessionInfo } from './api/client';
+import { api, can, getSession, getSessionGeneration, setSession, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_EVENT, DOWNLOAD_FEEDBACK_EVENT, type DownloadFeedbackDetail, type SessionInfo } from './api/client';
 import { assistantApi } from './api/assistant';
 import { relativeTime } from './utils/relativeTime';
 import { AssistantProvider } from './assistant/AssistantProvider';
@@ -68,57 +68,40 @@ const Search = lazyWithRetry(() => import('./pages/Search'));
 
 const { Sider, Header, Content, Footer } = Layout;
 
-const DEFAULT_OPEN = ['grp-plan', 'grp-actual', 'grp-analysis', 'grp-fav'];
-
 /**
  * 侧栏菜单(范式 A:图标只留一级)。
  * 二级菜单项不带 icon:antd inline 菜单会把二级图标画在文字前,一级、二级各占
  * 一列图标,三组同展开时左缘锯齿;二级纯文字缩进后与一级「文字」对齐,形成
  * 「一条图标列 + 一条文字列」。折叠成图标栏时子菜单走浮层,纯文字子项不受影响。
- * 分组结构、路由与 dataMenuKey 逻辑保持不变(本方案只做对齐,不再分组)。
+ * 经营预算集中为一个领域入口,保留已有叶子路由与权限。
  */
 export const menuItems: MenuProps['items'] = [
   { key: '/', icon: <i className="ri-dashboard-line" aria-hidden />, label: '首页' },
   {
     key: 'grp-ai',
     /* AI 相关图标单独用紫色系,与主色可点击项区分开(方案《AI助手体验升级与界面格调提升方案》) */
-    icon: <i className="ri-robot-2-line bd-icon-ai" aria-hidden />,
-    label: '小澧助手',
+    icon: <i className="ri-robot-2-line newfc-icon-ai" aria-hidden />,
+    label: '财务助手',
     children: [
-      /* 子项避免与组名重名:组名「小澧助手」+子项同名在面包屑/标题里无法区分 */
+      /* 子项避免与组名重名:组名「财务助手」+子项同名在面包屑/标题里无法区分 */
       { key: '/assistant', label: '对话' },
       { key: '/insights', label: '洞察报告' },
     ],
   },
   {
-    key: 'grp-plan',
+    key: 'grp-budget',
     icon: <i className="ri-edit-box-line" aria-hidden />,
-    label: '编制',
+    label: '经营预算',
     /* 「测算模板」已从侧栏移除:它是预算编制的前置配置,入口收进「预算与预测」页。
        路由 /data?tab=calculations 保留,书签与页内跳转仍然有效。 */
     children: [
       { key: '/budget', label: '预算与预测' },
       { key: '/progress', label: '进度总览' },
-    ],
-  },
-  {
-    key: 'grp-actual',
-    icon: <i className="ri-database-2-line" aria-hidden />,
-    label: '实际',
-    /* 「导入批次」曾因与录入页强耦合收进「实际录入与快照」页的「更多」菜单,
-       现恢复为独立侧栏入口;录入页「更多」菜单入口保留。 */
-    children: [
+      /* 导入批次保留独立叶子入口,录入页的「更多」入口也保留。 */
       { key: '/actual', label: '实际录入与快照' },
       { key: '/data?tab=imports', label: '导入批次' },
       { key: '/cleaning-config', label: '清洗模板与别名' },
       { key: '/finance', label: '财务系统转换' },
-    ],
-  },
-  {
-    key: 'grp-analysis',
-    icon: <i className="ri-bar-chart-2-line" aria-hidden />,
-    label: '分析',
-    children: [
       { key: '/analysis', label: '年度执行分析' },
       { key: '/alerts', label: '预警中心' },
       { key: '/structure', label: '结构占比' },
@@ -131,7 +114,7 @@ export const menuItems: MenuProps['items'] = [
     key: 'grp-finance',
     icon: <i className="ri-bank-line" aria-hidden />,
     label: '财务数据',
-    /* T-3(AC-F05/F06/F10):EAS 原始事实、数据治理与财务报表;与预算实际数(「实际」组)是两条事实链。 */
+    /* T-3(AC-F05/F06/F10):EAS 原始事实与经营预算实际快照是两条事实链。 */
     children: [
       { key: '/eas', label: 'EAS 工作区' },
       { key: '/governance', label: '数据治理' },
@@ -142,7 +125,7 @@ export const menuItems: MenuProps['items'] = [
     key: 'grp-project',
     icon: <i className="ri-building-2-line" aria-hidden />,
     label: '项目与合同',
-    /* T-4(AC-F09/F15/F16/F04):项目预算与计划执行是项目口径事实,与经营预算(「编制」组)互不读写。 */
+    /* T-4(AC-F09/F15/F16/F04):项目预算与计划执行是项目口径事实,与经营预算互不读写。 */
     children: [
       { key: '/project-budget', label: '项目预算' },
       { key: '/plan', label: '计划执行' },
@@ -314,7 +297,7 @@ export function pageTitle(pathname: string, search: string, selected: string): s
   return leafLabel(selected);
 }
 
-function groupOf(key: string): string | undefined {
+export function groupOf(key: string): string | undefined {
   if (key === '/assistant' || key === '/insights' || key.startsWith('ai-')) return 'grp-ai';
   for (const n of menuItems ?? []) {
     if (!n || !('children' in n) || !n.children) continue;
@@ -344,6 +327,7 @@ export function dataMenuKey(tab: string | null): string {
 export function selectedKey(pathname: string, search: string): string {
   const seg = '/' + (pathname.split('/')[1] ?? '');
   if (seg === '/' || seg === '') return '/';
+  if (seg === '/search') return '/search';
   if (seg === '/budget') return '/budget';
   if (seg === '/settings') {
     if (pathname.startsWith('/settings/ai')) return '/settings/ai';
@@ -359,10 +343,24 @@ export function selectedKey(pathname: string, search: string): string {
   return leaves.includes(seg) ? seg : '/';
 }
 
+/** 收藏与最近访问也必须服从当前会话的导航权限和组织范围。 */
+export function canAccessPreferencePath(path: string): boolean {
+  if (!path.startsWith('/') || path.startsWith('//')) return false;
+  const url = new URL(path, 'https://newfc.local');
+  const key = selectedKey(url.pathname, url.search);
+  if (url.origin !== 'https://newfc.local' || (key === '/' && url.pathname !== '/')) return false;
+  const need = MENU_PERMISSION[key];
+  if (!need && key !== '/jobs') return false;
+  if (need && !can(need)) return false;
+  return (getSession()?.user.allOrgs ?? false) || !MENU_ALL_ORGS.has(key);
+}
+
 function Brand({ collapsed }: { collapsed: boolean }) {
   const { token } = theme.useToken();
   return (
     <div
+      aria-label="newfc 水利财务分析"
+      title="newfc 水利财务分析"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -378,20 +376,20 @@ function Brand({ collapsed }: { collapsed: boolean }) {
       <BrandLogo size={28} />
       {!collapsed && (
         <div style={{ lineHeight: 1.3, minWidth: 0 }}>
-          {/* 年度账册:主标墨色加粗,副题小号大写字距档签 */}
-          <div className="bd-page-title" style={{ fontSize: 14, color: token.colorText, whiteSpace: 'nowrap' }}>
-            年度预算管理
+          {/* 品牌与登录页、浏览器标题保持一致;年度账册仅为视觉风格。 */}
+          <div className="newfc-page-title" style={{ fontSize: 14, color: token.colorText, whiteSpace: 'nowrap' }}>
+            水利财务分析
           </div>
           <div
-            className="bd-brand-sub"
+            className="newfc-brand-sub"
             style={{
               fontSize: 9,
-              color: 'var(--bd-accent)',
+              color: 'var(--newfc-accent)',
               whiteSpace: 'nowrap',
               marginTop: 1,
             }}
           >
-            ANNUAL LEDGER
+            newfc Finance Console
           </div>
         </div>
       )}
@@ -400,12 +398,11 @@ function Brand({ collapsed }: { collapsed: boolean }) {
 }
 
 /**
- * UX-25:偏好 Provider 按登录用户名命名空间挂在壳层,侧栏收藏/页头星标/最近访问
- * 与分析页命名视图共用同一份偏好;本机模式(无账号)落 default 命名空间。
+ * UX-25:偏好按服务端用户 ID 隔离,显示名只用于展示。
  */
-function Page({ username, onLogout, onChangePassword }: { username: string; onLogout: () => void; onChangePassword: () => void }) {
+function Page({ username, userId, onLogout, onChangePassword }: { username: string; userId: number; onLogout: () => void; onChangePassword: () => void }) {
   return (
-    <UserPrefsProvider namespace={prefsNamespaceFor(username)}>
+    <UserPrefsProvider namespace={prefsNamespaceFor(username, userId)} canAccessPath={canAccessPreferencePath}>
       <PageInner username={username} onLogout={onLogout} onChangePassword={onChangePassword} />
     </UserPrefsProvider>
   );
@@ -421,11 +418,13 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
   const { token } = theme.useToken();
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  /* 独立双滚动:.bd-main 是唯一滚动容器;路由位置由 useRouteScrollMemory 管理(UX-03):
+  /* 独立双滚动:.newfc-main 是唯一滚动容器;路由位置由 useRouteScrollMemory 管理(UX-03):
      范围切换(replace)不动位置,跨页下钻(push)回顶,浏览器返回(pop)恢复离开时的位置。 */
   const mainRef = useRef<HTMLDivElement | null>(null);
   useRouteScrollMemory(mainRef);
   const selected = useMemo(() => selectedKey(loc.pathname, loc.search), [loc.pathname, loc.search]);
+  // 新领域以元返回/展示,工作台与助手还会混合多领域,不能全站宣称万元。
+  const showWanUnit = ['/budget', '/progress', '/actual', '/analysis', '/alerts', '/structure', '/metric-trend', '/history', '/compare'].includes(selected);
 
   /* UX-25 最近使用:真实导航(PUSH/POP)才记一次访问;页面内范围切换是 replace,不重复计数。
      只记录受支持页面的「入口 + 白名单范围」,首页自身无回看价值不记录。 */
@@ -447,26 +446,14 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
   const currentPath = currentPageKey ? entryPathFor(currentPageKey, loc.pathname, loc.search) : null;
   const currentFav = currentPageKey && currentPath ? favoriteFor(currentPageKey, currentPath) : undefined;
 
-  const { data: dash } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: () => api.get<{ counts: { orgs: number; accounts: number } }>('/dashboard'),
+  const [openKeys, setOpenKeys] = useState<string[]>(() => {
+    const group = groupOf(selected);
+    return group ? [group] : [];
   });
-  const setupIncomplete = (dash?.counts.orgs ?? 1) === 0 || (dash?.counts.accounts ?? 1) === 0;
-
-  const [openKeys, setOpenKeys] = useState<string[]>(() => [...DEFAULT_OPEN]);
   useEffect(() => {
-    setOpenKeys((prev) => {
-      const next = new Set(prev);
-      if (setupIncomplete) next.add('grp-master');
-      const g = groupOf(selected);
-      if (g) next.add(g);
-      // 当处于非助手页面时，自动收起 grp-ai 分组（火山方舟模式：不点击不显示会话）
-      if (selected !== '/assistant' && selected !== '/insights' && !selected.startsWith('ai-')) {
-        next.delete('grp-ai');
-      }
-      return [...next];
-    });
-  }, [selected, setupIncomplete]);
+    const group = groupOf(selected);
+    setOpenKeys(group ? [group] : []);
+  }, [selected]);
 
   const isAssistantPage = loc.pathname === '/assistant';
 
@@ -484,8 +471,8 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
 
   /**
    * 动态生成侧栏菜单（火山方舟体验对齐）：
-   * 1. 当处于非助手页面时，「小澧助手」仅作为普通一级分类，子项仅为「对话」与「洞察报告」，不展示任何会话记录；
-   * 2. 只有点击进入「小澧助手」/处于对话页面时，才在侧栏动态展开最近会话历史与新建对话，主工作区直接铺满，无重复内侧栏。
+   * 1. 当处于非助手页面时，「财务助手」仅作为普通一级分类，子项仅为「对话」与「洞察报告」，不展示任何会话记录；
+   * 2. 只有点击进入「财务助手」/处于对话页面时，才在侧栏动态展开最近会话历史与新建对话，主工作区直接铺满，无重复内侧栏。
    */
   const dynamicMenuItems = useMemo<MenuProps['items']>(() => {
     return (filterMenuByPermission(menuItems, can, getSession()?.user.allOrgs ?? true) ?? []).map((item) => {
@@ -507,7 +494,7 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
         {
           key: 'ai-new-chat',
           label: (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--bd-primary)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--newfc-primary)' }}>
               <i className="ri-add-line" aria-hidden style={{ fontSize: 13 }} />
               <span>新建对话</span>
             </span>
@@ -608,8 +595,8 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
       return {
         ...item,
         label: (
-          <span className="bd-menu-label">
-            <span className="bd-menu-no">{String(n).padStart(2, '0')}</span>
+          <span className="newfc-menu-label">
+            <span className="newfc-menu-no">{String(n).padStart(2, '0')}</span>
             {label}
           </span>
         ),
@@ -626,9 +613,9 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
      * 掐断在途的 SSE 流。
      */
     <AssistantProvider>
-    <Layout className="bd-shell">
+    <Layout className="newfc-shell">
       <Sider
-        className="bd-sider"
+        className="newfc-sider"
         theme={dark ? 'dark' : 'light'}
         width={216}
         collapsed={collapsed}
@@ -637,14 +624,18 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
         breakpoint="lg"
       >
         <Brand collapsed={collapsed} />
-        <div className="bd-sider-menu" style={{ padding: '8px 0' }}>
+        <nav className="newfc-sider-menu" aria-label="主导航" style={{ padding: '8px 0' }}>
           <Menu
             theme={dark ? 'dark' : 'light'}
             mode="inline"
             inlineIndent={SIDER_INSET - SIDER_MENU_MARGIN}
             selectedKeys={[selected, ...(currentFav ? [`fav:${currentFav.id}`] : [])]}
             openKeys={collapsed ? undefined : openKeys}
-            onOpenChange={(keys) => setOpenKeys(keys)}
+            onOpenChange={(keys) => {
+              if (collapsed) return;
+              const opened = keys.find((key) => !openKeys.includes(key));
+              setOpenKeys(opened ? [opened] : keys.slice(-1));
+            }}
             items={ledgerMenuItems}
             onClick={({ key }) => {
               if (String(key).startsWith('grp-')) return;
@@ -656,19 +647,19 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
               }
               if (key === 'ai-new-chat') {
                 navigate('/assistant', { state: { newConversation: true } });
-                window.dispatchEvent(new CustomEvent('bd:new-assistant-conversation'));
+                window.dispatchEvent(new CustomEvent('newfc:new-assistant-conversation'));
                 return;
               }
               if (key === 'ai-view-all') {
                 navigate('/assistant', { state: { expandConversations: true } });
-                window.dispatchEvent(new CustomEvent('bd:open-assistant-history'));
+                window.dispatchEvent(new CustomEvent('newfc:open-assistant-history'));
                 return;
               }
               if (String(key).startsWith('ai-conv-')) {
                 const convId = Number(String(key).replace('ai-conv-', ''));
                 if (!Number.isNaN(convId)) {
                   navigate('/assistant', { state: { openConversationId: convId } });
-                  window.dispatchEvent(new CustomEvent('bd:open-assistant-conversation', { detail: { conversationId: convId } }));
+                  window.dispatchEvent(new CustomEvent('newfc:open-assistant-conversation', { detail: { conversationId: convId } }));
                 }
                 return;
               }
@@ -676,11 +667,11 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
             }}
             style={{ borderInlineEnd: 'none', background: 'transparent' }}
           />
-        </div>
+        </nav>
       </Sider>
-      <Layout className="bd-main" ref={mainRef}>
+      <Layout className="newfc-main" ref={mainRef}>
         <Header
-          className="bd-header"
+          className="newfc-header"
           style={{
             position: 'sticky',
             top: 0,
@@ -688,26 +679,25 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '0 24px',
             height: 54,
             lineHeight: '54px',
           }}
         >
-          <Space size={10}>
+          <Space size={10} className="newfc-header-primary">
             {/* 页级标题:18px 是梯度最高档,页面内区块标题(15px)与正文(13px)依次降档;
-                bd-page-title 提供 text-wrap: balance,换行时行宽均衡 */}
-            <Typography.Text strong className="bd-page-title" style={{ fontSize: 18, fontWeight: 500, color: token.colorText }}>
+                newfc-page-title 提供 text-wrap: balance,换行时行宽均衡 */}
+            <Typography.Text strong className="newfc-page-title newfc-header-title" style={{ fontSize: 18, fontWeight: 500, color: token.colorText }}>
               {pageTitle(loc.pathname, loc.search, selected)}
             </Typography.Text>
             {/* UX-25 收藏入口:收藏当前页面 + 当前白名单筛选范围;再次点击取消 */}
-            {currentPageKey && currentPath && (
+            {currentPageKey && currentPath && canAccessPreferencePath(currentPath) && (
               <Tooltip title={currentFav ? '取消收藏本页(含当前范围)' : '收藏本页(含当前范围),之后可从侧栏「收藏」直接进入'}>
                 <Button
                   type="text"
                   size="small"
                   aria-label={currentFav ? '取消收藏本页' : '收藏本页'}
                   icon={<i className={currentFav ? 'ri-star-fill' : 'ri-star-line'} aria-hidden />}
-                  style={{ color: currentFav ? 'var(--bd-accent)' : token.colorTextTertiary }}
+                  style={{ color: currentFav ? 'var(--newfc-accent)' : token.colorTextTertiary }}
                   onClick={() => {
                     if (!currentFav && prefs.favorites.length >= MAX_FAVORITES) {
                       message.warning(`最多收藏 ${MAX_FAVORITES} 个页面入口,请先在侧栏「收藏」中删除不再使用的`);
@@ -723,16 +713,16 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
               </Tooltip>
             )}
           </Space>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, lineHeight: 'normal' }}>
+          <div className="newfc-header-actions">
             {/* AC-F26 跨域检索入口:输入联想(前缀命中),回车进入 /search?q= */}
             {can('search:use') && <HeaderSearch />}
-            <Tooltip title="金额统一以万元录入与展示（1.00 万元 = 10,000 元，两位小数）；成本费用按正数填写，负数表示冲回；悬停金额数字可查看精确到元的原始值">
-              <span className="bd-chip">
-                <span className="bd-status-dot" aria-hidden />
+            {showWanUnit && <Tooltip title="本经营预算页面以万元录入与展示（1.00 万元 = 10,000 元）；成本费用按正数填写，负数表示冲回；悬停金额数字可查看精确到元的原始值">
+              <span className="newfc-chip">
+                <span className="newfc-status-dot" aria-hidden />
                 单位: 万元
               </span>
-            </Tooltip>
-            <Typography.Text type="secondary" className="tabular-numbers bd-header-date" style={{ fontSize: 12 }}>
+            </Tooltip>}
+            <Typography.Text type="secondary" className="tabular-numbers newfc-header-date" style={{ fontSize: 12 }}>
               {dayjs().locale('zh-cn').format('YYYY年M月D日 dddd')}
             </Typography.Text>
             <Button
@@ -748,7 +738,7 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
               onOpenChange={setUserMenuOpen}
               menu={{
                 items: [
-                  /* UX-25 重置入口:只清个人偏好(localStorage bd:prefs:*),不触碰任何业务数据 */
+                  /* UX-25 重置入口:只清个人偏好(localStorage newfc:prefs:*),不触碰任何业务数据 */
                   { key: 'reset-prefs', icon: <i className="ri-eraser-line" aria-hidden />, label: '清空视图与收藏' },
                   { key: 'password', icon: <i className="ri-key-2-line" aria-hidden />, label: '修改口令' },
                   { key: 'logout', icon: <i className="ri-logout-box-r-line" aria-hidden />, label: '退出登录', danger: true },
@@ -771,6 +761,7 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
             >
               {/* 触发器是 div,必须自带 role/tabIndex/键盘事件,否则纯键盘用户无法退出登录 */}
               <div
+                className="newfc-user-trigger"
                 role="button"
                 tabIndex={0}
                 aria-haspopup="menu"
@@ -788,26 +779,26 @@ function PageInner({ username, onLogout, onChangePassword }: { username: string;
                   padding: '3px 10px 3px 4px',
                   borderRadius: 20,
                   border: `1px solid ${token.colorBorderSecondary}`,
-                  background: 'var(--bd-bg-subtle)',
+                  background: 'var(--newfc-bg-subtle)',
                   transition: 'border-color 0.15s ease, background 0.15s ease',
                 }}
               >
                 <Avatar
                   size={22}
                   icon={<i className="ri-user-3-line" aria-hidden />}
-                  style={{ background: 'var(--bd-primary)' }}
+                  style={{ background: 'var(--newfc-primary)' }}
                 />
-                <Typography.Text style={{ fontSize: 12, fontWeight: 500 }}>{username}</Typography.Text>
+                <Typography.Text className="newfc-user-name" style={{ fontSize: 12, fontWeight: 500 }}>{username}</Typography.Text>
               </div>
             </Dropdown>
           </div>
         </Header>
         <Content style={{ margin: '16px 20px' }}>
-          <Suspense fallback={<div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>}><div key={loc.pathname} className="page-fade bd-content"><Outlet /></div></Suspense>
+          <Suspense fallback={<div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>}><div key={loc.pathname} className="page-fade newfc-content"><Outlet /></div></Suspense>
         </Content>
-        {/* 「金额单位:万元」在顶栏芯片已常驻,这里不再重复;只留系统名与符号口径 */}
+        {/* 全站只显示产品名;金额单位和符号口径由对应领域页面说明。 */}
         <Footer style={{ textAlign: 'center', padding: '12px 0', fontSize: 12, color: token.colorTextTertiary, background: 'transparent' }}>
-          newfc 水利财务分析 · 收入为正，成本费用界面展示为正数
+          newfc · 水利财务分析
         </Footer>
       </Layout>
       <AssistantDock />
@@ -844,21 +835,38 @@ type AuthState =
   | { status: 'guest' }
   | { status: 'user'; session: SessionInfo; changingPassword: boolean };
 
-function AuthGate() {
+export function AuthGate() {
+  const queryClient = useQueryClient();
   const [auth, setAuth] = useState<AuthState>({ status: 'checking' });
 
   const enter = (session: SessionInfo) => {
+    // clear 同时取消旧查询,避免另一账号/权限范围复用缓存或在途响应。
+    queryClient.clear();
     setSession(session);
     setAuth({ status: 'user', session, changingPassword: session.user.mustChangePassword });
   };
-  const refresh = () => api.get<SessionInfo>('/auth/session').then(enter);
+  const leave = () => {
+    queryClient.clear();
+    setSession(null);
+    setAuth({ status: 'guest' });
+  };
+  const refresh = async () => {
+    const generation = getSessionGeneration();
+    try {
+      const session = await api.get<SessionInfo>('/auth/session');
+      if (generation === getSessionGeneration()) enter(session);
+    } catch {
+      if (generation === getSessionGeneration()) leave();
+    }
+  };
 
   useEffect(() => {
     let alive = true;
+    const generation = getSessionGeneration();
     api.get<SessionInfo>('/auth/session')
-      .then((s) => { if (alive) enter(s); })
-      .catch(() => { if (alive) { setSession(null); setAuth({ status: 'guest' }); } });
-    const onExpired = () => setAuth({ status: 'guest' });
+      .then((s) => { if (alive && generation === getSessionGeneration()) enter(s); })
+      .catch(() => { if (alive && generation === getSessionGeneration()) leave(); });
+    const onExpired = leave;
     const onPasswordChange = () => setAuth((prev) => prev.status === 'user' ? { ...prev, changingPassword: true } : prev);
     window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
     window.addEventListener(PASSWORD_CHANGE_EVENT, onPasswordChange);
@@ -882,8 +890,7 @@ function AuthGate() {
 
   const logout = async () => {
     try { await api.post('/auth/logout'); } catch { /* 会话已失效也照常回登录页 */ }
-    setSession(null);
-    setAuth({ status: 'guest' });
+    leave();
   };
   const { session } = auth;
   if (auth.changingPassword) {
@@ -892,7 +899,7 @@ function AuthGate() {
       <ChangePassword
         forced={forced}
         username={session.user.username}
-        onDone={() => { void refresh().catch(() => setAuth({ status: 'guest' })); }}
+        onDone={() => { void refresh(); }}
         onCancel={forced ? () => void logout() : () => setAuth({ ...auth, changingPassword: false })}
       />
     );
@@ -901,6 +908,8 @@ function AuthGate() {
     <>
       <DownloadFeedback />
       <Page
+        key={`${session.user.id}:${getSessionGeneration()}`}
+        userId={session.user.id}
         username={session.user.displayName || session.user.username}
         onLogout={logout}
         onChangePassword={() => setAuth({ ...auth, changingPassword: true })}

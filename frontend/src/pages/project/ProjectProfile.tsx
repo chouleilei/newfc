@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { Alert, Card, Col, Descriptions, Empty, Row, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
@@ -158,6 +159,7 @@ function InvestmentTab({ i }: { i: NonNullable<P['investment']> }) {
 
 export default function ProjectProfile() {
   const id = Number(useParams().id);
+  useAssistantDomainPage({ pageKey: 'project_profile', ready: Number.isSafeInteger(id) && id > 0, scope: { projectId: id } });
   const q = useQuery({ queryKey: ['project-profile', id], queryFn: () => projectProfileApi.get(id), enabled: Number.isSafeInteger(id) && id > 0 });
   if (q.error) return <QueryErrorResult title="项目档案加载失败" error={q.error} refetch={q.refetch} />;
   const d = q.data;

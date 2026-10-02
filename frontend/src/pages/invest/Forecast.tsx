@@ -1,11 +1,14 @@
+import { useOptionalAssistantSurface } from '../../assistant/contextHooks';
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert, App as AntdApp, AutoComplete, Button, Card, Col, Descriptions, Drawer, Empty, Form, Input, InputNumber, List, Modal, Row, Select, Space, Table, Tabs, Tag, Typography, Upload,
 } from 'antd';
-import { ApiError, can, errorText, getSession } from '../../api/client';
+import { ApiError, can, errorText } from '../../api/client';
 import {
-  forecastApi, type FfCell, type FfModelDto, type FfPublicationDto, type FfRunDto, type FfVersionDto, type ForecastDiagnostic, type ForecastOutput, type ForecastParam,
+  forecastApi, type FfCell, type FfModelDto, type FfPublicationDto, type FfReviewQueueItemDto, type FfRunDto, type FfVersionDto, type ForecastDiagnostic, type ForecastOutput, type ForecastParam,
 } from '../../api/riskInvestment';
 import { Markdown } from '../../components/assistant/Markdown';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
@@ -244,6 +247,7 @@ function RunsPanel({ version }: { version: FfVersionDto }) {
   const qc = useQueryClient();
   const [scenarioOpen, setScenarioOpen] = useState(false);
   const [detail, setDetail] = useState<FfRunDto | null>(null);
+  useOptionalAssistantSurface({ open: !!detail, kind: 'drawer', key: 'forecast-run-detail', entity: detail ? { entityType: 'forecast_run', id: detail.id } : null });
   const [compareId, setCompareId] = useState<number | null>(null);
   const [insightId, setInsightId] = useState<number | null>(null);
   const [prompt, holder] = usePrompt();
@@ -337,10 +341,14 @@ function RunsPanel({ version }: { version: FfVersionDto }) {
 function VersionDrawer({ id, modelActive, onClose, onOpen }: { id: number | null; modelActive: boolean; onClose: () => void; onOpen: (id: number) => void }) {
   const { message, modal } = AntdApp.useApp();
   const qc = useQueryClient();
+  useOptionalAssistantSurface({ open: id != null, kind: 'drawer', key: 'forecast_version', entity: id != null ? { entityType: 'forecast_version', id: id } : null });
   const q = useQuery({ queryKey: ['ff-version', id], queryFn: () => forecastApi.version(id!), enabled: id != null });
   const v = q.data;
   const editable = !!v && v.status === 'draft' && modelActive && can('forecast:write');
-  const onSaved = (nv: FfVersionDto) => { qc.setQueryData(['ff-version', id], nv); void qc.invalidateQueries({ queryKey: ['ff-model'] }); };
+  const onSaved = (nv: FfVersionDto) => {
+    qc.setQueryData(['ff-version', id], nv);
+    for (const key of ['ff-model', 'ff-review-queue', 'ff-baselines', 'workbench-todos']) void qc.invalidateQueries({ queryKey: [key] });
+  };
   const freeze = useMutation({
     mutationFn: () => forecastApi.freeze(v!.id, v!.version),
     onSuccess: (nv) => { message.success('已冻结并提交复核,可以运行基准'); onSaved(nv); },
@@ -353,7 +361,7 @@ function VersionDrawer({ id, modelActive, onClose, onOpen }: { id: number | null
   const [prompt, holder] = usePrompt();
   const review = async (decision: 'approve' | 'return') => {
     if (!v) return;
-    const self = v.frozenBy != null && v.frozenBy === (getSession()?.user.displayName || getSession()?.user.username);
+    const self = v.frozenByCurrentUser;
     const r = await prompt({
       title: decision === 'approve' ? `复核通过第 ${v.versionNo} 版` : `退回第 ${v.versionNo} 版`, danger: decision === 'return',
       description: decision === 'return' ? '退回后该版本不可再改,请复制为新草稿修改后重新冻结。' : '复核通过后,该版本的成功运行可以发布。',
@@ -454,7 +462,9 @@ function ModelDrawer({ id, onClose }: { id: number | null; onClose: () => void }
   const q = useQuery({ queryKey: ['ff-model', id], queryFn: () => forecastApi.model(id!), enabled: id != null });
   const m = q.data;
   const active = m?.status === 'active';
-  const refresh = () => { void qc.invalidateQueries({ queryKey: ['ff-model', id] }); void qc.invalidateQueries({ queryKey: ['ff-models'] }); };
+  const refresh = () => {
+    for (const key of ['ff-model', 'ff-models', 'ff-review-queue', 'workbench-todos']) void qc.invalidateQueries({ queryKey: [key] });
+  };
   const upload = useMutation({
     mutationFn: (f: File) => forecastApi.importVersion(m!.id, f, note || undefined),
     onSuccess: (v) => { message.success(`已导入第 ${v.versionNo} 版${v.errorCount ? `,诊断 ${v.errorCount} 项错误需处理` : ''}`); setNote(''); refresh(); setVersionId(v.id); },
@@ -560,6 +570,7 @@ function PublicationsTab() {
   const [orgId, setOrgId] = useState<number>();
   const [includeWithdrawn, setIncludeWithdrawn] = useState(false);
   const [detail, setDetail] = useState<FfPublicationDto | null>(null);
+  useAssistantDomainPage({ pageKey: 'forecast', ready: true, scope: { orgScopeId: orgId, forecastRunId: detail?.runId }, view: { tab: 'publications', includeWithdrawn } });
   const query = compact({ orgId, includeWithdrawn: includeWithdrawn ? ('1' as const) : undefined });
   const list = useQuery({ queryKey: ['ff-publications', query], queryFn: () => forecastApi.publications(query) });
   const withdraw = async (p: FfPublicationDto) => {
@@ -620,6 +631,7 @@ function ModelsTab() {
   const [creating, setCreating] = useState(false);
   const qc = useQueryClient();
   const query = compact({ orgId, status, folder, keyword: keyword.trim() });
+  useAssistantDomainPage({ pageKey: 'forecast', ready: true, scope: { orgScopeId: orgId, modelId: openId ?? undefined }, view: { status, keyword, folder } });
   const list = useQuery({ queryKey: ['ff-models', query], queryFn: () => forecastApi.models(query) });
   const folders = useQuery({ queryKey: ['ff-folders'], queryFn: () => forecastApi.folders() });
   return (
@@ -652,6 +664,42 @@ function ModelsTab() {
   );
 }
 
+function ReviewsTab() {
+  // 首页计数覆盖全部授权组织,不默认取授权根的直接数据(根下可能只有子组织有模型)。
+  const [orgId, setOrgId] = useState<number | undefined>();
+  const [versionId, setVersionId] = useUrlId('versionId');
+  useAssistantDomainPage({ pageKey: 'forecast', ready: true, scope: { orgScopeId: orgId, forecastVersionId: versionId ?? undefined }, view: { tab: 'reviews' } });
+  const q = useQuery({ queryKey: ['ff-review-queue', orgId], queryFn: () => forecastApi.reviewQueue({ orgId }) });
+  return (
+    <>
+      <Space style={{ marginBottom: 12 }}><OrgSelect value={orgId} onChange={setOrgId} /></Space>
+      {q.error ? <QueryErrorResult title="待复核版本加载失败" error={q.error} refetch={q.refetch} /> : (
+        <Table<FfReviewQueueItemDto> rowKey="versionId" size="small" loading={q.isLoading} dataSource={q.data?.items ?? []}
+          locale={{ emptyText: <Empty description="没有待复核的预测版本" /> }}
+          onRow={(v) => ({ onClick: () => setVersionId(v.versionId), style: { cursor: 'pointer' } })} columns={[
+            { title: '模型', dataIndex: 'modelName' },
+            { title: '组织', dataIndex: 'orgName', width: 160 },
+            { title: '版本', dataIndex: 'versionNo', width: 90, render: (v: number) => `第 ${v} 版` },
+            { title: '说明', dataIndex: 'note' },
+            { title: '提交人', dataIndex: 'frozenBy', width: 120 },
+            { title: '提交时间', dataIndex: 'frozenAt', width: 150, render: (v: string | null) => v ? shortTime(v) : '—' },
+          ]} />
+      )}
+      <VersionDrawer id={versionId} modelActive onClose={() => setVersionId(null)} onOpen={setVersionId} />
+    </>
+  );
+}
+
 export default function Forecast() {
-  return <Tabs items={[{ key: 'models', label: '模型', children: <ModelsTab /> }, { key: 'publications', label: '已发布', children: <PublicationsTab /> }]} />;
+  const [deepVersionId, setDeepVersionId] = useUrlId('versionId');
+  const [params, setParams] = useSearchParams();
+  const items = [
+    { key: 'models', label: '模型', children: <ModelsTab /> },
+    ...(can('forecast:review') ? [{ key: 'reviews', label: '待复核', children: <ReviewsTab /> }] : []),
+    { key: 'publications', label: '已发布', children: <PublicationsTab /> },
+  ];
+  const tab = params.get('tab');
+  return <><VersionDrawer id={params.get('tab') === 'reviews' ? null : deepVersionId} modelActive={false} onClose={() => setDeepVersionId(null)} onOpen={setDeepVersionId} /><Tabs destroyInactiveTabPane activeKey={items.some((i) => i.key === tab) ? tab! : 'models'} onChange={(key) => setParams((p) => {
+    const next = new URLSearchParams(p); next.set('tab', key); return next;
+  }, { replace: true })} items={items} /></>;
 }

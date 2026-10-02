@@ -33,7 +33,7 @@ describe('VerifyBar 分级语义', () => {
   it('通过项渲染成徽标，不产生 Alert 色块', () => {
     const html = render([{ key: 'reconciliation', level: 'ok', label: '实际数已逐分勾稽', details: ['来源实际净额 58,012.92 万元'] }]);
     expect(html).toContain('实际数已逐分勾稽');
-    expect(html).toContain('bd-verify-badge');
+    expect(html).toContain('newfc-verify-badge');
     expect(html).toContain('data-level="ok"');
     // Alert 只在需要人工介入时出现；通过态不应生成
     expect(html).not.toContain('ant-alert');
@@ -89,7 +89,7 @@ describe('VerifyBar 分级语义', () => {
   });
 });
 
-// ── 键盘可达性(方案《小澧助手全页面回答范围自动对齐开发计划》§13.1) ──
+// ── 键盘可达性(现行 specs/ai.md 页面上下文契约§13.1) ──
 import { cleanup, fireEvent, render as renderDom, screen } from '@testing-library/react';
 import { afterEach } from 'vitest';
 import { AssistantRegistryProvider, useAssistantRegistryView } from '../assistant/AssistantContextRegistry';

@@ -1,3 +1,5 @@
+import { useBatchDeepLink } from '../../hooks/useBatchDeepLink';
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Col, Drawer, Form, InputNumber, Modal, Row, Segmented, Space, Table, Tag, Tooltip, Typography, Upload } from 'antd';
@@ -145,10 +147,12 @@ export default function PlanExecution() {
   const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
   const [importing, setImporting] = useState(false);
   const [viewing, setViewing] = useState<PlanBatchDto | null>(null);
+  const linkedBatch = useBatchDeepLink('plan', planApi.batch, (batch) => { setViewing(batch); setYear(batch.year); });
   const writable = can('plan:write');
   const period = asOfPeriod?.startsWith(`${year}-`) ? asOfPeriod : undefined;
   const overview = useQuery({ queryKey: ['plan-overview', year, period, orgId], queryFn: () => planApi.overview({ year, asOfPeriod: period, orgId }) });
   const projects = useQuery({ queryKey: ['plan-projects', year, period, orgId], queryFn: () => planApi.projects({ year, asOfPeriod: period, orgId }) });
+  useAssistantDomainPage({ pageKey: 'plan', ready: !overview.isLoading && !overview.error, scope: { year: viewing?.year ?? year, period: viewing?.actualPeriod ?? period, orgScopeId: orgId, planBatchId: viewing?.id } });
   const batches = useQuery({ queryKey: ['plan-batches', year], queryFn: () => planApi.batches({ year }) });
   const refresh = () => ['plan-batches', 'plan-overview', 'plan-projects'].forEach((k) => void qc.invalidateQueries({ queryKey: [k] }));
   const act = useMutation({
@@ -163,6 +167,7 @@ export default function PlanExecution() {
   const o = overview.data;
   return (
     <div>
+      {linkedBatch.error && <QueryErrorResult title="来源批次加载失败" error={linkedBatch.error} refetch={linkedBatch.refetch} />}
       {holder}
       <Space wrap style={{ marginBottom: 12 }}>
         <InputNumber aria-label="计划年度" min={2000} max={2100} value={year} onChange={(v) => v && setYear(v)} style={{ width: 100 }} />

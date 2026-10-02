@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -226,6 +227,7 @@ export default function AnalysisReports() {
   const [generating, setGenerating] = useState(false);
   const qc = useQueryClient();
   const query = compact({ status, kind, orgId, keyword: keyword.trim() });
+  useAssistantDomainPage({ pageKey: 'analysis_reports', ready: true, scope: { orgScopeId: orgId, reportId: openId ?? undefined }, view: { status, kind, keyword } });
   const list = useQuery({ queryKey: ['analysis-reports', query], queryFn: () => reportApi.list(query) });
   const setStatus = (v?: RptStatus) => { const p = new URLSearchParams(params); if (v) p.set('status', v); else p.delete('status'); setParams(p, { replace: true }); };
   return (

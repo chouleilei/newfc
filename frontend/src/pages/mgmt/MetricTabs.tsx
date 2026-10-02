@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Col, Drawer, Empty, Form, Input, Modal, Row, Select, Space, Table, Tag, TreeSelect, Typography } from 'antd';
@@ -138,6 +139,7 @@ function DimensionDrawer({ dim, onClose }: { dim: MaDimensionDto | null; onClose
 }
 
 export function DimensionsTab() {
+  useAssistantDomainPage({ pageKey: 'mgmt', ready: true, view: { tab: 'dimensions' } });
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [open, setOpen] = useState<MaDimensionDto | null>(null);
@@ -278,6 +280,7 @@ export function MetricsTab() {
   const [running, setRunning] = useState(false);
   const [period, setPeriod] = useState<string | undefined>();
   const [runDetail, setRunDetail] = useState<number | null>(null);
+  useAssistantDomainPage({ pageKey: 'mgmt', ready: true, scope: { period }, view: { tab: 'metrics' } });
   const metrics = useMetrics();
   const runs = useQuery({ queryKey: ['ma-calc-runs', period], queryFn: () => mgmtApi.calcRuns({ period }) });
   const detail = useQuery({ queryKey: ['ma-calc-run', runDetail], queryFn: () => mgmtApi.calcRun(runDetail!), enabled: runDetail != null });
@@ -348,6 +351,7 @@ export function AnalysisTab() {
   const [groupBy, setGroupBy] = useState<'org' | 'dimension'>('org');
   const [dimensionId, setDimensionId] = useState<number | undefined>();
   const [orgId, setOrgId] = useState<number | undefined>();
+  useAssistantDomainPage({ pageKey: 'mgmt', ready: true, scope: { orgScopeId: orgId, period: periods.length === 1 ? periods[0] : undefined, mgmtMetricId: metricIds.length === 1 ? metricIds[0] : undefined }, view: { tab: 'analysis', periods, metricIds, groupBy, dimensionId } });
   const ready = metricIds.length > 0 && periods.length > 0 && (groupBy === 'org' || !!dimensionId);
   const q = useQuery({
     queryKey: ['ma-analysis', metricIds, periods, groupBy, dimensionId, orgId], enabled: ready,

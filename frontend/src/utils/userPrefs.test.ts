@@ -4,7 +4,7 @@
  * - 命名空间/键名、保存读取往返、schemaVersion 不符或 JSON 损坏时降级为空并自愈(不抛出);
  * - 视图/收藏/最近使用只保留白名单路由与白名单参数,注入的越界参数与非法条目被剔除;
  * - 视图增删改、收藏切换、最近记录去重排序与容量上限;
- * - 重置只清 `bd:prefs:` 键,不动其他存储内容。
+ * - 重置只清 `newfc:prefs:` 键,不动其他存储内容。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -45,12 +45,24 @@ let idSeq = 0;
 const idGen = () => `id-${(idSeq += 1)}`;
 
 describe('命名空间与键名', () => {
+  it('登录用户按 ID 隔离,同名或中文显示名不共用收藏与最近访问', () => {
+    const first = prefsNamespaceFor('财务人员', 11);
+    const second = prefsNamespaceFor('财务人员', 12);
+    expect(first).not.toBe(second);
+    expect(prefsNamespaceFor('改名后的财务人员', 11)).toBe(first);
+    expect(prefsNamespaceFor('id-11')).not.toBe(first);
+    const storage = memoryStorage();
+    const prefs = toggleFavorite(emptyUserPrefs(), { pageKey: 'analysis', path: '/analysis', label: '年度执行分析' }, 1000, idGen).prefs;
+    saveUserPrefs(storage, first, prefs);
+    expect(loadUserPrefs(storage, first).favorites).toHaveLength(1);
+    expect(loadUserPrefs(storage, second).favorites).toHaveLength(0);
+  });
   it('按用户名派生命名空间,特殊字符收敛,空值落 default', () => {
     expect(prefsNamespaceFor('Admin')).toBe('user-admin');
     expect(prefsNamespaceFor('Zhang.San')).toBe('user-zhang-san');
     expect(prefsNamespaceFor('本机模式')).toBe('default');
     expect(prefsNamespaceFor(null)).toBe('default');
-    expect(prefsStorageKey('user-admin')).toBe('bd:prefs:user-admin');
+    expect(prefsStorageKey('user-admin')).toBe('newfc:prefs:user-admin');
   });
 });
 

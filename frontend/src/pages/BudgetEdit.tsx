@@ -116,7 +116,7 @@ export default function BudgetEdit() {
   const changeSheet = (k: string) => {
     if (k === sheetKey) return;
     setSheetKey(k);
-    saveSession(`bd-budget-sheet-${versionId}`, k);
+    saveSession(`newfc-budget-sheet-${versionId}`, k);
     setCollapseLevel(null);
     /* 附注弹窗若仍开着,noteTarget 是旧表的 row 对象,保存会写入已不存在的 row key
        (summary 分支无守卫,直接 setSummaryNotes 随整包提交)。切表时强制关闭。 */
@@ -164,7 +164,7 @@ export default function BudgetEdit() {
   const [findState, setFindState] = useState<{ open: boolean; mode: 'find' | 'replace' }>({ open: false, mode: 'find' });
   const [pasteSpecialOpen, setPasteSpecialOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ open: boolean; x: number; y: number; r: number; c: number }>({ open: false, x: 0, y: 0, r: 0, c: 0 });
-  const [density, setDensity] = useSessionState<'compact' | 'standard' | 'relaxed'>('bd-grid-density', 'compact');
+  const [density, setDensity] = useSessionState<'compact' | 'standard' | 'relaxed'>('newfc-grid-density', 'compact');
   const [fullscreen, setFullscreen] = useState(false);
   const exitFullscreen = useCallback(() => setFullscreen(false), []);
   useFullscreenLayer(fullscreen, exitFullscreen);
@@ -189,7 +189,7 @@ export default function BudgetEdit() {
     if (!data || sheetsLoading) return;
     if (searchParams.get('sheet') != null) { setSheetDefaultedFor(versionId); return; }
     setSheetDefaultedFor(versionId);
-    const remembered = loadSession<string>(`bd-budget-sheet-${versionId}`, '');
+    const remembered = loadSession<string>(`newfc-budget-sheet-${versionId}`, '');
     const rememberedValid = remembered !== '' && sheetOptions.some((s) => s.key === remembered);
     const target = data.version.status === 'draft'
       ? (rememberedValid ? remembered : 'all')
@@ -236,7 +236,7 @@ export default function BudgetEdit() {
     onOpenFind: (mode) => setFindState({ open: true, mode }),
     onOpenPasteSpecial: () => setPasteSpecialOpen(true),
     notify: (type, text) => message[type](text),
-    persistKey: `bd-budget-${versionId}`,
+    persistKey: `newfc-budget-${versionId}`,
   });
   const { values, formulas, notes, invalidCells, dirty, markPersisted, resetData } = grid;
 
@@ -430,7 +430,7 @@ export default function BudgetEdit() {
     return orgCode != null && isAccountVisibleForScope(row.code, new Set([orgCode]));
   };
 
-  /* ---------- 小澧助手页面登记(§7.2 budget_edit) ---------- */
+  /* ---------- 财务助手页面登记(§7.2 budget_edit) ---------- */
   useAssistantPageContext({
     pageKey: 'budget_edit',
     ready: Boolean(data?.version),
@@ -587,7 +587,7 @@ export default function BudgetEdit() {
       title: '基于此版继续编制',
       content: (
         <div>
-          <div style={{ marginBottom: 8, color: 'var(--bd-text-tertiary)' }}>将复制当前版本（含全部明细与备注）生成新草稿，原定稿版本不变；创建后直接进入新草稿开始编制。</div>
+          <div style={{ marginBottom: 8, color: 'var(--newfc-text-tertiary)' }}>将复制当前版本（含全部明细与备注）生成新草稿，原定稿版本不变；创建后直接进入新草稿开始编制。</div>
           <Input defaultValue={name} maxLength={80} onChange={(e) => { name = e.target.value; }} />
         </div>
       ),
@@ -818,7 +818,7 @@ export default function BudgetEdit() {
       title: '记录本轮修改',
       content: (
         <div>
-          <div style={{ marginBottom: 8, color: 'var(--bd-text-tertiary)' }}>草稿会先完成保存，再记录相对上次记录点的具体变化；说明可选。数据保存不依赖本操作。</div>
+          <div style={{ marginBottom: 8, color: 'var(--newfc-text-tertiary)' }}>草稿会先完成保存，再记录相对上次记录点的具体变化；说明可选。数据保存不依赖本操作。</div>
           <Input placeholder="可选：如“第一轮部门讨论”" maxLength={80} onChange={(e) => { title = e.target.value; }} />
         </div>
       ),
@@ -1069,10 +1069,10 @@ export default function BudgetEdit() {
     && (sheetAccountRows.length === 0 || sheetAccountRows.every((r) => !r.isLeaf || r.status === 'inactive'));
 
   return (
-    /* 无壳:外层 .bd-content 已是唯一的岛。
+    /* 无壳:外层 .newfc-content 已是唯一的岛。
        标题保留 —— 它带的是版本名与定稿状态,不是页面名的重复。 */
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <Button size="small" onClick={() => navigate('/budget')} style={{ borderRadius: 6 }}>← 返回</Button>
@@ -1083,9 +1083,9 @@ export default function BudgetEdit() {
               borderRadius: 12,
               fontSize: 12,
               fontWeight: 500,
-              background: v.status === 'draft' ? softBg(sc.warn) : v.status === 'locked' ? softBg(fc.income) : 'var(--bd-fill)',
-              color: v.status === 'draft' ? sc.warn : v.status === 'locked' ? fc.income : 'var(--bd-text-tertiary)',
-              border: `1px solid ${v.status === 'draft' ? softBg(sc.warn, 30) : v.status === 'locked' ? softBg(fc.income, 30) : 'var(--bd-border)'}`,
+              background: v.status === 'draft' ? softBg(sc.warn) : v.status === 'locked' ? softBg(fc.income) : 'var(--newfc-fill)',
+              color: v.status === 'draft' ? sc.warn : v.status === 'locked' ? fc.income : 'var(--newfc-text-tertiary)',
+              border: `1px solid ${v.status === 'draft' ? softBg(sc.warn, 30) : v.status === 'locked' ? softBg(fc.income, 30) : 'var(--newfc-border)'}`,
             }}
           >
             {v.status === 'draft' ? '草稿编制中' : v.status === 'locked' ? '🔒 已定稿' : '已归档'}
@@ -1205,7 +1205,7 @@ export default function BudgetEdit() {
 
       {/* 全屏时整块工作区(范围条/工具栏/公式栏/查找栏/表格/状态栏)一起进入覆盖层,
           退出全屏按钮与 Esc 始终可用,不会被覆盖层自身遮住 */}
-      <div className={fullscreen ? 'bd-grid-fullscreen' : undefined}>
+      <div className={fullscreen ? 'newfc-grid-fullscreen' : undefined}>
       {/* UX-04:全屏与大表滚动时仍需确认「正在修改哪一年、哪个组织、哪一版」 */}
       <WorkspaceScopeBar
         year={v.year}
@@ -1213,7 +1213,7 @@ export default function BudgetEdit() {
         versionName={v.name}
         statusLabel={v.status === 'draft' ? '草稿编制中' : v.status === 'locked' ? '已定稿(只读)' : '已归档(只读)'}
         status={v.status === 'draft' ? 'ready' : 'readonly'}
-        extra={<span className="bd-scope-bar-label">科目表 {sheet?.name ?? sheetKey}</span>}
+        extra={<span className="newfc-scope-bar-label">科目表 {sheet?.name ?? sheetKey}</span>}
         style={{ marginBottom: 8 }}
       />
       <GridFilterBar

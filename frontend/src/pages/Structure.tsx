@@ -282,7 +282,7 @@ export default function Structure() {
   const report = reportQuery.data;
 
   /**
-   * 小澧助手页面登记(§7.3)：basisMode 与 basisId 决定占比基准，一起进入 view 由后端校验；
+   * 财务助手页面登记(§7.3)：basisMode 与 basisId 决定占比基准，一起进入 view 由后端校验；
    * accountSearch 默认只属于 view。异步默认值(年度/版本)写入 URL 之前不宣称已对齐。
    */
   useAssistantPageContext({
@@ -603,13 +603,13 @@ export default function Structure() {
   };
 
   return (
-    /* 无壳:外层 .bd-content 已是唯一的岛,这里再画一个框就成了「框套框」 */
+    /* 无壳:外层 .newfc-content 已是唯一的岛,这里再画一个框就成了「框套框」 */
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       extra={<Button icon={<i className="ri-download-2-line" aria-hidden />} onClick={() => void exportStructure()} disabled={!report}>导出</Button>}
     >
       {/* 眉题:每页仅首个内容区块带,避免满屏编号 */}
-      <div className="bd-eyebrow">结构占比</div>
+      <div className="newfc-eyebrow">结构占比</div>
       {(versionsQuery.error ?? versionMetadataQuery.error ?? metricsQuery.error ?? batchesQuery.error) && (
         /* 初始化数据失败要显式提示:空下拉/「请选择版本」会把失败伪装成未选择 */
         <Alert
@@ -744,7 +744,7 @@ export default function Structure() {
                     </Col>
                     {composition.rank.length > 0 && (
                       <Col xs={24} xl={11}>
-                        <div className="bd-metric-label" style={{ marginBottom: 4 }}>构成额 · 前 {composition.rank.length}</div>
+                        <div className="newfc-metric-label" style={{ marginBottom: 4 }}>构成额 · 前 {composition.rank.length}</div>
                         {composition.rank.map((row) => (
                           <RankBarRow key={row.key} color={row.color} label={row.label} value={row.value} share={row.share} shareLabel={row.shareLabel} />
                         ))}
@@ -807,11 +807,11 @@ export default function Structure() {
                   {/* 101 字断言说明收进 Tooltip:它是「为什么能守恒」的论证,
                       不是读表必须的信息,Statistic 的比值已经给出结论。 */}
                   <Space size={6} style={{ alignItems: 'flex-start' }}>
-                    <span className="bd-quote">
+                    <span className="newfc-quote">
                       子项之和必然逐分等于上级,此处算出来当断言
                     </span>
                     <Tooltip title="汇总沿科目祖先链累计，因此同一上级下各子项金额之和必然逐分等于上级；这里把它算出来当断言。各子项「占上级」比重之和理论为 100%，实际可能相差百万分之几，那是每行独立四舍五入的正常结果，不是错账。">
-                      <i className="ri-information-line" style={{ color: 'var(--bd-text-tertiary)', fontSize: 13, cursor: 'pointer', marginTop: 5 }} aria-hidden />
+                      <i className="ri-information-line" style={{ color: 'var(--newfc-text-tertiary)', fontSize: 13, cursor: 'pointer', marginTop: 5 }} aria-hidden />
                     </Tooltip>
                   </Space>
                 </Col>
@@ -833,7 +833,7 @@ export default function Structure() {
           >
             {/* 口径自解释(方案七):列明范围内科目总数与默认折叠行为,
                 与分页「共 N 个顶层节点」并列,避免「只有 12 个」的同类误读;
-                表格自述注记不是结论句,用普通二级文本,不套 bd-quote 竖线 */}
+                表格自述注记不是结论句,用普通二级文本,不套 newfc-quote 竖线 */}
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '0 0 8px' }}>
               范围内共 {report.rows.length} 个金额科目（含叶子与父级分组，{report.scopeBasis.sheetName}），默认折叠至顶层，展开查看子级。
             </Typography.Paragraph>

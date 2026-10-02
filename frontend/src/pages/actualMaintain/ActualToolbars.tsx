@@ -75,9 +75,9 @@ export function ActualToolbars(props: {
           justifyContent: 'space-between',
           gap: 12,
           padding: '10px 14px',
-          background: 'var(--bd-header)',
+          background: 'var(--newfc-header)',
           borderRadius: 8,
-          border: '1px solid var(--bd-border-subtle)',
+          border: '1px solid var(--newfc-border-subtle)',
           marginBottom: 10,
         }}
       >
@@ -91,7 +91,7 @@ export function ActualToolbars(props: {
               { label: narrowScreen ? '补录历史' : '补录历史快照', value: 'history' },
             ]}
           />
-          <Divider type="vertical" style={{ borderColor: 'var(--bd-border)', margin: '0 4px' }} />
+          <Divider type="vertical" style={{ borderColor: 'var(--newfc-border)', margin: '0 4px' }} />
           <Segmented
             value={props.viewMode}
             onChange={(v) => props.onViewModeChange(v as 'orgs' | 'years')}
@@ -100,10 +100,11 @@ export function ActualToolbars(props: {
               { label: narrowScreen ? '📅 多年趋势' : '📅 多年趋势对比', value: 'years' },
             ]}
           />
-          <Divider type="vertical" style={{ borderColor: 'var(--bd-border)', margin: '0 4px' }} />
+          <Divider type="vertical" style={{ borderColor: 'var(--newfc-border)', margin: '0 4px' }} />
           <Space size="small" wrap>
-            <span style={{ fontSize: 13, color: 'var(--bd-text-tertiary)', fontWeight: 500 }}>预算组织</span>
+            <span style={{ fontSize: 13, color: 'var(--newfc-text-tertiary)', fontWeight: 500 }}>预算组织</span>
             <TreeSelect
+              aria-label="实际数组织"
               style={{ width: 230 }}
               treeData={props.orgTreeData}
               value={props.effectiveScopeId ?? undefined}
@@ -113,8 +114,9 @@ export function ActualToolbars(props: {
             />
           </Space>
           <Space size="small" wrap>
-            <span style={{ fontSize: 13, color: 'var(--bd-text-tertiary)', fontWeight: 500 }}>报表</span>
+            <span style={{ fontSize: 13, color: 'var(--newfc-text-tertiary)', fontWeight: 500 }}>报表</span>
             <Select
+              aria-label="实际数报表"
               style={{ width: 140 }}
               value={props.sheetKey}
               onChange={props.onSheetKeyChange}
@@ -122,9 +124,9 @@ export function ActualToolbars(props: {
             />
           </Space>
           <Space size="small" wrap>
-            <span style={{ fontSize: 13, color: 'var(--bd-text-tertiary)', fontWeight: 500 }}>维护年度</span>
+            <span style={{ fontSize: 13, color: 'var(--newfc-text-tertiary)', fontWeight: 500 }}>维护年度</span>
             <Space.Compact>
-              <Select style={{ width: 96 }} value={props.editYear} onChange={props.onYearChange} options={props.years.map((y) => ({ value: y, label: `${y} 年` }))} />
+              <Select aria-label="实际数年度" style={{ width: 96 }} value={props.editYear} onChange={props.onYearChange} options={props.years.map((y) => ({ value: y, label: `${y} 年` }))} />
               <Button icon={<i className="ri-add-line" aria-hidden />} title="添加历史年份" onClick={props.onAddYear} />
             </Space.Compact>
           </Space>
@@ -186,7 +188,7 @@ export function ActualToolbars(props: {
             ]}
           />
           <Space size={4} wrap>
-            <span style={{ fontSize: 13, color: 'var(--bd-text-tertiary)', fontWeight: 500 }}>累计截至</span>
+            <span style={{ fontSize: 13, color: 'var(--newfc-text-tertiary)', fontWeight: 500 }}>累计截至</span>
             <DatePicker
               style={{ width: 140 }}
               value={props.cutoff}

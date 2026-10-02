@@ -58,7 +58,7 @@ export function NoteEditModal(props: {
                 onChange={(e) => props.onFormFormulaChange(e.target.value)}
                 allowClear
               />
-              <div style={{ fontSize: 12, color: 'var(--bd-text-tertiary)', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)', marginTop: 4 }}>
                 支持四则运算、括号及税率百分比（以等号 = 开头），保存时将自动重新计算金额。
               </div>
             </div>
@@ -81,7 +81,7 @@ export function NoteEditModal(props: {
               maxLength={500}
               showCount
             />
-            <div style={{ fontSize: 12, color: 'var(--bd-text-tertiary)', marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)', marginTop: 4 }}>
               保存后可用 Ctrl+Z 撤销；「取消」只放弃本次弹窗中的输入，不影响已有内容。
             </div>
           </div>

@@ -30,7 +30,7 @@ export default function Insights() {
     queryFn: () => assistantApi.insights(),
   });
 
-  /* 小澧助手页面登记(§7.2 insights)：打开详情时把 insightId 纳入范围。
+  /* 财务助手页面登记(§7.2 insights)：打开详情时把 insightId 纳入范围。
      读取失败同样不算就绪——错误态宣称「已对齐」会误导用户(§3.7)。 */
   useAssistantPageContext({
     pageKey: 'insights',
@@ -96,7 +96,7 @@ export default function Insights() {
   const years = [...new Set((versions ?? []).map((v) => v.year))].sort((a, b) => b - a);
 
   return (
-    <Card className="bd-root-card">
+    <Card className="newfc-root-card">
       <Space style={{ marginBottom: 12 }} wrap>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           洞察的生成与删除走助手服务、受助手限流约束(既有行为);数字由后端按参数重新计算并附引用。

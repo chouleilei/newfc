@@ -253,9 +253,9 @@ test('实际数有未保存编辑时进入导入需先保存或明确放弃(UX-1
   try {
     await page.goto('/actual');
     await expect(page.getByRole('button', { name: '导入 Excel', exact: true }).first()).toBeVisible();
-    // 页面前三个 combobox 依次是组织、报表、年度；直接定位报表输入，避免文本标签与
-    // Ant Space 的额外包裹层级变化导致选择器失效。
-    await page.getByRole('combobox').nth(1).locator('xpath=ancestor::div[contains(@class,"ant-select-selector")]').click();
+    // 明确定位实际数报表,不受全局检索框或其他筛选器顺序影响。
+    await page.getByRole('combobox', { name: '实际数报表', exact: true })
+      .locator('xpath=ancestor::div[contains(@class,"ant-select-selector")]').click();
     const reportDropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last();
     const reportOption = reportDropdown.locator('.ant-select-item-option').filter({ hasText: sheetName }).first();
     await expect(reportOption).toBeVisible();

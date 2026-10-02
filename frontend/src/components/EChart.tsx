@@ -33,7 +33,7 @@ function decorateBars(series: unknown, colors: string[]): unknown {
 }
 
 /**
- * 图表语义点击(方案《小澧助手全页面回答范围自动对齐开发计划》§8.4)：
+ * 图表语义点击(现行 specs/ai.md 页面上下文契约§8.4)：
  * 只把 ECharts data 的语义维度(seriesKey/name/dataIndex)交给页面，
  * 由页面自行翻译成 chart_point 焦点；像素坐标和展示 value 不进入助手上下文。
  */

@@ -77,7 +77,7 @@ export default function MetricManage() {
 
   const { data: metrics, error: metricsError, refetch: refetchMetrics } = useQuery({ queryKey: ['metrics'], queryFn: () => api.get<{ items: Metric[] }>('/metrics') });
 
-  /* 小澧助手页面登记(§7.2 metric)：指标列表。 */
+  /* 财务助手页面登记(§7.2 metric)：指标列表。 */
   useAssistantPageContext({ pageKey: 'metric', ready: metrics != null && !metricsError, readyState: metrics == null && !metricsError ? 'loading' : 'error', notReadyReason: metricsError ? '指标列表读取失败' : '正在读取指标列表', scope: {}, view: {} });
   const { data: accountTree } = useQuery({ queryKey: ['tree', 'account'], queryFn: () => api.get<{ rows: AccountRow[] }>('/account/tree') });
   const { data: metricList } = useQuery({ queryKey: ['metrics-plain'], queryFn: () => api.get<{ items: Metric[] }>('/metrics') });
@@ -273,7 +273,7 @@ export default function MetricManage() {
   return (
     /* 无壳 + 无标题:顶栏已显示「指标」,Card title 是重复的第二遍 */
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       extra={(
         <Space size={4}>
           <Button icon={<i className="ri-add-line" aria-hidden />} onClick={() => openEdit(null, 'ratio')}>

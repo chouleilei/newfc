@@ -1,5 +1,5 @@
 /**
- * 全局悬浮助手「小澧助手」:右下悬浮球 + 400×600 小窗。
+ * 全局悬浮助手「财务助手」:右下悬浮球 + 400×600 小窗。
  *
  * 形态参考火山在线咨询/火山方舟控制台助手:紫蓝渐变圆形入口常驻视口右下,
  * 点击后从按钮位置 morphing 展开为右下角锚定的浮层面板(250~300ms 缓出),
@@ -18,10 +18,11 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Alert, Button, Grid, Space, Spin, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, ConfigProvider, Grid, Space, Spin, Tag, Tooltip, Typography } from 'antd';
 import type { TextAreaRef } from 'antd/es/input/TextArea';
 import { useAssistant, type ChatTurn } from '../../assistant/AssistantProvider';
-import { PAGE_LABEL, PAGE_PROMPTS } from '../../assistant/pageContext';
+import { can } from '../../api/client';
+import { PAGE_LABEL, permittedPagePrompts } from '../../assistant/pageContext';
 import { isTurnOriginStale } from '../../assistant/scopeDisplay';
 import { READ_INTENT_LABEL } from '../../assistant/labels';
 import { Markdown } from './Markdown';
@@ -45,7 +46,7 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
   if (turn.role === 'user') {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <div className="bd-ai-bubble-user">{turn.text}</div>
+        <div className="newfc-ai-bubble-user">{turn.text}</div>
       </div>
     );
   }
@@ -54,7 +55,7 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
     <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
       <AssistantMark size={22} />
       <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-        <div className="bd-ai-bubble-ai">
+        <div className="newfc-ai-bubble-ai">
           {/* 元信息行：路由方式与模型来源。压到 11px 无边框标签，别和正文抢注意力。 */}
           {(response?.routing || turn.model || response?.intents?.inheritedRead?.length) ? (
             <Space size={4} wrap style={{ marginBottom: 8 }}>
@@ -62,13 +63,13 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
                 <Tooltip title={response.routing === 'model'
                   ? '模型自主调用只读工具取数，数字仍来自后端'
                   : '模型不可用或未调用工具，已按关键词兜底路由到确定性查询'}>
-                  <Tag bordered={false} className="bd-ai-meta" color={response.routing === 'model' ? 'blue' : undefined}>
+                  <Tag bordered={false} className="newfc-ai-meta" color={response.routing === 'model' ? 'blue' : undefined}>
                     {response.routing === 'model' ? '模型路由' : '关键词兜底'}
                   </Tag>
                 </Tooltip>
               )}
               {turn.model && (
-                <Tag bordered={false} className="bd-ai-meta">
+                <Tag bordered={false} className="newfc-ai-meta">
                   {turn.model === 'template' ? (
                     <Tooltip title="模型不可用,已回退确定性模板;可在「系统 → AI 渠道设置」配置渠道">
                       <Link to="/settings/ai" style={{ color: 'inherit' }}>模板降级</Link>
@@ -77,13 +78,13 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
                 </Tag>
               )}
               {response?.intents?.inheritedRead?.length ? (
-                <Tag bordered={false} className="bd-ai-meta" color="cyan">
+                <Tag bordered={false} className="newfc-ai-meta" color="cyan">
                   追问·沿用{response.intents.inheritedRead.map((intent) => READ_INTENT_LABEL[intent] ?? intent).join('、')}
                 </Tag>
               ) : null}
               {isTurnOriginStale(turn.origin?.pageKey, currentPage) ? (
                 <Tooltip title="这条回答的范围以发起时所在页面为准，与当前页面不同，不代表你正在看的对象">
-                  <Tag bordered={false} className="bd-ai-meta" color="gold" data-testid="assistant-dock-turn-origin">
+                  <Tag bordered={false} className="newfc-ai-meta" color="gold" data-testid="assistant-dock-turn-origin">
                     基于「{PAGE_LABEL[turn.origin!.pageKey] ?? turn.origin!.pageKey}」当时的范围
                   </Tag>
                 </Tooltip>
@@ -106,7 +107,7 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
           {turn.pending && turn.text && turn.progress ? (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>{turn.progress.label}…</Typography.Text>
           ) : null}
-          {turn.stopped ? <Tag bordered={false} className="bd-ai-meta">已停止生成</Tag> : null}
+          {turn.stopped ? <Tag bordered={false} className="newfc-ai-meta">已停止生成</Tag> : null}
           {/* 回答范围摘要(§10.1):历史会话直接读当时响应里的 contextSummary */}
           {response?.contextSummary ? (
             <div style={{ marginBottom: 6 }}>
@@ -114,7 +115,7 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
                 ? response.contextTrace.overrides.map((o) => o.reason).join('；')
                 : '本轮回答采用的业务范围'}>
                 <Tag
-                  bordered={false} className="bd-ai-meta"
+                  bordered={false} className="newfc-ai-meta"
                   color={response.contextStatus === 'explicit_override' ? 'gold' : 'green'}
                   data-testid="assistant-dock-context-summary"
                 >
@@ -126,7 +127,7 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
           {/* 数字核对通过时的绿色小标签常显;未通过的警告与降级/提示一起收进折叠条 */}
           {response?.numberCheck?.status === 'ok' ? (
             <Tooltip title={response.numberCheck.note}>
-              <Tag bordered={false} className="bd-ai-meta" color="green" data-testid="assistant-dock-number-check">
+              <Tag bordered={false} className="newfc-ai-meta" color="green" data-testid="assistant-dock-number-check">
                 数值已核对 {response.numberCheck.checked} 处
               </Tag>
             </Tooltip>
@@ -184,6 +185,20 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
 }
 
 export function AssistantDock() {
+  const [overlayZIndex, setOverlayZIndex] = useState(990);
+  useEffect(() => {
+    const syncLayer = () => {
+      const layers = [...document.querySelectorAll<HTMLElement>('.ant-drawer-open, .ant-modal-wrap')]
+        .filter((element) => element.getClientRects().length && getComputedStyle(element).display !== 'none')
+        .map((element) => Number(getComputedStyle(element).zIndex) || 1000);
+      setOverlayZIndex(layers.length ? Math.max(...layers) + 10 : 990);
+    };
+    syncLayer();
+    const observer = new MutationObserver(syncLayer);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+    return () => observer.disconnect();
+  }, []);
+
   const {
     dockOpen, openDock, closeDock, turns, sending, send, stopGenerating, startNewConversation,
     conversationId, routeInfo,
@@ -235,7 +250,7 @@ export function AssistantDock() {
     if (dockOpen) bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [turns, dockOpen]);
 
-  const prompts = useMemo(() => (PAGE_PROMPTS[routeInfo.page] ?? PAGE_PROMPTS.assistant).slice(0, 4), [routeInfo.page]);
+  const prompts = useMemo(() => permittedPagePrompts(routeInfo.page, can), [routeInfo.page]);
 
   const submit = (text: string) => {
     const trimmed = text.trim();
@@ -257,13 +272,14 @@ export function AssistantDock() {
   };
 
   return (
-    <>
-      {/* 右下悬浮入口:全站常驻,z-index 低于 Drawer(1000) 高于内容 */}
-      <Tooltip title={dockOpen ? '' : sending ? '小澧助手（正在生成回答）' : '小澧助手'} placement="left">
+    <ConfigProvider theme={{ token: { zIndexPopupBase: overlayZIndex + 50 } }}>
+      {/* 右下悬浮入口：打开业务详情时同步提升层级，保留就地提问入口。 */}
+      <Tooltip title={dockOpen ? '' : sending ? '财务助手（正在生成回答）' : '财务助手'} placement="left">
         <button
           type="button"
-          className="bd-ai-fab"
-          aria-label={dockOpen ? '收起小澧助手小窗' : '小澧助手'}
+          className="newfc-ai-fab"
+          style={{ zIndex: overlayZIndex }}
+          aria-label={dockOpen ? '收起财务助手小窗' : '财务助手'}
           aria-expanded={dockOpen}
           data-testid="assistant-dock-trigger"
           onClick={() => (dockOpen ? closeDock() : openDock())}
@@ -273,34 +289,35 @@ export function AssistantDock() {
       </Tooltip>
       {mounted ? (
         <div
-          className={`bd-assistant-dock bd-ai-float${shown ? '' : ' bd-ai-float-hidden'}${narrow ? ' bd-ai-float-narrow' : ''}`}
+          className={`newfc-assistant-dock newfc-ai-float${shown ? '' : ' newfc-ai-float-hidden'}${narrow ? ' newfc-ai-float-narrow' : ''}`}
+          style={{ zIndex: overlayZIndex }}
           role="dialog"
-          aria-label="小澧助手"
+          aria-label="财务助手"
         >
-          <div className="bd-ai-float-head">
+          <div className="newfc-ai-float-head">
             <AssistantMark size={24} />
-            <span className="bd-ai-float-title">小澧助手</span>
-            <span className="bd-ai-float-conv">
+            <span className="newfc-ai-float-title">财务助手</span>
+            <span className="newfc-ai-float-conv">
               {conversationId ? `会话 #${conversationId}` : '新会话'}
             </span>
             <span style={{ flex: '1 1 auto' }} />
             <Tooltip title="新会话">
               <Button size="small" type="text" icon={<i className="ri-add-line" aria-hidden />} aria-label="新会话" data-testid="assistant-dock-new" onClick={startNewConversation} />
             </Tooltip>
-            <button type="button" className="bd-ai-float-fullpage" data-testid="assistant-dock-fullpage" onClick={openFullPage}>
+            <button type="button" className="newfc-ai-float-fullpage" data-testid="assistant-dock-fullpage" onClick={openFullPage}>
               进入完整助手 <i className="ri-arrow-right-line" aria-hidden />
             </button>
             <Tooltip title="关闭">
               <Button size="small" type="text" icon={<i className="ri-close-line" aria-hidden />} aria-label="关闭助手" onClick={closeDock} />
             </Tooltip>
           </div>
-          <div className="bd-ai-float-body">
+          <div className="newfc-ai-float-body">
             <AssistantScopeBar />
-            <div className="bd-ai-float-scroll">
+            <div className="newfc-ai-float-scroll">
               {turns.length === 0 ? (
                 <div style={{ paddingTop: 8 }}>
                   <SectionLabel>我能帮你做</SectionLabel>
-                  <SkillCards page={routeInfo.page} onPick={(item) => submit(item.prompt)} />
+                  <SkillCards items={['assistant','dashboard'].includes(routeInfo.page) ? prompts.slice(0,2).map((prompt, i) => ({ key: `domain-${i}`, icon: 'insight' as const, title: '业务查询', desc: prompt, prompt })) : undefined} page={routeInfo.page} onPick={(item) => submit(item.prompt)} />
                   <div style={{ marginTop: 24 }}>
                     <SectionLabel>你是否想问</SectionLabel>
                     <RecommendList prompts={prompts} onPick={submit} />
@@ -321,9 +338,9 @@ export function AssistantDock() {
               <div ref={bottomRef} />
             </div>
           </div>
-          <div className="bd-ai-float-foot">
+          <div className="newfc-ai-float-foot">
             <div
-              className={`bd-ai-glow-wrap${turns.length === 0 && !glowOff ? ' bd-ai-glow-active' : ''}`}
+              className={`newfc-ai-glow-wrap${turns.length === 0 && !glowOff ? ' newfc-ai-glow-active' : ''}`}
               onFocusCapture={() => setGlowOff(true)}
             >
               <Composer
@@ -346,6 +363,6 @@ export function AssistantDock() {
           </div>
         </div>
       ) : null}
-    </>
+    </ConfigProvider>
   );
 }

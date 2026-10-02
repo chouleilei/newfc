@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App as AntdApp, Button, Card, Drawer, Form, Input, Modal, Select, Space, Table, Tag, Timeline, TreeSelect, Typography } from 'antd';
@@ -144,6 +145,7 @@ export function AllocationTab() {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [period, setPeriod] = useState<string | undefined>();
+  useAssistantDomainPage({ pageKey: 'mgmt', ready: true, scope: { period }, view: { tab: 'allocation' } });
   const [creating, setCreating] = useState(false);
   const [rulesOf, setRulesOf] = useState<MaCostPoolDto | null>(null);
   const [previewOf, setPreviewOf] = useState<MaCostPoolDto | null>(null);

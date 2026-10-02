@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import type { ChangeEvent } from 'react';
 import { Divider, Form, Input, Select } from 'antd';
 import { customFieldApi, type CustomFieldDomain, type CustomFieldDto } from '../../api/systemSettings';
 
@@ -12,15 +13,27 @@ export function mergeExtra(previous: Record<string, unknown> | undefined, values
   return { ...(previous ?? {}), ...(values ?? {}) };
 }
 
-function FieldInput({ f, current }: { f: CustomFieldDto; current?: unknown }) {
+interface FieldInputProps {
+  f: CustomFieldDto;
+  current?: unknown;
+  id?: string;
+  value?: string;
+  onChange?: (value: string | undefined) => void;
+  'aria-describedby'?: string;
+  'aria-invalid'?: boolean | 'true' | 'false';
+  'aria-required'?: boolean | 'true' | 'false';
+}
+
+function FieldInput({ f, current, ...control }: FieldInputProps) {
   if (f.fieldType === 'select') {
     const options = (f.options ?? []).map((o) => ({ value: o.value, label: o.label }));
     if (typeof current === 'string' && current && !options.some((o) => o.value === current)) options.push({ value: current, label: `${current}(已停用)` });
-    return <Select allowClear options={options} placeholder="请选择" />;
+    return <Select {...control} allowClear options={options} placeholder="请选择" />;
   }
-  if (f.fieldType === 'date') return <Input type="date" />;
-  if (f.fieldType === 'number') return <Input inputMode="decimal" placeholder="数字,最多 6 位小数" maxLength={24} />;
-  return <Input maxLength={500} />;
+  const inputControl = { ...control, value: control.value ?? '', onChange: (event: ChangeEvent<HTMLInputElement>) => control.onChange?.(event.target.value) };
+  if (f.fieldType === 'date') return <Input {...inputControl} type="date" />;
+  if (f.fieldType === 'number') return <Input {...inputControl} inputMode="decimal" placeholder="数字,最多 6 位小数" maxLength={24} />;
+  return <Input {...inputControl} maxLength={500} />;
 }
 
 export function CustomFieldItems({ fields, extra }: { fields: CustomFieldDto[]; extra?: Record<string, unknown> }) {

@@ -12,12 +12,13 @@
  * mode 持久化到 localStorage,首次访问跟随系统 prefers-color-scheme。
  * 同时为 ECharts 提供亮/暗基础配色(EChart 组件内与业务 option 合并)。
  */
+import { readBrowserStorage } from './utils/browserStorage';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { theme as antdTheme } from 'antd';
 
 export type ThemeMode = 'light' | 'dark';
 
-const STORAGE_KEY = 'budget-theme-mode';
+const STORAGE_KEY = 'newfc-theme-mode';
 
 interface ThemeContextValue {
   mode: ThemeMode;
@@ -76,7 +77,7 @@ export function financeColor(mode: ThemeMode) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = readBrowserStorage(localStorage, STORAGE_KEY);
     if (saved === 'light' || saved === 'dark') return saved;
     return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
@@ -89,84 +90,84 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const vars = mode === 'dark'
       ? {
         /* 暗色=「灯下夜账」:墨棕纸面,朱砂/赭石相应提亮 */
-        '--bd-bg-layout': '#1c1914',
-        '--bd-bg-container': '#24211a',
-        '--bd-bg-elevated': '#2b2720',
-        '--bd-bg-subtle': '#201d17',
+        '--newfc-bg-layout': '#1c1914',
+        '--newfc-bg-container': '#24211a',
+        '--newfc-bg-elevated': '#2b2720',
+        '--newfc-bg-subtle': '#201d17',
         /* 岛内分区填充:比岛底更浅一档,靠底色差表达层级(不描边) */
-        '--bd-bg-fill': '#2b2720',
-        '--bd-island-border': '#3a352b',
-        '--bd-border': '#3a352b',
-        '--bd-border-subtle': '#322e25',
-        '--bd-text': '#ece4d0',
-        '--bd-text-secondary': '#b3a990',
-        '--bd-text-tertiary': '#8a8069',
-        '--bd-fill': '#2f2b22',
+        '--newfc-bg-fill': '#2b2720',
+        '--newfc-island-border': '#3a352b',
+        '--newfc-border': '#3a352b',
+        '--newfc-border-subtle': '#322e25',
+        '--newfc-text': '#ece4d0',
+        '--newfc-text-secondary': '#b3a990',
+        '--newfc-text-tertiary': '#8a8069',
+        '--newfc-fill': '#2f2b22',
         /* 粘性表头填充:必须不透明,否则滚动时正文会从表头下面透出来 */
-        '--bd-header': '#2b2720',
-        '--bd-primary': BRAND.dark.primary,
-        '--bd-primary-rgb': '232, 224, 205',
-        '--bd-primary-bg': 'rgba(232, 224, 205, 0.14)',
-        '--bd-accent': BRAND.dark.accent,
-        '--bd-accent-rgb': '217, 138, 138',
-        '--bd-accent-bg': 'rgba(217, 138, 138, 0.14)',
-        '--bd-link': BRAND.dark.link,
-        '--bd-link-rgb': '217, 138, 138',
+        '--newfc-header': '#2b2720',
+        '--newfc-primary': BRAND.dark.primary,
+        '--newfc-primary-rgb': '232, 224, 205',
+        '--newfc-primary-bg': 'rgba(232, 224, 205, 0.14)',
+        '--newfc-accent': BRAND.dark.accent,
+        '--newfc-accent-rgb': '217, 138, 138',
+        '--newfc-accent-bg': 'rgba(217, 138, 138, 0.14)',
+        '--newfc-link': BRAND.dark.link,
+        '--newfc-link-rgb': '217, 138, 138',
         /* AI 助手面板专用:主推能力卡的紫调渐变与文字色 */
-        '--bd-ai-card-bg': 'linear-gradient(91deg, #231d3a 0.73%, #2f2650 49.05%, #231d3a 102.77%)',
-        '--bd-ai-card-bg-hover': 'linear-gradient(91deg, #2b2446 0.73%, #3a2f62 49.05%, #2b2446 102.77%)',
-        '--bd-ai-card-title': '#c4b5fd',
-        '--bd-ai-card-desc': '#9c8fc0',
-        '--bd-ai-tile-bg': '#2b2720',
-        '--bd-ai-tile-bg-hover': '#3a352b',
+        '--newfc-ai-card-bg': 'linear-gradient(91deg, #231d3a 0.73%, #2f2650 49.05%, #231d3a 102.77%)',
+        '--newfc-ai-card-bg-hover': 'linear-gradient(91deg, #2b2446 0.73%, #3a2f62 49.05%, #2b2446 102.77%)',
+        '--newfc-ai-card-title': '#c4b5fd',
+        '--newfc-ai-card-desc': '#9c8fc0',
+        '--newfc-ai-tile-bg': '#2b2720',
+        '--newfc-ai-tile-bg-hover': '#3a352b',
         /* AI 品牌签名:紫=AI 助手专属(FAB、AssistantMark、输入框流光、主推能力卡);
            亮/暗同值,两套主题下保持同一枚「紫印」 */
-        '--bd-ai-primary': '#8b5cf6',
-        '--bd-ai-primary-deep': '#6d28d9',
-        '--bd-ai-glow': '#a78bfa',
+        '--newfc-ai-primary': '#8b5cf6',
+        '--newfc-ai-primary-deep': '#6d28d9',
+        '--newfc-ai-glow': '#a78bfa',
         /* 浮层阴影:抽屉/弹窗/下拉专用,平铺卡片不用 */
-        '--bd-shadow-overlay': '0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.45)',
+        '--newfc-shadow-overlay': '0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.45)',
         /* 动效时长两档令牌(亮暗同值):位移/投影走快档,描边淡入淡出走慢档 */
-        '--bd-dur-lift': '0.22s',
-        '--bd-dur-border': '0.45s',
-        '--bd-ease-out': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        '--newfc-dur-lift': '0.22s',
+        '--newfc-dur-border': '0.45s',
+        '--newfc-ease-out': 'cubic-bezier(0.16, 1, 0.3, 1)',
       }
       : {
-        '--bd-bg-layout': '#f6f3ee',
-        '--bd-bg-container': '#fdfbf6',
-        '--bd-bg-elevated': '#fdfbf6',
-        '--bd-bg-subtle': '#f3eee5',
+        '--newfc-bg-layout': '#f6f3ee',
+        '--newfc-bg-container': '#fdfbf6',
+        '--newfc-bg-elevated': '#fdfbf6',
+        '--newfc-bg-subtle': '#f3eee5',
         /* 岛内分区填充:比岛底(#fdfbf6)深一档,靠底色差表达层级(不描边) */
-        '--bd-bg-fill': '#f3eee5',
-        '--bd-island-border': '#d8cfba',
-        '--bd-border': '#e5ded0',
-        '--bd-border-subtle': '#ece5d3',
-        '--bd-text': '#26221a',
-        '--bd-text-secondary': '#6b6252',
-        '--bd-text-tertiary': '#8a8069',
-        '--bd-fill': '#efe9dc',
-        '--bd-header': '#f3eee5',
-        '--bd-primary': BRAND.light.primary,
-        '--bd-primary-rgb': '38, 34, 26',
-        '--bd-primary-bg': 'rgba(38, 34, 26, 0.08)',
-        '--bd-accent': BRAND.light.accent,
-        '--bd-accent-rgb': '156, 47, 47',
-        '--bd-accent-bg': 'rgba(156, 47, 47, 0.10)',
-        '--bd-link': BRAND.light.link,
-        '--bd-link-rgb': '156, 47, 47',
-        '--bd-ai-card-bg': 'linear-gradient(91deg, #f6f3ff 0.73%, #ede6fe 49.05%, #f6f4ff 102.77%)',
-        '--bd-ai-card-bg-hover': 'linear-gradient(91deg, #f1ebff 0.73%, #e0d4fc 49.05%, #f1ebff 102.77%)',
-        '--bd-ai-card-title': '#4c1d95',
-        '--bd-ai-card-desc': '#7e6f97',
-        '--bd-ai-tile-bg': '#f3eee5',
-        '--bd-ai-tile-bg-hover': '#ece5d3',
-        '--bd-ai-primary': '#8b5cf6',
-        '--bd-ai-primary-deep': '#6d28d9',
-        '--bd-ai-glow': '#a78bfa',
-        '--bd-shadow-overlay': '0 10px 15px -3px rgba(38, 34, 26, 0.10), 0 4px 6px -4px rgba(38, 34, 26, 0.08)',
-        '--bd-dur-lift': '0.22s',
-        '--bd-dur-border': '0.45s',
-        '--bd-ease-out': 'cubic-bezier(0.16, 1, 0.3, 1)',
+        '--newfc-bg-fill': '#f3eee5',
+        '--newfc-island-border': '#d8cfba',
+        '--newfc-border': '#e5ded0',
+        '--newfc-border-subtle': '#ece5d3',
+        '--newfc-text': '#26221a',
+        '--newfc-text-secondary': '#6b6252',
+        '--newfc-text-tertiary': '#8a8069',
+        '--newfc-fill': '#efe9dc',
+        '--newfc-header': '#f3eee5',
+        '--newfc-primary': BRAND.light.primary,
+        '--newfc-primary-rgb': '38, 34, 26',
+        '--newfc-primary-bg': 'rgba(38, 34, 26, 0.08)',
+        '--newfc-accent': BRAND.light.accent,
+        '--newfc-accent-rgb': '156, 47, 47',
+        '--newfc-accent-bg': 'rgba(156, 47, 47, 0.10)',
+        '--newfc-link': BRAND.light.link,
+        '--newfc-link-rgb': '156, 47, 47',
+        '--newfc-ai-card-bg': 'linear-gradient(91deg, #f6f3ff 0.73%, #ede6fe 49.05%, #f6f4ff 102.77%)',
+        '--newfc-ai-card-bg-hover': 'linear-gradient(91deg, #f1ebff 0.73%, #e0d4fc 49.05%, #f1ebff 102.77%)',
+        '--newfc-ai-card-title': '#4c1d95',
+        '--newfc-ai-card-desc': '#7e6f97',
+        '--newfc-ai-tile-bg': '#f3eee5',
+        '--newfc-ai-tile-bg-hover': '#ece5d3',
+        '--newfc-ai-primary': '#8b5cf6',
+        '--newfc-ai-primary-deep': '#6d28d9',
+        '--newfc-ai-glow': '#a78bfa',
+        '--newfc-shadow-overlay': '0 10px 15px -3px rgba(38, 34, 26, 0.10), 0 4px 6px -4px rgba(38, 34, 26, 0.08)',
+        '--newfc-dur-lift': '0.22s',
+        '--newfc-dur-border': '0.45s',
+        '--newfc-ease-out': 'cubic-bezier(0.16, 1, 0.3, 1)',
       };
     for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
   }, [mode]);
@@ -282,7 +283,7 @@ export function useAntdTheme() {
             itemSelectedColor: '#f4edda',
             itemHoverBg: 'rgba(236, 228, 208, 0.06)',
           },
-          /* 暗色下折叠触发条默认底色与被 .bd-sider 覆盖的侧栏底色不一致;
+          /* 暗色下折叠触发条默认底色与被 .newfc-sider 覆盖的侧栏底色不一致;
              置透明让侧栏底色透出来。 */
           Layout: { triggerBg: 'transparent' },
           Segmented: { itemSelectedBg: '#3a352b', itemSelectedColor: '#ece4d0', trackBg: '#201d17', borderRadius: 6 },

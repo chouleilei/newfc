@@ -81,7 +81,7 @@ export default function AccountManage() {
   const [scopeKey, setScopeKey] = useState<string>('profit');
   const [keyword, setKeyword] = useState('');
 
-  /* 小澧助手页面登记(§7.2 account)：报表归属筛选与搜索。 */
+  /* 财务助手页面登记(§7.2 account)：报表归属筛选与搜索。 */
   useAssistantPageContext({ pageKey: 'account', ready: true, scope: {}, view: { scopeKey, search: keyword.trim() || undefined } });
   const [nodeModalOpen, setNodeModalOpen] = useState(false);
   const [parent, setParent] = useState<TreeNodeDto | null>(null);
@@ -218,7 +218,7 @@ export default function AccountManage() {
   if (treeError) {
     /* 科目树是本页全部内容的前提,失败时显示错误而不是空管理表 */
     return (
-      <Card className="bd-root-card">
+      <Card className="newfc-root-card">
         <QueryErrorResult title="科目树加载失败" error={treeError} refetch={() => void refetchTree()} />
       </Card>
     );
@@ -227,7 +227,7 @@ export default function AccountManage() {
   return (
     /* 无壳 + 无标题:顶栏已显示「科目」,Card title 是重复的第二遍 */
     <Card
-      className="bd-root-card"
+      className="newfc-root-card"
       extra={
         <Space wrap>
           <Input

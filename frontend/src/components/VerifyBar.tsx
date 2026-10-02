@@ -11,7 +11,7 @@
  * · 异常项 → 升格为 Alert,因为它才需要人工介入,此时它是页面唯一的那一块颜色;
  * · 明细金额 → 默认收进 Popover,审计可追溯,但不必常驻。
  *
- * 小澧助手对齐(方案《小澧助手全页面回答范围自动对齐开发计划》§7.3):
+ * 财务助手对齐(现行 specs/ai.md 页面上下文契约§7.3):
  * · VerifyItem.assistantTarget 携带 ownerKey/factKey/scopeRef —— 共享组件不从
  *   label 或 details 反推业务含义;
  * · 打开明细 Popover 时登记 verification fact 焦点与 verification_detail 浮层,
@@ -130,7 +130,7 @@ function VerifyBadge({ item, color }: { item: VerifyItem; color: string }) {
   const body = (
     <span
       ref={badgeRef}
-      className="bd-verify-badge"
+      className="newfc-verify-badge"
       data-level={item.level}
       data-testid={`verify-badge-${item.key}`}
       role={interactive ? 'button' : undefined}
@@ -155,7 +155,7 @@ function VerifyBadge({ item, color }: { item: VerifyItem; color: string }) {
     >
       <i className={LEVEL_ICON[item.level]} aria-hidden style={{ color, fontSize: 12 }} />
       <span>{item.label}</span>
-      {hasDetails && <i className="ri-arrow-down-s-line bd-verify-caret" aria-hidden />}
+      {hasDetails && <i className="ri-arrow-down-s-line newfc-verify-caret" aria-hidden />}
     </span>
   );
 
@@ -242,7 +242,7 @@ export function VerifyBar({ items, style }: { items: VerifyItem[]; style?: React
   if (unique.length === 0) return null;
 
   return (
-    <div className="bd-verify-bar" style={style}>
+    <div className="newfc-verify-bar" style={style}>
       {blocking.length > 0 && (
         <Alert
           type="error"
@@ -258,7 +258,7 @@ export function VerifyBar({ items, style }: { items: VerifyItem[]; style?: React
         />
       )}
       {rest.length > 0 && (
-        <div className="bd-verify-row">
+        <div className="newfc-verify-row">
           {rest.map((item) => <VerifyBadge key={item.key || item.label} item={item} color={levelColor[item.level]} />)}
         </div>
       )}

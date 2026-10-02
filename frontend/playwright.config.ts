@@ -15,11 +15,18 @@ const FINANCE_URL = process.env.E2E_FINANCE_BASE_URL ?? 'http://127.0.0.1:3761';
 const SIMULATION_URL = process.env.E2E_SIMULATION_BASE_URL ?? 'http://127.0.0.1:3762';
 const useExistingServer = process.env.E2E_USE_EXISTING_SERVER === '1';
 
+for (const target of [FINANCE_URL, SIMULATION_URL]) {
+  if (['3748', '3760'].includes(new URL(target).port)) {
+    throw new Error('E2E 不能访问原项目或 newfc 正式服务端口，请使用独立可丢弃测试实例');
+  }
+}
+
 /**
- * 测试服务托管的前端产物目录。默认 frontend/dist 与 3760 生产服务共用——在此构建即等于发布。
- * 验证未发布的改动时先 `npm run build:e2e`(输出到 .e2e-dist)再设 E2E_FRONTEND_DIST=.e2e-dist。
+ * 测试服务默认托管独立 .e2e-dist，先运行 npm run build:e2e。
+ * 后端产物可通过 E2E_BACKEND_DIST 指定独立构建目录，默认 dist。
  */
-const FRONTEND_DIST = JSON.stringify(path.resolve(process.env.E2E_FRONTEND_DIST ?? 'dist'));
+const FRONTEND_DIST = JSON.stringify(path.resolve(process.env.E2E_FRONTEND_DIST ?? '.e2e-dist'));
+const BACKEND_ENTRY = JSON.stringify(path.resolve('../backend', process.env.E2E_BACKEND_DIST ?? 'dist', 'index.js'));
 
 /**
  * 现有服务器模式没有任何夹具保护:测试会对其指向的库创建/修改/删除数据(assistant 系
@@ -68,7 +75,7 @@ export default defineConfig({
   projects: [
     {
       name: 'finance',
-      testMatch: /(assistant|assistant-dock|assistant-pages|finance-import|cleaning-import|fullscreen|usability-trial-finance|auth-session|platform-admin|scope-restricted|finance-data|project-contract|risk-investment|cross-domain)\.spec\.ts$/,
+      testMatch: /(assistant|assistant-domains|assistant-dock|assistant-pages|finance-import|cleaning-import|fullscreen|usability-trial-finance|auth-session|platform-admin|scope-restricted|finance-data|project-contract|risk-investment|cross-domain|independent-shell)\.spec\.ts$/,
       use: { baseURL: FINANCE_URL },
     },
     {
@@ -82,14 +89,14 @@ export default defineConfig({
   ],
   webServer: useExistingServer ? undefined : [
     {
-      command: `cd ../backend && npm run seed:finance:e2e && NEWFC_PORT=3761 NEWFC_DATA_DIR="$PWD/data/finance-e2e" NEWFC_FRONTEND_DIST=${FRONTEND_DIST} node dist/index.js`,
+      command: `cd ../backend && npm run seed:finance:e2e && NEWFC_PORT=3761 NEWFC_DATA_DIR="$PWD/data/finance-e2e" NEWFC_FRONTEND_DIST=${FRONTEND_DIST} node ${BACKEND_ENTRY}`,
       url: `${FINANCE_URL}/api/health/ready`,
       reuseExistingServer: false,
       timeout: 120_000,
       env: deterministicModelEnv,
     },
     {
-      command: `cd ../backend && npm run seed:e2e:simulation && NEWFC_PORT=3762 NEWFC_DATA_DIR="$PWD/data/e2e-simulation" NEWFC_FRONTEND_DIST=${FRONTEND_DIST} node dist/index.js`,
+      command: `cd ../backend && npm run seed:e2e:simulation && NEWFC_PORT=3762 NEWFC_DATA_DIR="$PWD/data/e2e-simulation" NEWFC_FRONTEND_DIST=${FRONTEND_DIST} node ${BACKEND_ENTRY}`,
       url: `${SIMULATION_URL}/api/health/ready`,
       reuseExistingServer: false,
       // 夹具要现建 2022–2026 五年 × 2402 单元格的预算与 20 份快照，比财务夹具慢得多。

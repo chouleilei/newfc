@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * AssistantContextRegistry 单元测试(方案《小澧助手全页面回答范围自动对齐开发计划》§13.1)。
+ * AssistantContextRegistry 单元测试(现行 specs/ai.md 页面上下文契约§13.1)。
  *
  * 覆盖:
  * - 页面登记/更新/注销与 ready 三态;

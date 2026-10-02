@@ -1,3 +1,4 @@
+import { DOMAIN_PAGES } from './domainContext';
 /**
  * 页面上下文推导：把当前路由(路径 + 查询参数)翻译成 AI 助手的上下文。
  *
@@ -23,6 +24,7 @@ export interface RoutePageInfo {
 
 /** 页面标签：与后端 navigation.ts / PageCapabilityMap 的 label 保持一致。 */
 export const PAGE_LABEL: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(DOMAIN_PAGES).map(([k, v]) => [k, v.label])),
   dashboard: '首页工作台',
   budget_edit: '预算编制表格',
   budget_versions: '预算与预测版本',
@@ -43,7 +45,7 @@ export const PAGE_LABEL: Record<string, string> = {
   migration: '迁移管理',
   data_export: '数据导出',
   logs: '操作日志',
-  assistant: '小澧助手',
+  assistant: '财务助手',
   insights: '洞察报告',
   master_health: '主数据健康',
   cleaning_config: '清洗配置',
@@ -57,6 +59,7 @@ export const PAGE_LABEL: Record<string, string> = {
 
 /** 各页面的快捷提问(2–4 条)：贴着该页能回答的问题，避免抽屉空状态无从下手。 */
 export const PAGE_PROMPTS: Record<string, string[]> = {
+  ...Object.fromEntries(Object.entries(DOMAIN_PAGES).map(([k, v]) => [k, v.prompts])),
   dashboard: ['本年度预算执行情况怎么样', '哪个组织亏得最多', '有哪些异常和质量问题'],
   budget_edit: ['这个版本的预算结构合理吗', '检查这个版本的预算质量问题', '这个版本和上一年比变化在哪'],
   budget_versions: ['列出本年度预算版本和当前生效版本', '当前生效版本是哪个，状态如何', '各版本之间差异在哪'],
@@ -128,6 +131,7 @@ function skill(base: Omit<PageSkill, 'prompt'>, prompt: string): PageSkill {
 
 /** 各页面的能力卡(2 条,第一条为主推卡)。 */
 export const PAGE_SKILLS: Record<string, PageSkill[]> = {
+  ...Object.fromEntries(Object.entries(DOMAIN_PAGES).map(([k, v]) => [k, v.prompts.map((prompt, i) => ({ key: `${k}-${i}`, icon: (i === 0 ? 'insight' : 'search') as SkillIcon, title: i === 0 ? v.label + '速览' : '核对来源与状态', desc: prompt, prompt }))])),
   dashboard: [
     skill(SKILL.execution, '分析本年度预算执行情况与完成率，说明节奏是快还是慢'),
     skill(SKILL.overspend, '哪些成本费用科目的累计实际已经超过全年预算'),
@@ -310,7 +314,19 @@ export function derivePageContext(pathname: string, search: string): RoutePageIn
     case 'metric-trend':
       return info('metric_trend', {});
     case 'settings':
-      return segments[1] === 'ai' ? info('ai_settings', {}) : info('unknown', {});
+      return segments[1] === 'ai' ? info('ai_settings', {}) : segments[1] === 'business' ? info('business_settings', {}) : segments[1] === 'security' ? info('security', {}) : info('unknown', {});
+    case 'eas': case 'governance': case 'statements': case 'mgmt': case 'plan': case 'risk': case 'search': case 'jobs':
+      return info(head, { orgId: positiveInt(params.get('orgId') ?? params.get('org')), year: positiveInt(params.get('year')), period: params.get('period') ?? undefined, ...(head === 'risk' ? { riskId: positiveInt(params.get('id')) } : {}) });
+    case 'master-entities': return info('master_entities', {});
+    case 'projects': return info('project_profile', { projectId: positiveInt(segments[1]) });
+    case 'standard-reports': return info('standard_reports', { standardReportId: positiveInt(params.get('id')) });
+    case 'project-budget': return info('project_budget', { year: positiveInt(params.get('year')), orgId: positiveInt(params.get('orgId') ?? params.get('org')), period: params.get('period') ?? undefined });
+    case 'contracts': return info(segments[1] === 'import' ? 'contract_import' : 'contracts', { contractId: segments[1] === 'import' ? undefined : positiveInt(params.get('id')), orgId: positiveInt(params.get('orgId') ?? params.get('org')) });
+    case 'expense': return info(segments[1] === 'policies' ? 'expense_policies' : 'expense', { claimId: segments[1] === 'policies' ? undefined : positiveInt(params.get('id')), orgId: positiveInt(params.get('orgId') ?? params.get('org')) });
+    case 'feasibility': return info('feasibility', { feasProjectId: positiveInt(params.get('id')) });
+    case 'investment-control': return info('investment_control', { icProjectId: positiveInt(params.get('id')) });
+    case 'forecast': return info('forecast', { modelId: positiveInt(params.get('id')), forecastVersionId: positiveInt(params.get('versionId')) });
+    case 'analysis-reports': return info('analysis_reports', { reportId: positiveInt(params.get('id')) });
     case 'budget': {
       const versionId = positiveInt(segments[1]);
       // /budget/:id 是编制页：把这一版当成上下文；年度交由后端按该版本推导，
@@ -327,7 +343,7 @@ export function derivePageContext(pathname: string, search: string): RoutePageIn
         budgetVersionId: positiveInt(params.get('version')),
         targetVersionId: positiveInt(params.get('forecast')),
         actualSnapshotId: positiveInt(params.get('batch')),
-        orgId: positiveInt(params.get('org')),
+        orgId: positiveInt(params.get('orgId') ?? params.get('org')),
         accountId: positiveInt(params.get('account')),
       });
     case 'structure':
@@ -335,7 +351,7 @@ export function derivePageContext(pathname: string, search: string): RoutePageIn
         year: positiveInt(params.get('year')),
         budgetVersionId: positiveInt(params.get('version')),
         actualSnapshotId: positiveInt(params.get('batch')),
-        orgId: positiveInt(params.get('org')),
+        orgId: positiveInt(params.get('orgId') ?? params.get('org')),
         accountId: positiveInt(params.get('account')),
       });
     case 'history':
@@ -344,7 +360,7 @@ export function derivePageContext(pathname: string, search: string): RoutePageIn
       return info('version_compare', {
         budgetVersionId: positiveInt(params.get('base')),
         targetVersionId: positiveInt(params.get('target')),
-        orgId: positiveInt(params.get('org')),
+        orgId: positiveInt(params.get('orgId') ?? params.get('org')),
       });
     case 'org':
       return info('org', {});
@@ -358,4 +374,16 @@ export function derivePageContext(pathname: string, search: string): RoutePageIn
       // 未知路径会被路由表的 * 规则重定向到首页；重定向完成前不冒充任何已知业务页。
       return info('unknown', {});
   }
+}
+
+/** 根据可用业务权限提供可实际执行的推荐问题。 */
+export function permittedPagePrompts(page: string, allowed: (permission: string) => boolean): string[] {
+  const catalog = DOMAIN_PAGES as Record<string, { permission: string; prompts: string[] }>;
+  if (catalog[page]) return allowed(catalog[page].permission) ? catalog[page].prompts : [];
+  if (page === 'assistant' || page === 'dashboard') {
+    const prompts = Object.entries(DOMAIN_PAGES).filter(([key, p]) => !['security', 'contract_import', 'project_profile'].includes(key) && allowed(p.permission)).map(([, p]) => p.prompts[0]);
+    if (allowed('analysis:read')) prompts.unshift('分析本年度经营预算执行情况与完成率');
+    return prompts.slice(0, 4);
+  }
+  return PAGE_PROMPTS[page] ?? [];
 }

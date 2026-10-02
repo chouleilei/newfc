@@ -5,10 +5,10 @@
  * (`centsToWan` / `centsCompact`),避免引入格式化口径漂移。
  *
  * 排版规格(《视觉高级感提升方案》3.1):
- * - 整数:基准字号,字重 600,--bd-text
- * - 小数:基准 × 0.75,字重 600,--bd-text-secondary
- * - 单位:12px,字重 400,--bd-text-tertiary,与数字基线对齐
- * - 符号:默认中性(--bd-text-secondary);仅当调用方显式传 tone 时才上语义色
+ * - 整数:基准字号,字重 600,--newfc-text
+ * - 小数:基准 × 0.75,字重 600,--newfc-text-secondary
+ * - 单位:12px,字重 400,--newfc-text-tertiary,与数字基线对齐
+ * - 符号:默认中性(--newfc-text-secondary);仅当调用方显式传 tone 时才上语义色
  *
  * 符号色纪律:组件**不按正负自动上语义色**。红绿只表达好/坏,而负数不等于坏 ——
  * 费用的负数是冲回,把冲回涂红会让「费用超支」与「费用冲回」同色,正是 v0.2.2
@@ -102,7 +102,7 @@ export function MoneyText({
 
   return (
     <span
-      className={className ? `bd-money-text ${className}` : 'bd-money-text'}
+      className={className ? `newfc-money-text ${className}` : 'newfc-money-text'}
       style={{
         fontFamily: size === 'lg' ? DISPLAY_FONT_FAMILY : NUMERIC_FONT_FAMILY,
         /* 等宽数字由组件强制施加,不依赖调用方类名 */
@@ -110,7 +110,7 @@ export function MoneyText({
         fontSize: base,
         fontWeight: 600,
         lineHeight: 1.25,
-        color: toneColor ?? 'var(--bd-text)',
+        color: toneColor ?? 'var(--newfc-text)',
         whiteSpace: 'nowrap',
         /* 单位与数字基线对齐靠组件自身保证,不依赖调用方套 flex 容器 */
         display: 'inline-flex',
@@ -120,15 +120,15 @@ export function MoneyText({
       title={title ?? `精确值 ${centsToYuanGrouped(cents)} 元`}
     >
       {sign ? (
-        <span style={{ color: toneColor ?? 'var(--bd-text-secondary)' }}>{sign}</span>
+        <span style={{ color: toneColor ?? 'var(--newfc-text-secondary)' }}>{sign}</span>
       ) : null}
       <span>{int}</span>
       {dec ? (
         /* 小数段默认次级灰;显式 tone 时跟随主体,避免一个数字里出现两种色 */
-        <span style={{ fontSize: '0.75em', color: toneColor ?? 'var(--bd-text-secondary)' }}>{dec}</span>
+        <span style={{ fontSize: '0.75em', color: toneColor ?? 'var(--newfc-text-secondary)' }}>{dec}</span>
       ) : null}
       {!hideUnit ? (
-        <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--bd-text-tertiary)', marginLeft: 3 }}>
+        <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--newfc-text-tertiary)', marginLeft: 3 }}>
           {format === 'wan' ? '万元' : unit}
         </span>
       ) : null}

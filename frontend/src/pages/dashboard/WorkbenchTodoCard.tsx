@@ -16,14 +16,14 @@ export function WorkbenchTodoCard() {
   if (!allowed || items.length === 0) return null;
   return (
     <div data-testid="workbench-todo-card">
-      <div className="bd-eyebrow">待办 / 项目合同与费用审核</div>
+      <div className="newfc-eyebrow">待办 / 项目合同与费用审核</div>
       <Card size="small">
         <Space size={[24, 12]} wrap>
           {items.map((it) => (
             <Typography.Link key={it.key} onClick={() => navigate(it.path)} aria-label={`${it.label} ${it.count}`}>
               <Space size={6}>
                 <span>{it.label}</span>
-                <Badge count={it.count} showZero color={it.count > 0 ? 'var(--bd-accent)' : '#bfbfbf'} overflowCount={999} />
+                <Badge count={it.count} showZero color={it.count > 0 ? 'var(--newfc-accent)' : '#bfbfbf'} overflowCount={999} />
               </Space>
             </Typography.Link>
           ))}

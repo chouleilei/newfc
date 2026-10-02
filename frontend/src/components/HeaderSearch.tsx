@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AutoComplete, Input, Typography, type AutoCompleteProps } from 'antd';
+import { AutoComplete, Button, Input, Typography, type AutoCompleteProps } from 'antd';
 import { searchApi } from '../api/search';
 
 /**
@@ -27,14 +27,17 @@ export function HeaderSearch() {
     }];
   const go = (v: string) => { const k = v.trim(); if (k) { setOpen(false); navigate(`/search?q=${encodeURIComponent(k)}`); } };
   return (
-    <AutoComplete
-      value={text} options={options} open={open && options.length > 0} popupMatchSelectWidth={360}
-      onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
-      onSearch={setText}
-      onSelect={(_v, o) => { const path = (o as { path?: string }).path; if (path) { setOpen(false); setText(''); navigate(path); } }}
-      className="bd-header-search" style={{ width: 220 }}
-    >
-      <Input.Search size="small" allowClear maxLength={64} placeholder="检索项目、合同、报告…" aria-label="跨域检索" onSearch={go} />
-    </AutoComplete>
+    <div className="newfc-header-search">
+      <Button className="newfc-header-search-compact" type="text" aria-label="跨域检索" icon={<i className="ri-search-line" aria-hidden />} onClick={() => navigate('/search')} />
+      <AutoComplete
+        value={text} options={options} open={open && options.length > 0} popupMatchSelectWidth={360}
+        onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+        onSearch={setText}
+        onSelect={(_v, o) => { const path = (o as { path?: string }).path; if (path) { setOpen(false); setText(''); navigate(path); } }}
+        className="newfc-header-search-input" style={{ width: 220 }}
+      >
+        <Input.Search size="small" allowClear maxLength={64} placeholder="检索项目、合同、报告…" aria-label="跨域检索" onSearch={go} />
+      </AutoComplete>
+    </div>
   );
 }

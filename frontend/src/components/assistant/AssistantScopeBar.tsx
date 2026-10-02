@@ -1,5 +1,5 @@
 /**
- * AssistantScopeBar(方案《小澧助手全页面回答范围自动对齐开发计划》§10.1；UX-26)。
+ * AssistantScopeBar(现行 specs/ai.md 页面上下文契约§10.1；UX-26)。
  *
  * 助手输入区上方的一行范围条，如实展示本轮发送会携带的页面范围：
  * - ready：「已对齐 · {页面} · 年度 · 版本 …」；
@@ -31,8 +31,8 @@ export function AssistantScopeBar() {
 
   if (!view || !view.pageKey) {
     return (
-      <div className="bd-ai-scope" data-testid="assistant-scope-bar">
-        <span className="bd-ai-scope-key">回答范围</span>
+      <div className="newfc-ai-scope" data-testid="assistant-scope-bar">
+        <span className="newfc-ai-scope-key">回答范围</span>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>正在读取当前页面范围</Typography.Text>
       </div>
     );
@@ -59,9 +59,9 @@ export function AssistantScopeBar() {
   };
 
   return (
-    <div className="bd-ai-scope" data-testid="assistant-scope-bar">
+    <div className="newfc-ai-scope" data-testid="assistant-scope-bar">
       <Tooltip title="发送时会带上当前页面的业务范围，回答自动对齐你正在看的内容；问题里明确指定的范围优先于页面范围">
-        <span className="bd-ai-scope-key">回答范围</span>
+        <span className="newfc-ai-scope-key">回答范围</span>
       </Tooltip>
       {view.ready === 'loading' ? (
         <Typography.Text type="secondary" style={{ fontSize: 12 }} data-testid="assistant-scope-loading">
@@ -75,13 +75,13 @@ export function AssistantScopeBar() {
         </Tooltip>
       ) : (
         <>
-          <span className="bd-ai-scope-val bd-ai-scope-val-strong" data-testid="assistant-scope-page">已对齐 · {pageLabel}</span>
-          {scopeEntries.map((text) => <span key={text} className="bd-ai-scope-val">{text}</span>)}
+          <span className="newfc-ai-scope-val newfc-ai-scope-val-strong" data-testid="assistant-scope-page">已对齐 · {pageLabel}</span>
+          {scopeEntries.map((text) => <span key={text} className="newfc-ai-scope-val">{text}</span>)}
         </>
       )}
       {view.dirty ? (
         <Tooltip title="上方范围对应已保存数据；本轮未保存输入只作为草稿随问题供分析参考，不会写入。创建正式写操作预览前请先保存。">
-          <Tag bordered={false} className="bd-ai-meta" color="orange" data-testid="assistant-scope-dirty">
+          <Tag bordered={false} className="newfc-ai-meta" color="orange" data-testid="assistant-scope-dirty">
             含 {view.dirtyCount > 0 ? `${view.dirtyCount} 项` : ''}本轮未保存输入
           </Tag>
         </Tooltip>
@@ -89,7 +89,7 @@ export function AssistantScopeBar() {
       {view.focusLabel ? (
         <>
           <Tooltip title="最近点击的行、单元格、图表点或核验项">
-            <Tag bordered={false} className="bd-ai-meta" color="blue" data-testid="assistant-scope-focus">
+            <Tag bordered={false} className="newfc-ai-meta" color="blue" data-testid="assistant-scope-focus">
               当前对象 · {view.focusLabel}
             </Tag>
           </Tooltip>

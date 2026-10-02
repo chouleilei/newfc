@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -42,15 +43,16 @@ export default function Search() {
     enabled: q.length > 0,
   });
   const data = result.data;
+  useAssistantDomainPage({ pageKey: 'search', ready: true, scope: {}, view: { keyword: q, types } });
   const groups = data ? groupByType(data.items) : [];
   return (
     <div>
-      <Space wrap style={{ marginBottom: 12 }}>
+      <div className="newfc-search-controls">
         <Input.Search key={q} allowClear autoFocus={!q} defaultValue={q} placeholder="编码、编号或名称" enterButton="检索" maxLength={64}
-          style={{ width: 360 }} onSearch={(v) => update({ q: v })} aria-label="检索关键词" />
-        <Select mode="multiple" allowClear placeholder="全部类型" style={{ minWidth: 240 }} value={types} maxTagCount="responsive"
+          style={{ width: 'min(360px, 100%)' }} onSearch={(v) => update({ q: v })} aria-label="检索关键词" />
+        <Select mode="multiple" allowClear placeholder="全部类型" style={{ width: 'min(300px, 100%)' }} value={types} maxTagCount="responsive"
           options={SEARCH_TYPE_OPTIONS} onChange={(v: SearchType[]) => update({ types: v })} aria-label="检索类型" />
-      </Space>
+      </div>
       <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
         按编码/编号与名称关键词匹配(精确 → 前缀 → 包含),不是语义检索;每类最多 20 条,只返回您有权查看的对象。
       </Typography.Paragraph>

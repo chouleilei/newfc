@@ -5,7 +5,7 @@
  * 都来自后端事实;写操作一律「预览 → 确认」,前端不绕过任何业务校验。
  *
  * 聊天核心(会话、流式、世代号、上下文合并)住在 `src/assistant/AssistantProvider.tsx`,
- * 与全局悬浮小窗「小澧助手」共享同一份状态;本页只保留页面特有的重功能:
+ * 与全局悬浮小窗「财务助手」共享同一份状态;本页只保留页面特有的重功能:
  * 会话列表、保存的洞察、归因/报告/导入/口径抽屉、操作预览卡与新建操作弹窗。
  *
  * 布局:桌面端是一块撑满视口高度的三栏工作区(可折叠/可拖拽调宽的侧栏 + 聊天区),
@@ -19,7 +19,8 @@ import {
   Select, Space, Spin, Switch, Tabs, Tag, Tooltip, Typography, message, theme,
 } from 'antd';
 import type { TextAreaRef } from 'antd/es/input/TextArea';
-import { ApiError } from '../api/client';
+import { ApiError, can } from '../api/client';
+import { DOMAIN_PAGES } from '../assistant/domainContext';
 import {
   assistantApi, previewIdempotencyKey,
   type AssistantAction, type InsightKind,
@@ -41,7 +42,7 @@ import { AttributionDrawer } from '../components/assistant/AttributionDrawer';
 import { ReportDrawer } from '../components/assistant/ReportDrawer';
 import { ImportHelpDrawer } from '../components/assistant/ImportHelpDrawer';
 import { relativeTime, shortTime } from '../utils/relativeTime';
-import { BdEmpty } from '../components/BdEmpty';
+import { FinanceEmpty } from '../components/FinanceEmpty';
 import type { AssistantContext } from '../api/assistant';
 
 /** 独立页的通用快捷提问(抽屉里按当前页面另有一套，见 assistant/pageContext.ts) */
@@ -83,21 +84,27 @@ function hasWideContent(turn: ChatTurn): boolean {
  * 双列推荐」把首屏填满,用户不用滚动就知道能问什么。
  */
 function WelcomePanel({ onPick }: { onPick: (prompt: string) => void }) {
+  const [domain, setDomain] = useState('all');
+  const available = Object.entries(DOMAIN_PAGES).filter(([k, p]) => can(p.permission) && !['security', 'project_profile', 'contract_import', 'business_settings', 'jobs', 'search'].includes(k));
+  const selected = available.find(([k]) => k === domain)?.[1];
+  const prompts = domain === 'budget' ? QUICK_PROMPTS : selected ? selected.prompts : available.flatMap(([, p]) => p.prompts.slice(0, 1)).slice(0, 8);
+  const skills = domain === 'budget' ? WELCOME_SKILLS : (selected ? [[domain, selected] as const] : available.filter(([k]) => ['contracts', 'expense', 'risk', 'statements'].includes(k))).map(([k, p]) => ({ key: k, icon: 'insight' as const, title: p.label, desc: p.prompts[0], prompt: p.prompts[0] }));
   return (
-    <div className="bd-assistant-welcome">
+    <div className="newfc-assistant-welcome">
       <AssistantMark size={44} />
       {/* 眉题:等宽字体编辑感小字,空状态作为品牌展示区的定位语 */}
-      <p className="bd-eyebrow" style={{ margin: '4px 0 0' }}>AI ASSISTANT</p>
-      <h2 className="bd-assistant-welcome-title">你好，我是小澧助手</h2>
-      <p className="bd-assistant-welcome-sub">
-        问数据、做归因、生成报告、发起批量调整——
-        <strong>写操作一律先给你逐行预览，确认后才会落库</strong>
+      <p className="newfc-eyebrow" style={{ margin: '4px 0 0' }}>AI ASSISTANT</p>
+      <h2 className="newfc-assistant-welcome-title">你好，我是财务助手</h2>
+      <p className="newfc-assistant-welcome-sub">
+        查询预算、财报、合同、费用、风险与投资，核对来源和业务口径。
+        <strong>正式写入由页面预览或业务流程显式确认</strong>
       </p>
       <div style={{ width: '100%', maxWidth: 680, margin: '0 auto' }}>
-        <SkillCards items={WELCOME_SKILLS} columns={2} onPick={(item) => onPick(item.prompt)} />
+        <Select aria-label="提问业务范围" value={domain} onChange={setDomain} style={{ width: '100%', marginBottom: 16 }} options={[{ value: 'all', label: '综合查询' }, ...(can('analysis:read') ? [{ value: 'budget', label: '经营预算' }] : []), ...available.map(([k, p]) => ({ value: k, label: p.label }))]} />
+        <SkillCards items={skills} columns={2} onPick={(item) => onPick(item.prompt)} />
         <div style={{ marginTop: 24 }}>
           <SectionLabel>你是否想问</SectionLabel>
-          <RecommendList prompts={QUICK_PROMPTS} columns={2} onPick={onPick} />
+          <RecommendList prompts={prompts} columns={2} onPick={onPick} />
         </div>
       </div>
     </div>
@@ -133,26 +140,26 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
   if (turn.role === 'user') {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <div className="bd-ai-bubble-user" style={{ maxWidth: '80%' }}>{turn.text}</div>
+        <div className="newfc-ai-bubble-user" style={{ maxWidth: '80%' }}>{turn.text}</div>
       </div>
     );
   }
   return (
     <div style={{ display: 'flex', gap: 10, marginBottom: 18 }}>
       <AssistantMark size={24} />
-      <div className="bd-ai-bubble-ai" style={{ flex: '1 1 auto', minWidth: 0 }}>
+      <div className="newfc-ai-bubble-ai" style={{ flex: '1 1 auto', minWidth: 0 }}>
         <Space size={4} style={{ marginBottom: 8 }} wrap>
           {response?.routing && (
             <Tooltip title={response.routing === 'model'
               ? '模型自主调用只读工具取数，数字仍来自后端'
               : '模型不可用或未调用工具，已按关键词兜底路由到确定性查询'}>
-              <Tag bordered={false} className="bd-ai-meta" color={response.routing === 'model' ? 'blue' : undefined}>
+              <Tag bordered={false} className="newfc-ai-meta" color={response.routing === 'model' ? 'blue' : undefined}>
                 {response.routing === 'model' ? '模型路由' : '关键词兜底'}
               </Tag>
             </Tooltip>
           )}
           {turn.model && (
-            <Tag bordered={false} className="bd-ai-meta">
+            <Tag bordered={false} className="newfc-ai-meta">
               {turn.model === 'template' ? (
                 <Tooltip title="模型不可用,已回退确定性模板;可在「系统 → AI 渠道设置」配置渠道">
                   <Link to="/settings/ai" style={{ color: 'inherit' }}>模板降级(模型不可用)</Link>
@@ -162,7 +169,7 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
           )}
         {response?.intents?.inheritedRead?.length ? (
           <Tooltip title="本轮没有重述话题，助手沿用了上一轮的分析方向与筛选范围">
-            <Tag bordered={false} className="bd-ai-meta" color="cyan">
+            <Tag bordered={false} className="newfc-ai-meta" color="cyan">
               追问·沿用{response.intents.inheritedRead.map((intent) => READ_INTENT_LABEL[intent] ?? intent).join('、')}
             </Tag>
           </Tooltip>
@@ -170,7 +177,7 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
         {turn.createdAt && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{shortTime(turn.createdAt)}</Typography.Text>}
         {isTurnOriginStale(turn.origin?.pageKey, currentPage) && (
           <Tooltip title="这条回答的范围以发起时所在页面为准，与当前页面不同，不代表你正在看的对象">
-            <Tag bordered={false} className="bd-ai-meta" color="gold" data-testid="assistant-turn-origin">
+            <Tag bordered={false} className="newfc-ai-meta" color="gold" data-testid="assistant-turn-origin">
               基于「{PAGE_LABEL[turn.origin!.pageKey] ?? turn.origin!.pageKey}」当时的范围
             </Tag>
           </Tooltip>
@@ -191,7 +198,7 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
         {turn.pending && turn.text && turn.progress ? (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>{turn.progress.label}…</Typography.Text>
         ) : null}
-        {turn.stopped ? <Tag bordered={false} className="bd-ai-meta">已停止生成</Tag> : null}
+        {turn.stopped ? <Tag bordered={false} className="newfc-ai-meta">已停止生成</Tag> : null}
         {/* 回答范围摘要(§10.1):发送后由后端给出权威口径,用户问题覆盖页面范围时附覆盖说明。
             历史会话直接读当时响应里的 contextSummary,不按当前页面重新解释。 */}
         {response?.contextSummary ? (
@@ -200,7 +207,7 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
               ? response.contextTrace.overrides.map((o) => o.reason).join('；')
               : '本轮回答采用的业务范围'}>
               <Tag
-                bordered={false} className="bd-ai-meta"
+                bordered={false} className="newfc-ai-meta"
                 color={response.contextStatus === 'explicit_override' ? 'gold' : 'green'}
               >
                 {response.contextStatus === 'explicit_override' ? '范围已被问题覆盖' : response.contextStatus === 'aligned' ? '已对齐' : '回答范围'} · {response.contextSummary}
@@ -208,7 +215,7 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
             </Tooltip>
             {response.draftApplied ? (
               <Tooltip title={`助手在本轮分析中纳入了页面未保存修改的影响；草稿不写入库。基线：${response.draftApplied.baseline}`}>
-                <Tag bordered={false} className="bd-ai-meta" color="orange">
+                <Tag bordered={false} className="newfc-ai-meta" color="orange">
                   含草稿 · {response.draftApplied.changeCount} 项修改{response.draftApplied.issueCount > 0 ? ` · ${response.draftApplied.issueCount} 项校验问题` : ''}
                 </Tag>
               </Tooltip>
@@ -217,15 +224,15 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
         ) : null}
         {response?.numberCheck?.status === 'ok' ? (
           <Tooltip title={response.numberCheck.note}>
-            <Tag bordered={false} className="bd-ai-meta" color="green" data-testid="assistant-number-check">数值已核对 {response.numberCheck.checked} 处</Tag>
+            <Tag bordered={false} className="newfc-ai-meta" color="green" data-testid="assistant-number-check">数值已核对 {response.numberCheck.checked} 处</Tag>
           </Tooltip>
         ) : null}
 
         {/* ── 附带信息三层:建议(展开) → 引用与依据(折叠,含黄色警告) → 耗时(右对齐灰字) ── */}
         {/* 第一层:建议 chips —— 可点击的追问引导,默认展开 */}
         {response?.suggestions?.length ? (
-          <Space size={[6, 6]} wrap className="bd-ai-suggestions">
-            <span className="bd-ai-scope-key bd-ai-scope-key-accent">建议</span>
+          <Space size={[6, 6]} wrap className="newfc-ai-suggestions">
+            <span className="newfc-ai-scope-key newfc-ai-scope-key-accent">建议</span>
             {response.suggestions.map((suggestion) => (
               <Button key={suggestion} size="small" shape="round" onClick={() => onSuggestion(suggestion)}>{suggestion}</Button>
             ))}
@@ -233,18 +240,18 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
         ) : null}
         {/* 写操作意图:预览入口是唯一会改数据的按钮,保持常显 */}
         {response?.action && (
-          <Space size={6} wrap className="bd-ai-action-row">
-            <span className="bd-ai-scope-key bd-ai-scope-key-accent">操作</span>
+          <Space size={6} wrap className="newfc-ai-action-row">
+            <span className="newfc-ai-scope-key newfc-ai-scope-key-accent">操作</span>
             <Typography.Text style={{ fontSize: 12 }}>识别到 {response.action.type} 意图</Typography.Text>
             {response.action.inherited ? (
               <Tooltip title="本轮没有重述写请求，助手沿用了上一轮的参数建议，并已重新校验可用性">
-                <Tag bordered={false} className="bd-ai-meta" color="cyan">沿用上一轮</Tag>
+                <Tag bordered={false} className="newfc-ai-meta" color="cyan">沿用上一轮</Tag>
               </Tooltip>
             ) : null}
             <Tooltip title={response.action.source === 'model'
               ? '参数由模型从你的原话抽取，已通过后端校验'
               : '模型未参与，参数由关键词规则推断'}>
-              <Tag bordered={false} className="bd-ai-meta" color={response.action.source === 'model' ? 'blue' : undefined}>
+              <Tag bordered={false} className="newfc-ai-meta" color={response.action.source === 'model' ? 'blue' : undefined}>
                 {response.action.source === 'model' ? '模型抽参' : '规则推断'}
               </Tag>
             </Tooltip>
@@ -256,7 +263,7 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
             ) : (
               <Tooltip title={response.action.validationMessage || '参数不完整'}>
                 <Space size={4}>
-                  <Tag bordered={false} className="bd-ai-meta" color="red">参数不完整</Tag>
+                  <Tag bordered={false} className="newfc-ai-meta" color="red">参数不完整</Tag>
                   <Button size="small" onClick={onOpenNewAction}>手动补全参数</Button>
                 </Space>
               </Tooltip>
@@ -265,8 +272,8 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
         )}
         {/* 导航建议:单行常显 */}
         {response?.navigation && (
-          <Space size={6} wrap className="bd-ai-action-row">
-            <span className="bd-ai-scope-key">导航</span>
+          <Space size={6} wrap className="newfc-ai-action-row">
+            <span className="newfc-ai-scope-key">导航</span>
             <Button size="small" type="link" onClick={() => onNavigate(response.navigation!.path)}>
               打开「{response.navigation.label}」（{response.navigation.path}）
             </Button>
@@ -280,9 +287,9 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
         ) : null}
         {/* 第三层:耗时/模型次数 —— 12px 灰字,右对齐放消息末尾 */}
         {response?.metrics ? (
-          <div className="bd-ai-turn-metrics-row">
+          <div className="newfc-ai-turn-metrics-row">
             <Tooltip title={metricsHint(response.metrics)}>
-              <span className="bd-ai-turn-metrics">
+              <span className="newfc-ai-turn-metrics">
                 {(response.metrics.durationMs / 1000).toFixed(1)}s
                 {response.metrics.modelCalls > 0 ? ` · 模型 ${response.metrics.modelCalls} 次` : ' · 未调用模型'}
               </span>
@@ -368,7 +375,7 @@ export default function Assistant() {
     return conversations.filter((c) => (c.title || `会话 #${c.id}`).toLowerCase().includes(q));
   }, [conversations, searchHistory]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [turns]);
+  useEffect(() => { if (turns.length) bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [turns]);
 
   /**
    * 侧栏带过来的跳转意图 / 全局自定义事件联动:
@@ -404,13 +411,13 @@ export default function Assistant() {
       const convId = (e as CustomEvent<{ conversationId?: number }>).detail?.conversationId;
       if (convId != null) switchConversation(convId);
     };
-    window.addEventListener('bd:new-assistant-conversation', onNew);
-    window.addEventListener('bd:open-assistant-history', onOpenHistory);
-    window.addEventListener('bd:open-assistant-conversation', onOpenConv as EventListener);
+    window.addEventListener('newfc:new-assistant-conversation', onNew);
+    window.addEventListener('newfc:open-assistant-history', onOpenHistory);
+    window.addEventListener('newfc:open-assistant-conversation', onOpenConv as EventListener);
     return () => {
-      window.removeEventListener('bd:new-assistant-conversation', onNew);
-      window.removeEventListener('bd:open-assistant-history', onOpenHistory);
-      window.removeEventListener('bd:open-assistant-conversation', onOpenConv as EventListener);
+      window.removeEventListener('newfc:new-assistant-conversation', onNew);
+      window.removeEventListener('newfc:open-assistant-history', onOpenHistory);
+      window.removeEventListener('newfc:open-assistant-conversation', onOpenConv as EventListener);
     };
   }, []);
 
@@ -581,25 +588,29 @@ export default function Assistant() {
   ].filter(Boolean).join(' · ');
 
   const toolbar = (
-    <div className="bd-ai-toolbar">
+    <div className="newfc-ai-toolbar">
       {filtersOpen ? (
-        <Space size={8} wrap className="bd-ai-toolbar-filters">
+        <Space size={8} wrap className="newfc-ai-toolbar-filters">
           <Select
+            aria-label="默认年度"
             style={{ width: narrowScreen ? 104 : 120 }} placeholder="年度" allowClear value={manualContext.year}
             onChange={(value) => patchContext({ year: value ?? undefined, budgetVersionId: undefined, targetVersionId: undefined, actualSnapshotId: undefined })}
             options={yearOptions}
           />
           <Select
+            aria-label="默认预算版本"
             style={{ width: narrowScreen ? 200 : 240 }} placeholder="预算/预测版本" allowClear showSearch optionFilterProp="label"
             value={manualContext.budgetVersionId} onChange={(value) => patchContext({ budgetVersionId: value ?? undefined })}
             options={versionOptions}
           />
           <Select
+            aria-label="默认对比版本"
             style={{ width: narrowScreen ? 200 : 220 }} placeholder="对比版本" allowClear showSearch optionFilterProp="label"
             value={manualContext.targetVersionId} onChange={(value) => patchContext({ targetVersionId: value ?? undefined })}
             options={versionOptions}
           />
           <Select
+            aria-label="默认实际快照"
             style={{ width: narrowScreen ? 200 : 220 }} placeholder="实际快照(默认当前累计)" allowClear
             value={manualContext.actualSnapshotId} onChange={(value) => patchContext({ actualSnapshotId: value ?? undefined })}
             options={batchOptions}
@@ -610,14 +621,14 @@ export default function Assistant() {
         </Space>
       ) : (
         <Tooltip title="可不选：问题里明确提到的年度/版本/快照优先；都不提时按当前年度、当前生效版本、当前累计取数。差异归因、报告生成等抽屉使用这里的选择">
-          <button type="button" className="bd-ai-toolbar-summary" data-testid="assistant-filters-toggle" onClick={() => setFiltersOpen(true)}>
+          <button type="button" className="newfc-ai-toolbar-summary" data-testid="assistant-filters-toggle" onClick={() => setFiltersOpen(true)}>
             <i className="ri-filter-3-line" aria-hidden />
             <span>默认口径：{scopeSummary || '按提问内容自动判断'}</span>
             <i className="ri-arrow-down-s-line" aria-hidden />
           </button>
         </Tooltip>
       )}
-      <Space size={10} wrap className="bd-ai-toolbar-side">
+      <Space size={10} wrap className="newfc-ai-toolbar-side">
         <Tooltip title="流式输出使用 SSE;关闭后改为一次性返回">
           <Space size={4}>
             <Switch size="small" checked={useStream} onChange={setUseStream} />
@@ -638,7 +649,7 @@ export default function Assistant() {
       onClose={() => setHistoryDrawerOpen(false)}
       title={
         <Space>
-          <i className="ri-history-line" style={{ color: 'var(--bd-primary)' }} aria-hidden />
+          <i className="ri-history-line" style={{ color: 'var(--newfc-primary)' }} aria-hidden />
           <span>全部历史会话 ({conversations.length})</span>
         </Space>
       }
@@ -668,10 +679,10 @@ export default function Assistant() {
       <List
         size="small"
         dataSource={filteredConversations}
-        locale={{ emptyText: <BdEmpty kind="chat" description="暂无历史会话" /> }}
+        locale={{ emptyText: <FinanceEmpty kind="chat" description="暂无历史会话" /> }}
         renderItem={(item) => (
           <List.Item
-            className={`bd-ai-list-row${item.id === conversationId ? ' bd-ai-list-row-active' : ''}`}
+            className={`newfc-ai-list-row${item.id === conversationId ? ' newfc-ai-list-row-active' : ''}`}
             style={{
               background: item.id === conversationId ? token.colorPrimaryBg : undefined,
               borderRadius: 6,
@@ -686,7 +697,7 @@ export default function Assistant() {
             role="button"
             tabIndex={0}
             extra={
-              <Space size={0} className="bd-ai-list-actions" onClick={(e) => e.stopPropagation()}>
+              <Space size={0} className="newfc-ai-list-actions" onClick={(e) => e.stopPropagation()}>
                 <Tooltip title="重命名">
                   <Button
                     type="text"
@@ -750,12 +761,12 @@ export default function Assistant() {
   );
 
   return (
-    <div className={`bd-assistant-page${stacked ? ' bd-assistant-page-stacked' : ''}`}>
-      <div className="bd-assistant-body">
-        <div className="bd-assistant-main">
+    <div className={`newfc-assistant-page${stacked ? ' newfc-assistant-page-stacked' : ''}`}>
+      <div className="newfc-assistant-body">
+        <div className="newfc-assistant-main">
           <Card
             size="small"
-            className="bd-assistant-chat-card"
+            className="newfc-assistant-chat-card"
             styles={{ body: { display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, padding: '10px 16px 12px' } }}
             title={
               <Space size={8}>
@@ -798,7 +809,7 @@ export default function Assistant() {
                     {narrowScreen ? null : '新建操作'}
                   </Button>
                 </Tooltip>
-                <span className="bd-assistant-tools">
+                <span className="newfc-assistant-tools">
                   <Tooltip title="新建对话">
                     <Button size="small" type="text" icon={<i className="ri-add-line" aria-hidden />} aria-label="新建对话" onClick={newConversation} />
                   </Tooltip>
@@ -825,16 +836,16 @@ export default function Assistant() {
             )}
           >
             {/* 对话列收窄居中:文本列 760px,含表格/事实的回答块放宽到 960px(见 hasWideContent) */}
-            <div className="bd-assistant-col">{toolbar}</div>
+            <div className="newfc-assistant-col">{toolbar}</div>
 
-            <div className="bd-assistant-messages">
+            <div className="newfc-assistant-messages">
               {turns.length === 0 ? (
-                <div className="bd-assistant-col">
+                <div className="newfc-assistant-col">
                   <WelcomePanel onPick={submitDraft} />
                 </div>
               ) : (
                 turns.map((turn) => (
-                  <div key={turn.key} className={hasWideContent(turn) ? 'bd-assistant-col bd-assistant-col-wide' : 'bd-assistant-col'}>
+                  <div key={turn.key} className={hasWideContent(turn) ? 'newfc-assistant-col newfc-assistant-col-wide' : 'newfc-assistant-col'}>
                     <TurnView
                       turn={turn}
                       currentPage={routeInfo.page}
@@ -850,8 +861,8 @@ export default function Assistant() {
               <div ref={bottomRef} />
             </div>
 
-            <div className="bd-assistant-col">
-              <div className="bd-assistant-composer">
+            <div className="newfc-assistant-col">
+              <div className="newfc-assistant-composer">
                 <AssistantScopeBar />
                 <Composer
                   value={draft}
@@ -859,7 +870,7 @@ export default function Assistant() {
                   onSubmit={() => submitDraft(draft)}
                   onStop={stopGenerating}
                   sending={sending}
-                  placeholder="例如:把 2025 年 V2 的费用预算复制成 2026 年草案，整体增长 5%，先给我看变化最大的 20 项"
+                  placeholder="例如：当前合同金额与已付款是多少？财报的净利润和来源是什么？"
                   minRows={2}
                   maxRows={6}
                   hint="Enter 发送 · Shift+Enter 换行"

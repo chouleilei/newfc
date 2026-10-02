@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App as AntdApp, Button, Card, Form, Input, Modal, Popconfirm, Radio, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { BdEmpty } from '../components/BdEmpty';
+import { FinanceEmpty } from '../components/FinanceEmpty';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { cleaningApi, type CleaningAlias, type CleaningTargetKind, type CleaningTemplate } from '../api/cleaning';
 import { ApiError } from '../api/client';
@@ -61,11 +61,11 @@ function TemplateTab({ targetKind }: { targetKind: CleaningTargetKind }) {
         pagination={false}
         locale={{
           emptyText: (
-            <BdEmpty kind="data" description="暂无清洗模板">
+            <FinanceEmpty kind="data" description="暂无清洗模板">
               <Button type="primary" size="small" onClick={() => navigate('/actual')} style={{ marginTop: 8 }}>
                 前往清洗向导创建模板
               </Button>
-            </BdEmpty>
+            </FinanceEmpty>
           ),
         }}
         columns={[
@@ -157,11 +157,11 @@ function AliasTab({ targetKind }: { targetKind: CleaningTargetKind }) {
         pagination={false}
         locale={{
           emptyText: (
-            <BdEmpty kind="data" description="暂无别名映射">
+            <FinanceEmpty kind="data" description="暂无别名映射">
               <Button size="small" type="primary" icon={<i className="ri-add-line" aria-hidden />} onClick={() => { setCreating(true); setEditing(null); form.resetFields(); }} style={{ marginTop: 8 }}>
                 新增别名
               </Button>
-            </BdEmpty>
+            </FinanceEmpty>
           ),
         }}
         columns={[
@@ -223,11 +223,11 @@ function AliasTab({ targetKind }: { targetKind: CleaningTargetKind }) {
 export default function CleaningConfig() {
   const [targetKind, setTargetKind] = useState<CleaningTargetKind>('actual-current');
   const [activeTab, setActiveTab] = useState('templates');
-  /* 小澧助手页面登记(§7.2 cleaning_config)：页签与目标数据集都是页面真实状态,
+  /* 财务助手页面登记(§7.2 cleaning_config)：页签与目标数据集都是页面真实状态,
      页签必须受控登记,否则切到「清洗别名」后助手仍看到 tab='templates'。 */
   useAssistantPageContext({ pageKey: 'cleaning_config', ready: true, scope: {}, view: { tab: activeTab, targetKind } });
   return (
-    <Card className="bd-root-card">
+    <Card className="newfc-root-card">
       {/* UX-24 / 方案 4.7:「清洗模板与别名」即配置 Excel 导入识别规则,说明常驻页首 */}
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
         配置 Excel 导入识别规则:模板定义非标准 Excel 的工作表、行列对应与金额单位,别名把文件中的原始名称映射到系统内组织/科目编码。

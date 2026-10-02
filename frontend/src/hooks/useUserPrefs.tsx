@@ -1,5 +1,5 @@
 /**
- * 个人偏好 React 入口(UX-25):UserPrefsProvider 挂在 App 壳层(按登录用户名命名空间),
+ * 个人偏好 React 入口(UX-25):UserPrefsProvider 挂在 App 壳层(按服务端用户 ID 命名空间),
  * 页面经 useUserPrefs 读写。单一 Provider 实例按 ref 做读-改-写,避免多处并发覆盖;
  * StrictMode 下 setState updater 不携带副作用,持久化在 updater 外完成;
  * 写操作经 useCallback 固定身份(实现读 ref,不依赖渲染快照),
@@ -52,7 +52,7 @@ function storageOrNull(): Storage | null {
   }
 }
 
-export function UserPrefsProvider({ namespace, children }: { namespace: string; children: ReactNode }) {
+export function UserPrefsProvider({ namespace, children, canAccessPath }: { namespace: string; children: ReactNode; canAccessPath?: (path: string) => boolean }) {
   const [prefs, setPrefs] = useState<UserPrefs>(() => {
     const storage = storageOrNull();
     return storage ? loadUserPrefs(storage, namespace) : emptyUserPrefs();
@@ -111,17 +111,24 @@ export function UserPrefsProvider({ namespace, children }: { namespace: string; 
     setPrefs(emptyUserPrefs());
   }, [namespace]);
 
+  // 授权收窄后不展示失效入口;原偏好保留,重新授权后仍可使用。
+  const visiblePrefs = useMemo(() => canAccessPath ? {
+    ...prefs,
+    favorites: prefs.favorites.filter((item) => canAccessPath(item.path)),
+    recents: prefs.recents.filter((item) => canAccessPath(item.path)),
+  } : prefs, [prefs, canAccessPath]);
+
   const savedViewsFor = useCallback<UserPrefsApi['savedViewsFor']>(
     (pageKey) => prefs.savedViews.filter((view) => view.pageKey === pageKey),
     [prefs],
   );
   const favoriteFor = useCallback<UserPrefsApi['favoriteFor']>(
-    (pageKey, path) => findFavorite(prefs, pageKey, path),
-    [prefs],
+    (pageKey, path) => findFavorite(visiblePrefs, pageKey, path),
+    [visiblePrefs],
   );
 
   const api = useMemo<UserPrefsApi>(() => ({
-    prefs,
+    prefs: visiblePrefs,
     savedViewsFor,
     saveView,
     renameView,
@@ -131,7 +138,7 @@ export function UserPrefsProvider({ namespace, children }: { namespace: string; 
     removeFavoriteEntry,
     recordRecent,
     resetPrefs,
-  }), [prefs, savedViewsFor, saveView, renameView, deleteView, favoriteFor, toggleFavoriteEntry, removeFavoriteEntry, recordRecent, resetPrefs]);
+  }), [visiblePrefs, savedViewsFor, saveView, renameView, deleteView, favoriteFor, toggleFavoriteEntry, removeFavoriteEntry, recordRecent, resetPrefs]);
 
   return <UserPrefsContext.Provider value={api}>{children}</UserPrefsContext.Provider>;
 }

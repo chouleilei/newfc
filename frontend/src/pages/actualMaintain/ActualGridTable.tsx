@@ -53,17 +53,17 @@ export function ActualGridTable(props: {
   const sc = statusColor(mode);
   const fc = financeColor(mode);
   /* 主色派生:焦点格底色比「当前列」再深一档,不新增色相 */
-  const primaryFocusBg = 'color-mix(in srgb, var(--bd-primary) 18%, transparent)';
-  const accentSoftBorder = 'color-mix(in srgb, var(--bd-accent) 45%, transparent)';
+  const primaryFocusBg = 'color-mix(in srgb, var(--newfc-primary) 18%, transparent)';
+  const accentSoftBorder = 'color-mix(in srgb, var(--newfc-accent) 45%, transparent)';
   const typeChips = typeTagConfig(mode);
-  const { widthOf, startResize } = useColumnWidths('bd-actual-colwidths');
+  const { widthOf, startResize } = useColumnWidths('newfc-actual-colwidths');
   const firstHeaderH = 26;
 
   const thStyle = (extra?: React.CSSProperties): React.CSSProperties => ({
     position: 'sticky',
-    background: 'var(--bd-header)',
-    border: '1px solid var(--bd-border)',
-    color: 'var(--bd-text-secondary)',
+    background: 'var(--newfc-header)',
+    border: '1px solid var(--newfc-border)',
+    color: 'var(--newfc-text-secondary)',
     fontSize: 12,
     fontWeight: 600,
     padding: '6px 8px',
@@ -91,7 +91,7 @@ export function ActualGridTable(props: {
       onMouseMove={crosshair.crosshairProps.onMouseMove}
       onMouseLeave={crosshair.crosshairProps.onMouseLeave}
     >
-      {viewMode === 'orgs' && <Space style={{ padding: '4px 0' }}><MatrixColumnConfig storageKey="actual-matrix" columns={allOrgDisplayCols.map(c => ({ key: c.key, label: `${c.code} ${c.name}` }))} onChange={(keys, fixed) => { setColumnKeys(keys); setFirstFixed(fixed); }} /><span style={{ fontSize: 12, color: 'var(--bd-text-tertiary)' }}>{firstFixed ? '首列已固定' : '首列未固定'}</span></Space>}
+      {viewMode === 'orgs' && <Space style={{ padding: '4px 0' }}><MatrixColumnConfig storageKey="actual-matrix" columns={allOrgDisplayCols.map(c => ({ key: c.key, label: `${c.code} ${c.name}` }))} onChange={(keys, fixed) => { setColumnKeys(keys); setFirstFixed(fixed); }} /><span style={{ fontSize: 12, color: 'var(--newfc-text-tertiary)' }}>{firstFixed ? '首列已固定' : '首列未固定'}</span></Space>}
       <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12 }}>
         {viewMode === 'orgs' && (
           <colgroup>
@@ -104,7 +104,7 @@ export function ActualGridTable(props: {
         <thead>
           {viewMode === 'orgs' ? (
             <tr>
-              <th style={thStyle({ left: 0, zIndex: 6, textAlign: 'left', minWidth: 280, background: 'var(--bd-header)' })}>
+              <th style={thStyle({ left: 0, zIndex: 6, textAlign: 'left', minWidth: 280, background: 'var(--newfc-header)' })}>
                 科目{props.sheetName ? ` (${props.sheetName})` : ''}
               </th>
               {orgDisplayCols.map((col) => {
@@ -115,13 +115,13 @@ export function ActualGridTable(props: {
                     key={col.key}
                     style={thStyle({
                       minWidth: isTotalCol ? 120 : 100,
-                      background: isTotalCol ? 'var(--bd-fill)' : 'var(--bd-header)',
-                      borderTop: isTotalCol ? '2px solid var(--bd-primary)' : '1px solid var(--bd-border)',
+                      background: isTotalCol ? 'var(--newfc-fill)' : 'var(--newfc-header)',
+                      borderTop: isTotalCol ? '2px solid var(--newfc-primary)' : '1px solid var(--newfc-border)',
                     })}
                     title={`${col.code} ${col.name}`}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                      <span style={{ fontWeight: 700, color: isTotalCol ? 'var(--bd-primary)' : 'var(--bd-text-secondary)', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontWeight: 700, color: isTotalCol ? 'var(--newfc-primary)' : 'var(--newfc-text-secondary)', whiteSpace: 'nowrap' }}>
                         {col.code}
                       </span>
                       {col.isSubtotal && (
@@ -129,14 +129,14 @@ export function ActualGridTable(props: {
                           <Button
                             type="text"
                             size="small"
-                            style={{ padding: 0, width: 16, height: 16, minWidth: 16, fontSize: 12, color: 'var(--bd-text-tertiary)' }}
+                            style={{ padding: 0, width: 16, height: 16, minWidth: 16, fontSize: 12, color: 'var(--newfc-text-tertiary)' }}
                             icon={isCollapsed ? <i className="ri-add-box-line" aria-hidden /> : <i className="ri-checkbox-indeterminate-line" aria-hidden />}
                             onClick={() => props.onToggleCollapseOrgCol(col.id)}
                           />
                         </Tooltip>
                       )}
                     </div>
-                    <div style={{ fontWeight: isTotalCol ? 650 : 400, color: isTotalCol ? 'var(--bd-text)' : 'var(--bd-text-secondary)' }}>
+                    <div style={{ fontWeight: isTotalCol ? 650 : 400, color: isTotalCol ? 'var(--newfc-text)' : 'var(--newfc-text-secondary)' }}>
                       {col.name}
                     </div>
                     <ColResizeGrip onStart={(e) => startResize(e, col.key, widthOf(col.key, isTotalCol ? 120 : 100))} />
@@ -147,21 +147,21 @@ export function ActualGridTable(props: {
           ) : (
             <>
               <tr>
-                <th rowSpan={2} style={{ position: 'sticky', left: 0, zIndex: 5, top: 0, background: 'var(--bd-header)', border: '1px solid var(--bd-border)', padding: '6px 8px', minWidth: 280, textAlign: 'left', color: 'var(--bd-text-secondary)', fontWeight: 600 }}>
+                <th rowSpan={2} style={{ position: 'sticky', left: 0, zIndex: 5, top: 0, background: 'var(--newfc-header)', border: '1px solid var(--newfc-border)', padding: '6px 8px', minWidth: 280, textAlign: 'left', color: 'var(--newfc-text-secondary)', fontWeight: 600 }}>
                   科目{props.sheetName ? ` (${props.sheetName})` : ''}
                 </th>
                 {years.map((y) => (
-                  <th key={y} colSpan={2} style={thStyle({ top: 0, zIndex: 3, textAlign: 'center', minWidth: 200, background: y === editYear ? 'var(--bd-primary-bg)' : 'var(--bd-header)', borderTop: y === editYear ? '2px solid var(--bd-primary)' : '1px solid var(--bd-border)', color: y === editYear ? 'var(--bd-primary)' : 'var(--bd-text-secondary)' })}>
+                  <th key={y} colSpan={2} style={thStyle({ top: 0, zIndex: 3, textAlign: 'center', minWidth: 200, background: y === editYear ? 'var(--newfc-primary-bg)' : 'var(--newfc-header)', borderTop: y === editYear ? '2px solid var(--newfc-primary)' : '1px solid var(--newfc-border)', color: y === editYear ? 'var(--newfc-primary)' : 'var(--newfc-text-secondary)' })}>
                     {y} 年
-                    {yearData[y]?.budgetVersion ? <span style={{ fontWeight: 400, marginLeft: 4, fontSize: 12, color: 'var(--bd-text-tertiary)' }}>({yearData[y]!.budgetVersion!.name})</span> : null}
+                    {yearData[y]?.budgetVersion ? <span style={{ fontWeight: 400, marginLeft: 4, fontSize: 12, color: 'var(--newfc-text-tertiary)' }}>({yearData[y]!.budgetVersion!.name})</span> : null}
                   </th>
                 ))}
               </tr>
               <tr>
                 {years.map((y) => (
                   <Fragment key={y}>
-                    <th style={thStyle({ top: firstHeaderH, zIndex: 3, minWidth: 100, background: y === editYear ? 'var(--bd-primary-bg)' : 'var(--bd-header)', color: 'var(--bd-text-tertiary)' })}>预算数</th>
-                    <th style={thStyle({ top: firstHeaderH, zIndex: 3, minWidth: 100, background: y === editYear ? 'var(--bd-primary-bg)' : 'var(--bd-header)', color: y === editYear ? 'var(--bd-primary)' : 'var(--bd-text-tertiary)' })}>实际数</th>
+                    <th style={thStyle({ top: firstHeaderH, zIndex: 3, minWidth: 100, background: y === editYear ? 'var(--newfc-primary-bg)' : 'var(--newfc-header)', color: 'var(--newfc-text-tertiary)' })}>预算数</th>
+                    <th style={thStyle({ top: firstHeaderH, zIndex: 3, minWidth: 100, background: y === editYear ? 'var(--newfc-primary-bg)' : 'var(--newfc-header)', color: y === editYear ? 'var(--newfc-primary)' : 'var(--newfc-text-tertiary)' })}>实际数</th>
                   </Fragment>
                 ))}
               </tr>
@@ -172,7 +172,7 @@ export function ActualGridTable(props: {
           {visibleRows.map((row) => {
             const rowKey = row.kind === 'account' ? `a${row.id}` : `m${row.id}`;
             const t = row.kind === 'account' ? row.type : 'metric';
-            const tagCfg = typeChips[t] ?? { color: 'var(--bd-text-tertiary)', bg: 'var(--bd-fill)', border: 'var(--bd-border)' };
+            const tagCfg = typeChips[t] ?? { color: 'var(--newfc-text-tertiary)', bg: 'var(--newfc-fill)', border: 'var(--newfc-border)' };
             const inTpl = row.label != null; /* 模板行:利润表 15 行 / 收入成本表计算行 */
             const isSummaryRow = (inTpl && row.bold) || row.kind === 'metric' || (row.kind === 'account' && !row.isLeaf);
             const rawName = (inTpl ? row.label : row.name) ?? '';
@@ -183,14 +183,14 @@ export function ActualGridTable(props: {
             const rowActive = row.kind === 'account' && props.activeRowId === row.id;
 
             return (
-              <tr key={rowKey} style={{ background: isSummaryRow ? 'var(--bd-header)' : rowActive ? 'var(--bd-primary-bg)' : undefined }}>
+              <tr key={rowKey} style={{ background: isSummaryRow ? 'var(--newfc-header)' : rowActive ? 'var(--newfc-primary-bg)' : undefined }}>
                 <td
                   style={{
                     position: firstFixed ? 'sticky' : 'static',
                     left: 0,
                     zIndex: 1,
-                    background: isSummaryRow ? 'var(--bd-header)' : rowActive ? 'var(--bd-primary-bg)' : 'var(--bd-bg-container)',
-                    border: '1px solid var(--bd-border)',
+                    background: isSummaryRow ? 'var(--newfc-header)' : rowActive ? 'var(--newfc-primary-bg)' : 'var(--newfc-bg-container)',
+                    border: '1px solid var(--newfc-border)',
                     padding: '3px 8px',
                     whiteSpace: 'nowrap',
                   }}
@@ -211,7 +211,7 @@ export function ActualGridTable(props: {
                   >
                     {row.code}
                   </span>{' '}
-                  <span style={{ fontWeight: isSummaryRow ? 650 : 400, color: isSummaryRow ? 'var(--bd-text)' : 'var(--bd-text-secondary)' }}>
+                  <span style={{ fontWeight: isSummaryRow ? 650 : 400, color: isSummaryRow ? 'var(--newfc-text)' : 'var(--newfc-text-secondary)' }}>
                     {cleanName}{unitSuffix}
                   </span>
                   {inTpl ? (
@@ -238,19 +238,19 @@ export function ActualGridTable(props: {
                           title={row.kind === 'account' && row.type === 'quantity' && row.quantityAgg === 'none' ? '该数量科目设为「不汇总」(如电价/税率/平均人数)，跨组织不显示合计，仅叶子单元格录值' : undefined}
                           onDoubleClick={() => { if (canEditSum) props.onOpenMemo(col.id, row.id, true); }}
                           style={{
-                            border: '1px solid var(--bd-border)',
+                            border: '1px solid var(--newfc-border)',
                             padding: '2px 8px',
                             textAlign: 'right',
                             fontFamily: NUMERIC_FONT_FAMILY,
                             fontWeight: 650,
-                            background: 'var(--bd-header)',
-                            color: 'var(--bd-text)',
+                            background: 'var(--newfc-header)',
+                            color: 'var(--newfc-text)',
                             position: 'relative',
                           }}
                         >
                           {/* UX-23-1:汇总格说明只读原因与展开路径 */}
                           <Tooltip title={<><strong>汇总值</strong>，随明细自动计算{isCollapsedCol && <><br /><span>该小计列已折叠：点列表头 + 或格内「展开下级」查看明细</span></>}{sumMemo ? <><br /><strong>📝 备注：</strong>{sumMemo}{canEditSum && <><br /><span>双击编辑备注</span></>}</> : (canEditSum ? <><br />双击添加备注</> : null)}</>}>
-                            <span>{val || <span style={{ color: 'var(--bd-text-tertiary)' }}>—</span>}</span>
+                            <span>{val || <span style={{ color: 'var(--newfc-text-tertiary)' }}>—</span>}</span>
                           </Tooltip>
                           {isCollapsedCol && (
                             <Button
@@ -305,7 +305,7 @@ export function ActualGridTable(props: {
                         data-gr={ri ?? undefined}
                         data-gc={ci ?? undefined}
                         style={{
-                          border: '1px solid var(--bd-border)',
+                          border: '1px solid var(--newfc-border)',
                           padding: editable ? 1 : '2px 8px',
                           textAlign: 'right',
                           fontFamily: NUMERIC_FONT_FAMILY,
@@ -313,8 +313,8 @@ export function ActualGridTable(props: {
                           background: cellFocused
                             ? primaryFocusBg
                             : ri != null && ci != null && grid.isInSelection(ri, ci)
-                              ? 'var(--bd-primary-bg)'
-                              : isSummaryRow ? 'var(--bd-header)' : rowActive ? 'var(--bd-primary-bg)' : undefined,
+                              ? 'var(--newfc-primary-bg)'
+                              : isSummaryRow ? 'var(--newfc-header)' : rowActive ? 'var(--newfc-primary-bg)' : undefined,
                         }}
                         onContextMenu={(e) => {
                           if (ri == null || ci == null) return;
@@ -343,8 +343,8 @@ export function ActualGridTable(props: {
                                 textAlign: 'right',
                                 fontFamily: NUMERIC_FONT_FAMILY,
                                 fontSize: 12,
-                                background: cellFocused ? 'var(--bd-bg-container)' : 'transparent',
-                                borderColor: invalidCells.has(key) ? sc.bad : cellFocused ? 'var(--bd-primary)' : (row as AccRow).type === 'quantity' ? accentSoftBorder : 'var(--bd-border)',
+                                background: cellFocused ? 'var(--newfc-bg-container)' : 'transparent',
+                                borderColor: invalidCells.has(key) ? sc.bad : cellFocused ? 'var(--newfc-primary)' : (row as AccRow).type === 'quantity' ? accentSoftBorder : 'var(--newfc-border)',
                                 boxShadow: cellFocused ? '0 0 0 2px rgba(37, 99, 235, 0.25)' : undefined,
                               }}
                               value={values.get(key) ?? ''}
@@ -360,12 +360,12 @@ export function ActualGridTable(props: {
                               <div
                                 onMouseDown={(e) => grid.beginFillDrag(e, ri, ci)}
                                 title="拖拽填充(向下/向右)"
-                                style={{ position: 'absolute', right: 0, bottom: 0, width: 8, height: 8, background: 'var(--bd-primary)', border: '1px solid var(--bd-bg-container)', cursor: 'crosshair', zIndex: 3 }}
+                                style={{ position: 'absolute', right: 0, bottom: 0, width: 8, height: 8, background: 'var(--newfc-primary)', border: '1px solid var(--newfc-bg-container)', cursor: 'crosshair', zIndex: 3 }}
                               />
                             )}
                           </div>
                           ) : (
-                          <Tooltip title={<><span>{readonlyTitle}</span>{memo ? <><br /><strong>📝 备注：</strong>{memo}{canEditRowSummary && <><br /><span>双击编辑备注</span></>}</> : (canEditRowSummary ? <><br />双击添加备注</> : null)}</>}>{actualV || <span style={{ color: 'var(--bd-text-tertiary)' }}>—</span>}</Tooltip>
+                          <Tooltip title={<><span>{readonlyTitle}</span>{memo ? <><br /><strong>📝 备注：</strong>{memo}{canEditRowSummary && <><br /><span>双击编辑备注</span></>}</> : (canEditRowSummary ? <><br />双击添加备注</> : null)}</>}>{actualV || <span style={{ color: 'var(--newfc-text-tertiary)' }}>—</span>}</Tooltip>
                         )}
                         {!editable && memo && (
                           <div
@@ -387,20 +387,20 @@ export function ActualGridTable(props: {
                     const budgetV = props.displayOf(row, y, 'budget');
                     const actualV = editable && row.kind === 'account' ? (values.get(`${props.singleLeafScope}:${row.id}`) ?? '') : props.displayOf(row, y, 'actual');
                     const isCurrentEditYear = y === editYear;
-                    const cellBg = isCurrentEditYear ? 'var(--bd-primary-bg)' : isSummaryRow ? 'var(--bd-header)' : rowActive ? 'var(--bd-header)' : undefined;
+                    const cellBg = isCurrentEditYear ? 'var(--newfc-primary-bg)' : isSummaryRow ? 'var(--newfc-header)' : rowActive ? 'var(--newfc-header)' : undefined;
                     const yrRi = gridRowIdx.get(row.id);
                     const yrCi = isCurrentEditYear && props.singleLeafScope != null ? 0 : undefined;
                     const yrFocused = grid.activeIds?.rowId === row.id && viewMode === 'years';
                     const yrH = props.density === 'compact' ? 24 : props.density === 'relaxed' ? 34 : 28;
                     return (
                       <Fragment key={y}>
-                        <td style={{ border: '1px solid var(--bd-border)', padding: '2px 8px', textAlign: 'right', fontFamily: NUMERIC_FONT_FAMILY, background: cellBg }}>
-                          {budgetV || <span style={{ color: 'var(--bd-text-tertiary)' }}>—</span>}
+                        <td style={{ border: '1px solid var(--newfc-border)', padding: '2px 8px', textAlign: 'right', fontFamily: NUMERIC_FONT_FAMILY, background: cellBg }}>
+                          {budgetV || <span style={{ color: 'var(--newfc-text-tertiary)' }}>—</span>}
                         </td>
                         <td
                           data-gr={yrRi ?? undefined}
                           data-gc={yrCi ?? undefined}
-                          style={{ border: '1px solid var(--bd-border)', padding: editable ? 1 : '2px 8px', textAlign: 'right', fontFamily: NUMERIC_FONT_FAMILY, background: cellBg, position: 'relative' }}
+                          style={{ border: '1px solid var(--newfc-border)', padding: editable ? 1 : '2px 8px', textAlign: 'right', fontFamily: NUMERIC_FONT_FAMILY, background: cellBg, position: 'relative' }}
                           onContextMenu={(e) => {
                             if (yrRi == null || yrCi == null) return;
                             e.preventDefault();
@@ -420,7 +420,7 @@ export function ActualGridTable(props: {
                                   textAlign: 'right',
                                   fontFamily: NUMERIC_FONT_FAMILY,
                                   fontSize: 12,
-                                  borderColor: invalidCells.has(`${props.singleLeafScope}:${row.id}`) ? sc.bad : yrFocused ? 'var(--bd-primary)' : 'var(--bd-border)',
+                                  borderColor: invalidCells.has(`${props.singleLeafScope}:${row.id}`) ? sc.bad : yrFocused ? 'var(--newfc-primary)' : 'var(--newfc-border)',
                                   boxShadow: yrFocused ? '0 0 0 2px rgba(37, 99, 235, 0.25)' : undefined,
                                 }}
                                 value={values.get(`${props.singleLeafScope}:${row.id}`) ?? ''}
@@ -436,12 +436,12 @@ export function ActualGridTable(props: {
                                 <div
                                   onMouseDown={(e) => grid.beginFillDrag(e, yrRi, yrCi)}
                                   title="拖拽填充"
-                                  style={{ position: 'absolute', right: 0, bottom: 0, width: 8, height: 8, background: 'var(--bd-primary)', border: '1px solid var(--bd-bg-container)', cursor: 'crosshair', zIndex: 3 }}
+                                  style={{ position: 'absolute', right: 0, bottom: 0, width: 8, height: 8, background: 'var(--newfc-primary)', border: '1px solid var(--newfc-bg-container)', cursor: 'crosshair', zIndex: 3 }}
                                 />
                               )}
                             </div>
                           ) : (
-                            <span title={!isCurrentEditYear ? `${y} 年为历史年度，只读；当前维护 ${editYear} 年` : (props.readonlyReason ?? (row.kind === 'account' && row.isLeaf ? '该科目不可填写' : '汇总值，随明细自动计算'))}>{actualV || <span style={{ color: 'var(--bd-text-tertiary)' }}>—</span>}</span>
+                            <span title={!isCurrentEditYear ? `${y} 年为历史年度，只读；当前维护 ${editYear} 年` : (props.readonlyReason ?? (row.kind === 'account' && row.isLeaf ? '该科目不可填写' : '汇总值，随明细自动计算'))}>{actualV || <span style={{ color: 'var(--newfc-text-tertiary)' }}>—</span>}</span>
                           )}
                         </td>
                       </Fragment>
@@ -452,7 +452,7 @@ export function ActualGridTable(props: {
             );
           })}
           {visibleRows.length === 0 && (
-            <tr><td colSpan={viewMode === 'orgs' ? 1 + orgDisplayCols.length : 1 + years.length * 2} style={{ padding: 16, textAlign: 'center', color: 'var(--bd-text-tertiary)' }}>当前筛选条件下没有行</td></tr>
+            <tr><td colSpan={viewMode === 'orgs' ? 1 + orgDisplayCols.length : 1 + years.length * 2} style={{ padding: 16, textAlign: 'center', color: 'var(--newfc-text-tertiary)' }}>当前筛选条件下没有行</td></tr>
           )}
         </tbody>
       </table>

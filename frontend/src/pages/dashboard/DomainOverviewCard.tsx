@@ -11,7 +11,7 @@ import { Money, Ratio } from '../financeData/shared';
  */
 function MetricValue({ m }: { m: DomainMetricDto }) {
   if (m.value == null) return <Tooltip title={m.note}><span>—</span></Tooltip>;
-  if (m.unit === 'money') return <Money value={String(m.value)} />;
+  if (m.unit === 'money') return <span><Money value={String(m.value)} /> 元</span>;
   if (m.unit === 'ratio') return <Ratio value={String(m.value)} />;
   return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{m.value}</span>;
 }
@@ -24,7 +24,7 @@ export function DomainOverviewCard() {
   if (!allowed || blocks.length === 0) return null;
   return (
     <div data-testid="domain-overview-card">
-      <div className="bd-eyebrow">业务概况</div>
+      <div className="newfc-eyebrow">业务概况</div>
       <Row gutter={[12, 12]}>
         {blocks.map((b) => (
           <Col key={b.key} xs={24} sm={12} lg={8}>

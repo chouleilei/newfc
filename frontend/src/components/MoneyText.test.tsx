@@ -58,14 +58,14 @@ describe('MoneyText 排版规格', () => {
     expect(html).toContain('font-variant-numeric:tabular-nums');
     /* 小数 .57 单独成段并降为次级灰 */
     expect(html).toContain('font-size:0.75em');
-    expect(html).toContain('--bd-text-secondary');
+    expect(html).toContain('--newfc-text-secondary');
   });
 
   it('单位段为 12px / 400 / 三级灰', () => {
     const html = render(<MoneyText cents={123456789} />);
     expect(html).toContain('font-size:12px');
     expect(html).toContain('font-weight:400');
-    expect(html).toContain('--bd-text-tertiary');
+    expect(html).toContain('--newfc-text-tertiary');
   });
 
   it('hideUnit 时不渲染单位段', () => {
@@ -83,7 +83,7 @@ describe('MoneyText 符号纪律', () => {
     const html = render(<MoneyText cents={-123456789} />);
     expect(html).not.toContain('#9c2f2f');
     expect(html).not.toContain('#3e7d3e');
-    expect(html).toContain('--bd-text-secondary');
+    expect(html).toContain('--newfc-text-secondary');
   });
 
   it('showSign 给正数补正号,零值仍不表态', () => {
@@ -99,14 +99,14 @@ describe('MoneyText 符号纪律', () => {
   it('color 整体着色:符号/整数/小数三段的色值由调用方给定,单位段仍为三级灰', () => {
     const html = render(<MoneyText cents={-123456789} color="#1664ff" />);
     expect(html).toContain('color:#1664ff');
-    expect(html).not.toContain('var(--bd-text-secondary)');
-    expect(html).toContain('--bd-text-tertiary');
+    expect(html).not.toContain('var(--newfc-text-secondary)');
+    expect(html).toContain('--newfc-text-tertiary');
   });
 
   it('tone 同时作用于符号、整数与小数段,避免一个数字里出现两种色', () => {
     const html = render(<MoneyText cents={-123456789} showSign tone="bad" />);
     expect(html).toContain('#9c2f2f');
-    expect(html).not.toContain('var(--bd-text-secondary)');
+    expect(html).not.toContain('var(--newfc-text-secondary)');
   });
 });
 

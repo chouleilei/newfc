@@ -28,15 +28,15 @@ export default function Login({ onSuccess }: { onSuccess: (session: SessionInfo)
   };
 
   return (
-    <div className="bd-login">
-      <div className="bd-login-card">
+    <div className="newfc-login">
+      <div className="newfc-login-card">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginBottom: 28 }}>
           <BrandLogo size={52} />
           <div style={{ textAlign: 'center' }}>
             <Typography.Title level={4} style={{ marginBottom: 2 }}>
               水利财务分析
             </Typography.Title>
-            <Typography.Text type="secondary" className="bd-brand-sub" style={{ fontSize: 12 }}>
+            <Typography.Text type="secondary" className="newfc-brand-sub" style={{ fontSize: 12 }}>
               newfc Finance Console
             </Typography.Text>
           </div>
@@ -74,7 +74,7 @@ export default function Login({ onSuccess }: { onSuccess: (session: SessionInfo)
           type="secondary"
           style={{ display: 'block', textAlign: 'center', fontSize: 12, marginTop: 24, opacity: 0.7 }}
         >
-          首次使用请由运维在服务器执行 npm run admin:create 初始化管理员
+          请使用管理员分配的账号登录，无法登录时请联系管理员。
         </Typography.Text>
       </div>
     </div>

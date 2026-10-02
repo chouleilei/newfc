@@ -40,7 +40,7 @@ const exitButton = (page: Page) => page.getByRole('button', { name: /退出全�
 /** 进入全屏 → 覆盖层出现，且退出按钮可见 */
 async function enterFullscreen(page: Page) {
   await enterButton(page).click();
-  await expect(page.locator('.bd-grid-fullscreen')).toHaveCount(1);
+  await expect(page.locator('.newfc-grid-fullscreen')).toHaveCount(1);
   await expect(exitButton(page)).toBeVisible();
 }
 
@@ -53,21 +53,21 @@ test.describe('表格全屏必须能退出', () => {
     // 1) 点按钮退出：修复前该按钮被覆盖层遮住，这一步会因命中检测失败而超时
     await enterFullscreen(page);
     await exitButton(page).click();
-    await expect(page.locator('.bd-grid-fullscreen')).toHaveCount(0);
+    await expect(page.locator('.newfc-grid-fullscreen')).toHaveCount(0);
 
     // 2) Esc 退出（焦点不在输入框时）
     await enterFullscreen(page);
     await page.locator('body').press('Escape');
-    await expect(page.locator('.bd-grid-fullscreen')).toHaveCount(0);
+    await expect(page.locator('.newfc-grid-fullscreen')).toHaveCount(0);
 
     // 3) 覆盖层层级必须低于 antd 浮层基线，否则全屏态下弹窗与提示都看不见
     await enterFullscreen(page);
-    const zIndex = await page.locator('.bd-grid-fullscreen').evaluate((el) => getComputedStyle(el).zIndex);
+    const zIndex = await page.locator('.newfc-grid-fullscreen').evaluate((el) => getComputedStyle(el).zIndex);
     expect(Number(zIndex)).toBeLessThan(1000);
     // 全屏态下工具栏仍在覆盖层内：筛选与撤销重做不会失联
     await expect(page.getByRole('button', { name: '仅看有数据' })).toBeVisible();
     await exitButton(page).click();
-    await expect(page.locator('.bd-grid-fullscreen')).toHaveCount(0);
+    await expect(page.locator('.newfc-grid-fullscreen')).toHaveCount(0);
   });
 
   test('历史数据维护页：按钮退出 + Esc 退出', async ({ page }) => {
@@ -76,10 +76,10 @@ test.describe('表格全屏必须能退出', () => {
 
     await enterFullscreen(page);
     await exitButton(page).click();
-    await expect(page.locator('.bd-grid-fullscreen')).toHaveCount(0);
+    await expect(page.locator('.newfc-grid-fullscreen')).toHaveCount(0);
 
     await enterFullscreen(page);
     await page.locator('body').press('Escape');
-    await expect(page.locator('.bd-grid-fullscreen')).toHaveCount(0);
+    await expect(page.locator('.newfc-grid-fullscreen')).toHaveCount(0);
   });
 });

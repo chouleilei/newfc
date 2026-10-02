@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { positiveQueryNumber, useListSearchParams } from '../../hooks/useListSearchParams';
 import {
   Alert, App as AntdApp, Button, Card, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Timeline, Typography, Upload,
 } from 'antd';
 import dayjs from 'dayjs';
 import { api, can, download, errorText } from '../../api/client';
 import {
-  contractApi, type ContractDetailDto, type ContractDocType, type ContractDto, type ContractStage, type ContractTodo,
+  contractApi, type ContractDetailDto, type ContractDocType, type ContractDto, type ContractStage, type ContractStatus, type ContractTodo,
 } from '../../api/projectContract';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
@@ -311,21 +312,23 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
 }
 
 export default function Contracts() {
-  const [params, setParams] = useSearchParams();
+  const { params, setParams, page, pageSize, update } = useListSearchParams();
   const todo = (params.get('todo') ?? undefined) as ContractTodo | undefined;
-  const [status, setStatus] = useState<string | undefined>();
-  const [stage, setStage] = useState<string | undefined>();
-  const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
-  const [keyword, setKeyword] = useState<string | undefined>();
+  const status = (params.get('status') || undefined) as ContractStatus | undefined;
+  const stage = (params.get('stage') || undefined) as ContractStage | undefined;
+  const orgId = positiveQueryNumber(params.get('orgId'));
+  const keyword = params.get('keyword')?.trim() || undefined;
   const [creating, setCreating] = useState(false);
   const openId = params.get('id') ? Number(params.get('id')) : null;
   const setOpenId = (id: number | null) => setParams((p) => { const n = new URLSearchParams(p); if (id == null) n.delete('id'); else n.set('id', String(id)); return n; }, { replace: true });
   const todoValid = todo && todo in TODO_LABEL ? todo : undefined;
   const list = useQuery({
-    queryKey: ['contracts', status, stage, orgId, keyword, todoValid],
-    queryFn: () => contractApi.list(compact({ status, stage, orgId, keyword, todo: todoValid }) as never),
+    queryKey: ['contracts', status, stage, orgId, keyword, todoValid, page, pageSize],
+    queryFn: () => contractApi.listPage({ ...compact({ status, stage, orgId, keyword, todo: todoValid }), page, pageSize }),
   });
+  useEffect(() => { if (list.data && list.data.page !== page) update({ page: list.data.page }, false); }, [list.data?.page, page, update]);
   const summary = useQuery({ queryKey: ['contract-summary', orgId], queryFn: () => contractApi.summary({ orgId }) });
+  useAssistantDomainPage({ pageKey: 'contracts', ready: !list.isLoading && !list.error, scope: { orgScopeId: orgId, contractId: openId ?? undefined }, view: { status, keyword, todo, stage } });
   const s = summary.data;
   return (
     <div>
@@ -346,18 +349,21 @@ export default function Contracts() {
         </Card>
       )}
       <Space wrap style={{ marginBottom: 12 }}>
-        <Select allowClear placeholder="状态" value={status} onChange={setStatus} style={{ width: 110 }} options={Object.entries(CONTRACT_STATUS).map(([value, m]) => ({ value, label: m.text }))} />
-        <Select allowClear placeholder="阶段" value={stage} onChange={setStage} style={{ width: 120 }} options={CONTRACT_STAGE_ORDER.map((value) => ({ value, label: CONTRACT_STAGE_LABELS[value] }))} />
-        <OrgSelect value={orgId} onChange={setOrgId} />
-        <Input.Search allowClear placeholder="编号或名称" onSearch={(v) => setKeyword(v.trim() || undefined)} style={{ width: 200 }} />
+        <Select allowClear placeholder="状态" value={status} onChange={(v) => update({ status: v })} style={{ width: 110 }} options={Object.entries(CONTRACT_STATUS).map(([value, m]) => ({ value, label: m.text }))} />
+        <Select allowClear placeholder="阶段" value={stage} onChange={(v) => update({ stage: v })} style={{ width: 120 }} options={CONTRACT_STAGE_ORDER.map((value) => ({ value, label: CONTRACT_STAGE_LABELS[value] }))} />
+        <OrgSelect value={orgId} onChange={(v) => update({ orgId: v })} placeholder="全部授权组织" />
+        <Input.Search key={keyword ?? ''} defaultValue={keyword} maxLength={100} allowClear placeholder="编号或名称" onSearch={(v) => update({ keyword: v.trim() || undefined })} style={{ width: 200 }} />
         {can('contract:write') && <Button type="primary" onClick={() => setCreating(true)}>新建合同</Button>}
       </Space>
       {todoValid && (
         <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`只显示:${TODO_LABEL[todoValid]}`}
-          action={<Button size="small" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete('todo'); return n; }, { replace: true })}>显示全部</Button>} />
+          action={<Button size="small" onClick={() => update({ todo: undefined })}>显示全部</Button>} />
       )}
       {list.error ? <QueryErrorResult title="合同加载失败" error={list.error} refetch={list.refetch} /> : (
-        <Table<ContractDto> rowKey="id" size="small" loading={list.isLoading} dataSource={list.data ?? []} pagination={{ pageSize: 20, showSizeChanger: false }} scroll={{ x: 1300 }}
+        <Table<ContractDto> rowKey="id" size="small" loading={list.isFetching} dataSource={list.data?.items ?? []} pagination={{
+          current: list.data?.page ?? page, pageSize, total: list.data?.total ?? 0, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100],
+          showTotal: (total) => `共 ${total} 条`, onChange: (p, size) => update({ page: size === pageSize ? p : 1, pageSize: size }, false),
+        }} scroll={{ x: 1300 }}
           onRow={(r) => ({ onClick: () => setOpenId(r.id), style: { cursor: 'pointer' } })}
           columns={[
             { title: '合同编号', dataIndex: 'contractNo', width: 140, fixed: 'left' },

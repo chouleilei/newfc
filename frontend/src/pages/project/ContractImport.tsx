@@ -1,3 +1,4 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -20,6 +21,7 @@ const FIELD_LABEL: Record<string, string> = {
 };
 
 export default function ContractImport() {
+  useAssistantDomainPage({ pageKey: 'contract_import', ready: true, view: {} });
   const { message, modal } = AntdApp.useApp();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -47,7 +49,7 @@ export default function ContractImport() {
         <Space direction="vertical" style={{ width: '100%' }}>
           <Upload.Dragger accept=".csv,.xlsx" showUploadList={false} disabled={previewM.isPending} beforeUpload={(f) => { previewM.mutate(f); return false; }}>
             <p>{previewM.isPending ? '正在校验…' : '点击或拖入合同台账 .csv / .xlsx 生成预览'}</p>
-            <p style={{ color: 'var(--bd-text-secondary)', fontSize: 12 }}>按合同编号匹配:不存在则新增;已存在则只更新有变化的字段。预览不写合同,确认前可放弃。</p>
+            <p style={{ color: 'var(--newfc-text-secondary)', fontSize: 12 }}>按合同编号匹配:不存在则新增;已存在则只更新有变化的字段。预览不写合同,确认前可放弃。</p>
           </Upload.Dragger>
         </Space>
       </Card>

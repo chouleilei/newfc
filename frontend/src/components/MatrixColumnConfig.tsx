@@ -14,7 +14,7 @@ export interface MatrixColumn { key: string; label: string }
 export function MatrixColumnConfig({ storageKey, columns, onChange }: { storageKey: string; columns: MatrixColumn[]; onChange: (keys: string[], fixed: boolean) => void }) {
   const availableSignature = columns.map((column) => column.key).join('\0');
   const available = useMemo(() => columns.map((column) => column.key), [availableSignature]);
-  const sessionKey = `bd-matrix-cols-${storageKey}`;
+  const sessionKey = `newfc-matrix-cols-${storageKey}`;
   const savedRef = useRef<LegacyMatrixColumnState>();
   if (savedRef.current === undefined) savedRef.current = loadSession<LegacyMatrixColumnState>(sessionKey, {});
   const legacyMigrationPendingRef = useRef(

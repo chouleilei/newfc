@@ -1,5 +1,5 @@
 /**
- * 前端单元测试(方案《小澧助手全页面回答范围自动对齐开发计划》§13.1)。
+ * 前端单元测试(现行 specs/ai.md 页面上下文契约§13.1)。
  *
  * pageContext 目录:
  * - 28 个 pageKey 与 PAGE_LABEL 一一对应;
@@ -12,8 +12,8 @@ import { derivePageContext, PAGE_LABEL } from '../assistant/pageContext';
 import { PAGE_KEYS } from '../assistant/context';
 
 describe('pageKey 目录', () => {
-  it('恰好 28 个 pageKey,且每个都有中文标签', () => {
-    expect(PAGE_KEYS.length).toBe(28);
+  it('全部业务 pageKey,且每个都有中文标签', () => {
+    expect(PAGE_KEYS.length).toBe(50);
     for (const key of PAGE_KEYS) {
       expect(PAGE_LABEL[key], `${key} 缺少 PAGE_LABEL`).toBeTruthy();
     }
@@ -62,6 +62,10 @@ describe('pageKey 目录', () => {
 
   it('全部 28 个路由都有非 unknown 的页面身份', () => {
     const routes: [string, string][] = [
+      ['/eas', ''], ['/governance', ''], ['/statements', ''], ['/mgmt', ''], ['/standard-reports', ''],
+      ['/project-budget', ''], ['/plan', ''], ['/contracts', ''], ['/contracts/import', ''], ['/expense', ''], ['/expense/policies', ''],
+      ['/feasibility', ''], ['/investment-control', ''], ['/forecast', ''], ['/risk', ''], ['/analysis-reports', ''],
+      ['/master-entities', ''], ['/projects/1', ''], ['/search', ''], ['/jobs', ''], ['/settings/business', ''], ['/settings/security', ''],
       ['/', ''], ['/assistant', ''], ['/insights', ''], ['/master-health', ''], ['/cleaning-config', ''],
       ['/progress', ''], ['/alerts', ''], ['/metric-trend', ''], ['/settings/ai', ''],
       ['/org', ''], ['/account', ''], ['/metric', ''], ['/budget', ''], ['/budget/1', ''],
@@ -71,10 +75,10 @@ describe('pageKey 目录', () => {
       ['/data', '?tab=yearclose'], ['/data', '?tab=backup'], ['/data', '?tab=migration'],
       ['/data', '?tab=export'], ['/data', '?tab=logs'],
     ];
-    expect(routes.length).toBe(28);
+    expect(routes.length).toBe(50);
     const pages = new Set(routes.map(([pathname, search]) => derivePageContext(pathname, search).page));
     expect(pages.has('unknown')).toBe(false);
-    expect(pages.size).toBe(28);
+    expect(pages.size).toBe(50);
     for (const key of pages) expect(PAGE_KEYS).toContain(key);
   });
 });

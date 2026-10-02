@@ -7,6 +7,8 @@
  * - 浏览器返回是 pop:条目已有记录 → 恢复离开时的位置。
  * 筛选条件本身由 UX-02 进入 URL 并随条目恢复,这里不重复保存。
  */
+import { readBrowserStorage, removeBrowserStorage } from './browserStorage';
+
 export interface RoutePosition {
   scrollTop: number;
   savedAt: number;
@@ -15,7 +17,7 @@ export interface RoutePosition {
 /** 导航类型 → 目标滚动位置;null 表示保持当前位置不动。 */
 export type RouteNavAction = 'PUSH' | 'POP' | 'REPLACE';
 
-const PREFIX = 'bd:route-pos:';
+const PREFIX = 'newfc:route-pos:';
 /** 上限防止长期使用塞满 sessionStorage;超出时按 savedAt 淘汰最旧条目。 */
 const MAX_ENTRIES = 60;
 
@@ -35,7 +37,7 @@ export function routePositionKey(locationKey: string): string {
 /** 读取某条目的位置记录;损坏/越界数据一律视为无记录,绝不抛错阻塞页面。 */
 export function readRoutePosition(storage: RouteMemoryStorage, locationKey: string): RoutePosition | null {
   try {
-    const raw = storage.getItem(routePositionKey(locationKey));
+    const raw = readBrowserStorage(storage, routePositionKey(locationKey));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { scrollTop?: unknown; savedAt?: unknown } | null;
     if (!parsed || typeof parsed.scrollTop !== 'number' || !Number.isFinite(parsed.scrollTop) || parsed.scrollTop < 0) return null;
@@ -82,7 +84,7 @@ export function saveRoutePosition(storage: RouteMemoryStorage, locationKey: stri
 
 export function removeRoutePosition(storage: RouteMemoryStorage, locationKey: string): void {
   try {
-    storage.removeItem(routePositionKey(locationKey));
+    removeBrowserStorage(storage, routePositionKey(locationKey));
   } catch { /* 同上 */ }
 }
 

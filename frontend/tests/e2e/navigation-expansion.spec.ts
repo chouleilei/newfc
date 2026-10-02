@@ -31,8 +31,11 @@ test('侧栏新菜单项可达、高亮正确,深链直达一致', async ({ page
   ];
 
   for (const leaf of leaves) {
-    // 菜单项可能藏在未展开的分组里,先展开全部分组再点
-    for (const group of ['小澧助手', '编制', '实际', '分析', '主数据', '系统']) {
+    // 侧栏一次只展开一个分组,仅打开目标叶子所属栏目。
+    const groupName = leaf.menu === '洞察报告' ? '财务助手'
+      : leaf.menu === '健康体检' ? '主数据'
+      : ['一致性检查', 'AI 渠道设置'].includes(leaf.menu) ? '系统' : '经营预算';
+    for (const group of [groupName]) {
       const title = page.locator('.ant-menu-submenu-title', { hasText: group });
       if (await title.count() > 0) {
         const expanded = await title.first().getAttribute('aria-expanded');
@@ -44,7 +47,7 @@ test('侧栏新菜单项可达、高亮正确,深链直达一致', async ({ page
     // 高亮:antd 选中态落在被点击的叶子 menuitem 上
     await expect(leafItem(page, leaf.menu)).toHaveClass(/ant-menu-item-selected/);
     // 顶栏标题同步(pageTitle 特判与 leafLabel 都要对)
-    await expect(page.locator('.bd-header').getByText(leaf.title, { exact: true })).toBeVisible();
+    await expect(page.locator('.newfc-header').getByText(leaf.title, { exact: true })).toBeVisible();
     if (leaf.marker) {
       await expect(page.getByText(leaf.marker, { exact: false }).first()).toBeVisible();
     }
@@ -53,7 +56,7 @@ test('侧栏新菜单项可达、高亮正确,深链直达一致', async ({ page
   // 深链直达:书签打开 /data?tab=check 与 /data?tab=imports,页面与菜单高亮一致
   await page.goto('/data?tab=check');
   await expect(leafItem(page, '一致性检查')).toHaveClass(/ant-menu-item-selected/);
-  await expect(page.locator('.bd-header').getByText('一致性检查', { exact: true })).toBeVisible();
+  await expect(page.locator('.newfc-header').getByText('一致性检查', { exact: true })).toBeVisible();
   // 备份页不再显示一致性检查页签( preset 拆分)
   await page.goto('/data?tab=backup');
   await expect(page.getByRole('tab', { name: '一致性检查' })).toHaveCount(0);
@@ -61,17 +64,17 @@ test('侧栏新菜单项可达、高亮正确,深链直达一致', async ({ page
 
   await page.goto('/data?tab=imports');
   await expect(leafItem(page, '导入批次')).toHaveClass(/ant-menu-item-selected/);
-  await expect(page.locator('.bd-header').getByText('导入批次', { exact: true })).toBeVisible();
+  await expect(page.locator('.newfc-header').getByText('导入批次', { exact: true })).toBeVisible();
 
   // 既有深链行为不变:测算模板仍归并到「预算与预测」高亮
   await page.goto('/data?tab=calculations');
   await expect(leafItem(page, '预算与预测')).toHaveClass(/ant-menu-item-selected/);
-  await expect(page.locator('.bd-header').getByText('测算模板', { exact: true })).toBeVisible();
+  await expect(page.locator('.newfc-header').getByText('测算模板', { exact: true })).toBeVisible();
 
-  // 既有顶级入口回归:首页与小澧助手对话页(grp-ai 分组内的「对话」叶子)
+  // 既有顶级入口回归:首页与财务助手对话页(grp-ai 分组内的「对话」叶子)
   await leafItem(page, '首页').click();
   await expect(page).toHaveURL(/\/$/);
-  const aiGroup = page.locator('.ant-menu-submenu-title', { hasText: '小澧助手' });
+  const aiGroup = page.locator('.ant-menu-submenu-title', { hasText: '财务助手' });
   if ((await aiGroup.first().getAttribute('aria-expanded')) === 'false') await aiGroup.first().click();
   await leafItem(page, '对话').click();
   await expect(page).toHaveURL(/\/assistant$/);

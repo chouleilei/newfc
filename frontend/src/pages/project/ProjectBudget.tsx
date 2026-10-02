@@ -1,12 +1,13 @@
+import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { positiveQueryNumber, useListSearchParams } from '../../hooks/useListSearchParams';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Card, Col, Drawer, Form, Input, InputNumber, Modal, Row, Space, Table, Tabs, Tag, Typography, Upload } from 'antd';
 import { can, download, errorText } from '../../api/client';
 import { projectBudgetApi, type PbBatchDto, type PbEntryDto, type PbGroupDto, type PbPreviewDto, type PbTotalsDto } from '../../api/projectContract';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
-import { defaultOrgId, lastPeriod, Money, moneyColumn, OrgSelect, PeriodPicker, Ratio, usePrompt } from '../financeData/shared';
+import { lastPeriod, Money, moneyColumn, OrgSelect, PeriodPicker, Ratio, usePrompt } from '../financeData/shared';
 import { BATCH_STATUS, RowErrors } from './shared';
 
 /** AC-F09 项目预算:预览 → 导入 → 激活;汇总只读当前(或指定)批次,不读写经营预算与实际快照。 */
@@ -111,32 +112,38 @@ export default function ProjectBudget() {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [prompt, holder] = usePrompt();
-  const [year, setYear] = useState<number>(Number(lastPeriod().slice(0, 4)));
-  const [period, setPeriod] = useState<string | undefined>();
-  const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
+  const { params, page, pageSize, update } = useListSearchParams(10);
+  const year = positiveQueryNumber(params.get('year')) ?? Number(lastPeriod().slice(0, 4));
+  const period = params.get('period') || undefined;
+  const orgId = positiveQueryNumber(params.get('orgId'));
+  const keyword = params.get('keyword')?.trim() || undefined;
   const [importing, setImporting] = useState(false);
   const [viewing, setViewing] = useState<PbBatchDto | null>(null);
   const writable = can('project_budget:write');
   // 跨域检索(AC-F26)以 ?batchId= 进入:切到该批次年度并打开明细,之后移除参数
-  const [params, setParams] = useSearchParams();
-  const linkBatchId = Number(params.get('batchId')) || null;
-  const linked = useQuery({ queryKey: ['pb-batches', 'link'], queryFn: () => projectBudgetApi.batches({}), enabled: linkBatchId != null });
+  const linkBatchId = positiveQueryNumber(params.get('batchId'));
+  const linked = useQuery({ queryKey: ['pb-batch', linkBatchId], queryFn: () => projectBudgetApi.batch(linkBatchId!), enabled: linkBatchId != null });
   useEffect(() => {
     if (linkBatchId == null || !linked.data) return;
-    const b = linked.data.find((x) => x.id === linkBatchId);
-    if (b) { setYear(b.year); setViewing(b); }
-    setParams((p) => { const n = new URLSearchParams(p); n.delete('batchId'); return n; }, { replace: true });
-  }, [linkBatchId, linked.data, setParams]);
+    setViewing(linked.data);
+    update({ year: linked.data.year, period: undefined, batchId: undefined });
+  }, [linkBatchId, linked.data, update]);
   const summary = useQuery({ queryKey: ['pb-summary', year, period, orgId], queryFn: () => projectBudgetApi.summary({ year, period, orgId }) });
-  const batches = useQuery({ queryKey: ['pb-batches', year], queryFn: () => projectBudgetApi.batches({ year }) });
+  const batches = useQuery({ queryKey: ['pb-batches', year, period, keyword, page, pageSize], queryFn: () => projectBudgetApi.batchesPage({ year, period, keyword, page, pageSize }) });
+  useEffect(() => { if (batches.data && batches.data.page !== page) update({ page: batches.data.page }, false); }, [batches.data?.page, page, update]);
+  useAssistantDomainPage({ pageKey: 'project_budget', ready: !summary.isLoading && !summary.error, scope: { year: viewing?.year ?? year, period: viewing?.period ?? period, orgScopeId: orgId, projectBudgetBatchId: viewing?.id }, view: { keyword } });
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['pb-batches'] }); void qc.invalidateQueries({ queryKey: ['pb-summary'] }); };
   const act = useMutation({
     mutationFn: async (v: { kind: 'activate' | 'void'; b: PbBatchDto; reason?: string }) => {
       if (v.kind === 'void') return projectBudgetApi.void(v.b.id, v.reason!);
-      const current = (batches.data ?? []).find((x) => x.isCurrent && x.year === v.b.year && x.period === v.b.period);
+      const current = (await projectBudgetApi.summary({ year: v.b.year, period: v.b.period })).batch;
+      const confirmed = await prompt({ title: `激活批次 #${v.b.id}`, okText: '激活', fields: [],
+        description: current ? `将用「${v.b.name}」替换 ${v.b.period} 当前批次 #${current.id}「${current.name}」。` : `将「${v.b.name}」设为 ${v.b.period} 当前生效批次。`,
+      });
+      if (!confirmed) return null;
       return projectBudgetApi.activate(v.b.id, current?.id ?? null);
     },
-    onSuccess: (_r, v) => { message.success(v.kind === 'void' ? '批次已作废' : '批次已激活'); refresh(); },
+    onSuccess: (r, v) => { if (!r) return; message.success(v.kind === 'void' ? '批次已作废' : '批次已激活'); refresh(); },
     onError: (e) => message.error(errorText(e)),
   });
   const s = summary.data;
@@ -144,11 +151,12 @@ export default function ProjectBudget() {
     <div>
       {holder}
       <Space wrap style={{ marginBottom: 12 }}>
-        <InputNumber aria-label="年度" min={2000} max={2100} value={year} onChange={(v) => v && setYear(v)} style={{ width: 100 }} />
-        <PeriodPicker value={period} onChange={setPeriod} placeholder="执行期间(缺省最新)" />
-        <OrgSelect value={orgId} onChange={setOrgId} />
+        <InputNumber aria-label="年度" min={2000} max={2100} value={year} onChange={(v) => v && update({ year: v, period: undefined })} style={{ width: 100 }} />
+        <PeriodPicker value={period} onChange={(v) => update({ period: v })} placeholder="执行期间(缺省最新)" />
+        <OrgSelect value={orgId} onChange={(v) => update({ orgId: v })} placeholder="全部授权组织" />
         {writable && <Button type="primary" onClick={() => setImporting(true)}>导入项目预算</Button>}
       </Space>
+      {linked.error && <QueryErrorResult title="指定批次加载失败" error={linked.error} refetch={linked.refetch} />}
       {summary.error ? <QueryErrorResult title="汇总加载失败" error={summary.error} refetch={summary.refetch} /> : s && (
         <Card size="small" style={{ marginBottom: 12 }} loading={summary.isLoading}
           title={s.batch ? <Typography.Text type="secondary" style={{ fontWeight: 400 }}>当前批次 #{s.batch.id} {s.batch.name} · {s.period} · 单位 元</Typography.Text> : '项目预算汇总'}>
@@ -166,8 +174,12 @@ export default function ProjectBudget() {
         </Card>
       )}
       <Typography.Title level={5}>导入批次</Typography.Title>
+      <Input.Search key={keyword ?? ''} defaultValue={keyword} maxLength={100} allowClear placeholder="批次名称/期间" style={{ width: 240, marginBottom: 12 }} onSearch={(v) => update({ keyword: v.trim() || undefined })} />
       {batches.error ? <QueryErrorResult title="批次加载失败" error={batches.error} refetch={batches.refetch} /> : (
-        <Table<PbBatchDto> rowKey="id" size="small" loading={batches.isLoading} dataSource={batches.data ?? []} pagination={{ pageSize: 10 }} scroll={{ x: 1100 }}
+        <Table<PbBatchDto> rowKey="id" size="small" loading={batches.isFetching} dataSource={batches.data?.items ?? []} pagination={{
+          current: batches.data?.page ?? page, pageSize, total: batches.data?.total ?? 0, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100],
+          showTotal: (total) => `共 ${total} 条`, onChange: (p, size) => update({ page: size === pageSize ? p : 1, pageSize: size }, false),
+        }} scroll={{ x: 1100 }}
           columns={[
             { title: '#', dataIndex: 'id', width: 60 },
             { title: '名称', dataIndex: 'name', ellipsis: true },
@@ -182,9 +194,9 @@ export default function ProjectBudget() {
                 <Space size={0} wrap>
                   <Button type="link" size="small" onClick={() => setViewing(b)}>明细</Button>
                   <Button type="link" size="small" onClick={() => void download(`/project-budget/batches/${b.id}/original`, b.fileName)}>原件</Button>
-                  {writable && b.status === 'imported' && !b.isCurrent && <Button type="link" size="small" onClick={() => act.mutate({ kind: 'activate', b })}>激活</Button>}
+                  {writable && b.status === 'imported' && !b.isCurrent && <Button type="link" size="small" disabled={act.isPending} onClick={() => act.mutate({ kind: 'activate', b })}>激活</Button>}
                   {writable && b.status === 'imported' && (
-                    <Button type="link" size="small" danger onClick={async () => {
+                    <Button type="link" size="small" danger disabled={act.isPending} onClick={async () => {
                       const v = await prompt({ title: `作废批次 #${b.id}`, danger: true, okText: '作废', fields: [{ name: 'reason', label: '作废原因', required: true, multiline: true }] });
                       if (v) act.mutate({ kind: 'void', b, reason: v.reason });
                     }}>作废</Button>
