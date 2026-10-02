@@ -15,8 +15,8 @@
 | AC-F04 | `contract_import` | `/contracts/import` | `/api/contracts/imports/*` | 新：预览→确认、幂等、PREVIEW_STALE、失败整体回滚 | `t4-contract-import.test.ts`、`project-contract.spec.ts` | 通过 |
 | AC-F05 | `eas_workspace` | `/eas` | `/api/eas/import|batches|precheck|sets|locks|corrections|aux-requirements|period-status` | 新：原始批次、预检、集合激活、锁期、更正复核 | `t3-eas.test.ts`、`finance-data.spec.ts` | 通过 |
 | AC-F06 | `data_governance` | `/governance` | `/api/governance/scan|issues|dispositions|quality-score|master-data-matches` | 新：扫描去重/重开、三种处置、复核、生效证明；T-7 补质量评分、主数据匹配建议（采用走映射覆盖复核） | `t3-governance.test.ts`、`t7-governance-quality.test.ts` | 通过 |
-| AC-F07 | `master_data` | `/org`、`/account`、`/metric`、`/master-entities`、`/projects/:id`、`/master-health` | `/api/org`、`/api/account`、`/api/metrics`、`/api/master/projects|suppliers|mappings|resolve|dict-types|dict-items`、`/api/master/projects/:id/profile` | 继：组织/科目/指标树与快照；新：项目、供应商、编码映射；T-7 项目档案（预算、计划、合同付款、EAS 凭证、风险、投资控制/可研、相关报告、日志，分区按权限裁剪）、字典项（类型/取值不可改，停用代替删除） | `master-settings.test.ts`、`master-data-health.test.ts`、`unit.services.test.ts`、`t7-project-profile.test.ts`、`t7-master-dict.test.ts` | 通过 |
-| AC-F08 | `operating_budget` | `/budget`、`/actual`、`/analysis`、`/compare` 等 | `/api/versions`、`/api/actual/*`、`/api/io/*`、`/api/report/*` | 继：版本、实际快照、预实分析；扩：组织范围裁剪与审计 | `t2-budget-loop.test.ts`、`integration.test.ts`、`analysis-functional.spec.ts` | 通过 |
+| AC-F07 | `master_data` | `/org`、`/account`、`/metric`、`/master-entities`、`/projects/:id`、`/master-health` | `/api/org`、`/api/account`、`/api/metrics`、`/api/master/projects|suppliers|mappings|resolve|dict-types|dict-items`、`/api/master/projects/:id/profile` | 继：组织/科目/指标树与快照；新：项目、供应商、编码映射；T-7 项目档案（预算、计划、合同付款、EAS 凭证、风险、投资控制/可研、相关报告、日志，分区按权限裁剪）、字典项（类型/取值不可改，停用代替删除）；T-8 组织/科目/指标真实配置草稿、字段帮助与指标 refs/query 分析 | `master-settings.test.ts`、`master-data-health.test.ts`、`unit.services.test.ts`、`t7-project-profile.test.ts`、`t7-master-dict.test.ts`、`t8-config-drafts.test.ts`、`t8-selection.test.ts`、`assistant-t8.spec.ts` | 通过 |
+| AC-F08 | `operating_budget` | `/budget`、`/actual`、`/analysis`、`/compare` 等 | `/api/versions`、`/api/actual/*`、`/api/io/*`、`/api/report/*` | 继：版本、实际快照、预实分析；扩：组织范围裁剪与审计；T-8 保留网格草稿，预算/实际 bounds 限定真实取数、金额与数量分开 | `t2-budget-loop.test.ts`、`integration.test.ts`、`analysis-functional.spec.ts`、`t8-selection.test.ts`、`assistant-page-context.test.ts`、`grid-interaction.spec.ts` | 通过 |
 | AC-F09 | `project_budget` | `/project-budget` | `/api/project-budget/preview|import|batches|summary` | 新：独立项目预算域，不读写经营预算事实 | `t4-project-budget.test.ts`、`list-pagination.test.ts`、`ledgerPagination.test.tsx` | 通过 |
 | AC-F10 | `financial_statements` | `/statements` | `/api/statements/preview|import|batches|overview|trends` | 新：三大报表导入、激活、作废、指标；T-7 多期趋势（当月发生额、缺期不插补） | `t3-statements.test.ts`、`t7-statement-trends.test.ts`、`finance-data.spec.ts` | 通过 |
 | AC-F11 | `finance_forecast` | `/forecast` | `/api/forecast/models|versions|runs|folders|publications|review-queue` | 新：工作簿导入、公式引擎、冻结、基准/情景运行、对比；T-7 补模型目录、版本复核、运行发布/撤回与已发布列表、基准时间线、运行洞察；待复核队列与首页深链 | `t5-formula-engine.test.ts`、`t5-forecast.test.ts`、`t6-jobs-restart.test.ts`、`t7-forecast-workflow.test.ts`、`risk-investment.spec.ts` | 通过 |
@@ -28,13 +28,13 @@
 | AC-F17 | `risk_workflow` | `/risk` | `/api/risk/*` | 新：扫描、确认、整改、复核、重开、误报、整改台账；T-7 补齐 lishui 规则（20 条内置，含 EAS 凭证类）、自定义规则（复用计算器、可限定组织）、风险解释（只追加）、整改清单 | `t5-risk.test.ts`、`t7-risk-rules.test.ts`、`risk-investment.spec.ts` | 通过 |
 | AC-F18 | `ai_reports` | `/analysis-reports`、`/insights` | `/api/analysis-reports/*`、`/api/assistant/insights` | 继：洞察草稿；新：审核、冻结、发布任务（DOCX/PDF）、修订 | `t5-reports.test.ts`、`t6-jobs-restart.test.ts`、`risk-investment.spec.ts` | 通过；模板管理见差异 |
 | AC-F19 | `standard_reports` | `/standard-reports` | `/api/standard-reports/*` | 新：五类报表（预算执行、财报摘要、EAS 对账、合同付款台账、风险整改台账）冻结、复核、导出 | `t3-standard-reports.test.ts`、`t4-linkage.test.ts`、`t5-linkage.test.ts` | 通过 |
-| AC-F20 | `xiaoli_assistant` | `/assistant`、页面侧栏助手 | `/api/assistant/*` | 继：助手编排、规则路由、降级；扩：各域只读工具（T-3～T-5）、`cross_search`（T-6） | `assistant*.test.ts`、`t3/t4-assistant.test.ts`、`t6-search.test.ts`、`assistant*.spec.ts` | 通过 |
+| AC-F20 | `xiaoli_assistant` | `/assistant`、页面侧栏助手 | `/api/assistant/*` | 继：助手编排、规则路由、降级；扩：各域只读工具（T-3～T-5）、`cross_search`（T-6）；T-8 单一快照/历史响应 V66，50 页面与 81 工具唯一目录，六配置草稿/字段帮助/三种选区 | `assistant*.test.ts`、`t3/t4-assistant.test.ts`、`t6-search.test.ts`、`assistant*.spec.ts`、`t8-*.test.ts`、`assistant-t8.spec.ts` | 通过 |
 | AC-F21 | `agent_observability` | `/jobs` | `/api/jobs`、`/api/model-calls`、`/api/model-calls/stats` | 扩：持久任务、并发上限、取消、重启标记 interrupted；T-6：逐类型对账、失败/中断释放幂等键、任务类型中文名 | `jobs-observability.test.ts`、`t6-jobs-restart.test.ts` | 通过 |
 | AC-F22 | `expense_audit` | `/expense`、`/expense/policies` | `/api/expense/claims|policies|queue` | 新：规则/OCR/制度依据审核、缺证待复核、复核后不可变、补件重提 | `t4-expense.test.ts`、`list-pagination.test.ts`、`t6-jobs-restart.test.ts`、`ExpenseClaims.test.tsx`、`project-contract.spec.ts` | 通过（OCR/模型为桩协议验证，真实供应商见 OPEN-05） |
-| AC-F23 | `system_settings` | `/settings/ai`、`/settings/business` | `/api/settings/ai-channels|ai-feature-bindings|business|custom-fields|import-field-targets|import-field-aliases|ai-prompt-supplements`、`/api/master/custom-fields` | 继：模型渠道（凭据不回显）；扩：业务设置注册表（T-6 加投资控制阈值与预测超时）；T-7 自定义字段（项目/供应商 extra 按定义校验）、导入字段模板（EAS/计划执行表头别名）、AI 提示补充（附在硬约束之后，prompt 版本带哈希） | `ai-channel-fallback.test.ts`、`master-settings.test.ts`、`t6-settings.test.ts`、`t7-system-settings.test.ts` | 通过 |
-| AC-F24 | `security_administration` | `/settings/security` | `/api/security/users|roles|permissions`、`/api/security/users/:id/sessions`、`/api/security/roles/:id/copy` | 新：用户、角色、组织授权；授权对页面/API/下载/工具/检索生效；T-7 补用户会话查看/吊销、角色复制 | `security.test.ts`、`t7-security-sessions.test.ts`、`scope-restricted.spec.ts`、`platform-admin.spec.ts`、`t6-search.test.ts` | 通过 |
+| AC-F23 | `system_settings` | `/settings/ai`、`/settings/business` | `/api/settings/ai-channels|ai-feature-bindings|business|custom-fields|import-field-targets|import-field-aliases|ai-prompt-supplements`、`/api/master/custom-fields` | 继：模型渠道（凭据不回显）；扩：业务设置注册表（T-6 加投资控制阈值与预测超时）；T-7 自定义字段（项目/供应商 extra 按定义校验）、导入字段模板（EAS/计划执行表头别名）、AI 提示补充（附在硬约束之后，prompt 版本带哈希）；T-8 更新助手契约/OpenAPI/mock，配置草稿沿用同源设置与校验边界 | `ai-channel-fallback.test.ts`、`master-settings.test.ts`、`t6-settings.test.ts`、`t7-system-settings.test.ts`、`t8-config-drafts.test.ts` | 通过 |
+| AC-F24 | `security_administration` | `/settings/security` | `/api/security/users|roles|permissions`、`/api/security/users/:id/sessions`、`/api/security/roles/:id/copy` | 新：用户、角色、组织授权；授权对页面/API/下载/工具/检索生效；T-7 补用户会话查看/吊销、角色复制；T-8 页面/多领域工具/草稿/选区及历史追问按现时服务端授权核验 | `security.test.ts`、`t7-security-sessions.test.ts`、`scope-restricted.spec.ts`、`platform-admin.spec.ts`、`t6-search.test.ts`、`t8-tool-contract.test.ts`、`t8-protocol.test.ts`、`t8-selection.test.ts` | 通过 |
 | AC-F25 | `audit_log` | `/data?tab=logs` | `/api/logs` | 继：操作日志；扩：操作人/来源/结果/请求 ID、凭据脱敏、各域动作 | `security.test.ts` 及各域测试的日志断言 | 通过 |
-| AC-F26 | `cross_domain_search` | 顶栏检索框、`/search` | `/api/search`、`/api/search/suggestions` | 新：十一类对象关键词检索、按权限与组织裁剪、结果路径可打开；T-7 补顶栏输入联想（可检索类型 + 前缀命中）；项目预算批次 SQL 先匹配再限量，旧批次可见性同领域权限 | `t6-search.test.ts`、`t7-search-suggestions.test.ts`、`Search.test.ts`、`App.test.ts`、`cross-domain.spec.ts` | 通过 |
+| AC-F26 | `cross_domain_search` | 顶栏检索框、`/search` | `/api/search`、`/api/search/suggestions` | 新：十一类对象关键词检索、按权限与组织裁剪、结果路径可打开；T-7 补顶栏输入联想（可检索类型 + 前缀命中）；项目预算批次 SQL 先匹配再限量，旧批次可见性同领域权限；T-8 检索深链与授权导航共用页面目录 | `t6-search.test.ts`、`t7-search-suggestions.test.ts`、`Search.test.ts`、`App.test.ts`、`cross-domain.spec.ts`、页面目录契约与 `navigation-expansion.spec.ts` | 通过 |
 
 ## 跨域验收
 
@@ -47,6 +47,29 @@
 | AC-X08 | 发布与回退 | `scripts/release-drill.sh`（构建失败/迁移失败/成功发布/schema 回退拒绝/数据丢失确认/回退就绪），结果见 T-6 记录 | 通过 |
 | AC-X09 | 资源与可用性 | `npm run resource:baseline`（T-6 增加报告发布、预测重算、敏感性、跨域检索、重任务+普通查询 p95），结果见 T-6 记录 | 通过（负载约 5 时一次导入期间 p95 超限，负载回落后两次复测满足，见记录） |
 | AC-X10 | 全量范围 | 本文件 | 通过（未决事项见下） |
+
+## T-8 专项验收（2026-10-03）
+
+T-8.1～T-8.6 代码实施与验收通过，尚未发布；生产仍为 T-0～T-7 / V65。提交、完整命令与组合浏览器复验、资源及迁移恢复证据见 [阶段验收记录](acceptance-records.md#t-84t-86--阶段完成2026-10-03)。覆盖清单见 [页面与工具目录](t8-assistant-inventory.md)。
+
+| 验收 | 场景 | 证据 | 状态 |
+|---|---|---|---|
+| AC-T8-01 | 50 页面/页签与导航、动态深链、授权入口 | 页面目录契约、App/pageContext/userPrefs/Search；assistant-pages/independent-shell/navigation-expansion | 通过 |
+| AC-T8-02 | 81 工具唯一 schema/校验/执行 | t8-tool-contract、assistant.catalog-tools、page-capabilities.contract | 通过 |
+| AC-T8-03 | 页面/工具/草稿/选区/历史的现时授权 | assistant-scope、t8-tool-contract/config-drafts/cleaning-draft/selection/protocol；scope-restricted | 通过 |
+| AC-T8-04 | 唯一 pageContext、旧请求拒绝、刷新保留输入 | t8-protocol、assistant-page-context、assistant.session；assistant-dock | 通过 |
+| AC-T8-05 | 优先级、冲突与生命周期/迟到清理 | assistant-page-context、assistant-context-v2.integration（仅文件名保留）、Registry 18 项；assistant-t8 | 通过 |
+| AC-T8-06 | V66 历史迁移、幂等、失败回滚与备份恢复 | t8-protocol 临时文件库；正文/事实/引用/金额/归属保留 | 通过 |
+| AC-T8-07 | 线性/比率指标真实草稿、循环与依赖 | t8-config-drafts、ratio.metrics、management.metrics；assistant-t8 | 通过 |
+| AC-T8-08 | 测算引用/税率/输出与只读试算 | t8-config-drafts、测算回归；assistant-t8 | 通过 |
+| AC-T8-09 | 清洗文件/区域/单位/覆盖/别名 | t8-cleaning-draft 7 项、t8-config-drafts；assistant-t8/cleaning-import/UX31-S5 | 通过 |
+| AC-T8-10 | 组织/科目部分更新、移动/状态与约束 | t8-config-drafts；assistant-t8 | 通过 |
+| AC-T8-11 | 六配置字段事实、定位与窄屏操作 | t8-config-drafts、Registry；assistant-t8 | 通过 |
+| AC-T8-12 | bounds 真实取数、父子去重、精确金额/数量 | t8-selection；grid-interaction | 通过 |
+| AC-T8-13 | refs 全对象核验、限额与清理 | t8-selection、assistant-page-context、Registry；assistant-t8 | 通过 |
+| AC-T8-14 | query 同源筛选、分页外集合与超限 | t8-selection；assistant-t8 指标/别名筛选分析 | 通过 |
+| AC-T8-15 | 受控模型/流式、降级/取消、原始数据隔离及业务只读 | t8-config-drafts 11 项、t8-selection 10 项、t8-cleaning-draft、assistant.routing | 通过（受控上游，非供应商外呼） |
+| AC-T8-16 | 文档/协议清理、全量单测、浏览器、独立构建与资源 | 后端 1026、前端 480；全部 94 浏览器场景组合复验；V66 恢复；资源符合 OPEN-04 | 通过（未触及的 443 条遗留测试 TS 错误另列记录） |
 
 ## 与 lishui 的能力差异
 

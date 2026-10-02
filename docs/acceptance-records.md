@@ -540,3 +540,58 @@ Node 24.21.0；后端源码 `npx tsc --noEmit` 通过。助手及报告/导航/�
 临时文件库实际验证 V65→V66、重复 migrate 不转换、坏 JSON 回滚、迁移前完整备份包及现有 restoreBackup 恢复后重迁移到 V66；已知历史组织授权撤销后拒绝追问，明确选择新范围时旧正文/事实不进入受控模型。前端路由/页签/范围变更清理焦点和选区，失败输入保留的浏览器门禁仍在阶段最终 E2E 中核对。
 
 T-8.4～T-8.6 与最终全量/浏览器/构建/资源门禁未完成，不能据此标记 T-8 完成。生产 schema 仍为 V65；未部署、未运行生产迁移或替换正式产物。
+
+## T-8.4～T-8.6 / 阶段完成（2026-10-03）
+
+F07/F08/F20/F23/F24/F26；T-8.1～T-8.6；AC-T8-01～16、AC-X01/X03/X04/X05/X06/X08/X09/X10。实现提交：`a8c5f39`（页面/工具目录）、`2bd01e4`（单协议/V66）、`c2061a9`（配置草稿/字段/真实选区）、`a957791`（文档/资源/回归收口）；浏览器测试修正 `a5a3efc`、`8953b98`。覆盖清单见 [t8-assistant-inventory.md](t8-assistant-inventory.md)。本记录关闭代码实施与阶段验收；生产发布另行记录。
+
+六类配置草稿与正式操作共用领域校验，接入真实表单、移动/状态操作、字段帮助及问题定位。清洗暂存文件按当前用户、SHA-256、目标、有效期和业务基线只读核验；不续期，不创建树快照或导入批次。预算/实际网格 bounds 从同源事实读取并按叶子去重，金额与数量用 bigint 分别累计；指标/别名 refs 核验每个对象，query 复用列表筛选且包含分页外匹配项。服务端绑定选择范围，模型工具参数不能覆盖；超限、失效、冲突和不支持的分析明确拒绝。
+
+### 专项验收证据
+
+下列文件位于 backend/tests、frontend/src/assistant 或 frontend/tests/e2e；所有条目通过。样本为本仓库 `buildFixture`/`standardBudgetVersion`、finance-e2e/e2e-simulation 可丢弃夹具及临时生成 Excel，不使用业务运行库。
+
+| ID | 实际证据与可观察结果 |
+|---|---|
+| AC-T8-01 | `pageContext`、`domainContext`、`App`、`userPrefs`、`Search`、页面目录契约测试；`assistant-pages`、`independent-shell`、`navigation-expansion` 浏览器用例。50 页面/页签共用目录，菜单短名与完整页名显式区分，动态路由、深链、未知路径与授权导航通过；独立前端构建通过。 |
+| AC-T8-02 | `t8-tool-contract`、`assistant.catalog-tools`、`page-capabilities.contract`：81 工具同一执行定义，schema 必填/枚举/长度/边界/未知参数正负例与运行校验一致，未知工具拒绝；模型与规则复用执行器。 |
+| AC-T8-03 | `assistant-scope`、`t8-tool-contract`、`t8-config-drafts`、`t8-cleaning-draft`、`t8-selection`、`t8-protocol`；`scope-restricted`：按 kind 验权，组织/科目/文件/实体范围检查先于取数，历史追问使用现时授权，范围外事实和引用不返回。 |
+| AC-T8-04 | `t8-protocol`、`assistant-page-context`、`assistant.session`、`assistant-dock`：所有入口只发送 pageContext；旧单传/双传/缺快照/未知版本及页面在 HTTP/SSE 模型调用或会话写入前失败，刷新提示保留输入，独立助手空 scope 正常。 |
+| AC-T8-05 | `assistant-page-context`、`assistant-context-v2.integration`（保留的测试文件名，内部使用唯一新协议）、Registry 18 项、`assistant-t8`：范围优先级/冲突、未就绪阻止、最新输入序列化及路由/对象/浮层/焦点/选择清理通过，旧清理 token 不覆盖新选择。 |
+| AC-T8-06 | `t8-protocol` 临时文件库 V65→V66、重复迁移、损坏 JSON 整体回滚、迁移前完整备份与 restoreBackup 恢复后重迁移；正文、引用、原始事实、金额、归属不改，未知范围拒绝含糊追问，撤销授权后不向模型发送旧范围内容。详见前述 T-8.3 记录。 |
+| AC-T8-07 | `t8-config-drafts`、`ratio.metrics`、`management.metrics`；`assistant-t8` 线性/比率真实弹窗：多跳循环、失效/停用引用、分子分母及数量汇总约束同正式保存；显示未保存与“已有定稿快照不会重算”。 |
+| AC-T8-08 | `t8-config-drafts` 与测算回归；`assistant-t8`：引用/输出/税率校验同正式规则，指定版本的只读试算与正式计算一致，无版本明确不计算；沿用金额依据规则，不能计算的金额项列明 skipped，不保存规则或预算条目。 |
+| AC-T8-09 | `t8-cleaning-draft` 7 项、`t8-config-drafts`、清洗回归；`assistant-t8`、`cleaning-import`、UX31-S5：实际区域/列/单位/符号/映射/覆盖影响可分析；规范化别名冲突同正式校验；他人/过期/篡改/错目标/基线变化文件拒绝，无批次/模板/别名写入。 |
+| AC-T8-10 | `t8-config-drafts`；`assistant-t8` 组织/科目真实表单：部分更新、循环移动、状态操作、不可变字段、单位/指标引用及汇总约束同正式操作；草稿不改当前树或历史快照。 |
+| AC-T8-11 | `t8-config-drafts` 字段白名单与受控模型、Registry、`assistant-t8` 六类表单：字段帮助使用当前字段事实，问题可定位，hover 不改焦点；关闭助手/弹窗保持未保存输入，清洗窄屏实际可操作。 |
+| AC-T8-12 | `t8-selection` 与 `grid-interaction`：预算父子去重金额 150.00、稀疏科目金额 -80.00、草稿金额 123.45 与数量 1.2345 分开；实际当前累计金额 90.01；不含范围外草稿，清空恢复页面范围，历史视图明确不支持。 |
+| AC-T8-13 | `t8-selection`、`assistant-page-context`、Registry；`assistant-t8` 指标/别名实际多选：只分析选中 ID，失效/越权/超限/冲突拒绝，模型不能覆盖选区；编辑与切页签清理。 |
+| AC-T8-14 | `t8-selection`；`assistant-t8` 指标/别名实际筛选入口：service 全匹配集合包含分页外对象，先核对总量，超过 500 明确拒绝，详情 30 项截断标识真实；伪造总数/行数据/未知筛选不改变事实，不支持工具不忽略选择。 |
+| AC-T8-15 | `t8-config-drafts` 11 项、`t8-selection` 10 项、`t8-cleaning-draft`、`assistant.routing`：六配置受控 JSON 模型及 onToken、上游失败、无模型；真实工具分片流/超时/取消协议回归。原始表单标记、备注、文件令牌/指纹不进上游或持久响应；取消不落会话或业务，正常回答除会话/审计/调用账本外无业务写入。受控模型验证不表示供应商真实外呼。 |
+| AC-T8-16 | 最终类型/全量单测、finance/simulation 浏览器全部场景组合复验、隔离产物构建、V66 迁移恢复、资源实测通过；OpenAPI/mock/生成目录/实现说明与资源脚本已更新，旧协议只保留拒绝负例和历史追溯，运行时无旧 reader。 |
+
+### 最终门禁
+
+Node v24.21.0，Linux 6.12.90，4 vCPU / 7.9 GiB。后端只在临时/内存库测试；浏览器使用本仓库可重建 finance-e2e/e2e-simulation，端口 3761/3762；资源使用临时库和 3763。后端隔离输出 `.t8-dist`，前端输出 `/tmp/newfc-t8-frontend`，结束后移除后端临时产物。
+
+| 执行 | 实际结果 |
+|---|---|
+| backend `npx tsc --noEmit`、`npx vitest run` | 源码类型通过；109 文件 / 1026 项通过。最终助手/草稿/清洗/选择/协议聚焦 5 文件 / 86 项也通过。 |
+| frontend `npx vitest run`、`npx tsc -b` | 51 文件 / 480 项通过，类型通过。 |
+| backend `npx tsc --outDir .t8-dist --noEmitOnError`；frontend `npm run build:e2e -- --outDir /tmp/newfc-t8-frontend` | 独立构建通过，正式 dist 未替换。 |
+| `E2E_BACKEND_DIST=.t8-dist E2E_FRONTEND_DIST=/tmp/newfc-t8-frontend npx playwright test --workers=1` | 全部 94 项实际执行：90 通过 / 4 失败，34.1 分钟；两处 T-8 断言及 UX31-S1/S9 失败按下行复验。 |
+| 同环境 `npx playwright test assistant-t8.spec.ts usability-trial.spec.ts --workers=1`；最终 `npx playwright test usability-trial.spec.ts --workers=1` | 受影响 15 项复验为 13 通过 / 2 失败，其中新增 T-8 8/8 通过；修正首次编制入口定位及业务录入 helper 后，UX31 最终 7/7 通过（10.2 分钟）。完整轮与受影响复验合计覆盖全部 94 场景通过，未表述为单轮 94/94。 |
+| `npm run resource:baseline -- --dist .t8-dist/index.js --port 3763 --out /tmp/newfc-t8-resource-final.json` | 全部负载断言通过，指标如下。 |
+| backend `npx tsc -p tsconfig.test.json` | 附加检查仍有 443 条未触及的 T-4～T-7 HTTP Response.json unknown 等遗留类型错误；本次触及助手、T-8 与脚本文件无错误。与既有差异一致，不关闭类型检查、不宣称全测试 TS 通过。 |
+
+浏览器首轮全部 94 项执行为 84 通过 / 10 失败，发现服务端范围 label 丢失、菜单短名与完整页名期待及旧组件定位/断言差异；范围 label 已修并追加后端回归，其他断言按真实 UI/回答调整。最终全量为 90 通过 / 4 失败：清洗焦点定位与比率历史提示断言已修正；UX31-S1/S9 在末尾因大网格操作/保存总时长失败。中间 `--last-failed` 复验为 1 通过 / 2 失败 / 1 未执行（诊断后主动停止）；定位到比率树选择器关闭动画与下一弹层竞争，补等待关闭后 T-8 全部 8 项通过。受影响 15 项复验为 13 通过 / 2 失败，又暴露首次编制同名创建按钮定位歧义及逐字符慢速录入触发多轮防抖保存。入口明确选择工具栏，UX31 使用标准整值 fill 并按 Enter 提交；业务断言、180/300 秒时限与默认完整 trace 均保留，最终 UX31 7/7 通过，S1 为 2.7 分钟、S9 为 1.2 分钟。逐键输入/移动/撤销与矩阵粘贴仍有完整轮 grid-interaction 通过证据。本次收尾仅修正测试同步/定位/录入方式，产品代码未再改动；不改写失败轮，不伪称单轮全部通过。
+
+### 资源验收（OPEN-04 / AC-X09）
+
+规模 106 组织、200 叶子科目。冷启动 1139 ms，稳定空闲 RSS 112.1 MiB；20,000 行导入 2486 ms、峰值 RSS 365.4 MiB、预览/确认均 HTTP 200；期间普通查询 37 次 / 0 错误，p95 612.9 ms。20,001 行返回 HTTP 400 / VALIDATION_FAILED。
+
+400 格选择 HTTP 200 / 520 ms，真实 count=400、details=30、truncated=true；六配置全部 HTTP 200 / 10～47 ms，五合法草稿 issues=0，刻意不完整清洗草稿 issues=1，证明返回校验事实。2,000 格预测 succeeded / 262 ms；报告发布、敏感性、跨域检索、无模型降级均成功。观测最高 RSS 383.9 MiB，最终 RSS 378.5 / HWM 383.3 MiB；满足空闲 ≤150、峰值 ≤512 MiB、最大导入 ≤15 s、普通 p95 ≤1.5 s 门槛。
+
+日志：`/tmp/newfc-t8-backend-full-final4.log`、`/tmp/newfc-t8-source-types-final4.log`、`/tmp/newfc-t8-final-regression.log`、`/tmp/newfc-t8-frontend-after-field-search.log`、`/tmp/newfc-t8-frontend-types-after-field-search.log`、`/tmp/newfc-t8-build-final3.log`、`/tmp/newfc-t8-build-frontend-final3.log`、`/tmp/newfc-t8-full-browser.log`、`/tmp/newfc-t8-browser-final2.log`、`/tmp/newfc-t8-browser-failed-rerun.log`、`/tmp/newfc-t8-browser-affected-final.log`、`/tmp/newfc-t8-browser-ux31-final.log`、`/tmp/newfc-t8-resource-final.json`、`/tmp/newfc-t8-test-types-final3.log`。本机日志路径是执行证据，非公开下载地址。
+
+**未部署、未执行生产迁移、未替换正式产物；生产仍为 T-0～T-7 / schema V65。V66 仅临时库完成迁移与备份恢复验证。** 本阶段未访问 newbd 或 lishui 的运行目录/服务；源码来源、历史文档与已确认业务口径保留。发布时需前后端同版本与显式迁移，旧页面协议刷新路径已验证。
