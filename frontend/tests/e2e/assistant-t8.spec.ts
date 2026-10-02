@@ -105,7 +105,7 @@ test('指标实际多选与筛选结果入口；编辑清空选择', async ({ pa
 });
 
 test('清洗向导使用当前用户文件只读分析，窄屏可以操作助手', async ({ page, request }) => {
-  const response = await request.post('/api/versions', { data: { year: 2026, name: 'T8清洗只读' } });
+  const response = await request.post('/api/versions', { data: { year: 2026, name: 'T8清洗只读' + Date.now() } });
   expect(response.ok()).toBeTruthy(); const version = await response.json() as { id: number; revision: number };
   expect((await request.put('/api/versions/' + version.id + '/entries', { data: { expectedRevision: version.revision, entries: [{ orgId: 3, accountId: 2, amount: '10.00' }] } })).ok()).toBeTruthy();
   const buffer = await (await request.get('/api/io/export/budget-detail/' + version.id)).body();
@@ -123,7 +123,7 @@ test('清洗向导使用当前用户文件只读分析，窄屏可以操作助�
   await page.getByRole('button', { name: '关闭助手', exact: true }).click();
   await dialog.getByRole('combobox', { name: '字段帮助' }).fill('表头行');
   await page.locator('.ant-select-dropdown:visible').getByText('表头行', { exact: true }).click();
-  await expect(dialog.locator('[data-assistant-field="headerRow"] input').first()).toBeFocused();
+  await expect(dialog.locator('input[data-assistant-field="headerRow"], [data-assistant-field="headerRow"] input').first()).toBeFocused();
   await dialog.getByRole('button', { name: '询问当前字段', exact: true }).click();
   const field = await ask(page, '解释表头行');
   expect(field.pageContext.focus).toEqual({ kind: 'form_field', formKind: 'cleaning_template', field: 'headerRow' });
@@ -144,5 +144,5 @@ test('比率公式的实际分子分母可检查，保持未保存且不重算�
   const body = await ask(page, '解释当前比率公式与依赖');
   expect(body.pageContext.draft.changes.kind).toBe('ratio');
   expect(body.pageContext.draft.changes.terms.map((t: any) => t.role)).toEqual(['numerator', 'denominator']);
-  await expect(page.getByTestId('assistant-dock-answer').last()).toContainText('历史');
+  await expect(page.getByTestId('assistant-dock-answer').last()).toContainText('已有定稿快照不会重算');
 });
