@@ -1,6 +1,5 @@
 # newfc 水利财务分析
 
-[![CI](https://github.com/chouleilei/newfc/actions/workflows/ci.yml/badge.svg)](https://github.com/chouleilei/newfc/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/chouleilei/newfc)](https://github.com/chouleilei/newfc/releases)
 
 面向水利业务的单机财务分析系统。TypeScript + Express + React/Vite + SQLite，单 Node 进程部署；文件、任务与备份保存在本地，无需 MySQL、Redis、MinIO、Celery、Dify 或 DB-GPT。
@@ -62,6 +61,8 @@ npm run dev                           # http://localhost:5173
 ```
 
 生产通过 systemd 运行编译产物，数据库迁移由 `npm run migrate:dist` 显式执行。部署脚本提供测试、构建、迁移前备份、替换和就绪检查；部署前按自己的目录、Node 路径和域名修改模板。具体见 [运维手册](docs/operations-runbook.md) 和 [nginx 示例](deploy/nginx-newfc.example.conf)。
+
+发布检查在本地执行，仓库不配置 GitHub CI 或自动依赖更新。
 
 ## 文档与版本
 
