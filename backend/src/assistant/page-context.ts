@@ -1,3 +1,4 @@
+import { configFieldHelp } from '../contracts/config-fields';
 import { SCOPE_INT_FIELDS, SCOPE_TEXT_FIELDS, SCOPE_DATE_FIELDS, CONTEXT_MAX_BYTES, DRAFT_MAX_BYTES, DRAFT_MAX_CHANGES, SELECTION_MAX_REFS, type AssistantPageContext, type PageScope, type SurfaceDescriptor, type SurfaceEntityRef, type FocusDescriptor, type SelectionDescriptor, type SurfaceKind, type ContextTrace, type DraftDescriptor } from '../contracts/assistant';
 import { validateDomainContext, domainBatchContext } from './domain-context';
 import { DOMAIN_ID_FIELDS, type DomainContext } from '../contracts/assistant';
@@ -210,11 +211,10 @@ function parseFocus(raw: unknown, page: PageCapability, pageKey: string, snapsho
       return { kind: 'fact', factType: 'verification', ownerKey, factKey };
     }
     case 'form_field': {
-      return {
-        kind: 'form_field',
-        formKind: shortText(raw.formKind, 'focus.formKind', 60, snapshotId),
-        field: shortText(raw.field, 'focus.field', 80, snapshotId),
-      };
+      const formKind = shortText(raw.formKind, 'focus.formKind', 60, snapshotId);
+      const field = shortText(raw.field, 'focus.field', 80, snapshotId);
+      if (!page.draftKinds.includes(formKind as DraftKind) || !configFieldHelp(formKind, field)) fail('字段未在当前表单登记', 'focus.field', snapshotId);
+      return { kind: 'form_field', formKind, field };
     }
     default:
       return fail(`focus.kind「${kind}」不合法`, 'focus.kind', snapshotId);
@@ -225,6 +225,8 @@ function parseSelection(raw: unknown, page: PageCapability, snapshotId: string):
   if (raw == null) return null;
   if (!isPlainObject(raw)) fail('selection 必须是对象', 'selection', snapshotId);
   const mode = String(raw.mode ?? '');
+  if (!page.selectionModes.includes(mode as never)) throw contextError('CAPABILITY_UNAVAILABLE', '当前页面不支持此选择方式', { field: 'selection.mode', snapshotId });
+  for (const key of Object.keys(raw)) if (!['mode', mode === 'bounds' ? 'bounds' : mode === 'refs' ? 'refs' : 'query'].includes(key)) fail('selection 含不支持字段', 'selection', snapshotId);
   if (mode === 'refs') {
     if (!Array.isArray(raw.refs)) fail('selection.refs 必须是数组', 'selection.refs', snapshotId);
     // 超过 500 项必须使用 bounds 或 query：截断后声称覆盖全部是不诚实回答(§5.6)。
@@ -235,6 +237,7 @@ function parseSelection(raw: unknown, page: PageCapability, snapshotId: string):
   }
   if (mode === 'bounds') {
     if (!isPlainObject(raw.bounds)) fail('selection.bounds 必须是对象', 'selection.bounds', snapshotId);
+    for (const key of Object.keys(raw.bounds)) if (!['sheetKey', 'orgIds', 'accountIds'].includes(key)) fail('bounds 含不支持字段', 'selection.bounds', snapshotId);
     const idList = (value: unknown, field: string): number[] | undefined => {
       if (value == null) return undefined;
       if (!Array.isArray(value)) fail(`${field} 必须是数组`, field, snapshotId);
@@ -246,7 +249,7 @@ function parseSelection(raw: unknown, page: PageCapability, snapshotId: string):
   }
   if (mode === 'query') {
     if (!isPlainObject(raw.query)) fail('selection.query 必须是对象', 'selection.query', snapshotId);
-    const out: Record<string, string | number | boolean | null> = {};
+    const out: Record<string, string | number | boolean | null> = Object.create(null);
     for (const [key, value] of Object.entries(raw.query)) {
       if (key.length > 60) fail('selection.query 键过长', 'selection.query', snapshotId);
       if (value != null && !['string', 'number', 'boolean'].includes(typeof value)) fail(`selection.query.${key} 类型不支持`, `selection.query.${key}`, snapshotId);
@@ -334,7 +337,8 @@ export function parseAssistantPageContext(raw: unknown): AssistantPageContext {
     if (changeCount > DRAFT_MAX_CHANGES) {
       throw contextError('CONTEXT_TOO_LARGE', `草稿变更超过 ${DRAFT_MAX_CHANGES} 项，请先保存`, { field: 'draft.changes', snapshotId });
     }
-    draft = { kind: kind as DraftKind, base: rawDraft.base, changes: rawDraft.changes };
+    // Wire 输入的具体基线由 normalizeDraftInput 在读取领域数据前严格校验。
+    draft = { kind: kind as DraftKind, base: rawDraft.base, changes: rawDraft.changes } as DraftDescriptor;
   }
 
   return {
@@ -460,6 +464,8 @@ export function resolveAssistantContext(db: DB, raw: unknown): ResolvedAssistant
   if (auth) {
     requirePermission(auth, page.permission);
     if (page.allOrgs) requireAllOrgs(auth, page.label);
+    if (parsed.draft) requireAllOrgs(auth, '草稿校验与影响分析');
+    if (parsed.draft?.kind === 'cleaning_template' || parsed.draft?.kind === 'alias_rule') requirePermission(auth, 'import:run');
     if (parsed.scope?.orgScopeId != null) assertOrgVisible(db, auth, parsed.scope.orgScopeId);
     if (parsed.focus?.kind === 'cell') assertOrgVisible(db, auth, parsed.focus.orgId);
     if (parsed.focus?.kind === 'entity' && parsed.focus.entityType === 'org') assertOrgVisible(db, auth, parsed.focus.id);
@@ -581,8 +587,10 @@ export function resolveAssistantContext(db: DB, raw: unknown): ResolvedAssistant
   if (focus?.kind === 'cell') {
     if (focus.source === 'budget') mergedScope.budgetVersionId = focus.sourceId;
     else mergedScope.actualSnapshotId = focus.sourceId;
-    mergedScope.orgScopeId = focus.orgId;
-    mergedScope.accountScopeId = focus.accountId;
+    if (selection?.mode !== 'bounds') {
+      mergedScope.orgScopeId = focus.orgId;
+      mergedScope.accountScopeId = focus.accountId;
+    }
   }
   if (focus?.kind === 'chart_point') {
     if (focus.dimensionType === 'org' && focus.dimensionId != null) mergedScope.orgScopeId = focus.dimensionId;
@@ -609,7 +617,7 @@ export function resolveAssistantContext(db: DB, raw: unknown): ResolvedAssistant
   }
 
   /* ---- 草稿：白名单解析 + 基线校验(§9.6)，原始 changes 的裁剪在 draft-context 内完成 ---- */
-  const draft = parsed.draft ? normalizeDraftInput(db, parsed.draft, { snapshotId }) : null;
+  const draft = parsed.draft ? normalizeDraftInput(db, parsed.draft, { snapshotId, versionId: scope.budgetVersionId }) : null;
 
   Object.assign(mergedScope, domainBatchContext(db, { ...mergedScope, pageKey: parsed.pageKey, orgScopeId: mergedScope.orgScopeId }));
   const effectiveBudgetVersionId = mergedScope.baseVersionId ?? mergedScope.budgetVersionId;

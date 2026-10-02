@@ -75,8 +75,7 @@ async function openDock(page: Page): Promise<void> {
  * 在抽屉里发一条消息并等这一轮结束。
  *
  * 收尾信号取「停止生成按钮消失、发送按钮回来」而不是某个标签：
- * 上下文全由页面推导给足时，后端的 resolution 本来就是空的(没什么需要它替你猜)，
- * 用「口径」chips 当收尾信号会等成超时。
+ * 页面范围已确定时未必显示额外范围提示，用提示标签当收尾信号会等成超时。
  */
 async function askInDock(page: Page, text: string): Promise<void> {
   const answers = page.getByTestId('assistant-dock-answer');
@@ -120,7 +119,7 @@ test.describe('全局助手抽屉', () => {
     expect(bodies[0].pageContext?.scope?.budgetVersionId).toBe(versionId);
 
     // 关键护栏：消息里没有年份、版本又不是当前自然年，仍要正常回答，
-    // 且范围摘要里如实写明年度(V2:页面登记的年度直接进入范围,后端不再重复解析)
+    // 且范围摘要里如实写明页面登记的年度
     const answer = page.getByTestId('assistant-dock-answer').last();
     await expect(answer).not.toContainText('年度不一致');
     const summaryTag = page.getByTestId('assistant-dock-context-summary').last();
@@ -201,10 +200,9 @@ test.describe('全局助手抽屉', () => {
     expect(dockBody.pageContext?.pageKey).toBe('budget_edit');
     expect(dockBody.pageContext?.scope?.budgetVersionId).toBe(versionId);
     expect(dockBody.pageContext?.scope?.year, '助手页的手动年度不得泄漏到编制页').toBe(YEAR);
-    expect(dockBody.context).toMatchObject({ page: 'budget_edit', budgetVersionId: versionId });
-    expect(dockBody.context?.year, '兼容口径的年度同样来自页面而非手动筛选').toBe(YEAR);
+    expect(dockBody).not.toHaveProperty('context');
 
-    // V2(§6)：手动筛选是 /assistant 页自身的内存状态、不持久化——page.goto 整页
+    // 手动筛选是 /assistant 页自身的内存状态、不持久化——page.goto 整页
     // 刷新后即清空,回到助手页时年度已回到未选状态,本轮请求体自然不带该字段。
     // (SPA 路由导航回 /assistant 时筛选会保留:那是助手页自己的筛选器,§6 只约束它不泄漏到业务页面。)
     await page.goto('/assistant');
@@ -215,7 +213,6 @@ test.describe('全局助手抽屉', () => {
     const pageBody = bodies[bodies.length - 1];
     expect(pageBody.pageContext?.scope?.year, '手动清空后本轮不得再带年度').toBeUndefined();
     expect(pageBody.pageContext?.pageKey).toBe('assistant');
-    expect(pageBody.pageContext.pageKey).toBe('assistant');
     expect(pageBody).not.toHaveProperty('context');
   });
 });

@@ -1,7 +1,12 @@
+import { z } from 'zod';
+import { validateInput } from '../../../core/input';
 import type { DB } from '../../../db/connection';
 import { Errors } from '../../../core/errors';
 import { writeLog } from '../../audit/log';
-import type { CleaningTargetKind } from './plan';
+import { parseCleaningPlan, type CleaningTargetKind } from './plan';
+
+export const templateInputSchema = z.object({ name: z.string().max(100).optional(), targetKind: z.enum(['budget', 'actual-current']).optional(), config: z.record(z.unknown()).optional() }).strict();
+
 
 export interface ImportMappingTemplateRow {
   id: number;
@@ -25,12 +30,13 @@ function name(value: unknown): string {
 }
 
 /** 模板只保存结构配置；批次目标、金额数据、绝对结束行和本次绝对排除行一律剔除。 */
-function templateConfig(value: unknown): Record<string, unknown> {
+function templateConfig(value: unknown, kind: CleaningTargetKind): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Errors.validation('config 必须是对象');
   const input = value as Record<string, unknown>;
   const allowed = new Set(['preferredSheetName', 'sheetNamePattern', 'headerRow', 'dataStartRow', 'columns', 'valueKind', 'amountUnit', 'signConvention', 'filterRules', 'multiSheet', 'clearBlankNotes']);
   const config = Object.fromEntries(Object.entries(input).filter(([key]) => allowed.has(key)));
   if (!Array.isArray(config.columns) || config.columns.length < 3) throw Errors.validation('模板 config.columns 至少包含组织、科目和值列映射');
+  parseCleaningPlan({ version: 1, targetKind: kind, sheets: [{ sheetName: typeof config.preferredSheetName === 'string' && config.preferredSheetName.trim() ? config.preferredSheetName : '模板结构校验', headerRow: config.headerRow, dataStartRow: config.dataStartRow, dataEndRow: config.dataStartRow }], columns: config.columns, valueKind: config.valueKind, amountUnit: config.amountUnit, signConvention: config.signConvention });
   const serialized = JSON.stringify(config);
   if (Buffer.byteLength(serialized, 'utf8') > 100 * 1024) throw Errors.validation('模板配置不能超过 100KB');
   return config;
@@ -48,14 +54,25 @@ export function getTemplate(db: DB, id: number): ImportMappingTemplateRow {
   return row;
 }
 
+/** 正式保存与请求内草稿共用，部分修改读取服务器基线。 */
+export function validateTemplateInput(db: DB, input: { name?: unknown; targetKind?: unknown; config?: unknown }, id?: number) {
+  validateInput(templateInputSchema, input);
+  const old = id == null ? null : getTemplate(db, id);
+  const nextName = name(input.name === undefined ? old?.name : input.name);
+  const nextKind = targetKind(input.targetKind === undefined ? old?.target_kind : input.targetKind);
+  const nextConfig = templateConfig(input.config === undefined && old ? JSON.parse(old.config_json) : input.config, nextKind);
+  return { nextName, nextKind, nextConfig };
+}
+
 export function createTemplate(db: DB, input: { name?: unknown; targetKind?: unknown; config?: unknown }, actor = ''): ImportMappingTemplateRow {
   const now = new Date().toISOString();
-  const config = templateConfig(input.config);
+  const { nextName, nextKind, nextConfig: config } = validateTemplateInput(db, input);
   const info = db.transaction(() => {
+    validateTemplateInput(db, input);
     const result = db.prepare(
       `INSERT INTO import_mapping_template(name, target_kind, config_json, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(name(input.name), targetKind(input.targetKind), JSON.stringify(config), actor, now, now);
+    ).run(nextName, nextKind, JSON.stringify(config), actor, now, now);
     const id = Number(result.lastInsertRowid);
     writeLog(db, 'template.create', 'import_mapping_template', id, { actor });
     return result;
@@ -64,11 +81,9 @@ export function createTemplate(db: DB, input: { name?: unknown; targetKind?: unk
 }
 
 export function updateTemplate(db: DB, id: number, input: { name?: unknown; targetKind?: unknown; config?: unknown }, actor = ''): ImportMappingTemplateRow {
-  const old = getTemplate(db, id);
-  const nextName = input.name === undefined ? old.name : name(input.name);
-  const nextKind = input.targetKind === undefined ? old.target_kind : targetKind(input.targetKind);
-  const nextConfig = input.config === undefined ? JSON.parse(old.config_json) as Record<string, unknown> : templateConfig(input.config);
+  const { nextName, nextKind, nextConfig } = validateTemplateInput(db, input, id);
   db.transaction(() => {
+    validateTemplateInput(db, input, id);
     db.prepare('UPDATE import_mapping_template SET name = ?, target_kind = ?, config_json = ?, updated_at = ? WHERE id = ?')
       .run(nextName, nextKind, JSON.stringify(nextConfig), new Date().toISOString(), id);
     writeLog(db, 'template.update', 'import_mapping_template', id, { actor });

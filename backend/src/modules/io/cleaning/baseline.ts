@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import type { DB } from '../../../db/connection';
 import { Errors } from '../../../core/errors';
-import { createOrReuseSnapshot, getSnapshot } from '../../tree/snapshot';
+import { readCurrentTreeDefinition } from '../../tree/snapshot';
 import * as budget from '../../budget/budget.service';
 import * as actual from '../../actual/actual.service';
 import type { CleaningTarget } from './plan';
@@ -16,10 +16,7 @@ export interface CleaningBaselineV1 {
 }
 
 function currentTreeHash(db: DB, treeType: 'org' | 'account'): string {
-  const snapshotId = createOrReuseSnapshot(db, treeType);
-  const snapshot = getSnapshot(db, snapshotId);
-  if (!snapshot) throw new Error(`无法读取${treeType}树快照`);
-  return snapshot.content_hash;
+  return readCurrentTreeDefinition(db, treeType).hash;
 }
 
 function actualYearHash(db: DB, year: number): string {

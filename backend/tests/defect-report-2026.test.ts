@@ -857,6 +857,8 @@ describe('D16 测算税率定义域', () => {
   it('defaultTaxRate=-100 在保存边界返回 400，而大于 -100 的临界值可保存', () => {
     const db = testDb();
     const fx = buildFixture(db);
+    account.createAccount(db, { parentId: null, code: 'QTY', name: '数量引用', type: 'quantity', unit: '项' });
+    account.createAccount(db, { parentId: null, code: 'PRICE', name: '单价引用', type: 'quantity', unit: '元/项', quantityAgg: 'none' });
     const before = (db.prepare('SELECT COUNT(*) AS count FROM budget_calculation_rule').get() as { count: number }).count;
     const base = {
       quantityAccountCode: 'QTY',

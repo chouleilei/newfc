@@ -1,7 +1,13 @@
+import { z } from 'zod';
+import { aliasFilterSchema, type AliasFilter } from '../../../contracts/list-filters';
+import { validateInput } from '../../../core/input';
 import type { DB } from '../../../db/connection';
 import { Errors } from '../../../core/errors';
 import { writeLog } from '../../audit/log';
 import { normalizeSourceText, type CleaningTargetKind } from './plan';
+
+export const aliasInputSchema = z.object({ targetKind: z.enum(['budget', 'actual-current', 'finance']).optional(), mappingKind: z.enum(['org', 'account']).optional(), sourceText: z.string().max(500).optional(), targetCode: z.string().max(128).optional() }).strict();
+
 
 /** 别名去向:清洗导入(budget/actual-current) + 财务转换映射(finance,AI 功能增强计划阶段二.5)。 */
 export type AliasTargetKind = CleaningTargetKind | 'finance';
@@ -41,13 +47,24 @@ function assertNormalizedUnique(db: DB, targetKind: AliasTargetKind, mappingKind
   if (rows.some((row) => row.id !== excludeId && normalizeSourceText(row.source_text) === normalized)) throw Errors.conflict('相同源文本已存在别名映射');
 }
 
-export function listAliases(db: DB, filter: { targetKind?: AliasTargetKind; mappingKind?: 'org' | 'account' } = {}): ImportNameAliasRow[] {
+function aliasWhere(filter: AliasFilter) {
+  validateInput(aliasFilterSchema, filter);
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (filter.targetKind) { clauses.push('target_kind = ?'); params.push(filter.targetKind); }
   if (filter.mappingKind) { clauses.push('mapping_kind = ?'); params.push(filter.mappingKind); }
-  return db.prepare(`SELECT * FROM import_name_alias ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''} ORDER BY updated_at DESC, id DESC`)
-    .all(...params) as ImportNameAliasRow[];
+  if (filter.search) { clauses.push('(instr(source_text, ?) > 0 OR instr(target_code, ?) > 0)'); params.push(filter.search, filter.search); }
+  return { sql: clauses.length ? 'WHERE ' + clauses.join(' AND ') : '', params };
+}
+export function countAliases(db: DB, filter: AliasFilter = {}): number {
+  const { sql, params } = aliasWhere(filter);
+  return (db.prepare('SELECT count(*) count FROM import_name_alias ' + sql).get(...params) as { count: number }).count;
+}
+export function listAliases(db: DB, filter: AliasFilter = {}, ids?: number[]): ImportNameAliasRow[] {
+  const { sql, params } = aliasWhere(filter);
+  const idClause = ids ? (sql ? ' AND' : ' WHERE') + ' id IN (' + (ids.map(() => '?').join(',') || 'NULL') + ')' : '';
+  return db.prepare('SELECT * FROM import_name_alias ' + sql + idClause + ' ORDER BY updated_at DESC, id DESC')
+    .all(...params, ...(ids ?? [])) as ImportNameAliasRow[];
 }
 
 export function getAlias(db: DB, id: number): ImportNameAliasRow {
@@ -56,17 +73,28 @@ export function getAlias(db: DB, id: number): ImportNameAliasRow {
   return row;
 }
 
+/** 规范化重名、目标有效性与保存使用相同校验。 */
+export function validateAliasInput(db: DB, input: { targetKind?: unknown; mappingKind?: unknown; sourceText?: unknown; targetCode?: unknown }, id?: number) {
+  validateInput(aliasInputSchema, input);
+  const old = id == null ? null : getAlias(db, id);
+  const kind = parseTargetKind(input.targetKind === undefined ? old?.target_kind : input.targetKind);
+  const mapping = parseMappingKind(input.mappingKind === undefined ? old?.mapping_kind : input.mappingKind);
+  const source = text(input.sourceText === undefined ? old?.source_text : input.sourceText, 'sourceText', 500);
+  const code = text(input.targetCode === undefined ? old?.target_code : input.targetCode, 'targetCode', 128);
+  assertNormalizedUnique(db, kind, mapping, source, id);
+  const target = db.prepare(`SELECT id, status FROM ${mapping} WHERE code = ?`).get(code) as { id: number; status: string } | undefined;
+  if (!target || target.status !== 'active') throw Errors.validation('别名目标不存在或已停用');
+  return { kind, mapping, source, code, targetId: target.id };
+}
+
 export function createAlias(db: DB, input: { targetKind?: unknown; mappingKind?: unknown; sourceText?: unknown; targetCode?: unknown }, actor = ''): ImportNameAliasRow {
-  const kind = parseTargetKind(input.targetKind);
-  const mapping = parseMappingKind(input.mappingKind);
-  const source = text(input.sourceText, 'sourceText', 500);
-  const code = text(input.targetCode, 'targetCode', 128);
+  const { kind, mapping, source, code } = validateAliasInput(db, input);
   const now = new Date().toISOString();
   const id = db.transaction(() => {
     /* 唯一性校验移进事务:此前 assert 在事务外 SELECT,两个并发 create 都通过后各自
        INSERT,产生归一化后重复的别名(表上无唯一约束兜底)。better-sqlite3 单连接串行,
        事务内的 SELECT-then-INSERT 是原子的,第二个请求会读到第一个的结果并冲突。 */
-    assertNormalizedUnique(db, kind, mapping, source);
+    validateAliasInput(db, input);
     const result = db.prepare(
       `INSERT INTO import_name_alias(target_kind, mapping_kind, source_text, target_code, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -79,14 +107,10 @@ export function createAlias(db: DB, input: { targetKind?: unknown; mappingKind?:
 }
 
 export function updateAlias(db: DB, id: number, input: { targetKind?: unknown; mappingKind?: unknown; sourceText?: unknown; targetCode?: unknown }, actor = ''): ImportNameAliasRow {
-  const old = getAlias(db, id);
-  const kind = input.targetKind === undefined ? old.target_kind : parseTargetKind(input.targetKind);
-  const mapping = input.mappingKind === undefined ? old.mapping_kind : parseMappingKind(input.mappingKind);
-  const source = input.sourceText === undefined ? old.source_text : text(input.sourceText, 'sourceText', 500);
-  const code = input.targetCode === undefined ? old.target_code : text(input.targetCode, 'targetCode', 128);
+  const { kind, mapping, source, code } = validateAliasInput(db, input, id);
   db.transaction(() => {
     /* 唯一性校验移进事务(与 createAlias 同理),避免并发 update 各自通过 SELECT 后都改成功 */
-    assertNormalizedUnique(db, kind, mapping, source, id);
+    validateAliasInput(db, input, id);
     db.prepare('UPDATE import_name_alias SET target_kind = ?, mapping_kind = ?, source_text = ?, target_code = ?, updated_at = ? WHERE id = ?')
       .run(kind, mapping, source, code, new Date().toISOString(), id);
     writeLog(db, 'alias.update', 'import_name_alias', id, { actor, targetKind: kind, mappingKind: mapping });

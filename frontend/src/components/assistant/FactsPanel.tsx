@@ -6,11 +6,14 @@ import { Link } from 'react-router-dom';
  * 所有数字都直接来自后端 facts，前端只做万元换算与排版，不重算金额、完成率或汇总。
  */
 import { useMemo, useState } from 'react';
-import { Collapse, Empty, Descriptions, Table, Tag, Tooltip, Typography, Space } from 'antd';
+import { Alert, Button, Collapse, Empty, Descriptions, Table, Tag, Tooltip, Typography, Space } from 'antd';
 import type { AssistantCitation, AssistantFact } from '@contracts/assistant';
 import { centsToWan, formatRate, formatRateOrReason } from '../../utils/money';
 
 const FACT_LABEL: Record<string, string> = {
+  draft_validation: '当前修改校验',
+  draft_impact: '未保存网格影响',
+  field_help: '当前字段说明',
   budget_versions: '预算/预测版本',
   actual_snapshots: '实际快照批次',
   actual_snapshot: '实际快照明细',
@@ -258,8 +261,32 @@ function RawJson({ data }: { data: unknown }) {
   );
 }
 
+function ConfigDraftFact({ data }: { data: any }) {
+  return <Space direction="vertical" style={{ width: '100%' }}>
+    <Alert type={data.issues?.length ? 'warning' : 'success'} showIcon message={data.issues?.length ? '当前修改有待解决的问题' : '本次校验通过'} description="修改尚未保存，正式保存仍会重新检查。" />
+    {(data.issues ?? []).map((issue: string, index: number) => <Typography.Text key={index}>{issue}</Typography.Text>)}
+    {(data.analysis?.fieldIssues ?? []).map((issue: { field: string; message: string }, index: number) => <Button key={index} size="small" onClick={() => window.dispatchEvent(new CustomEvent('newfc:assistant-locate-field', { detail: { kind: data.kind, targetId: data.targetId, clientKey: data.clientKey, field: issue.field } }))}>定位相关字段</Button>)}
+    {(data.analysis?.explanation ?? []).map((line: string, index: number) => <Typography.Text key={index}>{line}</Typography.Text>)}
+  </Space>;
+}
+
 function FactBody({ fact }: { fact: AssistantFact }) {
   const data: any = fact.data;
+  if (fact.type === 'selection_analysis' || (data?.mode && data?.count != null && fact.type.startsWith('tool:'))) return <Space direction="vertical" style={{ width: '100%' }}>
+    <Typography.Text strong>当前选择：{data.mode} · {data.count} 个对象{data.unsaved ? ' · 未保存修改' : ''}</Typography.Text>
+    {data.amount != null && <Typography.Text>选区金额：{data.amount} 元</Typography.Text>}
+    {data.issueCount != null && <Typography.Text>校验问题：{data.issueCount} 项</Typography.Text>}
+    <Typography.Paragraph>{data.explanation}{data.truncated ? ' 已省略 ' + data.omitted + ' 项详情。' : ''}</Typography.Paragraph>
+    {(data.cells ?? data.items ?? []).map((item: any, index: number) => <Typography.Paragraph key={index} style={{ marginBottom: 4 }}>
+      {item.orgName ? item.orgName + ' · ' : ''}{item.accountName ?? item.name ?? (item.mappingKind === 'org' ? '组织映射' : item.mappingKind === 'account' ? '科目映射' : '对象')}
+      {item.code ?? item.accountCode ? '（' + (item.code ?? item.accountCode) + '）' : ''}
+      {item.amount != null ? '：' + item.amount + ' 元' : item.quantity != null ? '：' + item.quantity + ' ' + item.unit : ''}
+      {item.targetCode ? ' → ' + item.targetCode : ''}
+      {item.issues?.length ? '；' + item.issues.join('；') : ''}
+    </Typography.Paragraph>)}
+  </Space>;
+  if (fact.type === 'draft_validation') return <ConfigDraftFact data={data} />;
+  if (fact.type === 'field_help') return <Typography.Paragraph>{data.explanation}</Typography.Paragraph>;
   if (fact.type === 'anomalies' || fact.type === 'tool:calculate_anomalies') return <AnomalyTable data={data} />;
   if (fact.type === 'attribution' || fact.type === 'tool:calculate_attribution' || fact.type === 'insight:attribution') return <AttributionFact data={data} />;
   if (fact.type === 'report_draft' || fact.type === 'tool:generate_report' || fact.type === 'insight:report') return <ReportDraftFact data={data} />;

@@ -246,7 +246,7 @@ export const cleaningApi = {
   saveTemplate: (body: { name: string; targetKind: CleaningTargetKind; config: CleaningTemplateConfig }) => api.post<CleaningTemplate>('/io/cleaning/templates', body),
   updateTemplate: (id: number, body: { name?: string; config?: CleaningTemplateConfig }) => api.patch<CleaningTemplate>(`/io/cleaning/templates/${id}`, body),
   deleteTemplate: (id: number) => api.del<void>(`/io/cleaning/templates/${id}`),
-  aliases: (targetKind: CleaningTargetKind) => api.get<{ items: CleaningAlias[] }>(`/io/cleaning/aliases?targetKind=${targetKind}`),
+  aliases: (targetKind: CleaningTargetKind, filter: { search?: string; mappingKind?: 'org' | 'account' } = {}) => api.get<{ items: CleaningAlias[] }>('/io/cleaning/aliases?' + new URLSearchParams(Object.entries({ targetKind, ...filter }).filter(([, value]) => value !== undefined) as [string, string][]).toString()),
   saveAlias: (body: { targetKind: CleaningTargetKind; mappingKind: 'org' | 'account'; sourceText: string; targetCode: string }) => api.post<CleaningAlias>('/io/cleaning/aliases', body),
   updateAlias: (id: number, body: { sourceText?: string; targetCode?: string }) => api.patch<CleaningAlias>(`/io/cleaning/aliases/${id}`, body),
   deleteAlias: (id: number) => api.del<void>(`/io/cleaning/aliases/${id}`),

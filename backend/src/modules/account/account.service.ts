@@ -1,9 +1,18 @@
+import { z } from 'zod';
+import { validateInput, positiveId, sortOrder, nodeStatus } from '../../core/input';
 import type { DB } from '../../db/connection';
 import type { TreeNodeDto, TreeNodeRow } from '../../core/tree';
 import { buildTree, computeLeafIds, isDescendantOf } from '../../core/tree';
 import { Errors } from '../../core/errors';
 import { writeLog } from '../audit/log';
 import type { AccountType } from '../../core/money';
+
+export const createAccountSchema = z.object({ parentId: positiveId.nullable(), code: z.string().min(1).max(128), name: z.string().min(1).max(255), type: z.enum(['income', 'cost', 'expense', 'quantity']), unit: z.string().max(80).optional(), quantityAgg: z.enum(['sum', 'none']).optional(), sortOrder: sortOrder.optional() }).strict();
+export const updateAccountSchema = createAccountSchema.pick({ name: true, sortOrder: true, unit: true, quantityAgg: true }).partial().extend({ budgetRequired: z.boolean().optional(), basisRequired: z.boolean().optional() }).strict();
+
+export const moveInputSchema = z.object({ parentId: positiveId.nullable() }).strict();
+export const statusInputSchema = z.object({ status: nodeStatus }).strict();
+
 
 function selectSql(db: DB): string {
   const columns = new Set((db.pragma('table_info(account)') as { name: string }[]).map((row) => row.name));
@@ -70,10 +79,11 @@ function assertTypeConsistent(rows: AccountRow[], parentId: number | null, type:
   }
 }
 
-export function createAccount(
+export function validateCreateAccount(
   db: DB,
   input: { parentId: number | null; code: string; name: string; type: AccountType; unit?: string; quantityAgg?: 'sum' | 'none'; sortOrder?: number }
-): AccountRow {
+) {
+  validateInput(createAccountSchema, input);
   if (!input.code?.trim()) throw Errors.validation('科目编码不能为空');
   if (!input.name?.trim()) throw Errors.validation('科目名称不能为空');
   if (!['income', 'cost', 'expense', 'quantity'].includes(input.type)) throw Errors.validation('科目类型必须是 income/cost/expense/quantity');
@@ -98,8 +108,17 @@ export function createAccount(
     }
   }
   assertTypeConsistent(rows, input.parentId, input.type);
+  return { unit, quantityAgg };
+}
+
+export function createAccount(
+  db: DB,
+  input: { parentId: number | null; code: string; name: string; type: AccountType; unit?: string; quantityAgg?: 'sum' | 'none'; sortOrder?: number }
+): AccountRow {
+  const { unit, quantityAgg } = validateCreateAccount(db, input);
   const now = new Date().toISOString();
   const tx = db.transaction(() => {
+    validateCreateAccount(db, input);
     const info = db
       .prepare(
         'INSERT INTO account (parent_id, code, name, type, unit, quantity_agg, sort_order, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -112,7 +131,8 @@ export function createAccount(
   return getAccount(db, tx());
 }
 
-export function updateAccount(db: DB, id: number, input: { name?: string; sortOrder?: number; unit?: string; quantityAgg?: 'sum' | 'none'; budgetRequired?: boolean; basisRequired?: boolean }): AccountRow {
+export function validateUpdateAccount(db: DB, id: number, input: { name?: string; sortOrder?: number; unit?: string; quantityAgg?: 'sum' | 'none'; budgetRequired?: boolean; basisRequired?: boolean }) {
+  validateInput(updateAccountSchema, input);
   const acc = getAccount(db, id);
   if (input.name !== undefined && !input.name.trim()) throw Errors.validation('科目名称不能为空');
   const isLeaf = !db.prepare('SELECT 1 FROM account WHERE parent_id = ? LIMIT 1').get(id);
@@ -147,7 +167,13 @@ export function updateAccount(db: DB, id: number, input: { name?: string; sortOr
       quantityAgg = input.quantityAgg;
     }
   }
+  return { acc, unit, quantityAgg };
+}
+
+export function updateAccount(db: DB, id: number, input: { name?: string; sortOrder?: number; unit?: string; quantityAgg?: 'sum' | 'none'; budgetRequired?: boolean; basisRequired?: boolean }): AccountRow {
+  const { acc, unit, quantityAgg } = validateUpdateAccount(db, id, input);
   db.transaction(() => {
+    validateUpdateAccount(db, id, input);
     db.prepare('UPDATE account SET name = ?, unit = ?, quantity_agg = ?, budget_required = ?, basis_required = ?, sort_order = ?, updated_at = ? WHERE id = ?').run(
       input.name !== undefined ? input.name.trim() : acc.name,
       unit,
@@ -164,7 +190,8 @@ export function updateAccount(db: DB, id: number, input: { name?: string; sortOr
 }
 
 /** 移动科目:新父节点类型必须一致,且不能移动到自身后代(方案五.2) */
-export function moveAccount(db: DB, id: number, newParentId: number | null): AccountRow {
+export function validateMoveAccount(db: DB, id: number, newParentId: number | null) {
+  validateInput(moveInputSchema, { parentId: newParentId });
   const acc = getAccount(db, id);
   if (newParentId != null) {
     const target = getAccount(db, newParentId);
@@ -182,17 +209,31 @@ export function moveAccount(db: DB, id: number, newParentId: number | null): Acc
       );
     }
   }
+  return undefined;
+}
+
+export function moveAccount(db: DB, id: number, newParentId: number | null): AccountRow {
+  validateMoveAccount(db, id, newParentId);
   db.transaction(() => {
+    validateMoveAccount(db, id, newParentId);
     db.prepare('UPDATE account SET parent_id = ?, updated_at = ? WHERE id = ?').run(newParentId, new Date().toISOString(), id);
     writeLog(db, 'account.move', 'account', id, { newParentId });
   })();
   return getAccount(db, id);
 }
 
-export function setAccountStatus(db: DB, id: number, status: 'active' | 'inactive'): AccountRow {
+export function validateSetAccountStatus(db: DB, id: number, status: 'active' | 'inactive') {
+  validateInput(statusInputSchema, { status });
+  if (status !== 'active' && status !== 'inactive') throw Errors.validation('状态必须是 active 或 inactive');
   getAccount(db, id);
+  return undefined;
+}
+
+export function setAccountStatus(db: DB, id: number, status: 'active' | 'inactive'): AccountRow {
+  validateSetAccountStatus(db, id, status);
   const action = status === 'inactive' ? 'account.deactivate' : 'account.activate';
   db.transaction(() => {
+    validateSetAccountStatus(db, id, status);
     db.prepare('UPDATE account SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
     writeLog(db, action, 'account', id, { status });
   })();

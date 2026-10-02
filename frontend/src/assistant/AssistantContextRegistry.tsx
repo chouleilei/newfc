@@ -87,6 +87,7 @@ export interface RegistryView {
   /** 未保存修改条数(仅展示)。 */
   dirtyCount: number;
   contextVersion: number;
+  draftInstanceId: string | null;
   topSurface: SurfaceDescriptor | null;
   focus: FocusDescriptor | null;
   focusLabel: string | null;
@@ -107,13 +108,11 @@ export interface AssistantRegistryApi {
   unregisterSurface: (token: symbol) => void;
   setFocus: (focus: FocusDescriptor, label?: string | null) => symbol;
   clearFocus: (token?: symbol) => void;
-  setSelection: (selection: SelectionDescriptor | null) => void;
+  setSelection: (selection: SelectionDescriptor | null) => symbol;
+  clearSelection: (token: symbol) => void;
+  registerDraft: (serialize: () => DraftDescriptor | null) => symbol;
+  unregisterDraft: (token: symbol) => void;
   buildSnapshot: () => SnapshotBuild;
-}
-
-/** @deprecated 兼容旧调用;新代码请分开使用 useAssistantRegistry(API) 与 useAssistantRegistryView(view)。 */
-export interface AssistantRegistry extends AssistantRegistryApi {
-  view: RegistryView;
 }
 
 const AssistantRegistryApiContext = createContext<AssistantRegistryApi | null>(null);
@@ -139,9 +138,11 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
   const routeInstanceId = useMemo(() => newContextId(), [location.pathname]);
 
   const pageRef = useRef<PageEntry | null>(null);
+  const draftsRef = useRef<{ token: symbol; instanceId: string; routeInstanceId: string; serialize: () => DraftDescriptor | null }[]>([]);
   const surfacesRef = useRef<SurfaceEntry[]>([]);
   const focusRef = useRef<FocusEntry | null>(null);
   const selectionRef = useRef<SelectionDescriptor | null>(null);
+  const selectionTokenRef = useRef<symbol | null>(null);
   /** 渲染版本号：任何注册变化都递增一次，驱动 ScopeBar 等 UI 更新。 */
   const [renderTick, setRenderTick] = useState(0);
   const bump = useCallback(() => setRenderTick((tick) => tick + 1), []);
@@ -158,6 +159,7 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
     prevRouteRef.current = routeInstanceId;
     pageRef.current = null;
     surfacesRef.current = [];
+    draftsRef.current = [];
     focusRef.current = null;
     selectionRef.current = null;
     bump();
@@ -213,6 +215,7 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
     ) return;
     if (next.pageKey !== entry.pageKey || !jsonEqual(next.scope, entry.scope) || !jsonEqual(next.view, entry.view)) {
       surfacesRef.current = [];
+    draftsRef.current = [];
       focusRef.current = null;
       selectionRef.current = null;
     }
@@ -226,6 +229,7 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
     if (!entry || entry.token !== token) return;
     pageRef.current = null;
     surfacesRef.current = [];
+    draftsRef.current = [];
     focusRef.current = null;
     selectionRef.current = null;
     bump();
@@ -291,7 +295,29 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
   }, [bump]);
 
   const setSelection = useCallback((selection: SelectionDescriptor | null) => {
+    const token = Symbol('selection');
+    selectionTokenRef.current = token;
     selectionRef.current = selection;
+    bump();
+    return token;
+  }, [bump]);
+  const clearSelection = useCallback((token: symbol) => {
+    if (selectionTokenRef.current !== token) return;
+    selectionRef.current = null;
+    selectionTokenRef.current = null;
+    bump();
+  }, [bump]);
+
+  const registerDraft = useCallback((serialize: () => DraftDescriptor | null) => {
+    const token = Symbol('draft');
+    if (!draftsRef.current.length) { focusRef.current = null; selectionRef.current = null; }
+    draftsRef.current = [...draftsRef.current, { token, instanceId: newContextId(), routeInstanceId, serialize }];
+    bump();
+    return token;
+  }, [routeInstanceId, bump]);
+  const unregisterDraft = useCallback((token: symbol) => {
+    if (!draftsRef.current.some((draft) => draft.token === token)) return;
+    draftsRef.current = draftsRef.current.filter((draft) => draft.token !== token);
     bump();
   }, [bump]);
 
@@ -306,9 +332,11 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
     const focus = focusRef.current?.routeInstanceId === routeInstanceId ? focusRef.current.focus : null;
     const selection = selectionRef.current;
     let draft: DraftDescriptor | null = null;
-    if (page.dirty && page.serializeDraft) {
+    const activeDraft = draftsRef.current.filter((entry) => entry.routeInstanceId === routeInstanceId).slice(-1)[0];
+    const serialize = activeDraft?.serialize ?? (page.dirty ? page.serializeDraft : null);
+    if (serialize) {
       try {
-        draft = page.serializeDraft();
+        draft = serialize();
       } catch (err) {
         return { status: 'not_ready', reason: `草稿序列化失败：${err instanceof Error ? err.message : String(err)}` };
       }
@@ -328,10 +356,10 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
     };
     // §5.8：超限时不静默丢弃，直接提示用户先保存或缩小范围。
     const { draft: draftPart, ...rest } = pageContext;
-    if (JSON.stringify(rest).length > CONTEXT_MAX_BYTES) {
+    if (new TextEncoder().encode(JSON.stringify(rest)).byteLength > CONTEXT_MAX_BYTES) {
       return { status: 'too_large', reason: '当前页面上下文超过 64 KiB，请缩小选区或筛选范围' };
     }
-    if (draftPart && JSON.stringify(draftPart).length > DRAFT_MAX_BYTES) {
+    if (draftPart && new TextEncoder().encode(JSON.stringify(draftPart)).byteLength > DRAFT_MAX_BYTES) {
       return { status: 'too_large', reason: '未保存修改超过 5 MiB，请先保存再提问' };
     }
     return { status: 'ok', pageContext };
@@ -350,8 +378,9 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
       notReadyReason: page?.notReadyReason ?? null,
       scope: page?.scope ?? {},
       view: page?.view ?? {},
-      dirty: page?.dirty ?? false,
+      dirty: draftsRef.current.length > 0 || (page?.dirty ?? false),
       dirtyCount: page?.dirtyCount ?? 0,
+      draftInstanceId: draftsRef.current.slice(-1)[0]?.instanceId ?? null,
       contextVersion: page?.contextVersion ?? 0,
       topSurface: surfaces.length ? surfaces[surfaces.length - 1].descriptor : null,
       focus: focusEntry?.focus ?? null,
@@ -371,8 +400,9 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
     setFocus,
     clearFocus,
     setSelection,
-    buildSnapshot,
-  }), [registerPage, updatePage, unregisterPage, registerSurface, updateSurface, unregisterSurface, setFocus, clearFocus, setSelection, buildSnapshot]);
+    clearSelection,
+    registerDraft, unregisterDraft, buildSnapshot,
+  }), [registerPage, updatePage, unregisterPage, registerSurface, updateSurface, unregisterSurface, setFocus, clearFocus, setSelection, clearSelection, registerDraft, unregisterDraft, buildSnapshot]);
 
   return (
     <AssistantRegistryApiContext.Provider value={api}>

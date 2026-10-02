@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { currentAuth } from '../../../core/request-context';
+import type { CleaningTargetKind } from './plan';
 import fs from 'fs';
 import path from 'path';
 import { Errors } from '../../../core/errors';
@@ -6,6 +8,8 @@ import { CLEANING_UPLOAD_CAPACITY_BYTES, CLEANING_UPLOAD_TTL_MS } from '../impor
 
 export interface CleaningUploadMetadata {
   token: string;
+  ownerUserId: number;
+  targetKind: CleaningTargetKind;
   originalName: string;
   sha256: string;
   uploadedAt: string;
@@ -53,7 +57,7 @@ export class CleaningUploadStore {
   private parseMetadata(token: string): CleaningUploadMetadata | undefined {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.sidecarPath(token), 'utf8')) as Partial<CleaningUploadMetadata>;
-      if (parsed.token !== token || typeof parsed.originalName !== 'string' || !/^[0-9a-f]{64}$/i.test(String(parsed.sha256 ?? ''))
+      if (!Number.isSafeInteger(parsed.ownerUserId) || (parsed.ownerUserId ?? -1) < 0 || !['budget', 'actual-current'].includes(String(parsed.targetKind)) || parsed.token !== token || typeof parsed.originalName !== 'string' || !/^[0-9a-f]{64}$/i.test(String(parsed.sha256 ?? ''))
         || typeof parsed.uploadedAt !== 'string' || !Number.isFinite(Date.parse(parsed.uploadedAt))
         || typeof parsed.lastActiveAt !== 'string' || !Number.isFinite(Date.parse(parsed.lastActiveAt))
         || !Number.isSafeInteger(parsed.size) || (parsed.size ?? 0) < 0) return undefined;
@@ -76,12 +80,13 @@ export class CleaningUploadStore {
     }
   }
 
-  put(originalName: string, buffer: Buffer): CleaningUploadMetadata {
+  put(originalName: string, buffer: Buffer, binding: { ownerUserId: number; targetKind: CleaningTargetKind } = { ownerUserId: currentAuth()?.userId ?? 0, targetKind: 'budget' }): CleaningUploadMetadata {
     this.initialize();
     const token = crypto.randomUUID();
     const now = new Date(this.now()).toISOString();
     const metadata: CleaningUploadMetadata = {
       token,
+      ...binding,
       originalName: originalName.trim().slice(0, 255) || 'workbook.xlsx',
       sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
       uploadedAt: now,
@@ -125,6 +130,24 @@ export class CleaningUploadStore {
       this.removePaths(token);
       throw Errors.notFound('临时文件');
     }
+  }
+
+  /** 页面和助手共用的所有者检查；助手 touch=false，读取不续期、不清理、不写文件。 */
+  readOwned(token: string, ownerUserId: number, expected: { targetKind?: CleaningTargetKind; sha256?: string } = {}, touch = false): { metadata: CleaningUploadMetadata; buffer: Buffer } {
+    const metadata = this.peek(token);
+    if (!metadata) throw Errors.notFound('临时文件（无有效所有者绑定或已过期，请重新上传）');
+    if (metadata.ownerUserId !== ownerUserId) throw Errors.forbidden('无权读取此临时文件');
+    if (expected.targetKind != null && metadata.targetKind !== expected.targetKind) throw Errors.conflict('临时文件目标类型不一致');
+    if (expected.sha256 != null && metadata.sha256 !== expected.sha256) throw Errors.conflict('临时文件指纹不一致');
+    let buffer: Buffer;
+    try { buffer = fs.readFileSync(this.xlsxPath(token)); } catch { throw Errors.notFound('临时文件'); }
+    if (buffer.length !== metadata.size || crypto.createHash('sha256').update(buffer).digest('hex') !== metadata.sha256) throw Errors.conflict('临时文件内容或指纹已变化，请重新上传');
+    if (touch) {
+      metadata.lastActiveAt = new Date(this.now()).toISOString();
+      this.writeMetadata(metadata);
+      this.cleanup(token);
+    }
+    return { metadata, buffer };
   }
 
   remove(token: string): void {

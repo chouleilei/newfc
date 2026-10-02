@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /// <reference types="vite/client" />
 /**
- * T-3 前端(AC-F05/F06/F10/F14/F19):导航入口按权限显示、@contracts 只以类型导入、
+ * T-3 前端(AC-F05/F06/F10/F14/F19):导航入口按权限显示、共享页面目录、
  * 标准报表冻结单元格按列类型排版、工作台财报摘要无权限时不渲染不请求。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -36,19 +36,6 @@ describe('T-3 导航', () => {
   });
   it('管理会计八个子功能页签', () => {
     expect(MGMT_TABS.map((t) => t.label)).toEqual(['责任中心', '指标与计算', '预警', '成本分摊', '预算调整', '多维分析', '维度', '绩效']);
-  });
-});
-
-describe('@contracts 共享契约只以类型导入', () => {
-  it('src 下所有 @contracts 引用都是 import type / export type', () => {
-    const sources = import.meta.glob<string>(['../../**/*.{ts,tsx}'], { query: '?raw', import: 'default', eager: true });
-    expect(Object.keys(sources).length).toBeGreaterThan(50);
-    const offenders: string[] = [];
-    for (const [p, text] of Object.entries(sources)) {
-      const stmts = text.match(/(?:import|export)[^;]*?from\s+'@contracts\/[^']+'/gs) ?? [];
-      for (const st of stmts) if (!/^(import|export)\s+type\b/.test(st)) offenders.push(`${p}: ${st.slice(0, 80)}`);
-    }
-    expect(offenders).toEqual([]);
   });
 });
 

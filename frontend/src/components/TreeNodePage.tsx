@@ -6,7 +6,8 @@ import { api, errorText } from '../api/client';
 /** 统一错误文本实现在 api/client;这里保留再导出,避免所有管理页变更导入路径。 */
 export { errorText };
 import { MasterDataHealthTrigger } from './MasterDataHealth';
-import { useAssistantPageContext } from '../assistant/contextHooks';
+import { ConfigFormAssistant, changedFields } from './assistant/ConfigFormAssistant';
+import { useAssistantDraft, useAssistantPageContext } from '../assistant/contextHooks';
 
 /** 组织/科目管理共用页面骨架(方案五) */
 
@@ -33,6 +34,7 @@ export interface TreeRow {
   type?: string;
   sort_order: number;
   status: string;
+  updated_at: string;
 }
 
 interface NodeFormValues {
@@ -56,6 +58,8 @@ export function TreeManage({
   void renamePath;
   const qc = useQueryClient();
   const { message, modal } = App.useApp();
+  const [rows, setRows] = useState<TreeRow[]>([]);
+  const [statusTarget, setStatusTarget] = useState<TreeNodeDto | null>(null);
   const [nodes, setNodes] = useState<TreeNodeDto[] | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [parent, setParent] = useState<TreeNodeDto | null>(null);
@@ -70,8 +74,19 @@ export function TreeManage({
   const [moveParentId, setMoveParentId] = useState<number | null>(null);
   const [renameForm] = Form.useForm<{ name: string }>();
 
+  const formKind = kind === 'org' ? 'org_form' : 'account_form';
+  const baseFor = (node: TreeNodeDto, operation: 'update' | 'move' | 'status') => {
+    const updatedAt = rows.find((row) => row.id === node.id)?.updated_at;
+    if (!updatedAt) throw new Error('对象基线尚未就绪，请重新加载');
+    return { id: node.id, updatedAt, operation };
+  };
+  useAssistantDraft(modalOpen, `${kind}:new:${parent?.id ?? 'root'}`, () => ({ kind: formKind, base: { clientKey: `new-${kind}`, operation: 'create' }, changes: { parentId: parent?.id ?? null, ...form.getFieldsValue(true) } }));
+  useAssistantDraft(renameTarget != null, `${kind}:rename:${renameTarget?.id}`, () => renameTarget ? ({ kind: formKind, base: baseFor(renameTarget, 'update'), changes: changedFields(renameForm.getFieldsValue(true), { name: renameTarget.name }) }) : null);
+  useAssistantDraft(moveTarget != null, `${kind}:move:${moveTarget?.id}`, () => moveTarget ? ({ kind: formKind, base: baseFor(moveTarget, 'move'), changes: { parentId: moveParentId } }) : null);
+  useAssistantDraft(statusTarget != null, `${kind}:status:${statusTarget?.id}`, () => statusTarget ? ({ kind: formKind, base: baseFor(statusTarget, 'status'), changes: { status: statusTarget.status === 'active' ? 'inactive' : 'active' } }) : null);
+
   const load = async () => {
-    try { setLoadError(null); const data = await api.get<{ tree: TreeNodeDto[] }>(`/${kind}/tree`); setNodes(data.tree); }
+    try { setLoadError(null); const data = await api.get<{ tree: TreeNodeDto[]; rows: TreeRow[] }>(`/${kind}/tree`); setNodes(data.tree); setRows(data.rows); }
     catch (e) { setLoadError(e); setNodes(null); }
   };
   useEffect(() => { void load(); }, [kind]);
@@ -193,7 +208,7 @@ export function TreeManage({
                   <Button key="move" size="small" onClick={() => {
                     setMoveTarget(n); setMoveParentId(null);
                   }}>移动</Button>,
-                  <Button key="toggle" size="small" onClick={() => setStatus.mutate({ id: n.id, status: n.status === 'active' ? 'inactive' : 'active' })}>
+                  <Button key="toggle" size="small" onClick={() => setStatusTarget(n)}>
                     {n.status === 'active' ? '停用' : '启用'}
                   </Button>,
                   <Button key="add" size="small" onClick={() => {
@@ -223,13 +238,14 @@ export function TreeManage({
         />
       )}
 
-      <Modal
+      <Modal mask={false}
         title={`新增${kind === 'org' ? '组织' : '科目'}${parent ? ` — 上级:${parent.code} ${parent.name}` : '(根节点)'}`}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
         onOk={() => form.validateFields().then((v) => create.mutate(v))}
         confirmLoading={create.isPending}
       >
+        {modalOpen && <ConfigFormAssistant kind={formKind} form={form} />}
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="编码(全局唯一,创建后不可变)" rules={[{ required: true }]}>
             <Input placeholder="如 ORG001 / I01" />
@@ -280,11 +296,17 @@ export function TreeManage({
           </Form.Item>
         </Form>
       </Modal>
-      <Modal title={`修改名称: ${renameTarget?.code ?? ''}`} open={!!renameTarget} onCancel={() => setRenameTarget(null)} confirmLoading={update.isPending} onOk={() => renameForm.validateFields().then(v => { if (renameTarget && v.name !== renameTarget.name) update.mutate({ id: renameTarget.id, name: v.name }, { onSuccess: () => setRenameTarget(null) }); })}>
+      <Modal mask={false} title={`修改名称: ${renameTarget?.code ?? ''}`} open={!!renameTarget} onCancel={() => setRenameTarget(null)} confirmLoading={update.isPending} onOk={() => renameForm.validateFields().then(v => { if (renameTarget && v.name !== renameTarget.name) update.mutate({ id: renameTarget.id, name: v.name }, { onSuccess: () => setRenameTarget(null) }); })}>
+        {renameTarget && <ConfigFormAssistant kind={formKind} form={renameForm} />}
         <Form form={renameForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item></Form>
       </Modal>
-      <Modal title={`移动节点: ${moveTarget?.code ?? ''}`} open={!!moveTarget} onCancel={() => setMoveTarget(null)} confirmLoading={move.isPending} onOk={() => { if (moveTarget) move.mutate({ id: moveTarget.id, parentId: moveParentId }, { onSuccess: () => setMoveTarget(null) }); }}>
+      <Modal mask={false} title={`移动节点: ${moveTarget?.code ?? ''}`} open={!!moveTarget} onCancel={() => setMoveTarget(null)} confirmLoading={move.isPending} onOk={() => { if (moveTarget) move.mutate({ id: moveTarget.id, parentId: moveParentId }, { onSuccess: () => setMoveTarget(null) }); }}>
+        {moveTarget && <ConfigFormAssistant kind={formKind} />}
         <TreeSelect style={{ width: '100%' }} treeData={nodes ?? []} fieldNames={{ label: 'name', value: 'id', children: 'children' }} treeNodeFilterProp="name" showSearch allowClear value={moveParentId ?? undefined} onChange={(v) => setMoveParentId((v as number | undefined) ?? null)} placeholder="选择目标父节点(不选则移动到根)" />
+      </Modal>
+      <Modal mask={false} title={`确认${statusTarget?.status === 'active' ? '停用' : '启用'}: ${statusTarget?.code ?? ''}`} open={statusTarget != null} onCancel={() => setStatusTarget(null)} confirmLoading={setStatus.isPending} onOk={() => { if (statusTarget) setStatus.mutate({ id: statusTarget.id, status: statusTarget.status === 'active' ? 'inactive' : 'active' }, { onSuccess: () => setStatusTarget(null) }); }}>
+        {statusTarget && <ConfigFormAssistant kind={formKind} />}
+        <Typography.Paragraph>只影响当前配置，已有快照和存量数据保留。</Typography.Paragraph>
       </Modal>
     </Card>
   );

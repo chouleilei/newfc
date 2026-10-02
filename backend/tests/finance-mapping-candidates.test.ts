@@ -440,9 +440,9 @@ describe('别名机制 finance 扩展', () => {
   it('finance 别名创建/查询/归一化唯一;清单按 kind 过滤', () => {
     const db = testDb();
     buildFixture(db);
-    const created = createAlias(db, { targetKind: 'finance', mappingKind: 'org', sourceText: '一厂旧称', targetCode: 'P01' }, 'tester');
+    const created = createAlias(db, { targetKind: 'finance', mappingKind: 'org', sourceText: '一厂旧称', targetCode: 'SH' }, 'tester');
     expect(created.target_kind).toBe('finance');
-    expect(() => createAlias(db, { targetKind: 'finance', mappingKind: 'org', sourceText: '一厂 旧称', targetCode: 'P01' }, 'tester')).toThrow(/别名/);
+    expect(() => createAlias(db, { targetKind: 'finance', mappingKind: 'org', sourceText: '一厂 旧称', targetCode: 'SH' }, 'tester')).toThrow(/别名/);
     const financeOnly = listAliases(db, { targetKind: 'finance' });
     expect(financeOnly).toHaveLength(1);
     expect(listAliases(db, { targetKind: 'budget' })).toHaveLength(0);

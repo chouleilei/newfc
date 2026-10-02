@@ -1,8 +1,17 @@
+import { z } from 'zod';
+import { validateInput, positiveId, sortOrder, nodeStatus } from '../../core/input';
 import type { DB } from '../../db/connection';
 import type { TreeNodeDto, TreeNodeRow } from '../../core/tree';
 import { buildTree, computeLeafIds, isDescendantOf } from '../../core/tree';
 import { Errors } from '../../core/errors';
 import { writeLog } from '../audit/log';
+
+export const createOrgSchema = z.object({ parentId: positiveId.nullable(), code: z.string().min(1).max(128), name: z.string().min(1).max(255), sortOrder: sortOrder.optional() }).strict();
+export const updateOrgSchema = createOrgSchema.pick({ name: true, sortOrder: true }).partial().strict();
+
+export const moveInputSchema = z.object({ parentId: positiveId.nullable() }).strict();
+export const statusInputSchema = z.object({ status: nodeStatus }).strict();
+
 
 const SELECT = 'SELECT id, parent_id, code, name, sort_order, status, created_at, updated_at FROM org';
 
@@ -41,10 +50,11 @@ function assertParentOk(db: DB, parentId: number | null): void {
   getOrg(db, parentId);
 }
 
-export function createOrg(
+export function validateCreateOrg(
   db: DB,
   input: { parentId: number | null; code: string; name: string; sortOrder?: number }
-): OrgRow {
+) {
+  validateInput(createOrgSchema, input);
   if (!input.code?.trim()) throw Errors.validation('组织编码不能为空');
   if (!input.name?.trim()) throw Errors.validation('组织名称不能为空');
   assertCodeFree(db, input.code.trim());
@@ -61,8 +71,17 @@ export function createOrg(
       }
     }
   }
+  return undefined;
+}
+
+export function createOrg(
+  db: DB,
+  input: { parentId: number | null; code: string; name: string; sortOrder?: number }
+): OrgRow {
+  validateCreateOrg(db, input);
   const now = new Date().toISOString();
   const tx = db.transaction(() => {
+    validateCreateOrg(db, input);
     const info = db
       .prepare(
         'INSERT INTO org (parent_id, code, name, sort_order, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -76,13 +95,20 @@ export function createOrg(
   return getOrg(db, id);
 }
 
-export function updateOrg(db: DB, id: number, input: { name?: string; sortOrder?: number }): OrgRow {
+export function validateUpdateOrg(db: DB, id: number, input: { name?: string; sortOrder?: number }) {
+  validateInput(updateOrgSchema, input);
   const org = getOrg(db, id);
   if (input.name !== undefined) {
     if (!input.name.trim()) throw Errors.validation('组织名称不能为空');
   }
+  return org;
+}
+
+export function updateOrg(db: DB, id: number, input: { name?: string; sortOrder?: number }): OrgRow {
+  const org = validateUpdateOrg(db, id, input);
   const now = new Date().toISOString();
   db.transaction(() => {
+    validateUpdateOrg(db, id, input);
     db.prepare('UPDATE org SET name = ?, sort_order = ?, updated_at = ? WHERE id = ?').run(
       input.name !== undefined ? input.name.trim() : org.name,
       input.sortOrder ?? org.sort_order,
@@ -95,7 +121,8 @@ export function updateOrg(db: DB, id: number, input: { name?: string; sortOrder?
 }
 
 /** 移动组织:目标父不能是自身及其后代(方案五.1) */
-export function moveOrg(db: DB, id: number, newParentId: number | null): OrgRow {
+export function validateMoveOrg(db: DB, id: number, newParentId: number | null) {
+  validateInput(moveInputSchema, { parentId: newParentId });
   getOrg(db, id);
   if (newParentId != null) {
     const target = getOrg(db, newParentId);
@@ -108,7 +135,13 @@ export function moveOrg(db: DB, id: number, newParentId: number | null): OrgRow 
       throw Errors.conflict(`组织 ${target.code} 已有预算、实际明细或财务映射引用，不能通过移动节点将其变为父组织；请先迁移存量数据`);
     }
   }
+  return undefined;
+}
+
+export function moveOrg(db: DB, id: number, newParentId: number | null): OrgRow {
+  validateMoveOrg(db, id, newParentId);
   db.transaction(() => {
+    validateMoveOrg(db, id, newParentId);
     db.prepare('UPDATE org SET parent_id = ?, updated_at = ? WHERE id = ?').run(
       newParentId,
       new Date().toISOString(),
@@ -120,10 +153,18 @@ export function moveOrg(db: DB, id: number, newParentId: number | null): OrgRow 
 }
 
 /** 停用/启用:只影响新增引用,存量数据保留参与汇总(方案五.3) */
-export function setOrgStatus(db: DB, id: number, status: 'active' | 'inactive'): OrgRow {
+export function validateSetOrgStatus(db: DB, id: number, status: 'active' | 'inactive') {
+  validateInput(statusInputSchema, { status });
+  if (status !== 'active' && status !== 'inactive') throw Errors.validation('状态必须是 active 或 inactive');
   getOrg(db, id);
+  return undefined;
+}
+
+export function setOrgStatus(db: DB, id: number, status: 'active' | 'inactive'): OrgRow {
+  validateSetOrgStatus(db, id, status);
   const action = status === 'inactive' ? 'org.deactivate' : 'org.activate';
   db.transaction(() => {
+    validateSetOrgStatus(db, id, status);
     db.prepare('UPDATE org SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
     writeLog(db, action, 'org', id, { status });
   })();

@@ -6,7 +6,9 @@ import { FinanceEmpty } from '../components/FinanceEmpty';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { cleaningApi, type CleaningAlias, type CleaningTargetKind, type CleaningTemplate } from '../api/cleaning';
 import { ApiError } from '../api/client';
-import { useAssistantPageContext } from '../assistant/contextHooks';
+import { ConfigFormAssistant, changedFields } from '../components/assistant/ConfigFormAssistant';
+import { useAssistantDraft, useAssistantPageContext, useAssistantSelection } from '../assistant/contextHooks';
+import { ListSelectionActions } from '../components/assistant/ListSelectionActions';
 
 const TARGET_OPTIONS: { value: CleaningTargetKind; label: string }[] = [
   { value: 'actual-current', label: '当前累计实际' },
@@ -97,15 +99,23 @@ function TemplateTab({ targetKind }: { targetKind: CleaningTargetKind }) {
   );
 }
 
-function AliasTab({ targetKind }: { targetKind: CleaningTargetKind }) {
+function AliasTab({ targetKind, filter, onFilter }: { targetKind: CleaningTargetKind; filter: { search?: string; mappingKind?: 'org' | 'account' }; onFilter: (filter: { search?: string; mappingKind?: 'org' | 'account' }) => void }) {
   const { message } = AntdApp.useApp();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<CleaningAlias | null>(null);
   const [creating, setCreating] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectionMode, setSelectionMode] = useState<'refs' | 'query' | null>(null);
+  const clearSelection = () => { setSelectedIds([]); setSelectionMode(null); };
+  useAssistantSelection(creating || editing ? null : selectionMode === 'query' ? { mode: 'query', query: { targetKind, ...filter } } : selectionMode === 'refs' && selectedIds.length ? { mode: 'refs', refs: selectedIds.map((id) => ({ entityType: 'alias_rule', id })) } : null);
   const [form] = Form.useForm<{ mappingKind: 'org' | 'account'; sourceText: string; targetCode: string }>();
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['cleaning-aliases', targetKind],
-    queryFn: () => cleaningApi.aliases(targetKind),
+    queryKey: ['cleaning-aliases', targetKind, filter],
+    queryFn: () => cleaningApi.aliases(targetKind, filter),
+  });
+  useAssistantDraft(creating || editing != null, `alias:${targetKind}:${editing?.id ?? 'new'}`, () => {
+    const values = form.getFieldsValue(true);
+    return { kind: 'alias_rule', base: editing ? { id: editing.id, updatedAt: editing.updatedAt, operation: 'update' } : { clientKey: 'new-alias', operation: 'create' }, changes: editing ? changedFields({ sourceText: values.sourceText, targetCode: values.targetCode }, { sourceText: editing.sourceText, targetCode: editing.targetCode }) : { targetKind, ...values } };
   });
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['cleaning-aliases', targetKind] });
 
@@ -145,16 +155,22 @@ function AliasTab({ targetKind }: { targetKind: CleaningTargetKind }) {
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           来源文本 → 目标编码的清洗别名,当前目标:{targetLabel(targetKind)}
         </Typography.Text>
-        <Button size="small" type="primary" icon={<i className="ri-add-line" aria-hidden />} onClick={() => { setCreating(true); setEditing(null); form.resetFields(); }}>
+        <Button size="small" type="primary" icon={<i className="ri-add-line" aria-hidden />} onClick={() => { clearSelection(); setCreating(true); setEditing(null); form.resetFields(); }}>
           新增别名
         </Button>
+      </Space>
+      <Space wrap style={{ marginBottom: 12 }}>
+        <Input.Search aria-label="筛选别名" placeholder="来源名称或目标编码" allowClear style={{ width: 220 }} onSearch={(search) => { clearSelection(); onFilter({ ...filter, search: search || undefined }); }} />
+        <Select aria-label="筛选映射对象" placeholder="全部对象" value={filter.mappingKind} allowClear style={{ width: 130 }} options={[{ value: 'org', label: '组织' }, { value: 'account', label: '科目' }]} onChange={(mappingKind: 'org' | 'account' | undefined) => { clearSelection(); onFilter({ ...filter, mappingKind }); }} />
+        <ListSelectionActions count={selectedIds.length} mode={selectionMode} onRefs={() => setSelectionMode('refs')} onQuery={() => setSelectionMode('query')} onClear={clearSelection} />
       </Space>
       <Table<CleaningAlias>
         rowKey="id"
         size="small"
         loading={isLoading}
         dataSource={data?.items ?? []}
-        pagination={false}
+        pagination={{ pageSize: 20 }}
+        rowSelection={{ selectedRowKeys: selectedIds, preserveSelectedRowKeys: true, onChange: (keys) => { setSelectedIds(keys.map(Number)); setSelectionMode(keys.length ? 'refs' : null); } }}
         locale={{
           emptyText: (
             <FinanceEmpty kind="data" description="暂无别名映射">
@@ -181,7 +197,7 @@ function AliasTab({ targetKind }: { targetKind: CleaningTargetKind }) {
             width: 140,
             render: (_, row) => (
               <Space size={4}>
-                <Button size="small" onClick={() => { setEditing(row); setCreating(false); form.setFieldsValue({ mappingKind: row.mappingKind, sourceText: row.sourceText, targetCode: row.targetCode }); }}>
+                <Button size="small" onClick={() => { clearSelection(); setEditing(row); setCreating(false); form.setFieldsValue({ mappingKind: row.mappingKind, sourceText: row.sourceText, targetCode: row.targetCode }); }}>
                   编辑
                 </Button>
                 <Popconfirm title="删除该别名?" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => deleteMutation.mutate(row.id)}>
@@ -192,7 +208,7 @@ function AliasTab({ targetKind }: { targetKind: CleaningTargetKind }) {
           },
         ]}
       />
-      <Modal
+      <Modal mask={false}
         open={creating || editing != null}
         title={editing ? '编辑别名' : '新增别名'}
         okText="保存"
@@ -201,6 +217,7 @@ function AliasTab({ targetKind }: { targetKind: CleaningTargetKind }) {
         confirmLoading={saveMutation.isPending}
         destroyOnClose
       >
+        {(creating || editing != null) && <ConfigFormAssistant kind="alias_rule" form={form} />}
         <Form form={form} layout="vertical">
           <Form.Item name="mappingKind" label="映射对象" rules={[{ required: true, message: '请选择映射对象' }]}>
             <Radio.Group disabled={editing != null}>
@@ -223,9 +240,10 @@ function AliasTab({ targetKind }: { targetKind: CleaningTargetKind }) {
 export default function CleaningConfig() {
   const [targetKind, setTargetKind] = useState<CleaningTargetKind>('actual-current');
   const [activeTab, setActiveTab] = useState('templates');
+  const [filter, setFilter] = useState<{ search?: string; mappingKind?: 'org' | 'account' }>({});
   /* 财务助手页面登记(§7.2 cleaning_config)：页签与目标数据集都是页面真实状态,
      页签必须受控登记,否则切到「清洗别名」后助手仍看到 tab='templates'。 */
-  useAssistantPageContext({ pageKey: 'cleaning_config', ready: true, scope: {}, view: { tab: activeTab, targetKind } });
+  useAssistantPageContext({ pageKey: 'cleaning_config', ready: true, scope: {}, view: { tab: activeTab, targetKind, ...(activeTab === 'aliases' ? filter : {}) } });
   return (
     <Card className="newfc-root-card">
       {/* UX-24 / 方案 4.7:「清洗模板与别名」即配置 Excel 导入识别规则,说明常驻页首 */}
@@ -242,11 +260,12 @@ export default function CleaningConfig() {
         />
       </Space>
       <Tabs
+        destroyOnHidden
         activeKey={activeTab}
         onChange={setActiveTab}
         items={[
           { key: 'templates', label: '清洗模板', children: <TemplateTab targetKind={targetKind} /> },
-          { key: 'aliases', label: '清洗别名', children: <AliasTab targetKind={targetKind} /> },
+          { key: 'aliases', label: '清洗别名', children: <AliasTab key={targetKind} targetKind={targetKind} filter={filter} onFilter={setFilter} /> },
         ]}
       />
     </Card>

@@ -17,7 +17,7 @@ import { StrictMode, type ReactNode } from 'react';
 import {
   AssistantRegistryProvider, useAssistantRegistry, useAssistantRegistryView, type SnapshotBuild,
 } from '../assistant/AssistantContextRegistry';
-import { useAssistantPageContext, useAssistantFocus, useAssistantSurface, useAssistantSelection } from '../assistant/contextHooks';
+import { useAssistantDraft, useAssistantPageContext, useAssistantFocus, useAssistantSurface, useAssistantSelection } from '../assistant/contextHooks';
 import type { PageRegistrationInit } from '../assistant/AssistantContextRegistry';
 
 function wrapper(initialPath = '/analysis') {
@@ -34,6 +34,18 @@ function usePage(init: PageRegistrationInit) {
 }
 
 describe('页面登记与 ready 三态', () => {
+  it('旧选区清理 token 不会清除后登记的选择', () => {
+    const { result } = renderHook(() => usePage({ pageKey: 'metric', ready: true, scope: {}, view: {} }), { wrapper: wrapper('/metric') });
+    let old!: symbol; let current!: symbol;
+    act(() => { old = result.current.api.setSelection({ mode: 'refs', refs: [{ entityType: 'metric', id: 1 }] }); });
+    act(() => { current = result.current.api.setSelection({ mode: 'refs', refs: [{ entityType: 'metric', id: 2 }] }); });
+    act(() => result.current.api.clearSelection(old));
+    const frozen = result.current.api.buildSnapshot();
+    expect(frozen.status === 'ok' && frozen.pageContext.selection).toEqual({ mode: 'refs', refs: [{ entityType: 'metric', id: 2 }] });
+    act(() => result.current.api.clearSelection(current));
+    const cleared = result.current.api.buildSnapshot();
+    expect(cleared.status === 'ok' && cleared.pageContext.selection).toBeNull();
+  });
   it('登记后 buildSnapshot 返回 ok 且携带 scope', () => {
     const { result } = renderHook(
       () => usePage({ pageKey: 'analysis', ready: true, scope: { year: 2026 }, view: {} }),
@@ -112,7 +124,7 @@ describe('发送时快照冻结(§3.3)', () => {
     const { result, rerender } = renderHook(
       () => usePage({
         pageKey: 'budget_edit', ready: true, dirty: true, dirtyCount: 1,
-        serializeDraft: () => ({ kind: 'budget_grid', base: { versionId: 1 }, changes: [{ amount }] }),
+        serializeDraft: () => ({ kind: 'budget_grid', base: { versionId: 1, revision: 0 }, changes: [{ amount }] }),
       }),
       { wrapper: wrapper() },
     );
@@ -307,4 +319,45 @@ describe('SPA 导航后的页面注册(§8.1 回归)', () => {
       expect(navigated.pageContext.scope?.year).toBe(2027);
     }
   });
+});
+
+it('配置草稿在发送时读取最新输入，取消、换对象和切范围不复用旧登记', () => {
+  let currentName = '初稿';
+  const { result, rerender } = renderHook(({ open, id, search }) => {
+    useAssistantPageContext({ pageKey: 'metric', ready: true, scope: {}, view: { search } });
+    useAssistantDraft(open, `metric:${id}`, () => ({ kind: 'metric_formula', base: { clientKey: 'new', operation: 'create' }, changes: { name: currentName } }));
+    return useAssistantRegistry();
+  }, { initialProps: { open: true, id: 1, search: '' }, wrapper: wrapper('/metric') });
+  const first = result.current.buildSnapshot(); expect(first.status).toBe('ok');
+  if (first.status !== 'ok') return;
+  expect(first.pageContext.draft?.changes).toEqual({ name: '初稿' });
+  const oldKey = first.pageContext.draft?.base.clientKey;
+  currentName = '最新输入';
+  const next = result.current.buildSnapshot();
+  if (next.status !== 'ok') throw new Error('snapshot not ready');
+  expect(next.pageContext.draft?.changes).toEqual({ name: '最新输入' });
+  expect(first.pageContext.draft?.changes).toEqual({ name: '初稿' });
+  rerender({ open: true, id: 2, search: '' });
+  const changed = result.current.buildSnapshot();
+  if (changed.status !== 'ok') throw new Error('snapshot not ready');
+  expect(changed.pageContext.draft?.base.clientKey).not.toBe(oldKey);
+  expect(changed.pageContext.surfaces).toHaveLength(1);
+  rerender({ open: true, id: 2, search: '新筛选' });
+  const filtered = result.current.buildSnapshot();
+  if (filtered.status !== 'ok') throw new Error('snapshot not ready');
+  expect(filtered.pageContext.surfaces).toHaveLength(1);
+  expect(filtered.pageContext.draft).not.toBeNull();
+  rerender({ open: false, id: 2, search: '新筛选' });
+  const closed = result.current.buildSnapshot();
+  if (closed.status !== 'ok') throw new Error('snapshot not ready');
+  expect(closed.pageContext.draft).toBeNull(); expect(closed.pageContext.surfaces).toEqual([]);
+});
+
+it('上下文限额按 UTF-8 字节核验，中文不得绕过限制', () => {
+  const { result } = renderHook(() => {
+    useAssistantPageContext({ pageKey: 'metric', ready: true, scope: {}, view: {} });
+    return useAssistantRegistry();
+  }, { wrapper: wrapper('/metric') });
+  act(() => { result.current.registerDraft(() => ({ kind: 'metric_formula', base: { clientKey: 'new', operation: 'create' }, changes: { name: '水'.repeat(2 * 1024 * 1024) } })); });
+  expect(result.current.buildSnapshot().status).toBe('too_large');
 });

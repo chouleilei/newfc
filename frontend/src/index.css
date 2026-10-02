@@ -694,19 +694,19 @@ body {
    一体化圆角输入器、圆形发送键、底部免责声明。
    AI 相关界面是全站唯一允许出现紫调渐变的地方(--newfc-ai-*),
    用它把「AI 生成」与「后端确定性数据」在视觉上区分开。
-   z-index 取 antd Drawer 默认 1000,高于全屏覆盖层(900)。
+   z-index 取 1100，允许在配置弹窗内操作助手。
    ══════════════════════════════════════════════════════════ */
 /* 小窗里的表格按 12px 排版,允许横向滚动而不撑破面板 */
 .newfc-assistant-dock .assistant-markdown table {
   font-size: 12px;
 }
 
-/* ── 右下悬浮入口:AI 紫签名圆球,全站常驻,z-index 低于 Drawer(1000) 高于内容 ── */
+/* ── 右下悬浮入口:AI 紫签名圆球,全站常驻,z-index 高于配置弹窗，允许表单内提问 ── */
 .newfc-ai-fab {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 990;
+  z-index: 1100;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -733,7 +733,7 @@ body {
   position: fixed;
   right: 24px;
   bottom: 84px;
-  z-index: 990;
+  z-index: 1100;
   display: flex;
   flex-direction: column;
   width: 400px;

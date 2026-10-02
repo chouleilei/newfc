@@ -9,7 +9,7 @@
  */
 import { useCallback, useContext, useEffect, useRef } from 'react';
 import {
-  AssistantSurfaceParentContext, useAssistantRegistry, useOptionalAssistantRegistry, type PageRegistrationInit,
+  AssistantSurfaceParentContext, useAssistantRegistry, useOptionalAssistantRegistry, useOptionalAssistantRegistryView, type PageRegistrationInit,
 } from './AssistantContextRegistry';
 import { FocusDescriptor, SelectionDescriptor, SurfaceDescriptor } from '@contracts/assistant';
 
@@ -66,6 +66,8 @@ export function useOptionalAssistantSurface(input: {
 }): string | null {
   const registry = useOptionalAssistantRegistry();
   const inheritedParentId = useContext(AssistantSurfaceParentContext);
+  const registryView = useOptionalAssistantRegistryView();
+  const pageIdentity = JSON.stringify([registryView?.pageKey, registryView?.scope, registryView?.view]);
   const tokenRef = useRef<symbol | null>(null);
   const idRef = useRef<string | null>(null);
   const { open, kind, key, entity } = input;
@@ -82,7 +84,7 @@ export function useOptionalAssistantSurface(input: {
       if (idRef.current === id) idRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registry, open, kind, key, parentId]);
+  }, [registry, open, kind, key, parentId, pageIdentity]);
 
   useEffect(() => {
     const token = tokenRef.current;
@@ -109,6 +111,8 @@ export function useAssistantSurface(input: {
 }): string | null {
   const registry = useAssistantRegistry();
   const inheritedParentId = useContext(AssistantSurfaceParentContext);
+  const registryView = useOptionalAssistantRegistryView();
+  const pageIdentity = JSON.stringify([registryView?.pageKey, registryView?.scope, registryView?.view]);
   const tokenRef = useRef<symbol | null>(null);
   const idRef = useRef<string | null>(null);
   const { open, kind, key, entity } = input;
@@ -126,7 +130,7 @@ export function useAssistantSurface(input: {
     };
     // 打开/关闭即注册/注销；entity 变化走 updateSurface。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registry, open, kind, key, parentId]);
+  }, [registry, open, kind, key, parentId, pageIdentity]);
 
   useEffect(() => {
     const token = tokenRef.current;
@@ -200,12 +204,15 @@ export function useAssistantFocus(focus: FocusDescriptor | null, label?: string 
 /** 登记当前多选范围(§5.6)；null 清空。refs 超过 500 项时调用方必须改用 bounds 或 query。 */
 export function useAssistantSelection(selection: SelectionDescriptor | null): void {
   const registry = useAssistantRegistry();
+  const registryView = useOptionalAssistantRegistryView();
+  const pageIdentity = JSON.stringify([registryView?.pageKey, registryView?.scope, registryView?.view]);
   const selectionJson = selection ? JSON.stringify(selection) : null;
   useEffect(() => {
-    registry.setSelection(selectionJson ? (JSON.parse(selectionJson) as SelectionDescriptor) : null);
-    return () => registry.setSelection(null);
+    if (!selectionJson) return;
+    const token = registry.setSelection(JSON.parse(selectionJson) as SelectionDescriptor);
+    return () => registry.clearSelection(token);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registry, selectionJson]);
+  }, [registry, selectionJson, pageIdentity]);
 }
 
 /** 新领域页面登记：允许独立组件测试不带助手 Provider，产品运行时仍登记同一份实际筛选。 */
@@ -219,4 +226,25 @@ export function useAssistantDomainPage(init: PageRegistrationInit, enabled = tru
     return () => { registry.unregisterPage(token); if (tokenRef.current === token) tokenRef.current = null; };
   }, [registry, enabled]);
   useEffect(() => { if (enabled && registry && tokenRef.current) registry.updatePage(tokenRef.current, init); });
+}
+
+/** 当前编辑面板的草稿登记；序列化仅在发送瞬间运行。 */
+export function useAssistantDraft(open: boolean, identity: string, serialize: () => import('@contracts/assistant').DraftDescriptor | null): void {
+  const registry = useOptionalAssistantRegistry();
+  const view = useOptionalAssistantRegistryView();
+  const pageIdentity = JSON.stringify([view?.pageKey, view?.scope, view?.view]);
+  const latest = useRef(serialize);
+  latest.current = serialize;
+  useEffect(() => {
+    if (!registry || !open) return;
+    const clientKey = crypto.randomUUID();
+    const token = registry.registerDraft(() => {
+      const draft = latest.current();
+      if (!draft || draft.kind === 'budget_grid' || draft.kind === 'actual_grid') return draft;
+      if (draft.base.operation === 'create' || draft.base.operation === 'sheet_create' || draft.base.operation === 'analyze') return { ...draft, base: { ...draft.base, clientKey } };
+      return draft;
+    });
+    const surface = registry.registerSurface({ kind: 'modal', key: 'config-form-editor', entity: null, parentId: null });
+    return () => { registry.unregisterDraft(token); registry.unregisterSurface(surface.token); };
+  }, [registry, open, identity, pageIdentity]);
 }

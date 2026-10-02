@@ -2,6 +2,8 @@ import type { z } from 'zod';
 import type { DB } from '../db/connection';
 import type { DomainCapability } from '../contracts/page-catalog';
 import type { Permission } from '../contracts/permissions';
+import type { SelectionDescriptor } from '../contracts/assistant';
+import type { SelectionExecution } from './selection-context';
 export type ToolScope = 'global' | 'org_tree' | 'org_scope' | 'org_cell' | 'all_orgs';
 export interface ToolPolicy { permission: Permission; scope: ToolScope }
 export interface ToolDefinition {
@@ -10,7 +12,8 @@ export interface ToolDefinition {
   capabilities: DomainCapability[];
   universal: boolean;
   policy: ToolPolicy | ((params: Record<string, unknown>) => ToolPolicy);
-  execute: (db: DB, params: any) => unknown;
+  selectionModes?: SelectionDescriptor['mode'][];
+  execute: (db: DB, params: any, selection?: SelectionExecution) => unknown;
 }
 
 /** Erase schema internals after checking each definition; retain the literal tool names. */

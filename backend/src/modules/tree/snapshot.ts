@@ -53,7 +53,7 @@ function stableHash(nodes: SnapshotNode[]): string {
 }
 
 /** 读取当前树全部节点并生成快照;内容未变化时复用已有快照。返回快照 id。 */
-export function createOrReuseSnapshot(db: DB, treeType: 'org' | 'account'): number {
+export function readCurrentTreeDefinition(db: DB, treeType: 'org' | 'account') {
   const table = treeType === 'org' ? 'org' : 'account';
   const columns = treeType === 'account'
     ? new Set((db.pragma('table_info(account)') as { name: string }[]).map((row) => row.name))
@@ -68,6 +68,11 @@ export function createOrReuseSnapshot(db: DB, treeType: 'org' | 'account'): numb
   const content: TreeSnapshotContent = { nodes };
   const json = JSON.stringify(content);
   const hash = stableHash(nodes);
+  return { content, json, hash };
+}
+
+export function createOrReuseSnapshot(db: DB, treeType: 'org' | 'account'): number {
+  const { json, hash } = readCurrentTreeDefinition(db, treeType);
   const existing = db
     .prepare('SELECT id FROM tree_snapshot WHERE tree_type = ? AND content_hash = ?')
     .get(treeType, hash) as { id: number } | undefined;

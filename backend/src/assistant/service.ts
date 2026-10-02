@@ -1,3 +1,7 @@
+import { analyzeCleaningDraft } from './cleaning-draft';
+import type { CleaningUploadStore } from '../modules/io/cleaning/upload-store';
+import { configFieldHelp } from '../contracts/config-fields';
+import { assertSelectionDraft, selectionToolName, type SelectionExecution } from './selection-context';
 import { resolveDomainMessage, summarizeDomainFacts, domainSuggestions, domainSource } from './domain-facts';
 import { DOMAIN_ID_FIELDS } from '../contracts/assistant';
 import { validateDomainContext, domainBatchContext } from './domain-context';
@@ -1035,6 +1039,7 @@ function runToolCalls(
   messages: any[],
   allowedTools: ReadonlySet<string>,
   view: Record<string, unknown> = {},
+  selection?: SelectionExecution,
 ): FactRecord[] {
   const out: FactRecord[] = [];
   for (const [callIndex, call] of calls.entries()) {
@@ -1046,7 +1051,7 @@ function runToolCalls(
       // 模型只暴露本轮 PageCapabilityMap 允许的领域能力(§9.3)。
       data = { error: `当前页面不提供该查询能力(${call.name})，请改用页面允许的只读工具`, code: 'CAPABILITY_UNAVAILABLE' };
     } else {
-      try { call.arguments = alignDomainToolArguments(call.name, call.arguments, context, view); data = executeTool(db, call.name, call.arguments); }
+      try { call.arguments = alignDomainToolArguments(call.name, call.arguments, context, view); data = executeTool(db, call.name, call.arguments, selection); }
       catch (err) { data = { error: err instanceof Error ? err.message : String(err) }; }
     }
     const toolData: any = data as any;
@@ -1127,6 +1132,7 @@ async function runModelRouting(
     conversationId: number;
     /** 本轮允许的领域能力工具集(页面口径)；由唯一页面目录提供。 */
     allowedTools: ReadonlySet<string>;
+    selection?: SelectionExecution;
   },
   emit?: (chunk: string) => void,
   onProgress?: (event: ChatProgress) => void,
@@ -1190,7 +1196,7 @@ async function runModelRouting(
     const executable = callsThisRound.slice(0, allowedThisRound);
     const overflow = callsThisRound.slice(allowedThisRound);
     usage.toolCalls += callsThisRound.length;
-    toolFacts.push(...runToolCalls(db, executable, round, input.context, messages, input.allowedTools, input.view));
+    toolFacts.push(...runToolCalls(db, executable, round, input.context, messages, input.allowedTools, input.view, input.selection));
     for (const call of overflow) {
       messages.push({ role: 'tool', tool_call_id: call.id || `overflow-${call.name}`, name: call.name, content: JSON.stringify({ error: `单次对话工具调用总数超过上限 ${MAX_TOTAL_TOOL_CALLS} 个,请基于已取到的事实作答`, code: 'TOO_MANY_TOOL_CALLS_TOTAL' }) });
     }
@@ -1215,7 +1221,7 @@ async function runModelRouting(
   if (!toolFacts.length) {
     // 模型没有路由：用正则兜底取事实，再让模型基于事实作答(不再给工具，避免来回)。
     onProgress?.({ stage: 'fallback', label: '模型未调用工具，改用关键词兜底取数' });
-    const fallback = queryFacts(db, input.message, input.context, { intents: input.detection, includeExtras: false, view: input.view });
+    const fallback = queryFacts(db, input.message, input.context, { intents: input.detection, includeExtras: false, view: input.view, selection: input.selection });
     if (fallback.length) {
       const factsJson = stringifyForModel(fallback.map((f) => ({ type: f.type, source: f.source, data: f.data })), 60_000);
       messages.push({ role: 'system', content: buildFallbackFactsPrompt(factsJson) });
@@ -1396,6 +1402,7 @@ function checkNumbersAgainstFacts(
 
 
 export interface ChatOptions {
+  cleaningUploads?: CleaningUploadStore;
   /** 有值时逐块回调正文，用于 SSE 真流式 */
   onToken?: (chunk: string) => void;
   /**
@@ -1484,9 +1491,9 @@ function summarizeDraftImpact(impact: ReturnType<typeof computeDraftImpact>): st
 }
 
 /** 配置类草稿校验结论的确定性摘要。 */
-function summarizeDraftValidation(draft: { baseline: string; changeCount: number; issues: string[] }): string {
-  if (!draft.issues.length) return `草稿校验通过（基线：${draft.baseline}，${draft.changeCount} 个字段有修改，未写入数据库）。`;
-  return [`草稿校验发现 ${draft.issues.length} 个问题（基线：${draft.baseline}，未写入数据库）：`, ...draft.issues.map((issue) => `- ${issue}`)].join('\n');
+function summarizeDraftValidation(draft: { baseline: string; changeCount: number; issues: string[]; analysis?: { explanation: string[] } }): string {
+  const conclusion = !draft.issues.length ? `本次草稿校验通过（基线：${draft.baseline}，${draft.changeCount} 个字段有修改）。` : `草稿校验发现 ${draft.issues.length} 个问题（基线：${draft.baseline}）：`;
+  return [conclusion, '当前修改尚未保存；正式保存仍会重新检查。', ...draft.issues.map((issue) => `- ${issue}`), ...(draft.analysis?.explanation ?? [])].join('\n');
 }
 
 /** 后端实际采用的安全范围(§9.7 effectiveContext)。 */
@@ -1549,7 +1556,25 @@ export function prepareChat(db: DB, input: unknown) {
   const domainResolved = resolveDomainMessage(db, message, context, inherited.context, detection.read, looksLikeFollowUp(message) && (!requested.pageKey || requested.pageKey === inherited.context.pageKey || requested.pageKey === 'assistant'));
   const ambiguities = resolved.ambiguities;
   validateContextConsistency(db, context);
-  return { conversationId, message, backendCtx, requested, inherited, detection, context, resolution, domainResolved, ambiguities };
+  const selection: SelectionExecution | undefined = backendCtx.selection ? { selection: backendCtx.selection, scope: context, view: backendCtx.view, draft: backendCtx.draft } : undefined;
+  let selectionData: any = null;
+  if (selection) {
+    if (resolution.some((r) => r.origin === 'message' && requested[r.field] !== r.value) || ambiguities.length) throw new AppError('CONTEXT_CONFLICT', '问题指定的范围与活动选区不一致，请清空选择或重新选择后提问', 409);
+    assertSelectionDraft(selection);
+    selectionData = executeTool(db, selectionToolName(selection), {}, selection);
+  }
+  if (backendCtx.draft && resolution.some((r) => r.origin === 'message' && requested[r.field] !== r.value)) throw new AppError('CONTEXT_CONFLICT', '问题范围与未保存草稿不一致，请关闭草稿或使用当前范围提问', 409);
+  return { conversationId, message, backendCtx, requested, inherited, detection, context, resolution, domainResolved, ambiguities, selection, selectionData };
+}
+
+export async function prepareChatWithFiles(db: DB, input: unknown, uploads?: CleaningUploadStore, signal?: AbortSignal) {
+  throwIfChatAborted(signal);
+  const prepared = prepareChat(db, input);
+  const draft = prepared.backendCtx.draft;
+  if (draft?.kind === 'cleaning_template' && draft.config?.fields.plan != null && draft.fileSource == null) throw new AppError('CONTEXT_INVALID', '清洗草稿必须引用有效文件或预览', 400);
+  if (draft?.kind === 'cleaning_template' && draft.fileSource != null && !draft.issues.length) await analyzeCleaningDraft(db, draft, prepared.backendCtx.scope, currentAuth(), uploads, signal);
+  throwIfChatAborted(signal);
+  return prepared;
 }
 
 export async function chat(
@@ -1562,7 +1587,7 @@ export async function chat(
   const startedAt = Date.now();
   throwIfChatAborted(options.signal);
   const usage = { modelCalls: 0, modelMs: 0, toolCalls: 0 };
-  const { conversationId: preparedConversationId, message, backendCtx, requested, inherited, detection, context, resolution, domainResolved, ambiguities } = prepared ?? prepareChat(db, input);
+  const { conversationId: preparedConversationId, message, backendCtx, requested, inherited, detection, context, resolution, domainResolved, ambiguities, selection, selectionData } = prepared ?? await prepareChatWithFiles(db, input, options.cleaningUploads, options.signal);
   let conversationId = preparedConversationId;
   options.onProgress?.({ stage: 'context', label: '已解析提问范围', detail: context.year == null ? undefined : `${context.year} 年` });
   const digest = contextDigest(db, context, resolution);
@@ -1573,6 +1598,7 @@ export async function chat(
   const capability: DomainCapability | null = pickCapability(pageCap, detection.read, { hasVerificationFocus: backendCtx.focus?.kind === 'fact' });
   /** 模型只暴露本轮 PageCapabilityMap 允许的领域能力(§9.3)；所有请求均受本页能力限制。 */
   const allowedTools = new Set(allowedToolsForCapabilities(pageCap.capabilities));
+  if (selection) for (const name of allowedTools) if (name !== selectionToolName(selection)) allowedTools.delete(name);
   /** 规则兜底同样按页面能力过滤读意图；被拒绝的意图如实告知，不静默换口径。 */
   const [allowedReadIntents, deniedReadIntents] = filterIntentsByCapability(pageCap, detection.read);
   const effectiveDetection: IntentDetection = deniedReadIntents.length ? { ...detection, read: allowedReadIntents as IntentDetection['read'] } : detection;
@@ -1592,7 +1618,7 @@ export async function chat(
   /** 草稿影响：请求内叠加基线重算(§9.6)。结果只进 facts/正文，不进模型、不落库。 */
   // 草稿影响按整版重算汇总(集团口径),与编制页同样只对全组织用户开放。
   if (backendCtx?.draft) requireAllOrgsForAction('草稿影响测算');
-  const draftImpact = backendCtx?.draft ? computeDraftImpact(db, backendCtx.draft) : null;
+  const draftImpact = !selection && backendCtx?.draft ? computeDraftImpact(db, backendCtx.draft) : null;
   if (backendCtx && (verificationFact || backendCtx.draft)) {
     // 模型可见的只有「页面给出的脱敏范围 + 后端重算的核验/草稿结论摘要」，原始 draft.changes 永不进入。
     (digest as unknown as Record<string, unknown>).pageFocus = {
@@ -1602,6 +1628,41 @@ export async function chat(
     };
   }
 
+  const pageFacts: FactRecord[] = [];
+  if (selectionData) pageFacts.push({ type: 'selection_analysis', data: selectionData, source: { year: context.year, budgetVersionId: context.budgetVersionId, actualSnapshotId: context.actualSnapshotId } });
+  /* V2：核验焦点与草稿影响的事实附加上去——页面、助手与导出共用同一份核验结论(§9.5)。 */
+  if (verificationFact) {
+    pageFacts.push({
+      type: 'verification_fact',
+      data: verificationFact,
+      source: {
+        year: context.year,
+        budgetVersionId: verificationFact.scope.versionId ?? context.budgetVersionId ?? null,
+        actualSnapshotId: verificationFact.scope.batchId ?? context.actualSnapshotId ?? null,
+      },
+    });
+  }
+  if (draftImpact) {
+    // 只保留聚合影响；原始 changes 与逐格修改值不进入响应与持久化(§9.6/§9.8)。
+    const { changedCells: _dropped, ...aggregates } = draftImpact;
+    pageFacts.push({
+      type: 'draft_impact',
+      data: aggregates,
+      source: { year: context.year, budgetVersionId: context.budgetVersionId ?? null, actualSnapshotId: context.actualSnapshotId ?? null },
+    });
+  } else if (backendCtx?.draft) {
+    pageFacts.push({
+      type: 'draft_validation',
+      data: { kind: backendCtx.draft.kind, baseline: backendCtx.draft.baseline, changeCount: backendCtx.draft.changeCount, issues: backendCtx.draft.issues, analysis: backendCtx.draft.analysis, targetId: backendCtx.draft.config?.targetId ?? null, clientKey: backendCtx.draft.config?.clientKey ?? null, unsaved: true },
+      source: { year: context.year },
+    });
+  }
+  const fieldExplanation = backendCtx.focus?.kind === 'form_field' ? configFieldHelp(backendCtx.focus.formKind, backendCtx.focus.field) : null;
+  if (fieldExplanation) pageFacts.push({ type: 'field_help', data: { formKind: backendCtx.focus!.kind === 'form_field' ? backendCtx.focus!.formKind : '', field: backendCtx.focus!.kind === 'form_field' ? backendCtx.focus!.field : '', explanation: fieldExplanation }, source: {} });
+  const selectionPrefix = selectionData ? '当前选择（' + selectionData.mode + '）：已核验 ' + selectionData.count + ' 个对象。' + (selectionData.amount != null ? '选区金额 ' + selectionData.amount + ' 元。' : '') + (selectionData.unsaved ? '包含当前未保存修改。' : '') + (selectionData.truncated ? '详情显示前 30 项，汇总覆盖全部选择。' : '') + (selectionData.explanation ?? '') : '';
+  const pagePrefix = [selectionPrefix, fieldExplanation ?? '', verificationFact ? summarizeVerificationFact(verificationFact) : '', draftImpact ? summarizeDraftImpact(draftImpact) : backendCtx.draft ? summarizeDraftValidation(backendCtx.draft) : ''].filter(Boolean).join('\n\n');
+  if (pageFacts.length) (digest as unknown as Record<string, unknown>).pageFacts = pageFacts;
+  if (pagePrefix) emitInChunks(`${pagePrefix}\n\n`, options.onToken);
   let facts: FactRecord[] = [];
   let text = '';
   let modelName = 'template';
@@ -1611,7 +1672,7 @@ export async function chat(
   if (!domainResolved.clarification && modelConfigured()) {
     options.onProgress?.({ stage: 'routing', label: '正在由模型选择需要的数据' });
     try {
-      const outcome = await runModelRouting(db, { message, context, detection: effectiveDetection, digest, view: backendCtx?.view, conversationId, allowedTools }, options.onToken, options.onProgress, options.signal);
+      const outcome = await runModelRouting(db, { message, context, detection: effectiveDetection, digest, view: backendCtx?.view, conversationId, allowedTools, selection }, options.onToken, options.onProgress, options.signal);
       throwIfChatAborted(options.signal);
       usage.modelCalls += outcome.modelCalls;
       usage.modelMs += outcome.modelMs;
@@ -1634,8 +1695,8 @@ export async function chat(
   if (routing === 'rules') {
     throwIfChatAborted(options.signal);
     options.onProgress?.({ stage: 'template', label: '正在用后端确定性查询取数' });
-    facts = domainResolved.clarification ? [domainResolved.clarification] : queryFacts(db, message, context, { intents: effectiveDetection, view: backendCtx?.view });
-    text = deterministicSummary(facts, context, { rankFocus: detectRankFocus(message) });
+    facts = selectionData ? [] : domainResolved.clarification ? [domainResolved.clarification] : queryFacts(db, message, context, { intents: effectiveDetection, view: backendCtx?.view });
+    text = selectionData ? '以上结论来自本次已核验的选择范围。' : deterministicSummary(facts, context, { rankFocus: detectRankFocus(message) });
     if (modelError && !facts.length) text = `模型暂时不可用：${modelError}。${text}`;
     emitInChunks(text, options.onToken);
   } else {
@@ -1646,41 +1707,8 @@ export async function chat(
       emitInChunks(text, options.onToken);
     }
   }
-  /* V2：核验焦点与草稿影响的事实附加上去——页面、助手与导出共用同一份核验结论(§9.5)。 */
-  if (verificationFact) {
-    facts.unshift({
-      type: 'verification_fact',
-      data: verificationFact,
-      source: {
-        year: context.year,
-        budgetVersionId: verificationFact.scope.versionId ?? context.budgetVersionId ?? null,
-        actualSnapshotId: verificationFact.scope.batchId ?? context.actualSnapshotId ?? null,
-      },
-    });
-  }
-  if (draftImpact) {
-    // 只保留聚合影响；原始 changes 与逐格修改值不进入响应与持久化(§9.6/§9.8)。
-    const { changedCells: _dropped, ...aggregates } = draftImpact;
-    facts.push({
-      type: 'draft_impact',
-      data: aggregates,
-      source: { year: context.year, budgetVersionId: context.budgetVersionId ?? null, actualSnapshotId: context.actualSnapshotId ?? null },
-    });
-  } else if (backendCtx?.draft) {
-    facts.push({
-      type: 'draft_validation',
-      data: { kind: backendCtx.draft.kind, baseline: backendCtx.draft.baseline, changeCount: backendCtx.draft.changeCount, issues: backendCtx.draft.issues },
-      source: { year: context.year },
-    });
-  }
-  /* 模板模式下把核验/草稿结论放到正文最前面：它们就是用户指着页面元素问的那个问题。 */
-  if (routing === 'rules') {
-    const prefix: string[] = [];
-    if (verificationFact) prefix.push(summarizeVerificationFact(verificationFact));
-    if (draftImpact) prefix.push(summarizeDraftImpact(draftImpact));
-    else if (backendCtx?.draft?.issues.length) prefix.push(summarizeDraftValidation(backendCtx.draft));
-    if (prefix.length) text = `${prefix.join('\n\n')}\n\n${text}`;
-  }
+  facts = [...pageFacts, ...facts];
+  if (pagePrefix) text = `${pagePrefix}\n\n${text}`;
   text = text.slice(0, 100_000);
 
   const navigation = resolveNavigation(message, context) ?? cellNoteNavigation(facts);
@@ -1759,7 +1787,7 @@ export async function chat(
   const numberCheck = routing === 'model'
     ? checkNumbersAgainstFacts(text, facts, { message, actionParams: action?.params })
     : { status: 'skipped' as const, checked: 0, unverified: [], note: '正文来自后端确定性模板，数字无需核对' };
-  const response: Omit<AssistantChatResponse, 'conversationId'> = {
+  const response = {
     text,
     facts,
     citations: citationsForFacts(facts),
@@ -1801,7 +1829,7 @@ export async function chat(
       /** 一行范围摘要，例如「年度执行分析 · 2026 年 · 预算 V3 · 江垭电站 · 截至 6 月」 */
       contextSummary: buildContextSummary(db, backendCtx.pageLabel, context, backendCtx.extras, backendCtx.view),
       contextTrace: {
-        used: [...resolution.map((item) => ({ field: item.field, value: item.value, origin: item.origin, reason: item.reason })), ...domainResolved.trace],
+        used: [...resolution.map((item) => ({ field: item.field, value: item.value, origin: item.origin, reason: item.reason, ...(item.label ? { label: item.label } : {}) })), ...domainResolved.trace],
         overrides: contextOverrides,
         warnings: contextWarnings,
       },
@@ -1810,8 +1838,8 @@ export async function chat(
       /** 是否采用草稿、类型和变更数量；不含原值 */
       draftApplied: backendCtx.draft ? draftSummary(backendCtx.draft) : null,
     },
-  };
-  response.metrics!.durationMs = Date.now() - startedAt;
+  } satisfies Omit<AssistantChatResponse, 'conversationId'>;
+  response.metrics.durationMs = Date.now() - startedAt;
   const timestamp = now();
   throwIfChatAborted(options.signal);
   if (conversationId === 0) conversationId = ensureConversation(db, undefined, message);
@@ -2686,6 +2714,7 @@ export function saveInsight(db: DB, input: { conversationId?: number; title?: un
 function auxiliaryContext(db: DB, input: Record<string, unknown>, batchField: 'actualSnapshotId' | 'importBatchId' = 'actualSnapshotId') {
   if ('context' in input) throw new AppError('CONTEXT_INVALID', '仅接受 pageContext', 400);
   const parsed = resolveAssistantContext(db, input.pageContext);
+  if (parsed.selection || parsed.draft) throw new AppError('CAPABILITY_UNAVAILABLE', '此分析入口不支持活动选区或未保存草稿，请清空后使用页面范围', 400);
   const fields = { versionId: 'budgetVersionId', batchId: batchField, year: 'year', targetVersionId: 'targetVersionId', orgScopeId: 'orgScopeId', accountScopeId: 'accountScopeId' } as const;
   for (const [parameter, field] of Object.entries(fields)) {
     const expected = parsed.scope[field];

@@ -210,7 +210,7 @@ test('非标准 Excel 六步向导覆盖区域、重分析、批量映射、排�
     const templateName = `E2E 清洗模板 ${suffix}`;
     await wizard.getByPlaceholder('新模板名称').fill(templateName);
     const templateCreated = page.waitForResponse((response) => response.url().endsWith('/api/io/cleaning/templates') && response.request().method() === 'POST');
-    await wizard.getByRole('button', { name: /另存模板/ }).click();
+    await wizard.getByRole('button', { name: '另存模板', exact: true }).click();
     const templateResponse = await templateCreated;
     expect(templateResponse.status()).toBe(201);
     templateId = ((await templateResponse.json()) as { id: number }).id;

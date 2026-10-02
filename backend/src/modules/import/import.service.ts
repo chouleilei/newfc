@@ -195,6 +195,32 @@ function assertPreviewOwner(batch: ImportBatchRow, action: string): void {
   }
 }
 
+/** 正式提交与助手只读检查共用的并发基线核验，不创建树快照。 */
+export function assertImportPreviewBaseline(db: DB, batch: ImportBatchRow): void {
+  const summary = json<Record<string, unknown>>(batch.summary_json);
+  if (batch.kind === 'budget') {
+    const payload = json<BudgetPayload>(batch.payload_json);
+    if (typeof summary.previewBaseline !== 'string') throw Errors.conflict('该预算导入预览创建于并发基线启用前，请取消后重新预览');
+    if (budget.getVersion(db, payload.versionId).status !== 'draft') throw Errors.conflict('目标预算版本已不再是草稿,导入预览已失效');
+    const current = crypto.createHash('sha256').update(JSON.stringify(budgetVersionSnapshot(db, payload.versionId))).digest('hex');
+    if (current !== summary.previewBaseline) throw Errors.conflict('预算导入预览后版本已有其他改动，禁止静默覆盖，请重新预览');
+    if (summary.cleaningBaseline !== undefined) assertCleaningBaseline(db, { targetKind: 'budget', versionId: payload.versionId }, summary.cleaningBaseline);
+    return;
+  }
+  const payload = json<ActualPayload>(batch.payload_json);
+  if (!Object.prototype.hasOwnProperty.call(summary, 'previewBaseline') || (payload.history ? summary.previewBaseline !== null : typeof summary.previewBaseline !== 'string')) throw Errors.conflict('该实际导入预览创建于并发基线启用前，请取消后重新预览');
+  if (!payload.history && typeof summary.financeConversionId !== 'number') {
+    const keys = new Set(payload.batches.flatMap((group) => group.entries.map((entry) => `${group.year}:${entry.orgId}:${entry.accountId}`)));
+    const current = crypto.createHash('sha256').update(JSON.stringify(rawActualSnapshot(db, keys))).digest('hex');
+    if (current !== summary.previewBaseline) throw Errors.conflict('实际导入预览后命中单元格已被修改，禁止静默覆盖，请重新预览');
+  }
+  if (summary.cleaningBaseline !== undefined) {
+    if (payload.history || payload.batches.length !== 1) throw Errors.conflict('清洗实际数批次目标格式无效，请取消后重新预览');
+    const group = payload.batches[0];
+    assertCleaningBaseline(db, { targetKind: 'actual-current', year: group.year, snapshotDate: group.snapshotDate }, summary.cleaningBaseline);
+  }
+}
+
 export function commitBatch(db: DB, id: number): ImportBatchRow {
   const batch = getBatch(db, id);
   if (batch.status !== 'pending') throw Errors.conflict(`导入批次状态为 ${batch.status},不能重复确认`);
@@ -204,26 +230,11 @@ export function commitBatch(db: DB, id: number): ImportBatchRow {
   let after: unknown[] = [];
   let result: Record<string, unknown> = {};
   db.transaction(() => {
+    assertImportPreviewBaseline(db, batch);
     if (batch.kind === 'budget') {
       const payload = json<BudgetPayload>(batch.payload_json);
-      const summary = json<{ previewBaseline?: unknown; cleaningBaseline?: unknown }>(batch.summary_json);
-      if (!Object.prototype.hasOwnProperty.call(summary, 'previewBaseline')
-        || typeof summary.previewBaseline !== 'string') {
-        throw Errors.conflict('该预算导入预览创建于并发基线启用前，请取消后重新预览');
-      }
-      const version = budget.getVersion(db, payload.versionId);
-      if (version.status !== 'draft') throw Errors.conflict('目标预算版本已不再是草稿,导入预览已失效');
       const keys = new Set(payload.entries.map((entry) => `${entry.orgId}:${entry.accountId}`));
       before = budgetCellSnapshot(db, payload.versionId, keys);
-      // 基线对全量版本重算(与预览侧 budgetVersionSnapshot 同口径):
-      // 任何并发改动(不止命中格)都会使基线失配,阻止整包替换误删。
-      const currentBaseline = crypto.createHash('sha256').update(JSON.stringify(budgetVersionSnapshot(db, payload.versionId))).digest('hex');
-      if (currentBaseline !== summary.previewBaseline) {
-        throw Errors.conflict('预算导入预览后版本已有其他改动，禁止静默覆盖，请重新预览');
-      }
-      if (summary.cleaningBaseline !== undefined) {
-        assertCleaningBaseline(db, { targetKind: 'budget', versionId: payload.versionId }, summary.cleaningBaseline);
-      }
       const merged = allBudgetInputs(db, payload.versionId);
       for (const entry of payload.entries) merged.set(`${entry.orgId}:${entry.accountId}`, entry);
       result = budget.saveEntries(db, payload.versionId, [...merged.values()]);
@@ -231,20 +242,7 @@ export function commitBatch(db: DB, id: number): ImportBatchRow {
     } else {
       const payload = json<ActualPayload>(batch.payload_json);
       const summary = json<Record<string, unknown>>(batch.summary_json);
-      const hasPreviewBaseline = Object.prototype.hasOwnProperty.call(summary, 'previewBaseline');
-      const validPreviewBaseline = payload.history
-        ? summary.previewBaseline === null
-        : typeof summary.previewBaseline === 'string';
-      if (!hasPreviewBaseline || !validPreviewBaseline) {
-        throw Errors.conflict('该实际导入预览创建于并发基线启用前，请取消后重新预览');
-      }
       const keys = new Set(payload.batches.flatMap((group) => group.entries.map((entry) => `${group.year}:${entry.orgId}:${entry.accountId}`)));
-      if (!payload.history && typeof summary.previewBaseline === 'string' && typeof summary.financeConversionId !== 'number') {
-        const currentBaseline = crypto.createHash('sha256').update(JSON.stringify(rawActualSnapshot(db, keys))).digest('hex');
-        if (currentBaseline !== summary.previewBaseline) {
-          throw Errors.conflict('实际导入预览后命中单元格已被修改，禁止静默覆盖，请重新预览');
-        }
-      }
       if (typeof summary.financeConversionId === 'number') {
         if (typeof summary.baseline !== 'string') {
           throw Errors.conflict('该财务转换导入缺少拥有范围基线，请取消后重新转换并预览');
@@ -257,11 +255,6 @@ export function commitBatch(db: DB, id: number): ImportBatchRow {
         if (financeBaseline(db, payload) !== summary.baseline) {
           throw Errors.conflict('预览后拥有范围内实际数已被修改，禁止静默覆盖，请重新转换并处理冲突');
         }
-      }
-      if (summary.cleaningBaseline !== undefined) {
-        if (payload.history || payload.batches.length !== 1) throw Errors.conflict('清洗实际数批次目标格式无效，请取消后重新预览');
-        const group = payload.batches[0];
-        assertCleaningBaseline(db, { targetKind: 'actual-current', year: group.year, snapshotDate: group.snapshotDate }, summary.cleaningBaseline);
       }
       if (!payload.history && typeof summary.financeConversionId !== 'number') {
         assertNoFinanceOwnedConflicts(db, payload.batches.flatMap((group) => group.entries.map((entry) => ({ orgId: entry.orgId, accountId: entry.accountId }))));

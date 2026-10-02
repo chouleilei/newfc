@@ -27,7 +27,8 @@ import {
 } from '../utils/importBatchSummary';
 import EChart from '../components/EChart';
 import { chartTheme, useThemeMode, statusColor } from '../theme';
-import { useAssistantPageContext } from '../assistant/contextHooks';
+import { ConfigFormAssistant, changedFields } from '../components/assistant/ConfigFormAssistant';
+import { useAssistantDraft, useAssistantPageContext } from '../assistant/contextHooks';
 
 interface BackupItem { name: string; size: number; mtime: string; monthly: boolean }
 interface CheckItem { name: string; ok: boolean; problems: string[] }
@@ -446,7 +447,15 @@ function ImportHistoryTab() {
 
 interface CalculationRuleDto {
   id: number; code: string; name: string; rule_type: 'quantity_price_net_tax' | 'multiply';
-  sheet_code: string; config_json: string; status: 'active' | 'inactive'; sort_order: number;
+  sheet_code: string; config_json: string; status: 'active' | 'inactive'; sort_order: number; updated_at: string;
+}
+
+function calculationSaveBody(v: Record<string, unknown>) {
+  const ruleType = v.ruleType as CalculationRuleDto['rule_type'];
+  const config = ruleType === 'quantity_price_net_tax'
+    ? { quantityAccountCode: v.quantityAccountCode, priceAccountCode: v.priceAccountCode, taxAccountCode: v.taxAccountCode, defaultTaxRate: v.defaultTaxRate == null ? '0' : String(v.defaultTaxRate), outputAccountCode: v.outputAccountCode }
+    : { leftAccountCode: v.leftAccountCode, rightAccountCode: v.rightAccountCode, outputAccountCode: v.outputAccountCode };
+  return { code: v.code, name: v.name, ruleType, sheetCode: v.sheetCode, sortOrder: v.sortOrder, config, status: v.enabled ? 'active' : 'inactive' };
 }
 
 function CalculationRulesTab() {
@@ -458,15 +467,16 @@ function CalculationRulesTab() {
   const { data, error, refetch } = useQuery({ queryKey: ['calculation-rules-all'], queryFn: () => api.get<{ items: CalculationRuleDto[] }>('/calculation-rules?all=1') });
   const save = useMutation({
     mutationFn: (v: Record<string, unknown>) => {
-      const ruleType = v.ruleType as CalculationRuleDto['rule_type'];
-      const config = ruleType === 'quantity_price_net_tax'
-        ? { quantityAccountCode: v.quantityAccountCode, priceAccountCode: v.priceAccountCode, taxAccountCode: v.taxAccountCode, defaultTaxRate: String(v.defaultTaxRate ?? 0), outputAccountCode: v.outputAccountCode }
-        : { leftAccountCode: v.leftAccountCode, rightAccountCode: v.rightAccountCode, outputAccountCode: v.outputAccountCode };
-      const body = { ...v, config, status: v.enabled ? 'active' : 'inactive' };
+      const body = calculationSaveBody(v);
       return editing ? api.put(`/calculation-rules/${editing.id}`, body) : api.post('/calculation-rules', body);
     },
     onSuccess: () => { message.success('测算模板已保存'); setOpen(false); qc.invalidateQueries({ queryKey: ['calculation-rules'] }); qc.invalidateQueries({ queryKey: ['calculation-rules-all'] }); },
     onError: (e) => message.error(errorText(e)),
+  });
+  useAssistantDraft(open, `calculation:${editing?.id ?? 'new'}`, () => {
+    const current = calculationSaveBody(form.getFieldsValue(true));
+    const baseline = editing ? { code: editing.code, name: editing.name, ruleType: editing.rule_type, sheetCode: editing.sheet_code, sortOrder: editing.sort_order, config: JSON.parse(editing.config_json), status: editing.status } : undefined;
+    return { kind: 'calculation_rule', base: editing ? { id: editing.id, updatedAt: editing.updated_at, operation: 'update' } : { clientKey: 'new-calculation', operation: 'create' }, changes: changedFields(current, baseline) };
   });
   const edit = (row?: CalculationRuleDto) => {
     let cfg: Record<string, unknown> = {};
@@ -513,7 +523,8 @@ function CalculationRulesTab() {
         { title: '操作', width: 90, render: (_: unknown, r: CalculationRuleDto) => <Button size="small" onClick={() => edit(r)}>编辑</Button> },
       ]} />
       )}
-      <Modal title={editing ? '编辑测算模板' : '新增测算模板'} open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then((v) => save.mutate(v))} confirmLoading={save.isPending} width={620}>
+      <Modal mask={false} destroyOnHidden title={editing ? '编辑测算模板' : '新增测算模板'} open={open} onCancel={() => setOpen(false)} onOk={() => form.validateFields().then((v) => save.mutate(v))} confirmLoading={save.isPending} width={620}>
+        {open && <ConfigFormAssistant kind="calculation_rule" form={form} />}
         <Form form={form} layout="vertical">
           <Space style={{ display: 'flex' }}><Form.Item name="code" label="模板编码" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="name" label="模板名称" rules={[{ required: true }]}><Input /></Form.Item></Space>
           <Form.Item name="ruleType" label="模板类型" rules={[{ required: true }]}><Select options={[{ value: 'quantity_price_net_tax', label: '量×价÷(1+税率)' }, { value: 'multiply', label: '两个数量参数相乘' }]} /></Form.Item>

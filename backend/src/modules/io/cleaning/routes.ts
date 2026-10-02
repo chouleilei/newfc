@@ -1,3 +1,4 @@
+import { currentAuth } from '../../../core/request-context';
 import type { Express, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import type { DB } from '../../../db/connection';
@@ -82,11 +83,11 @@ export function registerCleaningRoutes(
 
   app.post('/api/io/cleaning/workbook', upload.single('file'), wrap(async (req, res) => {
     if (!req.file) throw Errors.validation('请上传 .xlsx 文件');
-    targetKind(req.body?.targetKind);
+    const kind = targetKind(req.body?.targetKind)!;
     try {
       const workbook = await loadCleaningWorkbook(req.file.buffer);
       const inspection = inspectWorkbook(workbook);
-      const metadata = store.put(uploadName(req.file.originalname), req.file.buffer);
+      const metadata = store.put(uploadName(req.file.originalname), req.file.buffer, { ownerUserId: currentAuth()?.userId ?? 0, targetKind: kind });
       res.status(201).json({
         token: metadata.token,
         originalName: metadata.originalName,
@@ -102,7 +103,7 @@ export function registerCleaningRoutes(
   }));
 
   app.get('/api/io/cleaning/workbook/:token/region', wrap(async (req, res) => {
-    const uploadFile = store.get(req.params.token, true);
+    const uploadFile = store.readOwned(req.params.token, currentAuth()?.userId ?? 0, {}, true);
     const workbook = await loadCleaningWorkbook(uploadFile.buffer);
     const request = parseRegionRequest(req.query as Record<string, unknown>);
     res.json(readRegion(workbook, request));
@@ -110,14 +111,14 @@ export function registerCleaningRoutes(
 
   // 结构建议是模型入口:挂独立叙述桶,不与聊天共用配额(AI 功能增强计划 §二.5)
   app.post('/api/io/cleaning/suggest', assistantNarrativeRateLimit, wrap(async (req, res) => {
-    const uploadFile = store.get(String(req.body?.token ?? ''), true);
+    const uploadFile = store.readOwned(String(req.body?.token ?? ''), currentAuth()?.userId ?? 0, { targetKind: targetKind(req.body?.targetKind ?? req.body?.target?.targetKind)! }, true);
     const kind = targetKind(req.body?.targetKind)!;
     const inspection = inspectWorkbook(await loadCleaningWorkbook(uploadFile.buffer));
     res.json(await suggestCleaningStructure(inspection, kind));
   }));
 
   app.post('/api/io/cleaning/analyze', wrap(async (req, res) => {
-    const uploadFile = store.get(String(req.body?.token ?? ''), true);
+    const uploadFile = store.readOwned(String(req.body?.token ?? ''), currentAuth()?.userId ?? 0, { targetKind: targetKind(req.body?.targetKind ?? req.body?.target?.targetKind)! }, true);
     const target = parseCleaningTarget(req.body?.target);
     const plan = parseCleaningPlan(req.body?.plan);
     assertTargetMatchesPlan(target, plan);
@@ -137,7 +138,7 @@ export function registerCleaningRoutes(
   app.post('/api/io/cleaning/preview', wrap(async (req, res) => {
     // get() 在任何业务校验前刷新滑动 TTL；后续 422/409 也不会让用户的临时文件意外过期。
     const token = String(req.body?.token ?? '');
-    const uploadFile = store.get(token, true);
+    const uploadFile = store.readOwned(token, currentAuth()?.userId ?? 0, { targetKind: targetKind(req.body?.target?.targetKind)! }, true);
     const target = parseCleaningTarget(req.body?.target);
     const plan = parseCleaningPlan(req.body?.plan);
     assertTargetMatchesPlan(target, plan);
@@ -185,7 +186,7 @@ export function registerCleaningRoutes(
     const kind = aliasTargetKind(req.query.targetKind);
     const mappingKind = req.query.mappingKind === undefined ? undefined : req.query.mappingKind;
     if (mappingKind !== undefined && mappingKind !== 'org' && mappingKind !== 'account') throw Errors.validation('mappingKind 必须为 org 或 account');
-    res.json({ items: aliases.listAliases(db(), { targetKind: kind, mappingKind }).map(publicAlias) });
+    res.json({ items: aliases.listAliases(db(), { ...req.query, targetKind: kind, mappingKind } as import('../../../contracts/list-filters').AliasFilter).map(publicAlias) });
   }));
   app.post('/api/io/cleaning/aliases', wrap((req, res) => res.status(201).json(publicAlias(aliases.createAlias(db(), req.body ?? {}, actor(req))))));
   app.patch('/api/io/cleaning/aliases/:id', wrap((req, res) => res.json(publicAlias(aliases.updateAlias(db(), Number(req.params.id), req.body ?? {}, actor(req))))));

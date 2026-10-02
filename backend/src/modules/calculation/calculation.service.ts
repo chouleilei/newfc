@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { validateInput, positiveId, sortOrder, nodeStatus } from '../../core/input';
 import type { DB } from '../../db/connection';
 import { Errors } from '../../core/errors';
 import { computeLeafIds } from '../../core/tree';
@@ -6,6 +8,11 @@ import { quantityStringToScaled, signOfType } from '../../core/money';
 import { getVersion } from '../budget/budget.service';
 import { loadSnapshotNodes } from '../tree/snapshot';
 import { writeLog } from '../audit/log';
+
+const ruleConfigSchema = z.object({ quantityAccountCode: z.string().max(128).optional(), priceAccountCode: z.string().max(128).optional(), taxAccountCode: z.string().max(128).optional(), defaultTaxRate: z.string().max(40).optional(), leftAccountCode: z.string().max(128).optional(), rightAccountCode: z.string().max(128).optional(), outputAccountCode: z.string().max(128).optional() }).strict();
+export const ruleInputSchema = z.object({ id: positiveId.optional(), code: z.string().min(1).max(80), name: z.string().min(1).max(255), ruleType: z.enum(['quantity_price_net_tax', 'multiply']), sheetCode: z.string().max(128).optional(), config: ruleConfigSchema, status: nodeStatus.optional(), sortOrder: sortOrder.optional() }).strict();
+export const rulePatchSchema = ruleInputSchema.omit({ id: true }).partial().strict();
+
 
 export type CalculationRuleType = 'quantity_price_net_tax' | 'multiply';
 
@@ -22,7 +29,7 @@ export interface CalculationRuleRow {
   updated_at: string;
 }
 
-interface RuleConfig {
+export interface RuleConfig {
   quantityAccountCode?: string;
   priceAccountCode?: string;
   taxAccountCode?: string;
@@ -58,6 +65,10 @@ function parseConfig(raw: string, ruleType?: CalculationRuleType): RuleConfig {
   let config: RuleConfig;
   try { config = JSON.parse(raw) as RuleConfig; } catch { throw Errors.validation('测算模板配置 JSON 格式错误'); }
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw Errors.validation('测算模板配置必须是 JSON 对象');
+  const fields = new Set(['quantityAccountCode', 'priceAccountCode', 'taxAccountCode', 'defaultTaxRate', 'leftAccountCode', 'rightAccountCode', 'outputAccountCode']);
+  for (const [field, value] of Object.entries(config)) {
+    if (!fields.has(field) || typeof value !== 'string') throw Errors.validation(`测算配置字段 ${field} 不支持或必须为字符串`);
+  }
   if (!config.outputAccountCode?.trim()) throw Errors.validation('测算模板缺少输出科目编码');
   if (ruleType === 'quantity_price_net_tax') {
     if (!config.quantityAccountCode?.trim() || !config.priceAccountCode?.trim()) {
@@ -70,6 +81,7 @@ function parseConfig(raw: string, ruleType?: CalculationRuleType): RuleConfig {
       throw Errors.validation('缺省税率格式不正确，最多四位小数');
     }
     if (taxScaled <= -1_000_000) throw Errors.validation('缺省税率必须大于 -100%');
+    if (taxScaled > 1_000_000) throw Errors.validation('缺省税率不能超过 100%');
   } else if (ruleType === 'multiply') {
     if (!config.leftAccountCode?.trim() || !config.rightAccountCode?.trim()) {
       throw Errors.validation('乘法测算模板必须配置两个输入科目');
@@ -78,18 +90,41 @@ function parseConfig(raw: string, ruleType?: CalculationRuleType): RuleConfig {
   return config;
 }
 
-export function saveRule(
+export function validateRuleInput(
   db: DB,
   input: { id?: number; code: string; name: string; ruleType: CalculationRuleType; sheetCode?: string; config: RuleConfig; status?: 'active' | 'inactive'; sortOrder?: number },
-): CalculationRuleRow {
+) {
+  validateInput(ruleInputSchema, input);
   if (!input.code?.trim() || !/^[A-Za-z0-9_.-]{1,80}$/.test(input.code.trim())) throw Errors.validation('测算模板编码格式不正确');
   if (!input.name?.trim()) throw Errors.validation('测算模板名称不能为空');
   if (!['quantity_price_net_tax', 'multiply'].includes(input.ruleType)) throw Errors.validation('不支持的测算模板类型');
   const configJson = JSON.stringify(input.config ?? {});
   parseConfig(configJson, input.ruleType);
+  if (input.id != null) getRule(db, input.id);
+  const duplicate = db.prepare('SELECT id FROM budget_calculation_rule WHERE code = ?').get(input.code.trim()) as { id: number } | undefined;
+  if (duplicate && duplicate.id !== input.id) throw Errors.conflict('测算模板编码已存在');
+  if (input.status != null && !['active', 'inactive'].includes(input.status)) throw Errors.validation('测算模板状态不正确');
+  const config = parseConfig(configJson, input.ruleType);
+  const rows = db.prepare('SELECT id, parent_id, code, type, status FROM account').all() as { id: number; parent_id: number | null; code: string; type: string; status: string }[];
+  const leafIds = computeLeafIds(rows as never);
+  for (const [field, code] of Object.entries(config)) {
+    if (!field.endsWith('AccountCode') || !code) continue;
+    const account = rows.find((row) => row.code === code);
+    if (!account || account.status !== 'active' || !leafIds.has(account.id)) throw Errors.validation(`${field}: 科目不存在、已停用或不是叶子科目`);
+    if (field === 'outputAccountCode' ? account.type === 'quantity' : input.ruleType === 'quantity_price_net_tax' && account.type !== 'quantity') throw Errors.validation(`${field}: 输出必须为金额科目，量价输入必须为数量科目`);
+  }
+  return { config, configJson };
+}
+
+export function saveRule(
+  db: DB,
+  input: { id?: number; code: string; name: string; ruleType: CalculationRuleType; sheetCode?: string; config: RuleConfig; status?: 'active' | 'inactive'; sortOrder?: number },
+): CalculationRuleRow {
+  const { configJson } = validateRuleInput(db, input);
   const now = new Date().toISOString();
   let id = input.id;
   db.transaction(() => {
+    validateRuleInput(db, input);
     if (id == null) {
       const info = db.prepare(
         `INSERT INTO budget_calculation_rule
@@ -128,9 +163,17 @@ export function previewRule(db: DB, versionId: number, ruleId: number): {
   items: CalculationPreviewItem[];
   skipped: { orgId: number; reason: string }[];
 } {
+  return previewRuleDefinition(db, versionId, getRule(db, ruleId));
+}
+
+/** 未保存定义的同源只读试算，不创建规则、快照或预算明细。 */
+export function previewRuleDefinition(db: DB, versionId: number, rule: CalculationRuleRow): {
+  rule: CalculationRuleRow;
+  items: CalculationPreviewItem[];
+  skipped: { orgId: number; reason: string }[];
+} {
   const version = getVersion(db, versionId);
   if (version.status !== 'draft') throw Errors.conflict('只有草稿版本可以执行测算');
-  const rule = getRule(db, ruleId);
   if (rule.status !== 'active') throw Errors.conflict('测算模板已停用');
   const config = parseConfig(rule.config_json, rule.rule_type);
   const orgRows = loadSnapshotNodes(db, version.org_tree_snapshot_id);
@@ -189,6 +232,10 @@ export function previewRule(db: DB, versionId: number, ruleId: number): {
       const left = accByCode.get(config.leftAccountCode ?? '');
       const right = accByCode.get(config.rightAccountCode ?? '');
       if (!left || !right) throw Errors.validation('乘法测算模板的两个输入科目不存在');
+      if (left.type !== 'quantity' || right.type !== 'quantity') {
+        skipped.push({ orgId, reason: '该规则包含金额输入，保留依据引用；当前乘法试算只支持数量输入' });
+        continue;
+      }
       const leftValue = quantityByKey.get(`${orgId}:${left.id}`);
       const rightValue = quantityByKey.get(`${orgId}:${right.id}`);
       if (leftValue == null || rightValue == null || leftValue === 0 || rightValue === 0) {

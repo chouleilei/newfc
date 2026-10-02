@@ -5,6 +5,8 @@ import { BUDGET_TOOL_DEFINITIONS } from './budget-tools';
 import { DOMAIN_TOOL_DEFINITIONS } from './domain-tools';
 import { authorizeToolCall } from './tool-policy';
 import type { ToolDefinition, ToolPolicy } from './tool-definition';
+import type { SelectionExecution } from './selection-context';
+import { selectionToolName } from './selection-context';
 
 export const TOOL_REGISTRY = { ...BUDGET_TOOL_DEFINITIONS, ...DOMAIN_TOOL_DEFINITIONS } satisfies Record<string, ToolDefinition>;
 export type ToolName = keyof typeof TOOL_REGISTRY;
@@ -28,11 +30,15 @@ export function toolAcceptsParam(name: string, param: string): boolean {
 }
 export function toolLabel(name: string): string { return toolDefinition(name)?.label ?? name; }
 /** Both model and deterministic routing validate and authorize through this executor. */
-export function executeTool(db: DB, name: string, input: unknown = {}): any {
+export function executeTool(db: DB, name: string, input: unknown = {}, selection?: SelectionExecution): any {
   const definition = toolDefinition(name);
   if (!definition) throw new AppError('TOOL_UNKNOWN', `未知工具: ${name}`, 400);
   const parsed = definition.schema.safeParse(input);
   if (!parsed.success) throw new AppError('TOOL_ARGUMENTS_INVALID', `工具参数无效: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, 400);
   const args = authorizeToolCall(db, name, parsed.data);
-  return definition.execute(db, args);
+  if (selection && (!definition.selectionModes?.includes(selection.selection.mode) || selectionToolName(selection) !== name)) throw new AppError('CAPABILITY_UNAVAILABLE', '此工具不支持当前选择范围，请清空选择或使用选区分析', 400);
+  if (selection) for (const [key, value] of Object.entries(args)) {
+    if (value != null && (key === 'versionId' || selection.view[key] !== value)) throw new AppError('CONTEXT_CONFLICT', '工具参数不能覆盖当前选择范围', 409);
+  }
+  return definition.execute(db, args, selection);
 }

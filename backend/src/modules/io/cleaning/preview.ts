@@ -1,3 +1,4 @@
+import { currentAuth, type AuthContext } from '../../../core/request-context';
 import type { DB } from '../../../db/connection';
 import crypto from 'crypto';
 import { AppError, Errors } from '../../../core/errors';
@@ -70,7 +71,7 @@ function add(total: number, value: number, label: string): number {
   return safeIntegerAdd(total, value, label);
 }
 
-function actionsAndSummary(db: DB, analysis: CleaningApplyResult): { rows: PreviewRow[]; summary: Record<string, unknown> } {
+export function analyzeCleaningImpact(db: DB, analysis: CleaningApplyResult): { rows: PreviewRow[]; summary: Record<string, unknown> } {
   const entryByKey = new Map(analysis.entries.map((entry) => [`${entry.orgId}:${entry.accountId}`, entry]));
   const budgetCurrent = new Map<string, BudgetCurrent>();
   const actualCurrent = new Map<string, ActualCurrent>();
@@ -149,8 +150,8 @@ function actionsAndSummary(db: DB, analysis: CleaningApplyResult): { rows: Previ
       else action = 'overwrite';
     }
     if (action === 'overwrite' && beforeValue !== 0) {
-      const ratio = Math.abs(afterValue / beforeValue);
-      if (ratio > 10 || ratio < 0.1) {
+      const absolute = (value: number) => BigInt(value < 0 ? -value : value);
+      if (absolute(afterValue) > absolute(beforeValue) * 10n || absolute(afterValue) * 10n < absolute(beforeValue)) {
         const message = '变化较大（超过 10 倍或减少到 1/10 以下）';
         sourceRow.warnings.push(message);
         largeChangeWarnings.push({
@@ -240,7 +241,7 @@ export function createPendingCleaningPreview(
   if (analysis.target.targetKind === 'actual-current') {
     assertNoFinanceOwnedConflicts(db, analysis.entries.map((entry) => ({ orgId: entry.orgId, accountId: entry.accountId })));
   }
-  const calculated = actionsAndSummary(db, analysis);
+  const calculated = analyzeCleaningImpact(db, analysis);
   // UX-14 适配:清洗已有完整差异,映射为统一预览明细(金额为整数分,数量为缩放整数),
   // 与批次、计划、清洗预览行在同一事务冻结;确认/撤销仍走原 imports 服务。
   const isBudgetTarget = analysis.target.targetKind === 'budget';
@@ -349,11 +350,19 @@ export interface CleaningPreviewRowDb {
   warning: string;
 }
 
+/** 文件或预览行读取前先校验创建人；缺所有者的旧预览要求重新上传。 */
+export function assertCleaningPreviewOwner(db: DB, id: number, auth: AuthContext | undefined = currentAuth()): void {
+  const row = db.prepare('SELECT created_by_user_id FROM import_batch WHERE id=?').get(id) as { created_by_user_id: number | null } | undefined;
+  if (!row) throw Errors.notFound('导入预览');
+  if (auth && row.created_by_user_id !== auth.userId) throw Errors.forbidden('无权读取此导入预览，请重新上传');
+}
+
 export function listPreviewRows(
   db: DB,
   batchId: number,
   options: { page?: number; pageSize?: number; action?: string; warningOnly?: boolean } = {},
 ): { total: number; page: number; pageSize: number; items: CleaningPreviewRowDb[] } {
+  assertCleaningPreviewOwner(db, batchId);
   const batch = imports.getBatch(db, batchId);
   if (batch.status !== 'pending') throw Errors.conflict('逐行清洗预览只在待确认批次生命周期内提供');
   if (!batch.cleaning_plan_json || batch.cleaning_plan_json === '{}') throw Errors.notFound('清洗预览');
@@ -401,7 +410,7 @@ interface CleaningReopenSessionRow {
 }
 
 /** 从批次固化内容恢复清洗计划与目标;非清洗批次直接拒绝。 */
-function recoverCleaningPlanAndTarget(batch: imports.ImportBatchRow): { plan: CleaningPlan; target?: CleaningTarget } {
+export function recoverCleaningPlanAndTarget(batch: imports.ImportBatchRow): { plan: CleaningPlan; target?: CleaningTarget } {
   let rawPlan: unknown;
   try { rawPlan = JSON.parse(batch.cleaning_plan_json); } catch { rawPlan = undefined; }
   if (!rawPlan || typeof rawPlan !== 'object' || Array.isArray(rawPlan)
@@ -481,12 +490,16 @@ export function reopenCleaningPreview(
     cancel?: (db: DB, id: number) => void;
   },
 ): CleaningReopenResult {
+  assertCleaningPreviewOwner(db, batchId);
   const batch = imports.getBatch(db, batchId);
   const existing = db.prepare('SELECT * FROM cleaning_reopen_session WHERE import_batch_id = ?')
     .get(batchId) as CleaningReopenSessionRow | undefined;
   if (existing) {
     // 幂等:同批次已有恢复会话;临时文件仍有效则返回同一会话(peek 同时滑动刷新 TTL)
-    if (options.store.peek(existing.upload_token, true)) {
+    const metadata = options.store.peek(existing.upload_token, false);
+    const targetKind = (JSON.parse(existing.plan_json) as CleaningPlan).targetKind;
+    if (metadata && (metadata.ownerUserId !== (currentAuth()?.userId ?? 0) || metadata.targetKind !== targetKind || metadata.sha256 !== existing.file_sha256)) throw Errors.notFound('临时文件');
+    if (metadata && options.store.peek(existing.upload_token, true)) {
       return {
         sourceBatchId: batchId,
         token: existing.upload_token,
@@ -521,7 +534,7 @@ export function reopenCleaningPreview(
   const target = recovered.target;
 
   // 步骤 b:先把原件复制到有 TTL/容量限制的临时存储;失败时旧批次保持 pending 可用
-  const metadata = options.store.put(batch.original_name, batch.file_blob);
+  const metadata = options.store.put(batch.original_name, batch.file_blob, { ownerUserId: currentAuth()?.userId ?? 0, targetKind: recovered.plan.targetKind });
   try {
     // 步骤 c:单一事务——取消服务内部复核 pending 状态(防并发),写恢复会话(原批次唯一键)与审计
     db.transaction(() => {

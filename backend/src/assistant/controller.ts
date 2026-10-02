@@ -1,3 +1,4 @@
+import type { CleaningUploadStore } from '../modules/io/cleaning/upload-store';
 import type { Express, Request, Response, NextFunction } from 'express';
 import { requireActionPermission, requireAllOrgsForAction } from './tool-policy';
 import type { ChatRequest } from '../contracts/assistant';
@@ -34,13 +35,10 @@ function sseWrite(res: Response, event: string, data: unknown): void {
  * 响应头已经发出后无法再改成 JSON 错误，因此异常以 `event: error` 下发，
  * 并始终补一个 `event: done`，保证客户端不会卡在等待 done 的状态。
  */
-async function streamChat(req: Request, res: Response, db: DB, request: ChatRequest, actor: string): Promise<void> {
-  const prepared = svc.prepareChat(db, request);
-  sseHeaders(res);
-  // 立刻发一个 open 事件，确认连接已建立(也用于击穿代理的首包缓冲)。
-  sseWrite(res, 'open', { ok: true });
+async function streamChat(req: Request, res: Response, db: DB, request: ChatRequest, actor: string, uploads?: CleaningUploadStore): Promise<void> {
   let closed = false;
   let completed = false;
+  let opened = false;
   const controller = new AbortController();
   const close = () => {
     closed = true;
@@ -49,6 +47,11 @@ async function streamChat(req: Request, res: Response, db: DB, request: ChatRequ
   res.on('close', close);
   req.on('aborted', close);
   try {
+    const prepared = await svc.prepareChatWithFiles(db, request, uploads, controller.signal);
+    if (closed || req.aborted) return;
+    sseHeaders(res);
+    opened = true;
+    sseWrite(res, 'open', { ok: true });
     const result = await svc.chat(db, request, actor, {
       onToken: (chunk) => { if (!closed && chunk) sseWrite(res, 'token', { text: chunk }); },
       // 进度事件：模型路由要先跑工具调用轮，首字延迟可能十几秒；
@@ -59,6 +62,7 @@ async function streamChat(req: Request, res: Response, db: DB, request: ChatRequ
     completed = true;
     if (!closed) sseWrite(res, 'done', { ...result, done: true });
   } catch (err) {
+    if (!opened && !closed) throw err;
     const error = err as { code?: string; message?: string; status?: number };
     if (!closed) {
       sseWrite(res, 'error', { code: error?.code || 'INTERNAL_ERROR', message: error?.message || '助手请求失败' });
@@ -68,7 +72,7 @@ async function streamChat(req: Request, res: Response, db: DB, request: ChatRequ
     completed = true;
     res.off('close', close);
     req.off('aborted', close);
-    if (!closed) res.end();
+    if (opened && !closed) res.end();
   }
 }
 
@@ -76,12 +80,19 @@ export function registerAssistantRoutes(
   app: Express,
   db: () => DB,
   wrap: (fn: (req: Request, res: Response) => any) => (req: Request, res: Response, next: NextFunction) => void,
+  getCleaningUploads?: () => CleaningUploadStore,
 ) {
-  app.post('/api/assistant/chat', assistantRateLimit, wrap(async (req, res) => res.json(await svc.chat(db(), parseChatRequest(req.body), (req as any).authUser || ''))));
+  app.post('/api/assistant/chat', assistantRateLimit, wrap(async (req, res) => {
+    const controller = new AbortController();
+    const close = () => { if (!res.writableEnded) controller.abort(); };
+    res.on('close', close); req.on('aborted', close);
+    try { res.json(await svc.chat(db(), parseChatRequest(req.body), (req as any).authUser || '', { cleaningUploads: getCleaningUploads?.(), signal: controller.signal })); }
+    finally { res.off('close', close); req.off('aborted', close); }
+  }));
   app.post('/api/assistant/chat/stream', assistantRateLimit, wrap(async (req, res) => {
     // 请求体校验必须在写 SSE 响应头之前完成，这样格式错误仍能返回结构化 400。
     const request = parseChatRequest(req.body);
-    await streamChat(req, res, db(), request, (req as any).authUser || '');
+    await streamChat(req, res, db(), request, (req as any).authUser || '', getCleaningUploads?.());
   }));
   // 只保留 POST 流式入口。曾经存在的 `GET /api/assistant/chat/stream` 已删除：
   // 它会创建会话、写 ai_message、写操作日志并消耗模型额度，却是一个 GET——

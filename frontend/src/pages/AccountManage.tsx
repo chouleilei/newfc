@@ -7,7 +7,8 @@ import { errorText } from '../components/TreeNodePage';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { MasterDataHealthTrigger } from '../components/MasterDataHealth';
 import { PROFIT_ROWS, SHEET_METRIC_ROWS, useSheets } from '../utils/sheets';
-import { useAssistantPageContext } from '../assistant/contextHooks';
+import { ConfigFormAssistant, changedFields } from '../components/assistant/ConfigFormAssistant';
+import { useAssistantDraft, useAssistantPageContext } from '../assistant/contextHooks';
 
 /**
  * 科目管理:先选表格(预设表,可自助增删改),再在表格范围内做科目增删改查。
@@ -42,6 +43,7 @@ interface TreeRow {
   budget_required?: 0 | 1;
   basis_required?: 0 | 1;
   status: string;
+  updated_at: string;
 }
 interface SheetDto {
   id: number;
@@ -51,6 +53,7 @@ interface SheetDto {
   collapsedCodes: string[];
   sortOrder: number;
   status: string;
+  updated_at: string;
 }
 
 interface NodeFormValues {
@@ -83,6 +86,7 @@ export default function AccountManage() {
 
   /* 财务助手页面登记(§7.2 account)：报表归属筛选与搜索。 */
   useAssistantPageContext({ pageKey: 'account', ready: true, scope: {}, view: { scopeKey, search: keyword.trim() || undefined } });
+  const [statusTarget, setStatusTarget] = useState<TreeNodeDto | null>(null);
   const [nodeModalOpen, setNodeModalOpen] = useState(false);
   const [parent, setParent] = useState<TreeNodeDto | null>(null);
   const [form] = Form.useForm<NodeFormValues>();
@@ -93,13 +97,32 @@ export default function AccountManage() {
 
   /* 改名与移动 Modal 状态(替代 window.prompt) */
   const [renameTarget, setRenameTarget] = useState<TreeNodeDto | null>(null);
-  const [renameForm] = Form.useForm<{ name: string; sortOrder?: number; budgetRequired?: boolean; basisRequired?: boolean }>();
+  const [renameForm] = Form.useForm<{ name: string; sortOrder?: number; budgetRequired?: boolean; basisRequired?: boolean; unit?: string; quantityAgg?: 'sum' | 'none' }>();
   const [moveTarget, setMoveTarget] = useState<TreeNodeDto | null>(null);
   const [moveParentId, setMoveParentId] = useState<number | null>(null);
 
   const { data, error: treeError, refetch: refetchTree } = useQuery({ queryKey: ['tree', 'account'], queryFn: () => api.get<{ tree: TreeNodeDto[]; rows: TreeRow[] }>('/account/tree') });
   const { sheets, loading: sheetsLoading, refresh: refreshSheets } = useSheets();
   const { data: metricsData, error: metricsError, refetch: refetchMetrics } = useQuery({ queryKey: ['metrics'], queryFn: () => api.get<{ items: MetricItem[] }>('/metrics') });
+
+  const baseFor = (node: TreeNodeDto, operation: 'update' | 'move' | 'status') => {
+    const updatedAt = data?.rows.find((row) => row.id === node.id)?.updated_at;
+    if (!updatedAt) throw new Error('对象基线尚未就绪，请重新加载');
+    return { id: node.id, updatedAt, operation };
+  };
+  const renameValues = () => {
+    const values = renameForm.getFieldsValue(true);
+    return { name: values.name, sortOrder: values.sortOrder, budgetRequired: renameTarget?.isLeaf ? values.budgetRequired : false, basisRequired: renameTarget?.isLeaf ? values.basisRequired : false, ...(renameTarget?.type === 'quantity' ? { unit: values.unit, quantityAgg: values.quantityAgg } : {}) };
+  };
+  useAssistantDraft(nodeModalOpen, `account:new:${parent?.id ?? 'root'}`, () => ({ kind: 'account_form', base: { clientKey: 'new-account', operation: 'create' }, changes: { parentId: parent?.id ?? null, ...form.getFieldsValue(true) } }));
+  useAssistantDraft(renameTarget != null, `account:update:${renameTarget?.id}`, () => renameTarget ? ({ kind: 'account_form', base: baseFor(renameTarget, 'update'), changes: changedFields(renameValues(), { name: renameTarget.name, sortOrder: renameTarget.sortOrder, budgetRequired: renameTarget.budgetRequired, basisRequired: renameTarget.basisRequired, unit: renameTarget.unit, quantityAgg: renameTarget.quantityAgg }) }) : null);
+  useAssistantDraft(moveTarget != null, `account:move:${moveTarget?.id}`, () => moveTarget ? ({ kind: 'account_form', base: baseFor(moveTarget, 'move'), changes: { parentId: moveParentId } }) : null);
+  useAssistantDraft(statusTarget != null, `account:status:${statusTarget?.id}`, () => statusTarget ? ({ kind: 'account_form', base: baseFor(statusTarget, 'status'), changes: { status: statusTarget.status === 'active' ? 'inactive' : 'active' } }) : null);
+  useAssistantDraft(sheetModalOpen, `account:sheet:${editingSheet?.id ?? 'new'}`, () => {
+    const values = sheetForm.getFieldsValue(true);
+    const current = { name: values.name, rootCodes: values.rootCodes, collapsedCodes: values.collapsedCodes ?? [], sortOrder: values.sortOrder };
+    return { kind: 'account_form', base: editingSheet ? { id: editingSheet.id, updatedAt: editingSheet.updated_at, operation: 'sheet_update' } : { clientKey: 'new-sheet', operation: 'sheet_create' }, changes: editingSheet ? changedFields(current, { name: editingSheet.name, rootCodes: editingSheet.rootCodes, collapsedCodes: editingSheet.collapsedCodes, sortOrder: editingSheet.sortOrder }) : { code: values.code, ...current } };
+  });
 
   const invalidate = () => { qc.invalidateQueries({ queryKey: ['tree', 'account'] }); };
 
@@ -139,7 +162,7 @@ export default function AccountManage() {
     onError: (e) => message.error(errorText(e)),
   });
   const update = useMutation({
-    mutationFn: ({ id, ...v }: { id: number; name?: string; sortOrder?: number; budgetRequired?: boolean; basisRequired?: boolean }) => api.patch(`/account/${id}`, v),
+    mutationFn: ({ id, ...v }: { id: number; name?: string; sortOrder?: number; budgetRequired?: boolean; basisRequired?: boolean; unit?: string; quantityAgg?: 'sum' | 'none' }) => api.patch(`/account/${id}`, v),
     onSuccess: () => { message.success('已保存'); invalidate(); },
     onError: (e) => message.error(errorText(e)),
   });
@@ -411,6 +434,8 @@ export default function AccountManage() {
                   renameForm.resetFields();
                   renameForm.setFieldsValue({
                     name: n.name,
+                    unit: n.unit,
+                    quantityAgg: n.quantityAgg === 'none' ? 'none' : 'sum',
                     sortOrder: n.sortOrder,
                     budgetRequired: n.isLeaf ? n.budgetRequired : false,
                     basisRequired: n.isLeaf ? n.basisRequired : false,
@@ -420,7 +445,7 @@ export default function AccountManage() {
                   setMoveTarget(n);
                   setMoveParentId(n.parentId);
                 }}>移动</Button>,
-                <Button key="toggle" size="small" onClick={() => setStatus.mutate({ id: n.id, status: n.status === 'active' ? 'inactive' : 'active' })}>
+                <Button key="toggle" size="small" onClick={() => setStatusTarget(n)}>
                   {n.status === 'active' ? '停用' : '启用'}
                 </Button>,
                 <Button key="add" size="small" onClick={() => {
@@ -459,13 +484,14 @@ export default function AccountManage() {
       )}
 
       {/* 新增科目 */}
-      <Modal
+      <Modal mask={false}
         title={`新增科目${parent ? ` — 上级:${parent.code} ${parent.name}` : '(根科目)'}`}
         open={nodeModalOpen}
         onCancel={() => setNodeModalOpen(false)}
         onOk={() => form.validateFields().then((v) => create.mutate(v))}
         confirmLoading={create.isPending}
       >
+        {nodeModalOpen && <ConfigFormAssistant kind="account_form" form={form} />}
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="编码(全局唯一,创建后不可变)" rules={[{ required: true }]}>
             <Input placeholder="如 I1201 / E2025 / Q101" />
@@ -513,7 +539,7 @@ export default function AccountManage() {
       </Modal>
 
       {/* 新增/编辑表格 */}
-      <Modal
+      <Modal mask={false}
         title={<Space><i className="ri-table-2" aria-hidden />{editingSheet ? `编辑表格 ${editingSheet.code}` : '新增表格'}</Space>}
         open={sheetModalOpen}
         onCancel={() => setSheetModalOpen(false)}
@@ -521,6 +547,7 @@ export default function AccountManage() {
         confirmLoading={saveSheet.isPending}
         width={620}
       >
+        {sheetModalOpen && <ConfigFormAssistant kind="account_form" form={sheetForm} />}
         <Form form={sheetForm} layout="vertical">
           <Space size={16} style={{ display: 'flex' }}>
             <Form.Item name="code" label="表格编码(唯一,创建后不可改)" rules={[{ required: true }]} style={{ width: 200 }}>
@@ -547,25 +574,27 @@ export default function AccountManage() {
       </Modal>
 
       {/* 改名与排序 Modal */}
-      <Modal
+      <Modal mask={false}
         title={renameTarget ? `修改科目: ${renameTarget.code} (${renameTarget.name})` : '修改科目'}
         open={!!renameTarget}
         onCancel={() => setRenameTarget(null)}
-        onOk={() => renameForm.validateFields().then((v) => {
+        onOk={() => renameForm.validateFields().then(() => {
           if (renameTarget) update.mutate({
             id: renameTarget.id,
-            name: v.name,
-            sortOrder: v.sortOrder,
-            budgetRequired: renameTarget.isLeaf ? v.budgetRequired : false,
-            basisRequired: renameTarget.isLeaf ? v.basisRequired : false,
+            ...renameValues(),
           }, { onSuccess: () => setRenameTarget(null) });
         })}
         confirmLoading={update.isPending}
       >
+        {renameTarget && <ConfigFormAssistant kind="account_form" form={renameForm} />}
         <Form form={renameForm} layout="vertical">
           <Form.Item name="name" label="科目名称" rules={[{ required: true }]}>
             <Input placeholder="输入科目名称" />
           </Form.Item>
+          {renameTarget?.type === 'quantity' && <>
+            <Form.Item name="unit" label="计量单位" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="quantityAgg" label="数量汇总方式"><Select options={[{ value: 'sum', label: '可加总' }, { value: 'none', label: '不汇总' }]} /></Form.Item>
+          </>}
           <Form.Item name="sortOrder" label="同级排序">
             <InputNumber style={{ width: '100%' }} />
           </Form.Item>
@@ -579,7 +608,7 @@ export default function AccountManage() {
       </Modal>
 
       {/* 移动科目 Modal(TreeSelect) */}
-      <Modal
+      <Modal mask={false}
         title={moveTarget ? `移动科目: ${moveTarget.code} ${moveTarget.name}` : '移动科目'}
         open={!!moveTarget}
         onCancel={() => setMoveTarget(null)}
@@ -588,6 +617,7 @@ export default function AccountManage() {
         }}
         confirmLoading={move.isPending}
       >
+        {moveTarget && <ConfigFormAssistant kind="account_form" />}
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
           选择目标父科目(留空表示移为根科目)。同父节点的科目类型必须一致;不可移至自身或其子孙节点下。
         </Typography.Paragraph>
@@ -600,6 +630,10 @@ export default function AccountManage() {
           treeDefaultExpandAll
           onChange={(val) => setMoveParentId((val as number | null) ?? null)}
         />
+      </Modal>
+      <Modal mask={false} title={`确认${statusTarget?.status === 'active' ? '停用' : '启用'}科目: ${statusTarget?.code ?? ''}`} open={statusTarget != null} onCancel={() => setStatusTarget(null)} confirmLoading={setStatus.isPending} onOk={() => { if (statusTarget) setStatus.mutate({ id: statusTarget.id, status: statusTarget.status === 'active' ? 'inactive' : 'active' }, { onSuccess: () => setStatusTarget(null) }); }}>
+        {statusTarget && <ConfigFormAssistant kind="account_form" />}
+        <Typography.Paragraph>已有快照与存量数据保留。</Typography.Paragraph>
       </Modal>
     </Card>
   );

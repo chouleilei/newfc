@@ -96,9 +96,9 @@ describe('parseAssistantPageContext · schema 与白名单', () => {
   });
 
   it('selection refs 超过 500 报 CONTEXT_TOO_LARGE', () => {
-    const refs = Array.from({ length: 501 }, (_, i) => ({ entityType: 'account', id: i + 1 }));
+    const refs = Array.from({ length: 501 }, (_, i) => ({ entityType: 'metric', id: i + 1 }));
     expectError(() => parseAssistantPageContext(baseContext({
-      selection: { mode: 'refs', entityType: 'account', refs },
+      pageKey: 'metric', selection: { mode: 'refs', refs },
     })), 'CONTEXT_TOO_LARGE');
   });
 
@@ -200,7 +200,7 @@ describe('resolveAssistantContext · 资源与关系校验', () => {
   it('selection refs 中的实体不存在时报 CONTEXT_INVALID', () => {
     setup();
     expectError(() => resolveAssistantContext(fx.db, baseContext({
-      selection: { mode: 'refs', entityType: 'org', refs: [{ entityType: 'org', id: 888888 }] },
+      pageKey: 'metric', selection: { mode: 'refs', refs: [{ entityType: 'metric', id: 888888 }] },
     })), 'CONTEXT_INVALID');
   });
 

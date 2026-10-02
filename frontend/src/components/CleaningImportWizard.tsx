@@ -1,3 +1,5 @@
+import { ConfigFormAssistant, changedFields } from './assistant/ConfigFormAssistant';
+import { useAssistantDraft } from '../assistant/contextHooks';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -74,6 +76,7 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
   const [workbook, setWorkbook] = useState<CleaningWorkbookUpload | null>(null);
   const [templates, setTemplates] = useState<CleaningTemplate[]>([]);
   const [aliases, setAliases] = useState<CleaningAlias[]>([]);
+  const [activeAlias, setActiveAlias] = useState<{ id?: number; mappingKind: 'org' | 'account'; sourceText: string } | null>(null);
   const [aliasDrafts, setAliasDrafts] = useState<Record<number, { sourceText: string; targetCode: string }>>({});
   const [templateId, setTemplateId] = useState<number | undefined>();
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
@@ -108,6 +111,7 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
   const [confirmed, setConfirmed] = useState(false);
   /** UX-15:确认结果未知/失败的持续状态;failed=服务端已拒绝并自动取消该预览(不可重试,需重新检查) */
   const [confirmIssue, setConfirmIssue] = useState<{ kind: 'failed' | 'retry'; message: string } | null>(null);
+  const [templateDraftMode, setTemplateDraftMode] = useState<'create' | 'update'>('create');
   const [templateName, setTemplateName] = useState('');
   /** UX-17:reopen 单在途守卫——重复点击/响应丢失重试不并行发起,后端同批次幂等返回同一恢复会话 */
   const [reopening, setReopening] = useState(false);
@@ -118,11 +122,11 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
   const [reuploadChanged, setReuploadChanged] = useState(false);
 
   const reset = () => {
-    setStep(0); setBusy(false); setWorkbook(null); setTemplateId(undefined); setSelectedSheets([]); setRanges({}); setAliases([]); setAliasDrafts({});
+    setActiveAlias(null); setStep(0); setBusy(false); setWorkbook(null); setTemplateId(undefined); setSelectedSheets([]); setRanges({}); setAliases([]); setAliasDrafts({});
     setActiveSheet(''); setRegionRows([]); setRegionCache({}); setRegionPage(1); setMappings({}); setValueKind('amount'); setAmountUnit('yuan');
     setSignConvention('display_positive'); setClearBlankNotes(false); setAiApplied(false); setSnapshotDate(defaultSnapshotDate(props.year));
     setManualMappings({}); setExcludedRows(new Set()); setAnalysis(null); setAnalysisDirty(false); setPreview(null); setPreviewRows([]);
-    setPreviewPage(1); setActionFilter(undefined); setWarningOnly(false); setOverwriteAccepted(false); setConfirmed(false); setTemplateName('');
+    setPreviewPage(1); setActionFilter(undefined); setWarningOnly(false); setOverwriteAccepted(false); setConfirmed(false); setTemplateName(''); setTemplateDraftMode('create');
     setConfirmIssue(null); setRowHintDecisions({});
     reopeningRef.current = false; setReopening(false); setReuploadExpectation(null); setReuploadChanged(false);
   };
@@ -297,6 +301,21 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
     clearBlankNotes,
     templateId,
     aiSuggested: aiApplied,
+  });
+
+  useAssistantDraft(props.open && workbook != null, `cleaning:${workbook?.sha256}:${props.targetKind}:${props.versionId ?? props.year}:${confirmed}:${templateDraftMode}`, () => {
+    if (!workbook) return null;
+    if (confirmed) {
+      const old = templateDraftMode === 'update' ? selectedTemplate : null;
+      return { kind: 'cleaning_template', base: old ? { id: old.id, updatedAt: old.updatedAt, operation: 'update' } : { clientKey: 'new-template', operation: 'create' }, changes: old ? { config: templateConfigFromPlan(buildPlan()) } : { name: templateName, targetKind: props.targetKind, config: templateConfigFromPlan(buildPlan()) } };
+    }
+    return { kind: 'cleaning_template', base: { clientKey: 'current-cleaning-plan', operation: 'analyze', source: preview ? { batchId: preview.importBatchId, sha256: preview.sha256 } : { token: workbook.token, sha256: workbook.sha256 } }, changes: { plan: buildPlan(), target, name: templateName } };
+  });
+  useAssistantDraft(props.open && activeAlias != null && step === 3, `cleaning-alias:${activeAlias?.id ?? activeAlias?.sourceText}`, () => {
+    if (!activeAlias) return null;
+    const old = activeAlias.id == null ? null : aliases.find((item) => item.id === activeAlias.id);
+    const current = old ? aliasDrafts[old.id] : { sourceText: activeAlias.sourceText, targetCode: manualMappings[mappingKey(activeAlias.mappingKind, activeAlias.sourceText)] };
+    return { kind: 'alias_rule', base: old ? { id: old.id, updatedAt: old.updatedAt, operation: 'update' } : { clientKey: 'new-cleaning-alias', operation: 'create' }, changes: old ? changedFields(current ?? {}, { sourceText: old.sourceText, targetCode: old.targetCode }) : { targetKind: props.targetKind, mappingKind: activeAlias.mappingKind, ...current } };
   });
 
   /** 行级建议处置(阶段四):采纳写回 plan.excludedRows;拒绝仅记录,不进入 plan。 */
@@ -683,7 +702,7 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
   const renderRegion = () => (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Alert type="info" showIcon message="选中的工作表共用同一列映射；每张表可分别指定表头、开始行和结束行。隐藏工作表默认不选中。" />
-      <Select mode="multiple" style={{ width: '100%' }} value={selectedSheets} onChange={selectSheets} options={workbook?.sheets.map((sheet) => ({
+      <Select data-assistant-field="sheets" mode="multiple" style={{ width: '100%' }} value={selectedSheets} onChange={selectSheets} options={workbook?.sheets.map((sheet) => ({
         value: sheet.name, label: `${sheet.name}${sheet.state !== 'visible' ? '（隐藏）' : ''} · ${sheet.rowCount} 行 × ${sheet.columnCount} 列`,
       }))} />
       <Space wrap>
@@ -693,9 +712,9 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
       </Space>
       {selectedSheets.map((name) => <Space key={name} wrap>
         <Typography.Text strong>{name}</Typography.Text>
-        <span>表头</span><InputNumber min={1} value={ranges[name]?.headerRow} onChange={(value) => value && setRangeRow(name, 'header', value)} />
-        <span>数据开始</span><InputNumber min={1} value={ranges[name]?.dataStartRow} onChange={(value) => value && setRangeRow(name, 'start', value)} />
-        <span>数据结束</span><InputNumber min={1} value={ranges[name]?.dataEndRow} onChange={(value) => value && setRangeRow(name, 'end', value)} />
+        <span>表头</span><InputNumber data-assistant-field="headerRow" min={1} value={ranges[name]?.headerRow} onChange={(value) => value && setRangeRow(name, 'header', value)} />
+        <span>数据开始</span><InputNumber data-assistant-field="dataStartRow" min={1} value={ranges[name]?.dataStartRow} onChange={(value) => value && setRangeRow(name, 'start', value)} />
+        <span>数据结束</span><InputNumber data-assistant-field="dataEndRow" min={1} value={ranges[name]?.dataEndRow} onChange={(value) => value && setRangeRow(name, 'end', value)} />
       </Space>)}
       {(() => {
         // 行级建议(阶段四):仅当前工作簿建议表;已排除行默认视为采纳
@@ -763,7 +782,7 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
     const data = Array.from({ length: sheet.columnCount }, (_, index) => ({ column: index + 1 }));
     return <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Alert type="warning" showIcon message="系统不会自动确认元/万元或负数口径；以下选择会在确认页再次展示。" />
-      <Table rowKey="column" size="small" pagination={false} dataSource={data} scroll={{ y: 430 }} columns={[
+      <Table data-assistant-field="columns" rowKey="column" size="small" pagination={false} dataSource={data} scroll={{ y: 430 }} columns={[
         { title: 'Excel 列', width: 90, render: (_, row) => `${excelColumnLetter(row.column)} (${row.column})` },
         { title: '原始表头', render: (_, row) => resolvedHeaderText(row.column) || <Typography.Text type="secondary">空</Typography.Text> },
         { title: '样例', render: (_, row) => resolvedSamples(row.column).join(' / ') || '—' },
@@ -777,13 +796,13 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
       ] as ColumnsType<{ column: number }>} />
       <Divider style={{ margin: '4px 0' }} />
       <Space wrap>
-        <span>导入值类型</span><Radio.Group value={valueKind} onChange={(event) => {
+        <span>导入值类型</span><Radio.Group data-assistant-field="valueKind" value={valueKind} onChange={(event) => {
           const next = event.target.value as 'amount' | 'quantity'; setValueKind(next);
           setMappings((current) => Object.fromEntries(Object.entries(current).filter(([, field]) => field !== (next === 'amount' ? 'quantity' : 'amount'))) as Record<number, CleaningColumnField>);
         }} options={[{ label: '金额', value: 'amount' }, { label: '数量', value: 'quantity' }]} />
         {valueKind === 'amount' && <>
-          <span>文件单位</span><Radio.Group value={amountUnit} onChange={(event) => setAmountUnit(event.target.value)} options={[{ label: '元', value: 'yuan' }, { label: '万元', value: 'wan' }]} />
-          <span>负数口径</span><Select style={{ width: 280 }} value={signConvention} onChange={setSignConvention} options={[
+          <span>文件单位</span><Radio.Group data-assistant-field="amountUnit" value={amountUnit} onChange={(event) => setAmountUnit(event.target.value)} options={[{ label: '元', value: 'yuan' }, { label: '万元', value: 'wan' }]} />
+          <span>负数口径</span><Select data-assistant-field="signConvention" style={{ width: 280 }} value={signConvention} onChange={setSignConvention} options={[
             { value: 'display_positive', label: '普通展示口径（成本费用填正数）' },
             { value: 'profit_signed', label: '利润方向口径（成本费用为负）' },
           ]} />
@@ -824,22 +843,22 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
             return <Space.Compact style={{ width: '100%' }}><Select showSearch optionFilterProp="label" style={{ width: 275 }} value={manualMappings[key]} placeholder="搜索编码、名称或路径"
               options={options.map((item) => ({ value: item.code, label: `${item.code} · ${item.path}${item.status !== 'active' ? '（停用，仅更正）' : ''}` }))}
               onChange={(code) => { setManualMappings((current) => ({ ...current, [key]: code })); setAnalysisDirty(true); }} />
-              <Button disabled={!manualMappings[key]} onClick={() => void saveAlias(row.kind, row.sourceText)}>存别名</Button></Space.Compact>;
+              <Button disabled={!manualMappings[key]} onClick={() => setActiveAlias({ mappingKind: row.kind, sourceText: row.sourceText })}>检查别名</Button><Button disabled={!manualMappings[key]} onClick={() => void saveAlias(row.kind, row.sourceText)}>存别名</Button></Space.Compact>;
           } },
         ]} />
       </Card>}
-      <Card size="small" title={`名称别名管理${aliases.length ? `（${aliases.length}）` : ''}`}>
+      <Card data-assistant-field="mappings" size="small" title={`名称别名管理${aliases.length ? `（${aliases.length}）` : ''}`}>
         {aliases.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未保存别名；可在上方人工选择目标后点击“存别名”" /> : <Table
-          rowKey="id" size="small" pagination={{ pageSize: 6 }} dataSource={aliases} columns={[
+          rowKey="id" onRow={(row) => ({ "data-assistant-alias-id": String(row.id) } as React.HTMLAttributes<HTMLTableRowElement>)} size="small" pagination={{ pageSize: 6 }} dataSource={aliases} columns={[
             { title: '类型', width: 80, render: (_, row) => row.mappingKind === 'org' ? '组织' : '科目' },
-            { title: '源文本', render: (_, row) => <Input value={aliasDrafts[row.id]?.sourceText ?? row.sourceText} onChange={(event) => setAliasDrafts((items) => ({ ...items, [row.id]: { sourceText: event.target.value, targetCode: items[row.id]?.targetCode ?? row.targetCode } }))} /> },
+            { title: '源文本', render: (_, row) => <Input data-assistant-field="sourceText" value={aliasDrafts[row.id]?.sourceText ?? row.sourceText} onChange={(event) => setAliasDrafts((items) => ({ ...items, [row.id]: { sourceText: event.target.value, targetCode: items[row.id]?.targetCode ?? row.targetCode } }))} /> },
             { title: '目标', width: 360, render: (_, row) => {
               const options = row.mappingKind === 'org' ? analysis.targets.orgs : analysis.targets.accounts;
-              return <Select showSearch optionFilterProp="label" style={{ width: '100%' }} value={aliasDrafts[row.id]?.targetCode ?? row.targetCode}
+              return <Select data-assistant-field="targetCode" showSearch optionFilterProp="label" style={{ width: '100%' }} value={aliasDrafts[row.id]?.targetCode ?? row.targetCode}
                 options={[...(options.some((item) => item.code === row.targetCode) ? [] : [{ value: row.targetCode, label: `${row.targetCode}（当前树中无效）` }]), ...options.map((item) => ({ value: item.code, label: `${item.code} · ${item.path}` }))]}
                 onChange={(code) => setAliasDrafts((items) => ({ ...items, [row.id]: { sourceText: items[row.id]?.sourceText ?? row.sourceText, targetCode: code } }))} />;
             } },
-            { title: '操作', width: 150, render: (_, row) => <Space><Button size="small" onClick={() => void updateAlias(row)}>保存</Button><Button size="small" danger onClick={() => deleteAlias(row)}>删除</Button></Space> },
+            { title: '操作', width: 150, render: (_, row) => <Space><Button size="small" onClick={() => setActiveAlias({ id: row.id, mappingKind: row.mappingKind, sourceText: row.sourceText })}>检查修改</Button><Button size="small" onClick={() => void updateAlias(row)}>保存</Button><Button size="small" danger onClick={() => deleteAlias(row)}>删除</Button></Space> },
           ] as ColumnsType<CleaningAlias>}
         />}
       </Card>
@@ -968,8 +987,9 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
       })() : confirmed ? <>
         <Alert type="success" showIcon message={`批次 #${preview.importBatchId} 已成功写入`} />
         <Card size="small" title="可选：保存本次结构配置为导入模板">
+          <Space wrap style={{ marginBottom: 12 }}><Button onClick={() => setTemplateDraftMode('create')}>检查另存模板</Button><Button disabled={!selectedTemplate} onClick={() => setTemplateDraftMode('update')}>检查更新模板</Button></Space>
           <Space wrap>
-            <Space.Compact style={{ width: 520 }}><Input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="新模板名称" /><Button icon={<i className="ri-save-3-line" aria-hidden />} disabled={!templateName.trim()} onClick={() => void saveTemplate()}>另存模板</Button></Space.Compact>
+            <Space.Compact style={{ width: 520 }}><Input data-assistant-field="name" value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="新模板名称" /><Button icon={<i className="ri-save-3-line" aria-hidden />} disabled={!templateName.trim()} onClick={() => void saveTemplate()}>另存模板</Button></Space.Compact>
             <Button disabled={!templateId} onClick={() => void overwriteTemplate()}>用本次配置更新所选模板</Button>
           </Space>
         </Card>
@@ -986,7 +1006,7 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
 
   const contents = [renderTargetFile, renderRegion, renderColumns, renderAnalyze, renderPreview, renderConfirm];
   return <Modal
-    open={props.open} width="min(1180px, 96vw)" title="导入非标准 Excel" onCancel={requestClose} maskClosable={false} destroyOnClose
+    mask={false} open={props.open} width="min(1180px, 96vw)" title="导入非标准 Excel" onCancel={requestClose} maskClosable={false} destroyOnClose
     footer={<Space style={{ width: '100%', justifyContent: 'space-between' }}>
       <Button onClick={requestClose}>{preview && !confirmed && confirmIssue?.kind !== 'failed' ? '取消批次并关闭' : '关闭'}</Button>
       <Space>
@@ -995,6 +1015,25 @@ export default function CleaningImportWizard(props: CleaningImportWizardProps) {
       </Space>
     </Space>}
   >
+    {props.open && workbook && <>
+      <ConfigFormAssistant key={activeAlias && step === 3 ? 'alias' : 'cleaning'} kind={activeAlias && step === 3 ? 'alias_rule' : 'cleaning_template'} onLocateField={(field) => {
+        if (activeAlias && step === 3) {
+          const row = activeAlias.id != null ? document.querySelector<HTMLElement>('[data-assistant-alias-id="' + activeAlias.id + '"]') : document.querySelector<HTMLElement>('[data-assistant-field="mappings"]');
+          row?.scrollIntoView({ block: 'nearest' });
+          row?.querySelector<HTMLElement>('[data-assistant-field="' + field + '"] input, input[data-assistant-field="' + field + '"], input')?.focus();
+          return;
+        }
+        const targetStep = field === 'name' ? 5 : ['sheets', 'headerRow', 'dataStartRow', 'dataEndRow', 'preferredSheetName'].includes(field) ? 1 : ['mappings', 'excludedRows'].includes(field) ? 3 : 2;
+        setStep(targetStep);
+        window.setTimeout(() => {
+          const element = document.querySelector<HTMLElement>('[data-assistant-field="' + field + '"]');
+          element?.scrollIntoView({ block: 'nearest' });
+          if (element?.matches('input, button')) element.focus();
+          else element?.querySelector<HTMLElement>('input, button, [tabindex]')?.focus();
+        }, 0);
+      }} />
+      {activeAlias && <Button onClick={() => setActiveAlias(null)}>返回清洗计划</Button>}
+    </>}
     <Steps current={step} size="small" items={['目标和文件', '工作表和区域', '列和口径', '名称和排除行', '差异预览', '确认和模板'].map((title) => ({ title }))} style={{ marginBottom: 20 }} />
     {/* UX-17:410 重传后指纹不一致——变化文件必须重新核对,持续提示到重新分析成功 */}
     {reuploadChanged && <Alert style={{ marginBottom: 12 }} type="warning" showIcon

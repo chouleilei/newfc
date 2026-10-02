@@ -1,7 +1,15 @@
+import { z } from 'zod';
+import { metricFilterSchema, type MetricFilter } from '../../contracts/list-filters';
+import { validateInput, positiveId, sortOrder, nodeStatus } from '../../core/input';
 import type { DB } from '../../db/connection';
 import { Errors } from '../../core/errors';
 import { writeLog } from '../audit/log';
 import { safeIntegerAdd, scaledRatio, QUANTITY_SCALE, MONEY_NATURAL_DIVISOR } from '../../core/money';
+
+const metricTermSchema = z.object({ sourceType: z.enum(['account', 'metric']), sourceAccountId: positiveId.nullable().optional(), sourceMetricId: positiveId.nullable().optional(), coefficient: z.union([z.literal(1), z.literal(-1)]), sortOrder: sortOrder.optional(), role: z.enum(['term', 'numerator', 'denominator']).optional() }).strict();
+export const createMetricSchema = z.object({ code: z.string().min(1).max(128), name: z.string().min(1).max(255), displayOrder: sortOrder.optional(), terms: z.array(metricTermSchema).min(1).max(10000), kind: z.enum(['linear', 'ratio']).optional(), direction: z.enum(['higher_better', 'lower_better']).optional(), displayFormat: z.enum(['percent', 'number']).optional(), unit: z.string().max(80).optional(), displaySign: z.union([z.literal(1), z.literal(-1)]).optional() }).strict();
+export const updateMetricSchema = createMetricSchema.omit({ code: true }).partial().extend({ status: nodeStatus.optional() }).strict();
+
 
 /**
  * 报表指标(方案四.10/11)。两类:
@@ -71,10 +79,24 @@ function loadTerms(db: DB, metricIds: number[]): Map<number, MetricTermRow[]> {
   return map;
 }
 
-export function listMetrics(db: DB): MetricRow[] {
+function metricWhere(filter: MetricFilter) {
+  validateInput(metricFilterSchema, filter);
+  const clauses: string[] = []; const params: string[] = [];
+  if (filter.search) { clauses.push('(instr(code, ?) > 0 OR instr(name, ?) > 0)'); params.push(filter.search, filter.search); }
+  if (filter.kind) { clauses.push('kind=?'); params.push(filter.kind); }
+  if (filter.status) { clauses.push('status=?'); params.push(filter.status); }
+  return { sql: clauses.length ? 'WHERE ' + clauses.join(' AND ') : '', params };
+}
+export function countMetrics(db: DB, filter: MetricFilter = {}): number {
+  const { sql, params } = metricWhere(filter);
+  return (db.prepare('SELECT count(*) count FROM report_metric ' + sql).get(...params) as { count: number }).count;
+}
+export function listMetrics(db: DB, filter: MetricFilter = {}, ids?: number[]): MetricRow[] {
+  const { sql, params } = metricWhere(filter);
+  const idClause = ids ? (sql ? ' AND' : ' WHERE') + ' id IN (' + (ids.map(() => '?').join(',') || 'NULL') + ')' : '';
   const rows = db
-    .prepare('SELECT * FROM report_metric ORDER BY display_order, id')
-    .all() as (Omit<MetricRow, 'terms'>)[];
+    .prepare('SELECT * FROM report_metric ' + sql + idClause + ' ORDER BY display_order, id')
+    .all(...params, ...(ids ?? [])) as (Omit<MetricRow, 'terms'>)[];
   const terms = loadTerms(db, rows.map((r) => r.id));
   return rows.map((r) => ({ ...r, terms: terms.get(r.id) ?? [] }));
 }
@@ -189,7 +211,7 @@ export function ratioSides(db: DB | null, metric: MetricRow, accountTypeOf?: Map
 }
 
 function validateTerms(db: DB, terms: MetricTermInput[], kind: MetricKind): void {
-  if (terms.length === 0) throw Errors.validation('指标至少需要一个公式项');
+  if (!Array.isArray(terms) || terms.length === 0) throw Errors.validation('指标至少需要一个公式项');
   const uniqueTerms = new Set<string>();
   for (const [i, t] of terms.entries()) {
     if (t.coefficient !== 1 && t.coefficient !== -1) throw Errors.validation(`第 ${i + 1} 个公式项系数必须是 1 或 -1`);
@@ -202,11 +224,12 @@ function validateTerms(db: DB, terms: MetricTermInput[], kind: MetricKind): void
     }
     if (t.sourceType === 'account') {
       if (t.sourceAccountId == null) throw Errors.validation(`第 ${i + 1} 个公式项缺少科目引用`);
-      const acc = db.prepare('SELECT type, quantity_agg FROM account WHERE id = ?').get(t.sourceAccountId) as
-        { type: string; quantity_agg: string } | undefined;
+      const acc = db.prepare('SELECT type, quantity_agg, status FROM account WHERE id = ?').get(t.sourceAccountId) as
+        { type: string; quantity_agg: string; status: string } | undefined;
       if (!acc) {
         throw Errors.validation(`公式引用的科目 ${t.sourceAccountId} 不存在`);
       }
+      if (acc.status !== 'active') throw Errors.validation('公式不能新增引用已停用科目');
       if (acc.type === 'quantity') {
         // 线性指标是金额口径,数量与金额完全隔离;比率允许数量作为分子/分母,
         // 但必须可跨组织累计——不可汇总的单价/税率没有合法的范围合计值。
@@ -219,12 +242,13 @@ function validateTerms(db: DB, terms: MetricTermInput[], kind: MetricKind): void
       }
     } else if (t.sourceType === 'metric') {
       if (t.sourceMetricId == null) throw Errors.validation(`第 ${i + 1} 个公式项缺少指标引用`);
-      const target = db.prepare('SELECT kind FROM report_metric WHERE id = ?').get(t.sourceMetricId) as { kind: MetricKind } | undefined;
+      const target = db.prepare('SELECT kind, status FROM report_metric WHERE id = ?').get(t.sourceMetricId) as { kind: MetricKind; status: string } | undefined;
       if (!target) {
         throw Errors.validation(`公式引用的指标 ${t.sourceMetricId} 不存在`);
       }
       // 比率是无量纲/带自然单位的定点数,与「分」不可混算,因此比率指标是终端节点:
       // 既不能被线性指标相加,也不能充当另一个比率的分子分母。
+      if (target.status !== 'active') throw Errors.validation('公式不能新增引用已停用指标');
       if (target.kind === 'ratio') {
         throw Errors.validation('比率指标不能被其他指标引用(比率与金额单位不同,不可混算)');
       }
@@ -245,13 +269,14 @@ function validateTerms(db: DB, terms: MetricTermInput[], kind: MetricKind): void
   }
 }
 
-export function createMetric(
+export function validateCreateMetric(
   db: DB,
   input: {
     code: string; name: string; displayOrder?: number; terms: MetricTermInput[];
     kind?: MetricKind; direction?: MetricDirection; displayFormat?: MetricDisplayFormat; unit?: string; displaySign?: 1 | -1;
   }
-): MetricRow {
+) {
+  validateInput(createMetricSchema, input);
   if (!input.code?.trim()) throw Errors.validation('指标编码不能为空');
   if (!input.name?.trim()) throw Errors.validation('指标名称不能为空');
   if (db.prepare('SELECT 1 FROM report_metric WHERE code = ?').get(input.code.trim())) {
@@ -263,8 +288,23 @@ export function createMetric(
   const displaySign = normalizeDisplaySign(input.displaySign, kind);
   validateTerms(db, input.terms, kind);
   // 新指标自身不在已有图中,只需检查它引用的指标图无环(引用自身在 validateTerms 后通过 dfs 兜底)
+  const definitions = currentDefinitions(db);
+  definitions.set(-1, input.terms);
+  assertNoCycle(definitions, -1);
+  return { kind, direction, displayFormat, displaySign };
+}
+
+export function createMetric(
+  db: DB,
+  input: {
+    code: string; name: string; displayOrder?: number; terms: MetricTermInput[];
+    kind?: MetricKind; direction?: MetricDirection; displayFormat?: MetricDisplayFormat; unit?: string; displaySign?: 1 | -1;
+  }
+): MetricRow {
+  const { kind, direction, displayFormat, displaySign } = validateCreateMetric(db, input);
   const now = new Date().toISOString();
   const tx = db.transaction(() => {
+    validateCreateMetric(db, input);
     const info = db
       .prepare(`INSERT INTO report_metric (code, name, display_order, status, kind, direction, display_format, unit, display_sign, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -342,14 +382,15 @@ function currentDefinitions(db: DB): Map<number, MetricTermInput[]> {
   return map;
 }
 
-export function updateMetric(
+export function validateUpdateMetric(
   db: DB,
   id: number,
   input: {
     name?: string; displayOrder?: number; status?: 'active' | 'inactive'; terms?: MetricTermInput[];
     kind?: MetricKind; direction?: MetricDirection; displayFormat?: MetricDisplayFormat; unit?: string; displaySign?: 1 | -1;
   }
-): MetricRow {
+) {
+  validateInput(updateMetricSchema, input);
   const metric = getMetric(db, id);
   if (input.name !== undefined && !input.name.trim()) throw Errors.validation('指标名称不能为空');
   const kind = input.kind === undefined ? metric.kind : normalizeKind(input.kind);
@@ -376,7 +417,23 @@ export function updateMetric(
       .get('metric', id);
     if (ref) throw Errors.conflict('该指标被其他指标公式引用,不能停用');
   }
+  const definitions = currentDefinitions(db);
+  if (input.terms) definitions.set(id, input.terms);
+  assertNoCycle(definitions, id);
+  return { metric, kind, direction, displayFormat, displaySign };
+}
+
+export function updateMetric(
+  db: DB,
+  id: number,
+  input: {
+    name?: string; displayOrder?: number; status?: 'active' | 'inactive'; terms?: MetricTermInput[];
+    kind?: MetricKind; direction?: MetricDirection; displayFormat?: MetricDisplayFormat; unit?: string; displaySign?: 1 | -1;
+  }
+): MetricRow {
+  const { metric, kind, direction, displayFormat, displaySign } = validateUpdateMetric(db, id, input);
   const tx = db.transaction(() => {
+    validateUpdateMetric(db, id, input);
     db.prepare(`UPDATE report_metric SET name = ?, display_order = ?, status = ?, kind = ?, direction = ?,
                 display_format = ?, unit = ?, display_sign = ?, updated_at = ? WHERE id = ?`).run(
       input.name !== undefined ? input.name.trim() : metric.name,

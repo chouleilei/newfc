@@ -11,6 +11,10 @@
  *
  * 基线校验：数据库 revision、updatedAt、版本状态或树快照变化时返回 DRAFT_STALE。
  */
+import { cleaningDraftSchema, cleaningSourceSchema } from './cleaning-draft';
+import { validateInput } from '../core/input';
+import { parseCleaningPlan, parseCleaningTarget, assertTargetMatchesPlan } from '../modules/io/cleaning/plan';
+import { analyzeConfigDraft, type ConfigDraftAnalysis } from './config-draft';
 import type { DB } from '../db/connection';
 import { AppError } from '../core/errors';
 import { displayToSignedCents, isQuantityType, quantityStringToScaled, signOfType, wanStringToCents, type AccountType } from '../core/money';
@@ -20,7 +24,8 @@ import { loadSnapshotNodes } from '../modules/tree/snapshot';
 import { listRows } from '../modules/actual/actual.helpers';
 import { listMetricsForVersion } from '../modules/metric/metric.service';
 import type { DraftKind } from '../contracts/page-catalog';
-import type { DraftDescriptor } from '../contracts/assistant';
+// 未信任的 wire shape；具体操作基线在读取依赖前检查。
+interface DraftWireInput { kind: DraftKind; base: Record<string, unknown>; changes: unknown }
 
 
 /** 草稿 wire 格式(§5.7)：kind + base(最小基线) + changes(对应保存接口的受控 DTO)。 */
@@ -43,6 +48,8 @@ export interface NormalizedDraft {
   baseline: string;
   /** 配置类草稿的确定性校验问题(依赖检查/冲突说明)。 */
   issues: string[];
+  analysis?: ConfigDraftAnalysis;
+  fileSource?: unknown;
   /** 请求内只读计算视图：budget_grid / actual_grid 的解析后变更。 */
   overlay?: {
     budget?: { versionId: number; entries: DraftBudgetOverlayEntry[] };
@@ -92,6 +99,9 @@ function parseIdentity(base: Record<string, unknown>, snapshotId?: string): Base
   const targetId = base.id != null ? safeInt(base.id, 'draft.base.id', snapshotId) : null;
   const clientKey = base.clientKey != null ? text(base.clientKey, 'draft.base.clientKey', 80, snapshotId) : null;
   const updatedAt = base.updatedAt != null ? text(base.updatedAt, 'draft.base.updatedAt', 40, snapshotId) : null;
+  if (targetId != null && clientKey != null) draftInvalid('已有记录不得同时携带 clientKey', snapshotId, 'draft.base');
+  if (clientKey != null && !/^[A-Za-z0-9_-]{1,80}$/.test(clientKey)) draftInvalid('clientKey 必须为临时标识', snapshotId, 'draft.base.clientKey');
+  if (targetId == null && updatedAt != null) draftInvalid('新建记录不得自报服务器基线', snapshotId, 'draft.base.updatedAt');
   if (targetId == null && clientKey == null) draftInvalid('draft.base 必须携带 id(已有记录)或 clientKey(新建)', snapshotId, 'draft.base');
   if (targetId != null && updatedAt == null) draftInvalid('draft.base 必须携带读取时的 updatedAt 作为基线', snapshotId, 'draft.base.updatedAt');
   return { targetId, clientKey, updatedAt };
@@ -189,7 +199,7 @@ function isCellCleared(entry: RawGridEntry, type: AccountType): boolean {
   return true;
 }
 
-function normalizeBudgetGrid(db: DB, draft: DraftDescriptor, snapshotId: string): NormalizedDraft {  const versionId = safeInt(draft.base.versionId, 'draft.base.versionId', snapshotId);
+function normalizeBudgetGrid(db: DB, draft: DraftWireInput, snapshotId: string): NormalizedDraft {  const versionId = safeInt(draft.base.versionId, 'draft.base.versionId', snapshotId);
   const version = db.prepare('SELECT id, year, name, status, revision, org_tree_snapshot_id, account_tree_snapshot_id FROM budget_version WHERE id=?').get(versionId) as
     | { id: number; year: number; name: string; status: string; revision: number; org_tree_snapshot_id: number; account_tree_snapshot_id: number }
     | undefined;
@@ -242,7 +252,7 @@ function normalizeBudgetGrid(db: DB, draft: DraftDescriptor, snapshotId: string)
   };
 }
 
-function normalizeActualGrid(db: DB, draft: DraftDescriptor, snapshotId: string): NormalizedDraft {
+function normalizeActualGrid(db: DB, draft: DraftWireInput, snapshotId: string): NormalizedDraft {
   const year = safeInt(draft.base.year, 'draft.base.year', snapshotId);
   const state = db.prepare('SELECT year, status, current_batch_id FROM actual_year_state WHERE year=?').get(year) as
     | { year: number; status: string; current_batch_id: number | null }
@@ -289,147 +299,6 @@ function normalizeActualGrid(db: DB, draft: DraftDescriptor, snapshotId: string)
 
 /* ============ 配置类草稿(确定性校验、依赖检查和冲突说明) ============ */
 
-const CONFIG_FIELD_WHITELIST: Record<string, string[]> = {
-  org_form: ['code', 'name', 'parentId', 'status', 'sortOrder'],
-  account_form: ['code', 'name', 'parentId', 'type', 'unit', 'status', 'sortOrder', 'sheetCodes'],
-  metric_formula: ['code', 'name', 'displaySign', 'status', 'displayOrder', 'terms'],
-  calculation_rule: ['code', 'name', 'ruleType', 'sheetCode', 'config', 'status'],
-  cleaning_template: ['name', 'targetKind', 'config'],
-  alias_rule: ['targetKind', 'mappingKind', 'sourceText', 'targetCode'],
-};
-
-function parseConfigChanges(kind: DraftKind, raw: unknown, snapshotId?: string): Record<string, unknown> {
-  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) draftInvalid('draft.changes 必须是表单字段对象', snapshotId, 'draft.changes');
-  const allowed = CONFIG_FIELD_WHITELIST[kind] ?? [];
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!allowed.includes(key)) draftInvalid(`draft.changes 不支持字段「${key}」`, snapshotId, `draft.changes.${key}`);
-    if (typeof value === 'string' && value.length > 4000) draftInvalid(`draft.changes.${key} 过长`, snapshotId, `draft.changes.${key}`);
-    out[key] = value;
-  }
-  return out;
-}
-
-function validateOrgForm(db: DB, fields: Record<string, unknown>, targetId: number | null): string[] {
-  const issues: string[] = [];
-  const code = typeof fields.code === 'string' ? fields.code.trim() : '';
-  const name = typeof fields.name === 'string' ? fields.name.trim() : '';
-  if (!code) issues.push('组织编码不能为空');
-  if (!name) issues.push('组织名称不能为空');
-  if (code) {
-    const dup = db.prepare('SELECT id FROM org WHERE code=?').get(code) as { id: number } | undefined;
-    if (dup && dup.id !== targetId) issues.push(`组织编码「${code}」已被 #${dup.id} 占用`);
-  }
-  if (fields.parentId != null) {
-    const parentId = Number(fields.parentId);
-    if (!Number.isSafeInteger(parentId)) issues.push('parentId 必须是整数');
-    else {
-      if (targetId != null && parentId === targetId) issues.push('上级组织不能是自身');
-      const parent = db.prepare('SELECT id FROM org WHERE id=?').get(parentId);
-      if (!parent) issues.push(`上级组织 #${parentId} 不存在`);
-    }
-  }
-  if (fields.status != null && !['active', 'inactive'].includes(String(fields.status))) issues.push('status 必须是 active 或 inactive');
-  return issues;
-}
-
-function validateAccountForm(db: DB, fields: Record<string, unknown>, targetId: number | null): string[] {
-  const issues: string[] = [];
-  const code = typeof fields.code === 'string' ? fields.code.trim() : '';
-  const name = typeof fields.name === 'string' ? fields.name.trim() : '';
-  if (!code) issues.push('科目编码不能为空');
-  if (!name) issues.push('科目名称不能为空');
-  if (fields.type != null && !['income', 'cost', 'expense', 'quantity'].includes(String(fields.type))) issues.push('type 必须是 income/cost/expense/quantity');
-  if (code) {
-    const dup = db.prepare('SELECT id FROM account WHERE code=?').get(code) as { id: number } | undefined;
-    if (dup && dup.id !== targetId) issues.push(`科目编码「${code}」已被 #${dup.id} 占用`);
-  }
-  if (fields.parentId != null) {
-    const parentId = Number(fields.parentId);
-    if (!Number.isSafeInteger(parentId)) issues.push('parentId 必须是整数');
-    else {
-      if (targetId != null && parentId === targetId) issues.push('上级科目不能是自身');
-      const parent = db.prepare('SELECT id FROM account WHERE id=?').get(parentId);
-      if (!parent) issues.push(`上级科目 #${parentId} 不存在`);
-    }
-  }
-  return issues;
-}
-
-function validateMetricFormula(db: DB, fields: Record<string, unknown>, targetId: number | null): string[] {
-  const issues: string[] = [];
-  const code = typeof fields.code === 'string' ? fields.code.trim() : '';
-  if (!code) issues.push('指标编码不能为空');
-  if (typeof fields.name === 'string' && !fields.name.trim()) issues.push('指标名称不能为空');
-  if (code) {
-    const dup = db.prepare('SELECT id FROM report_metric WHERE code=?').get(code) as { id: number } | undefined;
-    if (dup && dup.id !== targetId) issues.push(`指标编码「${code}」已被 #${dup.id} 占用`);
-  }
-  if (fields.terms != null) {
-    if (!Array.isArray(fields.terms)) issues.push('terms 必须是数组');
-    else {
-      for (const [index, term] of (fields.terms as unknown[]).entries()) {
-        if (term == null || typeof term !== 'object') { issues.push(`公式项 ${index + 1} 必须是对象`); continue; }
-        const t = term as Record<string, unknown>;
-        const sourceType = String(t.sourceType ?? '');
-        if (!['account', 'metric'].includes(sourceType)) { issues.push(`公式项 ${index + 1} 的 sourceType 必须是 account 或 metric`); continue; }
-        const sourceId = Number(t.sourceId);
-        if (!Number.isSafeInteger(sourceId) || sourceId <= 0) { issues.push(`公式项 ${index + 1} 的 sourceId 必须是正整数`); continue; }
-        if (sourceType === 'account' && !db.prepare('SELECT id FROM account WHERE id=?').get(sourceId)) issues.push(`公式项 ${index + 1} 引用的科目 #${sourceId} 不存在`);
-        if (sourceType === 'metric') {
-          if (targetId != null && sourceId === targetId) issues.push(`公式项 ${index + 1} 不能引用指标自身`);
-          if (!db.prepare('SELECT id FROM report_metric WHERE id=?').get(sourceId)) issues.push(`公式项 ${index + 1} 引用的指标 #${sourceId} 不存在`);
-        }
-        const coefficient = Number(t.coefficient);
-        if (coefficient !== 1 && coefficient !== -1) issues.push(`公式项 ${index + 1} 的系数必须是 +1 或 -1`);
-      }
-    }
-  }
-  return issues;
-}
-
-function validateCalculationRule(db: DB, fields: Record<string, unknown>, targetId: number | null): string[] {
-  const issues: string[] = [];
-  const code = typeof fields.code === 'string' ? fields.code.trim() : '';
-  if (!code) issues.push('规则编码不能为空');
-  if (fields.ruleType != null && !['quantity_price_net_tax', 'multiply'].includes(String(fields.ruleType))) issues.push('ruleType 必须是 quantity_price_net_tax 或 multiply');
-  if (code) {
-    const dup = db.prepare('SELECT id FROM budget_calculation_rule WHERE code=?').get(code) as { id: number } | undefined;
-    if (dup && dup.id !== targetId) issues.push(`规则编码「${code}」已被 #${dup.id} 占用`);
-  }
-  return issues;
-}
-
-function validateCleaningTemplate(db: DB, fields: Record<string, unknown>, targetId: number | null): string[] {
-  const issues: string[] = [];
-  if (fields.targetKind != null && !['budget', 'actual-current'].includes(String(fields.targetKind))) issues.push('targetKind 必须是 budget 或 actual-current');
-  if (typeof fields.name === 'string' && !fields.name.trim()) issues.push('模板名称不能为空');
-  if (targetId != null && !db.prepare('SELECT id FROM import_mapping_template WHERE id=?').get(targetId)) issues.push(`模板 #${targetId} 不存在`);
-  return issues;
-}
-
-function validateAliasRule(db: DB, fields: Record<string, unknown>, _targetId: number | null): string[] {
-  const issues: string[] = [];
-  if (fields.targetKind != null && !['budget', 'actual-current'].includes(String(fields.targetKind))) issues.push('targetKind 必须是 budget 或 actual-current');
-  if (fields.mappingKind != null && !['org', 'account'].includes(String(fields.mappingKind))) issues.push('mappingKind 必须是 org 或 account');
-  if (fields.sourceText != null && !String(fields.sourceText).trim()) issues.push('来源名称不能为空');
-  const targetCode = typeof fields.targetCode === 'string' ? fields.targetCode.trim() : '';
-  if (targetCode) {
-    const table = String(fields.mappingKind ?? 'org') === 'account' ? 'account' : 'org';
-    if (!db.prepare(`SELECT id FROM ${table} WHERE code=?`).get(targetCode)) issues.push(`目标编码「${targetCode}」在${table === 'org' ? '组织' : '科目'}中不存在`);
-  }
-  return issues;
-}
-
-const CONFIG_VALIDATORS: Record<string, (db: DB, fields: Record<string, unknown>, targetId: number | null) => string[]> = {
-  org_form: validateOrgForm,
-  account_form: validateAccountForm,
-  metric_formula: validateMetricFormula,
-  calculation_rule: validateCalculationRule,
-  cleaning_template: validateCleaningTemplate,
-  alias_rule: validateAliasRule,
-};
-
 /** 已有配置记录的 updatedAt 基线校验。 */
 const CONFIG_TABLES: Record<string, string> = {
   org_form: 'org',
@@ -443,24 +312,44 @@ const CONFIG_TABLES: Record<string, string> = {
 /**
  * 解析并校验草稿(§9.6)。只做白名单解析与基线/确定性校验，不写任何表。
  */
-export function normalizeDraftInput(db: DB, draft: DraftDescriptor, options: { snapshotId?: string } = {}): NormalizedDraft {
+export function normalizeDraftInput(db: DB, draft: DraftWireInput, options: { snapshotId?: string; versionId?: number } = {}): NormalizedDraft {
   const { snapshotId } = options;
   if (draft.kind === 'budget_grid') return normalizeBudgetGrid(db, draft, snapshotId ?? '');
   if (draft.kind === 'actual_grid') return normalizeActualGrid(db, draft, snapshotId ?? '');
 
   const identity = parseIdentity(draft.base, snapshotId);
-  const fields = parseConfigChanges(draft.kind, draft.changes, snapshotId);
+  if (!draft.changes || typeof draft.changes !== 'object' || Array.isArray(draft.changes)) draftInvalid('配置草稿必须为字段对象', snapshotId);
+  const fields = draft.changes as Record<string, unknown>;
+  const operation = text(draft.base.operation, 'draft.base.operation', 30, snapshotId);
+  const allowedOperations: Partial<Record<DraftKind, string[]>> = { org_form: ['create', 'update', 'move', 'status'], account_form: ['create', 'update', 'move', 'status', 'sheet_create', 'sheet_update'], metric_formula: ['create', 'update'], calculation_rule: ['create', 'update'], cleaning_template: ['create', 'update', 'analyze'], alias_rule: ['create', 'update'] };
+  if (!allowedOperations[draft.kind]?.includes(operation)) draftInvalid('当前草稿类型不支持此操作', snapshotId, 'draft.base.operation');
+  for (const key of Object.keys(draft.base)) if (!['id', 'updatedAt', 'clientKey', 'operation', ...(operation === 'analyze' ? ['source'] : [])].includes(key)) draftInvalid('草稿基线包含不允许的字段', snapshotId, 'draft.base');
+  if (operation === 'analyze') validateInput(cleaningSourceSchema, draft.base.source);
+  if ((['create', 'sheet_create', 'analyze'].includes(operation) && identity.targetId != null) || (['update', 'move', 'status', 'sheet_update'].includes(operation) && identity.targetId == null)) draftInvalid('操作与草稿基线不一致', snapshotId, 'draft.base.operation');
   if (identity.targetId != null) {
-    const table = CONFIG_TABLES[draft.kind];
+    const table = operation === 'sheet_update' ? 'preset_sheet' : CONFIG_TABLES[draft.kind];
     const row = db.prepare(`SELECT updated_at FROM ${table} WHERE id=?`).get(identity.targetId) as { updated_at: string } | undefined;
     requireFresh(identity.updatedAt, row?.updated_at, `${draft.kind} #${identity.targetId}`, snapshotId);
   }
-  const issues = (CONFIG_VALIDATORS[draft.kind] ?? (() => []))(db, fields, identity.targetId);
+  let analysis: ConfigDraftAnalysis;
+  if (draft.kind === 'cleaning_template' && operation === 'analyze') {
+    try {
+      const input = validateInput(cleaningDraftSchema, fields);
+      assertTargetMatchesPlan(parseCleaningTarget(input.target), parseCleaningPlan(input.plan));
+      analysis = { issues: [], explanation: [] };
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      analysis = { issues: ['清洗计划校验未通过，请核对区域、列映射、金额/数量口径及名称映射。'], explanation: ['当前计划无效，未读取文件或计算覆盖影响。'] };
+    }
+  } else analysis = analyzeConfigDraft(db, draft.kind, operation, fields, identity.targetId, options.versionId);
+  const issues = analysis.issues;
   return {
     kind: draft.kind,
     changeCount: Object.keys(fields).length,
-    baseline: identity.targetId != null ? `${draft.kind} #${identity.targetId} · ${identity.updatedAt ?? ''}` : `新建 ${draft.kind} · ${identity.clientKey}`,
+    baseline: identity.targetId != null ? `${draft.kind} #${identity.targetId} · ${identity.updatedAt ?? ''}` : `新建 ${draft.kind}`,
     issues,
+    analysis,
+    ...(operation === 'analyze' ? { fileSource: draft.base.source } : {}),
     config: { targetId: identity.targetId, clientKey: identity.clientKey, fields },
   };
 }

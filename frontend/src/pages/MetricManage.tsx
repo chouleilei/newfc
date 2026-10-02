@@ -4,7 +4,9 @@ import { Card, Button, Modal, Form, Input, InputNumber, Select, Space, App, Tag,
 import { EnhancedTable as Table } from '../components/EnhancedTable';
 import { api } from '../api/client';
 import { errorText } from '../components/TreeNodePage';
-import { useAssistantPageContext } from '../assistant/contextHooks';
+import { ConfigFormAssistant, changedFields } from '../components/assistant/ConfigFormAssistant';
+import { useAssistantDraft, useAssistantPageContext, useAssistantSelection } from '../assistant/contextHooks';
+import { ListSelectionActions } from '../components/assistant/ListSelectionActions';
 
 type MetricKind = 'linear' | 'ratio';
 type MetricDirection = 'higher_better' | 'lower_better';
@@ -44,6 +46,7 @@ interface Metric {
   display_format: MetricDisplayFormat;
   unit: string;
   display_sign: 1 | -1;
+  updated_at: string;
   terms: TermRow[];
   referencesDisabledAccount?: boolean;
 }
@@ -65,6 +68,26 @@ interface MetricFormValues {
   denominator?: Term;
 }
 
+function metricSaveBody(payload: MetricFormValues) {
+      const kind = payload.kind ?? 'linear';
+      const terms: Term[] = kind === 'ratio'
+        ? [
+            { ...payload.numerator!, role: 'numerator', sortOrder: 0 },
+            { ...payload.denominator!, role: 'denominator', sortOrder: 1 },
+          ]
+        : (payload.terms ?? []).map((t, i) => ({ ...t, role: 'term', sortOrder: i }));
+      return {
+        name: payload.name,
+        displayOrder: payload.displayOrder,
+        kind,
+        direction: kind === 'ratio' ? payload.direction ?? 'higher_better' : 'higher_better',
+        displayFormat: kind === 'ratio' ? payload.displayFormat ?? 'percent' : 'percent',
+        unit: kind === 'ratio' && payload.displayFormat === 'number' ? payload.unit ?? '' : '',
+        displaySign: kind === 'linear' ? payload.displaySign ?? 1 : 1,
+        terms,
+      };
+}
+
 export default function MetricManage() {
   const qc = useQueryClient();
   const { message } = App.useApp();
@@ -74,11 +97,16 @@ export default function MetricManage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<Metric | null>(null);
   const [form] = Form.useForm<MetricFormValues>();
+  const [filter, setFilter] = useState<{ search?: string; kind?: MetricKind; status?: 'active' | 'inactive' }>({});
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectionMode, setSelectionMode] = useState<'refs' | 'query' | null>(null);
+  const clearSelection = () => { setSelectedIds([]); setSelectionMode(null); };
 
-  const { data: metrics, error: metricsError, refetch: refetchMetrics } = useQuery({ queryKey: ['metrics'], queryFn: () => api.get<{ items: Metric[] }>('/metrics') });
+  const { data: metrics, error: metricsError, refetch: refetchMetrics } = useQuery({ queryKey: ['metrics', filter], queryFn: () => api.get<{ items: Metric[] }>('/metrics?' + new URLSearchParams(Object.entries(filter).filter(([, v]) => v !== undefined) as [string, string][]).toString()) });
 
   /* 财务助手页面登记(§7.2 metric)：指标列表。 */
-  useAssistantPageContext({ pageKey: 'metric', ready: metrics != null && !metricsError, readyState: metrics == null && !metricsError ? 'loading' : 'error', notReadyReason: metricsError ? '指标列表读取失败' : '正在读取指标列表', scope: {}, view: {} });
+  useAssistantPageContext({ pageKey: 'metric', ready: metrics != null && !metricsError, readyState: metrics == null && !metricsError ? 'loading' : 'error', notReadyReason: metricsError ? '指标列表读取失败' : '正在读取指标列表', scope: {}, view: filter });
+  useAssistantSelection(editOpen ? null : selectionMode === 'query' ? { mode: 'query', query: filter } : selectionMode === 'refs' && selectedIds.length ? { mode: 'refs', refs: selectedIds.map((id) => ({ entityType: 'metric', id })) } : null);
   const { data: accountTree } = useQuery({ queryKey: ['tree', 'account'], queryFn: () => api.get<{ rows: AccountRow[] }>('/account/tree') });
   const { data: metricList } = useQuery({ queryKey: ['metrics-plain'], queryFn: () => api.get<{ items: Metric[] }>('/metrics') });
 
@@ -132,27 +160,18 @@ export default function MetricManage() {
 
   const save = useMutation({
     mutationFn: (payload: MetricFormValues) => {
-      const kind = payload.kind ?? 'linear';
-      const terms: Term[] = kind === 'ratio'
-        ? [
-            { ...payload.numerator!, role: 'numerator', sortOrder: 0 },
-            { ...payload.denominator!, role: 'denominator', sortOrder: 1 },
-          ]
-        : (payload.terms ?? []).map((t, i) => ({ ...t, role: 'term', sortOrder: i }));
-      const body = {
-        name: payload.name,
-        displayOrder: payload.displayOrder,
-        kind,
-        direction: kind === 'ratio' ? payload.direction ?? 'higher_better' : 'higher_better',
-        displayFormat: kind === 'ratio' ? payload.displayFormat ?? 'percent' : 'percent',
-        unit: kind === 'ratio' && payload.displayFormat === 'number' ? payload.unit ?? '' : '',
-        displaySign: kind === 'linear' ? payload.displaySign ?? 1 : 1,
-        terms,
-      };
+      const body = metricSaveBody(payload);
       return editing ? api.patch(`/metrics/${editing.id}`, body) : api.post('/metrics', { code: payload.code, ...body });
     },
     onSuccess: () => { message.success('已保存'); setEditOpen(false); qc.invalidateQueries({ queryKey: ['metrics'] }); qc.invalidateQueries({ queryKey: ['metrics-plain'] }); },
     onError: (e) => message.error(errorText(e)),
+  });
+
+  useAssistantDraft(editOpen, `metric:${editing?.id ?? 'new'}`, () => {
+    const values = form.getFieldsValue(true);
+    const current = metricSaveBody(values);
+    const baseline = editing ? { name: editing.name, displayOrder: editing.display_order, kind: editing.kind, direction: editing.direction, displayFormat: editing.display_format, unit: editing.unit, displaySign: editing.display_sign, terms: editing.terms.map((t) => ({ sourceType: t.source_type, ...(t.source_type === 'account' ? { sourceAccountId: t.source_account_id } : { sourceMetricId: t.source_metric_id }), coefficient: t.coefficient, role: t.role, sortOrder: t.sort_order })) } : undefined;
+    return { kind: 'metric_formula', base: editing ? { id: editing.id, updatedAt: editing.updated_at, operation: 'update' } : { clientKey: 'new-metric', operation: 'create' }, changes: editing ? changedFields(current, baseline) : { code: values.code, ...current } };
   });
 
   const remove = useMutation({
@@ -173,6 +192,7 @@ export default function MetricManage() {
   };
 
   const openEdit = (m: Metric | null, kind: MetricKind = 'linear') => {
+    clearSelection();
     setEditing(m);
     form.resetFields();
     const effectiveKind = m?.kind ?? kind;
@@ -292,9 +312,16 @@ export default function MetricManage() {
         比率<b>不可加总</b>:任何汇总行都由后端「先汇总分子分母再相除」重算;分母为 0 时显示「不适用」,不显示 0。
         比率不能被其他指标引用,也不参与利润表小计与财务勾稽。保存时自动做循环引用检测。
       </Typography.Paragraph>
+      <Space wrap style={{ marginBottom: 12 }}>
+        <Input.Search aria-label="筛选指标" placeholder="编码或名称" allowClear onSearch={(search) => { clearSelection(); setFilter((v) => ({ ...v, search: search || undefined })); }} style={{ width: 220 }} />
+        <Select aria-label="筛选指标类型" placeholder="全部类型" allowClear style={{ width: 130 }} options={[{ value: 'linear', label: '金额' }, { value: 'ratio', label: '比率' }]} onChange={(kind: MetricKind | undefined) => { clearSelection(); setFilter((v) => ({ ...v, kind })); }} />
+        <Select aria-label="筛选指标状态" placeholder="全部状态" allowClear style={{ width: 130 }} options={[{ value: 'active', label: '启用' }, { value: 'inactive', label: '停用' }]} onChange={(status: 'active' | 'inactive' | undefined) => { clearSelection(); setFilter((v) => ({ ...v, status })); }} />
+        <ListSelectionActions count={selectedIds.length} mode={selectionMode} onRefs={() => setSelectionMode('refs')} onQuery={() => setSelectionMode('query')} onClear={clearSelection} />
+      </Space>
       {metricsError ? <Result status="error" title="指标加载失败" subTitle={metricsError instanceof Error ? metricsError.message : String(metricsError)} extra={<Button onClick={() => void refetchMetrics()}>重试</Button>} /> : <Table
         rowKey="id"
         tableKey="metric-list"
+        rowSelection={{ selectedRowKeys: selectedIds, preserveSelectedRowKeys: true, onChange: (keys) => { setSelectedIds(keys.map(Number)); setSelectionMode(keys.length ? 'refs' : null); } }}
         loading={!metrics}
         dataSource={metrics?.items ?? []}
         scroll={{ x: 1320 }}
@@ -374,6 +401,8 @@ export default function MetricManage() {
       />}
 
       <Modal
+        mask={false}
+        destroyOnHidden
         title={editing ? `编辑指标 ${editing.code}` : '新建指标'}
         open={editOpen}
         onCancel={() => setEditOpen(false)}
@@ -381,6 +410,7 @@ export default function MetricManage() {
         confirmLoading={save.isPending}
         width={720}
       >
+        {editOpen && <ConfigFormAssistant kind="metric_formula" form={form} />}
         <Form form={form} layout="vertical">
           <Space size={16} style={{ display: 'flex' }} wrap>
             <Form.Item name="code" label="指标编码" rules={[{ required: true }]} style={{ width: 160 }}>

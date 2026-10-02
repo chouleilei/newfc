@@ -59,11 +59,17 @@ export type SelectionDescriptor =
   | { mode: 'bounds'; bounds: { sheetKey?: string; orgIds?: number[]; accountIds?: number[] } }
   | { mode: 'query'; query: Record<string, string | number | boolean | null> };
 
-export interface DraftDescriptor {
-  kind: DraftKind;
-  base: Record<string, unknown>;
-  changes: unknown;
-}
+export type ConfigDraftOperation = 'create' | 'update' | 'move' | 'status' | 'sheet_create' | 'sheet_update' | 'analyze';
+export type CleaningDraftSource = { token: string; sha256: string } | { batchId: number; sha256: string };
+export type ConfigDraftBase =
+  | { operation: 'create' | 'sheet_create'; clientKey: string }
+  | { operation: 'update' | 'move' | 'status' | 'sheet_update'; id: number; updatedAt: string }
+  | { operation: 'analyze'; clientKey: string; source: CleaningDraftSource };
+
+export type DraftDescriptor =
+  | { kind: 'budget_grid'; base: { versionId: number; revision: number; orgTreeSnapshotId?: number; accountTreeSnapshotId?: number } & Record<string, unknown>; changes: unknown }
+  | { kind: 'actual_grid'; base: { year: number; batchId: number | null } & Record<string, unknown>; changes: unknown }
+  | { kind: Exclude<DraftKind, 'budget_grid' | 'actual_grid'>; base: ConfigDraftBase & Record<string, unknown>; changes: unknown };
 
 /** 每次 chat / chat/stream 请求携带的页面上下文(§5.1)。 */
 export interface AssistantPageContext {

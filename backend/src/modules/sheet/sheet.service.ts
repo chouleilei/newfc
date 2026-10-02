@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { validateInput, sortOrder } from '../../core/input';
 import type { DB } from '../../db/connection';
 import { Errors } from '../../core/errors';
 import { writeLog } from '../audit/log';
@@ -7,6 +9,9 @@ import { writeLog } from '../audit/log';
  * 科目管理按表筛选展示;编制/历史/分析/版本对比按表取数口径。
  * 新增表格为纯配置数据,页面自助维护,无需改代码。
  */
+
+export const sheetInputSchema = z.object({ code: z.string().min(1).max(128), name: z.string().min(1).max(255), rootCodes: z.array(z.string().min(1).max(128)).min(1, '至少选择一个根科目').max(500), collapsedCodes: z.array(z.string().min(1).max(128)).max(500).optional(), sortOrder: sortOrder.optional() }).strict();
+export const sheetPatchSchema = sheetInputSchema.omit({ code: true }).partial().strict();
 
 export interface PresetSheetRow {
   id: number;
@@ -55,10 +60,11 @@ function assertUniqueCodes(codes: string[]): void {
   if (new Set(codes).size !== codes.length) throw Errors.validation('编码数组内存在重复');
 }
 
-export function createSheet(
+export function validateCreateSheet(
   db: DB,
   input: { code: string; name: string; rootCodes: string[]; collapsedCodes?: string[]; sortOrder?: number }
-): PresetSheetDto {
+) {
+  validateInput(sheetInputSchema, input);
   if (!input.code?.trim()) throw Errors.validation('表格编码不能为空');
   if (!input.name?.trim()) throw Errors.validation('表格名称不能为空');
   if (db.prepare('SELECT 1 FROM preset_sheet WHERE code = ?').get(input.code.trim())) {
@@ -70,8 +76,17 @@ export function createSheet(
   const collapsed = input.collapsedCodes ?? [];
   assertUniqueCodes(collapsed);
   assertCodesExist(db, collapsed, '折叠科目');
+  return { collapsed };
+}
+
+export function createSheet(
+  db: DB,
+  input: { code: string; name: string; rootCodes: string[]; collapsedCodes?: string[]; sortOrder?: number }
+): PresetSheetDto {
+  const { collapsed } = validateCreateSheet(db, input);
   const now = new Date().toISOString();
   const tx = db.transaction(() => {
+    validateCreateSheet(db, input);
     const info = db
       .prepare('INSERT INTO preset_sheet (code, name, root_codes, collapsed_codes, sort_order, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(input.code.trim(), input.name.trim(), JSON.stringify(input.rootCodes), JSON.stringify(collapsed), input.sortOrder ?? 0, 'active', now, now);
@@ -83,11 +98,12 @@ export function createSheet(
   return toDto(db.prepare(`${SELECT} WHERE id = ?`).get(id) as PresetSheetRow);
 }
 
-export function updateSheet(
+export function validateUpdateSheet(
   db: DB,
   id: number,
   input: { name?: string; rootCodes?: string[]; collapsedCodes?: string[]; sortOrder?: number }
-): PresetSheetDto {
+) {
+  validateInput(sheetPatchSchema, input);
   const row = db.prepare(`${SELECT} WHERE id = ?`).get(id) as PresetSheetRow | undefined;
   if (!row) throw Errors.notFound('预设表');
   if (input.name !== undefined && !input.name.trim()) throw Errors.validation('表格名称不能为空');
@@ -100,8 +116,18 @@ export function updateSheet(
     assertUniqueCodes(input.collapsedCodes);
     assertCodesExist(db, input.collapsedCodes, '折叠科目');
   }
+  return row;
+}
+
+export function updateSheet(
+  db: DB,
+  id: number,
+  input: { name?: string; rootCodes?: string[]; collapsedCodes?: string[]; sortOrder?: number }
+): PresetSheetDto {
+  const row = validateUpdateSheet(db, id, input);
   const now = new Date().toISOString();
   db.transaction(() => {
+    validateUpdateSheet(db, id, input);
     db.prepare('UPDATE preset_sheet SET name = ?, root_codes = ?, collapsed_codes = ?, sort_order = ?, updated_at = ? WHERE id = ?').run(
       input.name !== undefined ? input.name.trim() : row.name,
       input.rootCodes !== undefined ? JSON.stringify(input.rootCodes) : row.root_codes,

@@ -408,6 +408,8 @@ describe('AI 助手:多轮追问', () => {
     const first: any = await assistant.chat(db, { message: '2026 年上海公司执行情况如何', pageContext: pageSnapshot() });
     expect(first.effectiveContext.budgetVersionId).toBe(version.id);
     expect(first.effectiveContext.orgScopeId).toBe(fx.orgIds.shanghai);
+    expect(first.contextTrace.used).toContainEqual(expect.objectContaining({ field: 'budgetVersionId', value: version.id, label: version.name }));
+    expect(first.contextTrace.used).toContainEqual(expect.objectContaining({ field: 'orgScopeId', value: fx.orgIds.shanghai, label: '上海公司' }));
 
     const second: any = await assistant.chat(db, { conversationId: first.conversationId, message: '那完成率呢', pageContext: pageSnapshot() });
     expect(second.effectiveContext.year).toBe(2026);

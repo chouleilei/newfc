@@ -5,6 +5,7 @@ import * as budget from '../modules/budget/budget.service';
 import * as actual from '../modules/actual/actual.service';
 import { budgetQualityReport } from '../modules/check/budget-quality';
 import { executeTool } from './tools';
+import { selectionToolName, type SelectionExecution } from './selection-context';
 import { explainTerms, looksLikeExplainQuestion } from './glossary';
 import { looksLikeNavigation, navigationCatalog, resolveNavigation } from './navigation';
 import { detectDirection, detectIntents, detectReportKind, type IntentDetection, type ReadIntent } from './intent';
@@ -78,6 +79,7 @@ export interface QueryFactsOptions {
   /** 是否附加 glossary / navigation 事实(模型路由时由调用方单独附加，避免重复) */
   includeExtras?: boolean;
   view?: Record<string, unknown>;
+  selection?: SelectionExecution;
 }
 
 /**
@@ -90,6 +92,7 @@ export interface QueryFactsOptions {
  * 不再由重叠的正则各自触发，因此同一份 completionReport 不会被算两遍。
  */
 export function queryFacts(db: DB, message: string, context: AssistantScope = {}, options: QueryFactsOptions = {}): FactRecord[] {
+  if (options.selection) return [fact('selection_analysis', executeTool(db, selectionToolName(options.selection), {}, options.selection), { year: context.year, budgetVersionId: context.budgetVersionId, actualSnapshotId: context.actualSnapshotId })];
   const m = String(message || '').trim();
   const detection = options.intents ?? detectIntents(m, context.pageKey);
   const intents = new Set<ReadIntent>(detection.read);

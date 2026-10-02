@@ -310,7 +310,7 @@ export async function createApp(opts: ServerOptions) {
     if (pathWhitelist) return next();
     res.status(503).json({ code: 'RESTORING', message: '备份恢复进行中,请稍后再试' });
   });
-  registerAssistantRoutes(app, db, wrap);
+  registerAssistantRoutes(app, db, wrap, () => cleaningUploads);
 
   // 模型调用观测(AC-F21):只记规模/耗时/结果,不记正文;写入失败不影响调用
   setModelCallRecorder((record) => {
@@ -498,8 +498,8 @@ export async function createApp(opts: ServerOptions) {
   }));
 
   /* ============ 报表指标 ============ */
-  app.get('/api/metrics', wrap((_req, res) => {
-    const metrics = metric.listMetrics(db());
+  app.get('/api/metrics', wrap((req, res) => {
+    const metrics = metric.listMetrics(db(), req.query);
     const disabled = metric.metricsWithDisabledAccount(db());
     res.json({ items: metrics.map((m) => ({ ...m, referencesDisabledAccount: disabled.has(m.id) })) });
   }));

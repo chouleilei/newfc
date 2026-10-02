@@ -1,4 +1,6 @@
 import type { DB } from '../db/connection';
+import { analyzeMetricSelection, analyzeAliasSelection, analyzeSelectedGrid } from './selection-context';
+import { Errors } from '../core/errors';
 import * as budget from '../modules/budget/budget.service';
 import * as actual from '../modules/actual/actual.service';
 import * as report from '../modules/report/report.service';
@@ -303,7 +305,20 @@ export const BUDGET_TOOL_DEFINITIONS = defineTools({
     capabilities: ["master_data"], universal: true,
     policy: {"permission":"master:read","scope":"global"},
     schema: z.object({ versionId: z.number().int().safe().min(1).describe("传版本 ID 时按该版本绑定的快照口径列指标").nullable().optional() }).strict(),
-    execute: (db: DB, args: any) => { const versionId = args.versionId;  return (versionId == null ? metric.listMetrics(db) : metric.listMetricsForVersion(db, versionId)); },
+    selectionModes: ['refs', 'query'],
+    execute: (db: DB, args: any, selection) => { if (selection) return analyzeMetricSelection(db, selection); const versionId = args.versionId; return (versionId == null ? metric.listMetrics(db) : metric.listMetricsForVersion(db, versionId)); },
+  },
+  get_budget_selection: {
+    label: '分析预算网格选区', capabilities: ['budget'], universal: false,
+    policy: { permission: 'budget:read', scope: 'all_orgs' },
+    schema: z.object({}).strict(), selectionModes: ['bounds'],
+    execute: (db, _args, selection) => { if (!selection) throw Errors.validation('请先选择预算网格单元格'); return analyzeSelectedGrid(db, selection); },
+  },
+  get_actual_selection: {
+    label: '分析实际网格选区', capabilities: ['actual'], universal: false,
+    policy: { permission: 'actual:read', scope: 'all_orgs' },
+    schema: z.object({}).strict(), selectionModes: ['bounds'],
+    execute: (db, _args, selection) => { if (!selection) throw Errors.validation('请先选择实际网格单元格'); return analyzeSelectedGrid(db, selection); },
   },
   list_insights: {
     label: "查询已保存的洞察",
@@ -352,7 +367,8 @@ export const BUDGET_TOOL_DEFINITIONS = defineTools({
     capabilities: ["import_conversion"], universal: false,
     policy: {"permission":"import:run","scope":"all_orgs"},
     schema: z.object({ targetKind: z.enum(["budget","actual-current","finance"]).nullable().optional(), mappingKind: z.enum(["org","account"]).nullable().optional() }).strict(),
-    execute: (db: DB, args: any) => { const filter = args ?? {};  return listAliases(db, filter); },
+    selectionModes: ['refs', 'query'],
+    execute: (db: DB, args: any, selection) => { if (selection) return analyzeAliasSelection(db, selection); const filter = args ?? {}; return listAliases(db, filter); },
   },
   get_dashboard_overview: {
     label: "读取工作台总览",
