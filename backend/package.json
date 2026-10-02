@@ -46,7 +46,7 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^20.14.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.6.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
   "overrides": {
