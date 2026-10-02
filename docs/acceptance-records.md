@@ -595,3 +595,21 @@ Node v24.21.0，Linux 6.12.90，4 vCPU / 7.9 GiB。后端只在临时/内存库�
 日志：`/tmp/newfc-t8-backend-full-final4.log`、`/tmp/newfc-t8-source-types-final4.log`、`/tmp/newfc-t8-final-regression.log`、`/tmp/newfc-t8-frontend-after-field-search.log`、`/tmp/newfc-t8-frontend-types-after-field-search.log`、`/tmp/newfc-t8-build-final3.log`、`/tmp/newfc-t8-build-frontend-final3.log`、`/tmp/newfc-t8-full-browser.log`、`/tmp/newfc-t8-browser-final2.log`、`/tmp/newfc-t8-browser-failed-rerun.log`、`/tmp/newfc-t8-browser-affected-final.log`、`/tmp/newfc-t8-browser-ux31-final.log`、`/tmp/newfc-t8-resource-final.json`、`/tmp/newfc-t8-test-types-final3.log`。本机日志路径是执行证据，非公开下载地址。
 
 **未部署、未执行生产迁移、未替换正式产物；生产仍为 T-0～T-7 / schema V65。V66 仅临时库完成迁移与备份恢复验证。** 本阶段未访问 newbd 或 lishui 的运行目录/服务；源码来源、历史文档与已确认业务口径保留。发布时需前后端同版本与显式迁移，旧页面协议刷新路径已验证。
+
+## T-8 生产发布（2026-10-03）
+
+F07/F08/F20/F23/F24/F26；T-8.1～T-8.6；AC-T8-01～16、AC-X03/X04/X05/X06/X08/X09/X10。用户明确要求部署并整理文档后提交 GitHub。部署源码提交 `10e5566`，此前阶段实施与测试证据保留，不改写历史“未部署”记录。
+
+正式执行 `scripts/deploy.sh`，未跳过测试，返回 0。Node 24.21.0；锁定依赖安装、后端源码类型检查、109 个测试文件 / 1026 项、前端 51 个测试文件 / 480 项均通过；后端编译及前端 tsc -b/Vite 构建到 dist.new 成功。脚本随后停服、创建完整迁移前备份、显式执行 V66 `assistant_single_context`、同时替换前后端产物并启动，就绪检查通过。发布日志 `/tmp/newfc-t8-deploy.log`。
+
+生产服务于 2026-10-03 06:53:48 CST 启动，active/running、NRestarts=0。生产 schema 由 V65 升至 V66，数据库完整性与外键检查通过。迁移前备份 `/data/newfc-data/backups/pre-migrate-cli-budget-backup-2026-10-03-065348.sqlite` 的清单为 V65；数据库、清单、库 SHA-256、引用对象列表及对象摘要五项核验均通过。上一版产物保留在 backend/dist.old 与 frontend/dist.old。
+
+线上只读核验：本机 3760 与 `https://newfc.tangdalei.com` 的 live/ready 均 200、ready 为 V66；未登录 dashboard 均 401。两端首页以及所引用的 JS/CSS/favicon SHA-256 与正式 frontend/dist 一致，共 6 项资源检查。公网 Chromium 登录页标题为 `newfc 水利财务分析`、账号帮助正确、pageerror 为 0；截图 `/tmp/newfc-t8-production-login.png`。
+
+备份与生产库的 137 张非运行账本表逐表行数及行内容摘要一致，金额读取使用 safeIntegers(true)，未转为浮点。ai_message 比较仅排除四个已迁移上下文属性，其余正文、事实、引用与归属保持；**本次生产库历史助手消息为 0，组织/科目/指标亦无有效记录，不能把空表对照称为真实历史消息转换验证**。非空历史响应的迁移、正文/事实/金额保留、未知范围/授权撤销及恢复重迁移证据仍为前述 T-8.3 临时库验收。运行账本 schema_migration、operation_log、app_session、app_job/app_job_step 与 ai_model_call 单独排除，不作为业务数据保留结论。
+
+从只读生产库加载既有管理员 AuthContext，对正式后端 prepareChat 核验六类配置草稿与字段焦点、旧协议拒绝；组织/科目/清洗模板草稿校验通过，指标/测算/别名因生产缺少引用主数据而各返回 1 项校验问题，符合领域约束。未创建主数据来补足验证条件；指标 refs 线上分析因无指标跳过，其非空正确性由临时夹具专项与浏览器验收覆盖。只读连接 total_changes 前后相同，未调用 chat、模型或 OCR；正式产物目录为 50 页面、81 工具。证据 `/tmp/newfc-t8-production-check.log`、脱敏 JSON `/tmp/newfc-t8-production-check.json`、浏览器 `/tmp/newfc-t8-production-browser.json`，均为本地运维证据，不作为公开下载内容。
+
+本次未创建生产测试账号、会话或业务记录，未访问其他项目运行目录或服务。**回退至 V65 旧代码须使用匹配的 V65 完整备份，并核对备份后写入；不能只换旧产物继续使用 V66。** 未实际回退生产库，临时库备份恢复与重迁移已在阶段验收记录。
+
+GitHub 提交前本地公开检查：Gitleaks 8.30.1 全 Git 历史扫描及 Git 跟踪文件独立导出扫描通过，压缩夹具递归 3 层、解码 5 层，未发现泄密；沿用既有两处精确测试值豁免，无新增豁免。日志 `/tmp/newfc-t8-gitleaks-history.log`、`/tmp/newfc-t8-gitleaks-source.log`，脱敏 JSON 同名前缀。文档更新 README、CHANGELOG、计划/specs 当前状态、覆盖矩阵及运维升级说明；保留 v0.1.0 首版与此前检查的历史结果。
