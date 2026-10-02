@@ -21,7 +21,7 @@ import { useOptionalAssistantRegistryView } from '../../assistant/AssistantConte
 import { useAssistant } from '../../assistant/AssistantProvider';
 
 import { describeScopeEntry, focusActions, SCOPE_FIELD_LABEL } from '../../assistant/scopeDisplay';
-import { PageScope } from '../../assistant/context';
+import { PageScope } from '@contracts/assistant';
 
 export function AssistantScopeBar() {
   const view = useOptionalAssistantRegistryView();

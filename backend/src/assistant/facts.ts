@@ -8,11 +8,10 @@ import { executeTool } from './tools';
 import { explainTerms, looksLikeExplainQuestion } from './glossary';
 import { looksLikeNavigation, navigationCatalog, resolveNavigation } from './navigation';
 import { detectDirection, detectIntents, detectReportKind, type IntentDetection, type ReadIntent } from './intent';
-import type { AssistantCitation, AssistantContext } from './schemas';
-import { citationsForFacts, type FactRecord, type FactSource } from './citations';
+import type { AssistantCitation, AssistantScope } from '../contracts/assistant';
+import { citationsForFacts } from './citations';
+import type { AssistantFact as FactRecord, FactSource } from '../contracts/assistant';
 
-export { citationsForFacts };
-export type { FactRecord, FactSource };
 
 export function budgetFacts(db: DB, year?: number): { versions: unknown; snapshots: unknown; citations: AssistantCitation[] } {
   const facts = [
@@ -33,7 +32,7 @@ function multiYearBaseYear(db: DB, contextYear: number | undefined): number {
   return states.length > 0 ? states[0].year : new Date().getFullYear();
 }
 
-function versionSource(db: DB, versionId: number | undefined, context: AssistantContext): FactSource {
+function versionSource(db: DB, versionId: number | undefined, context: AssistantScope): FactSource {
   if (versionId == null) return { year: context.year, budgetVersionId: null };
   const v = budget.getVersion(db, versionId);
   return {
@@ -43,7 +42,7 @@ function versionSource(db: DB, versionId: number | undefined, context: Assistant
   };
 }
 
-function batchSource(db: DB, batchId: number | undefined, context: AssistantContext): FactSource {
+function batchSource(db: DB, batchId: number | undefined, context: AssistantScope): FactSource {
   if (batchId == null) return { year: context.year, actualSnapshotId: null };
   const b = actual.getBatch(db, batchId);
   return {
@@ -60,7 +59,7 @@ function batchSource(db: DB, batchId: number | undefined, context: AssistantCont
  * 这两项纯计算、无数据库重查询，并且是「模型不可用也必须准确」的内容，
  * 因此无论走模型路由还是正则兜底都会附加。
  */
-export function deterministicExtras(db: DB, message: string, context: AssistantContext = {}): FactRecord[] {
+export function deterministicExtras(db: DB, message: string, context: AssistantScope = {}): FactRecord[] {
   const m = String(message || '').trim();
   const out: FactRecord[] = [];
   const glossary = explainTerms(m, 4);
@@ -90,9 +89,9 @@ export interface QueryFactsOptions {
  * 与旧实现的区别：工具选择来自 intent.ts 的去重后意图集合，
  * 不再由重叠的正则各自触发，因此同一份 completionReport 不会被算两遍。
  */
-export function queryFacts(db: DB, message: string, context: AssistantContext = {}, options: QueryFactsOptions = {}): FactRecord[] {
+export function queryFacts(db: DB, message: string, context: AssistantScope = {}, options: QueryFactsOptions = {}): FactRecord[] {
   const m = String(message || '').trim();
-  const detection = options.intents ?? detectIntents(m, context.page);
+  const detection = options.intents ?? detectIntents(m, context.pageKey);
   const intents = new Set<ReadIntent>(detection.read);
   const facts: FactRecord[] = queryDomainFacts(db, m, context, detection.read, options.view);
   /**
@@ -177,7 +176,7 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
   if (intents.has('trend') && requireVersion('趋势分析需要预算版本')) {
     add('trend', () => executeTool(db, 'calculate_trend', {
       year: Number(year || budget.getVersion(db, versionId!).year), versionId: versionId!,
-      orgScopeId: context.orgId ?? null, accountScopeId: context.accountId ?? null,
+      orgScopeId: context.orgScopeId ?? null, accountScopeId: context.accountScopeId ?? null,
       batchId: context.actualSnapshotId ?? null,
     }), analysisSrc);
   }
@@ -189,14 +188,14 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
   if (intents.has('execution') && requireVersion('执行分析需要预算版本')) {
     add('execution', () => executeTool(db, 'calculate_execution', {
       versionId: versionId!, batchId: context.actualSnapshotId ?? null,
-      orgScopeId: context.orgId ?? null, accountScopeId: context.accountId ?? null,
+      orgScopeId: context.orgScopeId ?? null, accountScopeId: context.accountScopeId ?? null,
     }), analysisSrc);
   }
   // 差异归因(方案 4.3):按组织、科目和方向排序,逐层展开且可逐层核对。
   if (intents.has('attribution') && requireVersion('差异归因需要预算版本')) {
     add('attribution', () => executeTool(db, 'calculate_attribution', {
       versionId: versionId!, batchId: context.actualSnapshotId ?? null,
-      orgScopeId: context.orgId ?? null, accountScopeId: context.accountId ?? null,
+      orgScopeId: context.orgScopeId ?? null, accountScopeId: context.accountScopeId ?? null,
       maxDepth: 3, topN: 10, direction: detectDirection(m),
     }), analysisSrc);
   }
@@ -214,8 +213,8 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
         year: year ?? null,
         batchId: context.actualSnapshotId ?? null,
         targetVersionId: context.targetVersionId ?? null,
-        orgScopeId: context.orgId ?? null,
-        accountScopeId: context.accountId ?? null,
+        orgScopeId: context.orgScopeId ?? null,
+        accountScopeId: context.accountScopeId ?? null,
       }), () => ({ ...(versionId == null ? { year } : versionSrc()), ...(context.actualSnapshotId != null ? batchSrc() : {}) }));
     }
   }
@@ -240,11 +239,11 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
   }
   if (intents.has('structure') && requireVersion('结构分析需要预算版本')) {
     // 确定性路径没有 metricId 上下文,只有科目焦点能作为基准;其余情况回落到 parent 口径。
-    const basisMode = context.accountId != null && /科目/.test(m) ? 'account' : 'parent';
+    const basisMode = context.accountScopeId != null && /科目/.test(m) ? 'account' : 'parent';
     add('structure', () => executeTool(db, 'calculate_structure', {
       versionId: versionId!, batchId: context.actualSnapshotId ?? null,
-      orgScopeId: context.orgId ?? null, accountScopeId: context.accountId ?? null,
-      basisMode, ...(basisMode === 'account' ? { basisId: context.accountId! } : {}),
+      orgScopeId: context.orgScopeId ?? null, accountScopeId: context.accountScopeId ?? null,
+      basisMode, ...(basisMode === 'account' ? { basisId: context.accountScopeId! } : {}),
     }), analysisSrc);
   }
   if (intents.has('metric_catalog')) add('metric_catalog', () => executeTool(db, 'list_metrics', { versionId: versionId ?? undefined }), versionId != null ? versionSrc : { year });
@@ -263,7 +262,7 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
     if (versionId != null) {
       add('cell_notes_budget', () => executeTool(db, 'get_cell_notes', {
         source: 'budget', versionId: versionId!,
-        orgId: context.orgId ?? null, accountId: context.accountId ?? null,
+        orgId: context.orgScopeId ?? null, accountId: context.accountScopeId ?? null,
       }), versionSrc);
       if (noteYear == null) {
         try { noteYear = budget.getVersion(db, versionId).year; } catch { noteYear = null; }
@@ -273,7 +272,7 @@ export function queryFacts(db: DB, message: string, context: AssistantContext = 
       const queryYear = noteYear;
       add('cell_notes_actual', () => executeTool(db, 'get_cell_notes', {
         source: 'actual', year: queryYear,
-        orgId: context.orgId ?? null, accountId: context.accountId ?? null,
+        orgId: context.orgScopeId ?? null, accountId: context.accountScopeId ?? null,
       }), { year: queryYear });
     }
     if (versionId == null && noteYear == null) {

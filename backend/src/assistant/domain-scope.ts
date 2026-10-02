@@ -1,7 +1,5 @@
+import { DOMAIN_ID_FIELDS, type DomainContext, type DomainIdField } from '../contracts/assistant';
 /** 助手跨域上下文的纯类型、白名单与格式校验；不加载业务服务。 */
-export const DOMAIN_ID_FIELDS = ['projectId', 'contractId', 'claimId', 'feasProjectId', 'scenarioId', 'icProjectId', 'comparisonId', 'modelId', 'forecastVersionId', 'forecastRunId', 'riskId', 'reportId', 'standardReportId', 'governanceIssueId', 'mgmtMetricId', 'statementBatchId', 'projectBudgetBatchId', 'planBatchId', 'easBatchId', 'feasReportId', 'jobId'] as const;
-export type DomainIdField = typeof DOMAIN_ID_FIELDS[number];
-export type DomainContext = Partial<Record<DomainIdField, number>> & { period?: string; periodFrom?: string; periodTo?: string; statementScope?: 'parent' | 'subsidiary' | 'consolidated' };
 export function normalizeDomainContext(raw: Record<string, unknown>): DomainContext {
   const out: DomainContext = {};
   for (const field of DOMAIN_ID_FIELDS) {

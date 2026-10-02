@@ -10,18 +10,12 @@ import type { PageId } from '@contracts/page-catalog';
  * 2. 这里推导出的值属于 **routeContext**：永不持久化、永不写回用户手动筛选。
  *    持久化只发生在 manualContext(见 AssistantProvider)。
  */
-import type { AssistantContext } from '../api/assistant';
-
-/** 可推导的上下文字段(page 单独传，不参与字段合并) */
-export type ContextField = Exclude<keyof AssistantContext, 'page'>;
 
 export interface RoutePageInfo {
   /** canonical page 键，与后端 navigation.ts 一致 */
   page: string;
-  /** 页面中文名，用于抽屉里的「页面推导」徽标 */
+  /** 页面中文名，用于助手标题 */
   label: string;
-  /** 由路由推导出的上下文字段(不含 page) */
-  context: AssistantContext;
 }
 
 /** 各页面的快捷提问(2–4 条)：贴着该页能回答的问题，避免抽屉空状态无从下手。 */
@@ -220,7 +214,7 @@ export function pageSkills(page: string): PageSkill[] {
 /** Routes identify the page; registered page state provides the actual query scope. */
 export function derivePageContext(pathname: string, search: string): RoutePageInfo {
   const page = matchPage(pathname, search);
-  return { page: page ?? 'unknown', label: page ? PAGE_CATALOG[page].label : '当前页面', context: {} };
+  return { page: page ?? 'unknown', label: page ? PAGE_CATALOG[page].label : '当前页面' };
 }
 
 /** 根据可用业务权限提供可实际执行的推荐问题。 */

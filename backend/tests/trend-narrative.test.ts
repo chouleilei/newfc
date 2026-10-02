@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 /**
  * 多年趋势叙述层(AI 功能增强计划 §四.阶段五.AI 薄层)验收:
  * - NEWFC_TREND_AI=0 时年度复盘保留模板稿(含「年度节奏对比」确定性要点);
@@ -50,7 +51,7 @@ describe('年度节奏对比叙述层(AI 薄层)', () => {
     process.env.AI_API_KEY = 'test';
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
-    const draft = await reportDraft(db, { kind: 'annual_review', year: 2026 });
+    const draft = await reportDraft(db, { kind: 'annual_review', year: 2026, pageContext: pageSnapshot() });
     expect(draft.model).toBe('template');
     expect(draft.narrativeSource).toBe('template');
     expect(draft.sections.map((section) => section.key)).toContain('trend');
@@ -68,7 +69,7 @@ describe('年度节奏对比叙述层(AI 薄层)', () => {
       ok: true,
       json: async () => ({ choices: [{ message: { content: '模型自由发挥:利润暴增 999.99 万元,异常编码 FAKE01 需要关注' } }] }),
     })));
-    const draft = await reportDraft(db, { kind: 'annual_review', year: 2026 });
+    const draft = await reportDraft(db, { kind: 'annual_review', year: 2026, pageContext: pageSnapshot() });
     expect(draft.narrativeSource).toBe('template');
     expect(draft.model).toBe('template');
     expect(draft.notes?.some((note) => note.includes('已丢弃改写'))).toBe(true);
@@ -90,11 +91,11 @@ describe('年度节奏对比叙述层(AI 薄层)', () => {
       };
     }));
     // annual_review:开关关闭 -> 模板
-    const annual = await reportDraft(db, { kind: 'annual_review', year: 2026 });
+    const annual = await reportDraft(db, { kind: 'annual_review', year: 2026, pageContext: pageSnapshot() });
     expect(annual.narrativeSource).toBe('template');
     expect(calls).toBe(0);
     // monthly_execution 的守卫失败路径也会回退,但开关不拦截:fetch 会被调用
-    const monthly = await reportDraft(db, { kind: 'monthly_execution', versionId: version.id });
+    const monthly = await reportDraft(db, { kind: 'monthly_execution', versionId: version.id, pageContext: pageSnapshot() });
     expect(calls).toBe(1);
     expect(monthly.narrativeSource).toBe('template'); // 守卫:改写丢了全部事实 token -> 回退
     db.close();
@@ -106,7 +107,7 @@ describe('年度节奏对比叙述层(AI 薄层)', () => {
     process.env.AI_BASE_URL = 'http://model.test/v1';
     process.env.AI_API_KEY = 'test';
     // 先取模板稿,拿到 trend 章节块
-    const template = await reportDraft(db, { kind: 'annual_review', year: 2026, narrative: false });
+    const template = await reportDraft(db, { kind: 'annual_review', year: 2026, narrative: false, pageContext: pageSnapshot() });
     const trendSection = template.sections.find((section) => section.key === 'trend')!;
     const block = sectionMarkdown(trendSection);
     const otherBlocks = template.sections
@@ -124,7 +125,7 @@ describe('年度节奏对比叙述层(AI 薄层)', () => {
         json: async () => ({ choices: [{ message: { content: [lines[0], ...lines.slice(1).reverse()].join('\n') } }] }),
       };
     }));
-    const draft = await reportDraft(db, { kind: 'annual_review', year: 2026 });
+    const draft = await reportDraft(db, { kind: 'annual_review', year: 2026, pageContext: pageSnapshot() });
     // 送给模型的只有 trend 章节,不是整份报告
     expect(sentTemplate).toBe(block);
     expect(sentTemplate).not.toContain('## 一、年度结果');
@@ -141,14 +142,14 @@ describe('年度节奏对比叙述层(AI 薄层)', () => {
   it('年度节奏对比章节继承报告范围:组织范围写进要点且趋势事实带 scope', async () => {
     const db = testDb();
     const { fx } = setupAnnual(db);
-    const draft = await reportDraft(db, { kind: 'annual_review', year: 2026, orgScopeId: fx.orgIds.east, narrative: false });
+    const draft = await reportDraft(db, { kind: 'annual_review', year: 2026, orgScopeId: fx.orgIds.east, narrative: false, pageContext: pageSnapshot() });
     const trend = draft.sections.find((section) => section.key === 'trend')!;
     const data = trend.data as { scope: { orgScopeId: number | null; orgCodes: string[] | null } };
     expect(data.scope.orgScopeId).toBe(fx.orgIds.east);
     expect(data.scope.orgCodes).toEqual(['EAST', 'HZ', 'SH']);
     expect(trend.bullets.some((line) => line.includes('组织限定 3 个编码'))).toBe(true);
     // 未指定范围时明确声明全量,不让读者误以为漏了筛选
-    const full = await reportDraft(db, { kind: 'annual_review', year: 2026, narrative: false });
+    const full = await reportDraft(db, { kind: 'annual_review', year: 2026, narrative: false, pageContext: pageSnapshot() });
     const fullTrend = full.sections.find((section) => section.key === 'trend')!;
     expect(fullTrend.bullets.some((line) => line.includes('组织全量') && line.includes('科目全量'))).toBe(true);
     db.close();

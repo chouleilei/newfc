@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 import { describe, it, expect } from 'vitest';
 import { createTestApp, authFetch } from './http-helpers';
 import { anomalyReport } from '../src/assistant/anomaly';
@@ -26,13 +27,13 @@ describe('AI 助手:导航、业务解释与异常检查', () => {
 
   it('chat 返回 navigation 字段并给出上下文相关建议', async () => {
     const db = testDb(); const fx = buildFixture(db); const version = standardBudgetVersion(fx);
-    const nav: any = await assistant.chat(db, { message: '打开本年执行分析页面', context: { year: 2026, budgetVersionId: version.id } });
+    const nav: any = await assistant.chat(db, { message: '打开本年执行分析页面', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(nav.navigation).toMatchObject({ page: 'analysis', path: '/analysis' });
     expect(nav.navigation.params).toMatchObject({ year: 2026, versionId: version.id });
     expect(nav.suggestions.some((s: string) => s.includes('打开「年度执行分析」页面'))).toBe(true);
     expect(nav.text).toContain('/analysis');
 
-    const plain: any = await assistant.chat(db, { message: '列出预算版本', context: { year: 2026 } });
+    const plain: any = await assistant.chat(db, { message: '列出预算版本', pageContext: pageSnapshot({ year: 2026 }) });
     expect(plain.navigation).toBeNull();
     expect(plain.suggestions.some((s: string) => s.includes('选择预算版本'))).toBe(true);
     expect(plain.suggestions.length).toBeGreaterThan(0);
@@ -46,7 +47,7 @@ describe('AI 助手:导航、业务解释与异常检查', () => {
     expect(glossary).toBeTruthy();
     expect(glossary.data.entries.some((e: any) => e.key === 'unit_conversion')).toBe(true);
 
-    const answer: any = await assistant.chat(db, { message: '解释一下成本费用金额方向为什么是负数' });
+    const answer: any = await assistant.chat(db, { message: '解释一下成本费用金额方向为什么是负数', pageContext: pageSnapshot() });
     expect(answer.text).toContain('利润方向');
     expect(answer.facts.some((f: any) => f.type === 'glossary')).toBe(true);
     expect(answer.facts.length).toBe(answer.citations.length);

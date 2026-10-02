@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createTestApp, authFetch } from './http-helpers';
 import * as assistant from '../src/assistant/service';
@@ -12,7 +13,7 @@ describe('AI assistant workflow', () => {
   });
   it('supports chat and idempotent preview/cancel', async () => {
     const db = testDb();
-    const chat = await assistant.chat(db as any, { message: '列出预算版本', context: { year: 2026 } });
+    const chat = await assistant.chat(db as any, { message: '列出预算版本', pageContext: pageSnapshot({ year: 2026 }) });
     expect(chat.conversationId).toBeGreaterThan(0);
     const a = assistant.preview(db as any, { type: 'scenario', params: { idempotencyKey: 'x1', incomeGrowth: 0.1 } });
     const b = assistant.preview(db as any, { type: 'scenario', params: { idempotencyKey: 'x1', incomeGrowth: 0.2 } });
@@ -56,7 +57,7 @@ describe('AI assistant workflow', () => {
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
-    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat`, { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ message:'列出预算版本' }) });
+    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat`, { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ message:'列出预算版本', pageContext: pageSnapshot() }) });
     expect(response.status).toBe(200); const body:any = await response.json(); expect(body.conversationId ?? body.code).toBeDefined();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
@@ -99,7 +100,7 @@ describe('AI assistant workflow', () => {
     const db = testDb(); const fx = buildFixture(db); const version = standardBudgetVersion(fx);
     process.env.AI_BASE_URL = 'http://model.invalid/v1'; process.env.AI_API_KEY = 'test';
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => { throw new Error('bad json'); } })));
-    const result: any = await assistant.chat(db, { message: '分析预算执行', context: { year: 2026, budgetVersionId: version.id } });
+    const result: any = await assistant.chat(db, { message: '分析预算执行', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     // 非法 JSON 时降级为确定性模板摘要，且摘要只引用后端事实
     expect(result.text).toContain('预算执行事实查询');
     expect((db.prepare("SELECT model FROM ai_message WHERE role='assistant' ORDER BY id DESC").get() as any).model).toBe('template');
@@ -118,7 +119,7 @@ describe('AI assistant workflow', () => {
         ? { ok: true, json: async () => ({ choices: [{ message: { content: '', tool_calls: [{ id: 't1', function: { name: 'list_budget_versions', arguments: '{"year":2026}' } }] } }] }) }
         : { ok: true, json: async () => ({ choices: [{ message: { content: '工具事实回答' } }] }) };
     }));
-    const result: any = await assistant.chat(db, { message: '请查询', context: { year: 2026 } });
+    const result: any = await assistant.chat(db, { message: '请查询', pageContext: pageSnapshot({ year: 2026 }) });
     expect(result.text).toBe('工具事实回答');
     expect(result.facts.some((f: any) => f.type === 'tool:list_budget_versions')).toBe(true);
     expect(result.facts.length).toBe(result.citations.length);
@@ -131,7 +132,7 @@ describe('AI assistant workflow', () => {
     vi.stubGlobal('fetch', vi.fn((_url: string, options: any) => new Promise((_resolve, reject) => {
       options.signal.addEventListener('abort', () => { const error: any = new Error('aborted'); error.name = 'AbortError'; reject(error); });
     })));
-    const result: any = await assistant.chat(db, { message: '随便问问' });
+    const result: any = await assistant.chat(db, { message: '随便问问', pageContext: pageSnapshot() });
     expect(result.text).toContain('模型暂时不可用');
     db.close();
   });
@@ -178,7 +179,7 @@ describe('AI assistant workflow', () => {
     const server = app.listen(0);
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     const port = (server.address() as any).port;
-    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: '列出预算版本', context: { year: 2026 } }) });
+    const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: '列出预算版本', pageContext: pageSnapshot({ year: 2026 }) }) });
     expect(response.status).toBe(200);
     const body = await response.text();
     expect(body).toContain('event: token');

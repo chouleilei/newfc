@@ -1,6 +1,6 @@
 import { Descriptions, Empty, Space, Table, Typography } from 'antd';
 import { Link } from 'react-router-dom';
-import type { AssistantFact } from '../../api/assistant';
+import type { AssistantFact } from '@contracts/assistant';
 
 export const DOMAIN_TOOL_LABELS: Record<string, string> = {
   domain_ledger: '当前台账筛选结果',

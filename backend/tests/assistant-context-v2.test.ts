@@ -10,10 +10,8 @@
  * - 草稿基线校验(DRAFT_STALE)、草稿不进入 preview。
  */
 import { describe, expect, it } from 'vitest';
-import {
-  parsePageContextV2, resolveBackendContext, buildContextSummary, detectOverrides,
-  CONTEXT_MAX_BYTES, DRAFT_MAX_CHANGES,
-} from '../src/assistant/context-v2';
+import { CONTEXT_MAX_BYTES, DRAFT_MAX_CHANGES } from '../src/contracts/assistant';
+import { parseAssistantPageContext, resolveAssistantContext, buildContextSummary, detectOverrides } from '../src/assistant/page-context';
 import { normalizeDraftInput, computeDraftImpact, draftSummary } from '../src/assistant/draft-context';
 import { pageDefinition, PAGE_IDS } from '../src/contracts/page-catalog';
 import { filterIntentsByCapability } from '../src/assistant/page-capabilities';
@@ -54,37 +52,37 @@ function expectError(fn: () => unknown, code: string): AppError {
   throw new Error(`预期抛出 ${code}，实际未抛出`);
 }
 
-describe('parsePageContextV2 · schema 与白名单', () => {
-  it('null/undefined 返回 null(旧客户端)', () => {
-    expect(parsePageContextV2(null)).toBeNull();
-    expect(parsePageContextV2(undefined)).toBeNull();
+describe('parseAssistantPageContext · schema 与白名单', () => {
+  it('null/undefined 明确拒绝', () => {
+    expectError(() => parseAssistantPageContext(null), 'CONTEXT_INVALID');
+    expectError(() => parseAssistantPageContext(undefined), 'CONTEXT_INVALID');
   });
 
-  it('schemaVersion 非 2 报 CONTEXT_INVALID', () => {
-    expectError(() => parsePageContextV2(baseContext({ schemaVersion: 1 })), 'CONTEXT_INVALID');
+  it('schemaVersion 非 2 报 CONTEXT_PROTOCOL_UNSUPPORTED', () => {
+    expectError(() => parseAssistantPageContext(baseContext({ schemaVersion: 1 })), 'CONTEXT_PROTOCOL_UNSUPPORTED');
   });
 
   it('未知 pageKey 报 CONTEXT_INVALID 且不回退 dashboard', () => {
-    const err = expectError(() => parsePageContextV2(baseContext({ pageKey: 'dashboard_x' })), 'CONTEXT_INVALID');
+    const err = expectError(() => parseAssistantPageContext(baseContext({ pageKey: 'dashboard_x' })), 'CONTEXT_INVALID');
     expect(err.message).toContain('未知页面');
   });
 
   it('scope 白名单外字段被拒绝', () => {
-    expectError(() => parsePageContextV2(baseContext({ scope: { hackerField: 1 } })), 'CONTEXT_INVALID');
+    expectError(() => parseAssistantPageContext(baseContext({ scope: { hackerField: 1 } })), 'CONTEXT_INVALID');
   });
 
   it('view 白名单外字段被拒绝', () => {
-    expectError(() => parsePageContextV2(baseContext({ view: { secretToken: 'abc' } })), 'CONTEXT_INVALID');
+    expectError(() => parseAssistantPageContext(baseContext({ view: { secretToken: 'abc' } })), 'CONTEXT_INVALID');
   });
 
   it('上下文超过 64KiB 报 CONTEXT_TOO_LARGE', () => {
     const big = 'x'.repeat(CONTEXT_MAX_BYTES);
-    expectError(() => parsePageContextV2(baseContext({ view: { keyword: big } })), 'CONTEXT_TOO_LARGE');
+    expectError(() => parseAssistantPageContext(baseContext({ view: { keyword: big } })), 'CONTEXT_TOO_LARGE');
   });
 
   it('草稿变更超过 10000 项报 CONTEXT_TOO_LARGE', () => {
     const changes = Array.from({ length: DRAFT_MAX_CHANGES + 1 }, (_, i) => ({ orgId: 1, accountId: 2, amount: `${i}.00` }));
-    expectError(() => parsePageContextV2(baseContext({
+    expectError(() => parseAssistantPageContext(baseContext({
       pageKey: 'budget_edit',
       draft: { kind: 'budget_grid', base: { versionId: 1 }, changes },
     })), 'CONTEXT_TOO_LARGE');
@@ -92,27 +90,27 @@ describe('parsePageContextV2 · schema 与白名单', () => {
 
   it('页面不接受的草稿类型报 CONTEXT_INVALID', () => {
     // analysis 页不接受 budget_grid 草稿(只有 budget_edit 接受)
-    expectError(() => parsePageContextV2(baseContext({
+    expectError(() => parseAssistantPageContext(baseContext({
       draft: { kind: 'budget_grid', base: { versionId: 1 }, changes: [] },
     })), 'CONTEXT_INVALID');
   });
 
   it('selection refs 超过 500 报 CONTEXT_TOO_LARGE', () => {
     const refs = Array.from({ length: 501 }, (_, i) => ({ entityType: 'account', id: i + 1 }));
-    expectError(() => parsePageContextV2(baseContext({
+    expectError(() => parseAssistantPageContext(baseContext({
       selection: { mode: 'refs', entityType: 'account', refs },
     })), 'CONTEXT_TOO_LARGE');
   });
 
-  it('28 个 pageKey 都能通过 parsePageContextV2', () => {
+  it('28 个 pageKey 都能通过 parseAssistantPageContext', () => {
     for (const pageKey of PAGE_IDS) {
-      const parsed = parsePageContextV2(baseContext({ pageKey }));
+      const parsed = parseAssistantPageContext(baseContext({ pageKey }));
       expect(parsed?.pageKey).toBe(pageKey);
     }
   });
 });
 
-describe('resolveBackendContext · 资源与关系校验', () => {
+describe('resolveAssistantContext · 资源与关系校验', () => {
   let fx: Fixture;
   let versionId: number;
 
@@ -123,24 +121,24 @@ describe('resolveBackendContext · 资源与关系校验', () => {
 
   it('不存在的版本 ID 报 CONTEXT_INVALID', () => {
     setup();
-    expectError(() => resolveBackendContext(fx.db, baseContext({ scope: { budgetVersionId: 99999 } })), 'CONTEXT_INVALID');
+    expectError(() => resolveAssistantContext(fx.db, baseContext({ scope: { budgetVersionId: 99999 } })), 'CONTEXT_INVALID');
   });
 
   it('页面年度与版本年度冲突报 CONTEXT_CONFLICT', () => {
     setup();
-    expectError(() => resolveBackendContext(fx.db, baseContext({ scope: { year: 2025, budgetVersionId: versionId } })), 'CONTEXT_CONFLICT');
+    expectError(() => resolveAssistantContext(fx.db, baseContext({ scope: { year: 2025, budgetVersionId: versionId } })), 'CONTEXT_CONFLICT');
   });
 
   it('年度与版本一致时正常解析', () => {
     setup();
-    const resolved = resolveBackendContext(fx.db, baseContext({ scope: { year: 2026, budgetVersionId: versionId } }));
-    expect(resolved?.pageContext.budgetVersionId).toBe(versionId);
-    expect(resolved?.pageContext.year).toBe(2026);
+    const resolved = resolveAssistantContext(fx.db, baseContext({ scope: { year: 2026, budgetVersionId: versionId } }));
+    expect(resolved?.scope.budgetVersionId).toBe(versionId);
+    expect(resolved?.scope.year).toBe(2026);
   });
 
   it('不存在的实际快照报 CONTEXT_INVALID', () => {
     setup();
-    expectError(() => resolveBackendContext(fx.db, baseContext({ scope: { actualSnapshotId: 424242 } })), 'CONTEXT_INVALID');
+    expectError(() => resolveAssistantContext(fx.db, baseContext({ scope: { actualSnapshotId: 424242 } })), 'CONTEXT_INVALID');
   });
 
   it('组织不在版本绑定树快照中报 CONTEXT_CONFLICT', () => {
@@ -148,23 +146,23 @@ describe('resolveBackendContext · 资源与关系校验', () => {
     // 版本快照绑定的是建版本时刻的树；新建一个版本外的组织
     const outside = fx.db.prepare("INSERT INTO org(parent_id, code, name, status, created_at, updated_at) VALUES(NULL,'OUT','外部','active','2026-01-01','2026-01-01')").run();
     const outsideId = Number(outside.lastInsertRowid);
-    expectError(() => resolveBackendContext(fx.db, baseContext({
+    expectError(() => resolveAssistantContext(fx.db, baseContext({
       scope: { budgetVersionId: versionId, orgScopeId: outsideId },
     })), 'CONTEXT_CONFLICT');
   });
 
   it('组织在版本树快照内时正常解析', () => {
     setup();
-    const resolved = resolveBackendContext(fx.db, baseContext({
+    const resolved = resolveAssistantContext(fx.db, baseContext({
       scope: { budgetVersionId: versionId, orgScopeId: fx.orgIds.shanghai },
     }));
-    expect(resolved?.pageContext.orgId).toBe(fx.orgIds.shanghai);
+    expect(resolved?.scope.orgScopeId).toBe(fx.orgIds.shanghai);
   });
 
   it('focus 指向其他版本的单元格报 CONTEXT_STALE', () => {
     setup();
     const other = standardBudgetVersion(fx, 2027, 'V-next');
-    expectError(() => resolveBackendContext(fx.db, baseContext({
+    expectError(() => resolveAssistantContext(fx.db, baseContext({
       pageKey: 'budget_edit',
       scope: { budgetVersionId: versionId },
       focus: { kind: 'cell', source: 'budget', sourceId: other.id, orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain },
@@ -173,42 +171,42 @@ describe('resolveBackendContext · 资源与关系校验', () => {
 
   it('cell 焦点把 org/account 并入 scope(§6 focus > scope)', () => {
     setup();
-    const resolved = resolveBackendContext(fx.db, baseContext({
+    const resolved = resolveAssistantContext(fx.db, baseContext({
       pageKey: 'budget_edit',
       scope: { budgetVersionId: versionId },
       focus: { kind: 'cell', source: 'budget', sourceId: versionId, orgId: fx.orgIds.shanghai, accountId: fx.accIds.costSub },
     }));
-    expect(resolved?.pageContext.orgId).toBe(fx.orgIds.shanghai);
-    expect(resolved?.pageContext.accountId).toBe(fx.accIds.costSub);
+    expect(resolved?.scope.orgScopeId).toBe(fx.orgIds.shanghai);
+    expect(resolved?.scope.accountScopeId).toBe(fx.accIds.costSub);
   });
 
   it('surface 实体覆盖 focus 与页面 scope(§6 surface 最优先)', () => {
     setup();
-    const resolved = resolveBackendContext(fx.db, baseContext({
+    const resolved = resolveAssistantContext(fx.db, baseContext({
       scope: { budgetVersionId: versionId, orgScopeId: fx.orgIds.shanghai },
       focus: { kind: 'entity', entityType: 'account', id: fx.accIds.incomeMain },
       surfaces: [{ id: 's1', kind: 'drawer', key: 'evidence_detail', entity: { entityType: 'account', id: fx.accIds.costSub } }],
     }));
-    expect(resolved?.pageContext.accountId).toBe(fx.accIds.costSub);
+    expect(resolved?.scope.accountScopeId).toBe(fx.accIds.costSub);
   });
 
   it('surface 引用的实体不存在时报 CONTEXT_INVALID', () => {
     setup();
-    expectError(() => resolveBackendContext(fx.db, baseContext({
+    expectError(() => resolveAssistantContext(fx.db, baseContext({
       surfaces: [{ id: 's1', kind: 'drawer', key: 'evidence_detail', entity: { entityType: 'account', id: 999999 } }],
     })), 'CONTEXT_INVALID');
   });
 
   it('selection refs 中的实体不存在时报 CONTEXT_INVALID', () => {
     setup();
-    expectError(() => resolveBackendContext(fx.db, baseContext({
+    expectError(() => resolveAssistantContext(fx.db, baseContext({
       selection: { mode: 'refs', entityType: 'org', refs: [{ entityType: 'org', id: 888888 }] },
     })), 'CONTEXT_INVALID');
   });
 
   it('chart_point 焦点的 metric 并入 extras', () => {
     setup();
-    const resolved = resolveBackendContext(fx.db, baseContext({
+    const resolved = resolveAssistantContext(fx.db, baseContext({
       pageKey: 'metric_trend',
       scope: {},
       focus: { kind: 'chart_point', seriesKey: 'metric_trend', dimensionType: 'metric', dimensionId: fx.metricIds.gross },
@@ -221,38 +219,38 @@ describe('resolveBackendContext · 资源与关系校验', () => {
     const batchId = saveActualSnapshot(fx, 2025, '2025-03-31', [
       { orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain, amount: '12.00' },
     ]).batchId;
-    const resolved = resolveBackendContext(fx.db, baseContext({
+    const resolved = resolveAssistantContext(fx.db, baseContext({
       scope: { year: 2026 },
       focus: { kind: 'chart_point', seriesKey: 'trend', dimensionType: 'period', period: '2025-03-31' },
     }));
-    expect(resolved?.pageContext.year).toBe(2025);
-    expect(resolved?.pageContext.actualSnapshotId).toBe(batchId);
+    expect(resolved?.scope.year).toBe(2025);
+    expect(resolved?.scope.actualSnapshotId).toBe(batchId);
     expect(resolved?.extras.asOfDate).toBe('2025-03-31');
   });
 
   it('chart_point 的年度期间覆盖页面年度', () => {
     setup();
-    const resolved = resolveBackendContext(fx.db, baseContext({
+    const resolved = resolveAssistantContext(fx.db, baseContext({
       pageKey: 'history',
       scope: { year: 2026 },
       focus: { kind: 'chart_point', seriesKey: 'history_year', dimensionType: 'period', period: '2025' },
     }));
-    expect(resolved?.pageContext.year).toBe(2025);
+    expect(resolved?.scope.year).toBe(2025);
   });
 
   it('版本对比 scope 映射到既有 budgetVersionId/targetVersionId 且必须同年度', () => {
     setup();
     const base = standardBudgetVersion(fx, 2026, '基准');
     const compare = budget.createVersion(fx.db, { year: 2026, name: '目标' });
-    const resolved = resolveBackendContext(fx.db, baseContext({
+    const resolved = resolveAssistantContext(fx.db, baseContext({
       pageKey: 'version_compare',
       scope: { baseVersionId: base.id, compareVersionId: compare.id },
     }));
-    expect(resolved?.pageContext.budgetVersionId).toBe(base.id);
-    expect(resolved?.pageContext.targetVersionId).toBe(compare.id);
+    expect(resolved?.scope.budgetVersionId).toBe(base.id);
+    expect(resolved?.scope.targetVersionId).toBe(compare.id);
 
     const otherYear = budget.createVersion(fx.db, { year: 2025, name: '跨年目标' });
-    expectError(() => resolveBackendContext(fx.db, baseContext({
+    expectError(() => resolveAssistantContext(fx.db, baseContext({
       pageKey: 'version_compare',
       scope: { baseVersionId: base.id, compareVersionId: otherYear.id },
     })), 'CONTEXT_CONFLICT');
@@ -260,7 +258,7 @@ describe('resolveBackendContext · 资源与关系校验', () => {
 
   it('periodStart 晚于 periodEnd 报 CONTEXT_CONFLICT', () => {
     setup();
-    expectError(() => resolveBackendContext(fx.db, baseContext({
+    expectError(() => resolveAssistantContext(fx.db, baseContext({
       scope: { periodStart: '2026-06-01', periodEnd: '2026-01-01' },
     })), 'CONTEXT_CONFLICT');
   });
@@ -298,7 +296,7 @@ describe('buildContextSummary / detectOverrides', () => {
     const summary = buildContextSummary(
       fx.db,
       '年度执行分析',
-      { page: 'analysis', year: 2026, budgetVersionId: versionId, orgId: fx.orgIds.shanghai },
+      { pageKey: 'analysis', year: 2026, budgetVersionId: versionId, orgScopeId: fx.orgIds.shanghai },
       {},
       {},
     );
@@ -310,7 +308,7 @@ describe('buildContextSummary / detectOverrides', () => {
 
   it('问题明确指定的范围与页面不同 → 产生 override 记录', () => {
     const overrides = detectOverrides(
-      { page: 'analysis', year: 2026 },
+      { pageKey: 'analysis', year: 2026 },
       [{ field: 'year', value: 2025, origin: 'message', reason: '问题指定 2025 年' }],
     );
     expect(overrides).toHaveLength(1);
@@ -319,7 +317,7 @@ describe('buildContextSummary / detectOverrides', () => {
 
   it('问题值与页面一致时不产生 override', () => {
     const overrides = detectOverrides(
-      { page: 'analysis', year: 2026 },
+      { pageKey: 'analysis', year: 2026 },
       [{ field: 'year', value: 2026, origin: 'message', reason: '问题重述 2026 年' }],
     );
     expect(overrides).toHaveLength(0);
@@ -327,7 +325,7 @@ describe('buildContextSummary / detectOverrides', () => {
 
   it('会话继承补齐(origin=conversation)不算 override', () => {
     const overrides = detectOverrides(
-      { page: 'analysis', year: 2026 },
+      { pageKey: 'analysis', year: 2026 },
       [{ field: 'budgetVersionId', value: 3, origin: 'conversation', reason: '沿用上一轮' }],
     );
     expect(overrides).toHaveLength(0);

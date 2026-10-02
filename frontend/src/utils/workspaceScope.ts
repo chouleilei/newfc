@@ -1,4 +1,4 @@
-import { DOMAIN_ID_FIELDS } from '../assistant/domainContext';
+import { DOMAIN_ID_FIELDS } from '@contracts/assistant';
 /**
  * 公共工作范围与路由适配(方案《易用性与直觉化交互实施方案》§5.1,任务 UX-01)。
  *
@@ -13,7 +13,7 @@ import { DOMAIN_ID_FIELDS } from '../assistant/domainContext';
  * - 历史补录模式只由显式 mode=history 决定,不按年度早于当前年推断。
  */
 import { PageId } from '@contracts/page-catalog';
-import { PageScope } from '../assistant/context';
+import { PageScope } from '@contracts/assistant';
 
 export type ActualViewMode = 'orgs' | 'years';
 export type ActualEditMode = 'current' | 'history';

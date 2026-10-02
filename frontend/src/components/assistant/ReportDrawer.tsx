@@ -1,3 +1,4 @@
+import { useAssistantRegistry } from '../../assistant/AssistantContextRegistry';
 /**
  * 报告生成抽屉(方案《AI助手完整方案》4.3「执行月报 / 年度复盘 / 预算讨论材料」)。
  *
@@ -7,7 +8,7 @@
 import { useState } from 'react';
 import { Alert, Button, Collapse, Descriptions, Drawer, Segmented, Space, Spin, Tag, Typography, message } from 'antd';
 import { Markdown } from './Markdown';
-import type { AssistantContext, ReportDraft, ReportKind } from '../../api/assistant';
+import type { AssistantScope, ReportDraft, ReportKind } from '@contracts/assistant';
 import { assistantApi } from '../../api/assistant';
 import { ApiError } from '../../api/client';
 import { CitationList } from './FactsPanel';
@@ -23,9 +24,10 @@ export function ReportDrawer({
 }: {
   open: boolean;
   onClose: () => void;
-  context: AssistantContext;
+  context: AssistantScope;
   onSaveInsight?: (params: Record<string, unknown>, title: string) => void;
 }) {
+  const registry = useAssistantRegistry();
   const [kind, setKind] = useState<ReportKind>('monthly_execution');
   const [draft, setDraft] = useState<ReportDraft | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,14 +44,17 @@ export function ReportDrawer({
     }
     setLoading(true);
     try {
+      const snapshot = registry.buildSnapshot();
+      if (snapshot.status !== 'ok') throw new Error('当前页面范围未就绪');
       const result = await assistantApi.report({
+        pageContext: snapshot.pageContext,
         kind,
         ...(context.budgetVersionId == null ? {} : { versionId: context.budgetVersionId }),
         ...(context.year == null ? {} : { year: context.year }),
         ...(context.actualSnapshotId == null ? {} : { batchId: context.actualSnapshotId }),
         ...(context.targetVersionId == null ? {} : { targetVersionId: context.targetVersionId }),
-        ...(context.orgId == null ? {} : { orgScopeId: context.orgId }),
-        ...(context.accountId == null ? {} : { accountScopeId: context.accountId }),
+        ...(context.orgScopeId == null ? {} : { orgScopeId: context.orgScopeId }),
+        ...(context.accountScopeId == null ? {} : { accountScopeId: context.accountScopeId }),
       });
       setDraft(result);
     } catch (err) {

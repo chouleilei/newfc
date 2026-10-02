@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 /**
  * T-2:AC-X04 / AC-F20 / AC-F24 助手与分析接口的组织范围。
  *
@@ -206,17 +207,17 @@ describe('AC-X04 / AC-F20 助手问答与记录归属(HTTP)', () => {
     const v = seed(fx);
     const sh = createScopedUser(db, { username: 'sh-chat', roleCodes: ['finance_analyst'], orgIds: [fx.orgIds.shanghai] });
 
-    const chat = await json(await post(sh.session, `${base}/api/assistant/chat`, { message: '2026年预算执行情况怎么样', context: { year: 2026, budgetVersionId: v.id } }));
+    const chat = await json(await post(sh.session, `${base}/api/assistant/chat`, { message: '2026年预算执行情况怎么样', pageContext: pageSnapshot({ year: 2026, budgetVersionId: v.id }) }));
     expect(chat.status).toBe(200);
-    expect(chat.body.resolvedContext.orgId).toBe(fx.orgIds.shanghai);
+    expect(chat.body.effectiveContext.orgScopeId).toBe(fx.orgIds.shanghai);
     expect(JSON.stringify(chat.body)).toContain('按当前账号的授权组织范围');
     expectNoLeak('assistant chat', chat.body);
     // 回答确实基于上海的事实(预算收入 100 元 = 10000 分),而不是空结果
     expect(JSON.stringify(chat.body)).toContain('"budgetCents":10000');
 
-    const outside = await json(await post(sh.session, `${base}/api/assistant/chat`, { message: '南京公司2026年预算执行情况', context: { year: 2026, budgetVersionId: v.id } }));
+    const outside = await json(await post(sh.session, `${base}/api/assistant/chat`, { message: '南京公司2026年预算执行情况', pageContext: pageSnapshot({ year: 2026, budgetVersionId: v.id }) }));
     expect(outside.status).toBe(404);
-    const forged = await json(await post(sh.session, `${base}/api/assistant/chat`, { message: '执行情况', context: { year: 2026, budgetVersionId: v.id, orgId: fx.orgIds.hangzhou } }));
+    const forged = await json(await post(sh.session, `${base}/api/assistant/chat`, { message: '执行情况', pageContext: pageSnapshot({ year: 2026, budgetVersionId: v.id, orgScopeId: fx.orgIds.hangzhou }) }));
     expect(forged.status).toBe(404);
   });
 
@@ -228,7 +229,7 @@ describe('AC-X04 / AC-F20 助手问答与记录归属(HTTP)', () => {
     const v = seed(fx);
     const sh = createScopedUser(db, { username: 'sh-owner', roleCodes: ['finance_analyst'], orgIds: [fx.orgIds.shanghai] });
 
-    const adminChat = await json(await post(admin, `${base}/api/assistant/chat`, { message: '列出预算版本', context: { year: 2026 } }));
+    const adminChat = await json(await post(admin, `${base}/api/assistant/chat`, { message: '列出预算版本', pageContext: pageSnapshot({ year: 2026 }) }));
     expect(adminChat.status).toBe(200);
     const adminConv = adminChat.body.conversationId;
     const adminInsight = await json(await post(admin, `${base}/api/assistant/insights`, { kind: 'execution', params: { versionId: v.id }, title: '集团执行洞察' }));
@@ -237,7 +238,7 @@ describe('AC-X04 / AC-F20 助手问答与记录归属(HTTP)', () => {
     const list = await json(await fetchAs(sh.session, `${base}/api/assistant/conversations`));
     expect(list.body.items.map((c: any) => c.id)).not.toContain(adminConv);
     expect((await fetchAs(sh.session, `${base}/api/assistant/conversations/${adminConv}`)).status).toBe(404);
-    const hijack = await post(sh.session, `${base}/api/assistant/chat`, { conversationId: adminConv, message: '继续' });
+    const hijack = await post(sh.session, `${base}/api/assistant/chat`, { conversationId: adminConv, message: '继续', pageContext: pageSnapshot() });
     expect(hijack.status).toBe(404);
     expect((await fetchAs(sh.session, `${base}/api/assistant/insights/${adminInsight.body.id}`)).status).toBe(404);
     const shInsights = await json(await fetchAs(sh.session, `${base}/api/assistant/insights`));

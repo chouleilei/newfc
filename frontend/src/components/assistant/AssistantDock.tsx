@@ -256,9 +256,8 @@ export function AssistantDock() {
   const submit = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
-    setDraft('');
     setGlowOff(true);
-    void send(trimmed);
+    void send(trimmed).then((sent) => { if (sent) setDraft((current) => current.trim() === trimmed ? '' : current); });
     /**
      * 无论从哪条路径发出(输入框、能力卡、推荐问题、追问建议),都把焦点收回输入框。
      * 这些触发元素发完就被卸载或禁用,焦点会掉到 <body>。

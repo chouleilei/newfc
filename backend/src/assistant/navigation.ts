@@ -1,6 +1,6 @@
 import { currentAuth } from '../core/request-context';
 import { PAGE_CATALOG, PAGE_IDS, pagePath, pageVisible, type PageId } from '../contracts/page-catalog';
-import type { AssistantContext } from './schemas';
+import type { AssistantScope } from '../contracts/assistant';
 export interface NavigationTarget {
   page: PageId;
   path: string;
@@ -55,7 +55,7 @@ function visiblePage(page: PageId): boolean {
 export function looksLikeNavigation(message: string): boolean {
   return /打开|跳转|进入|去到|去看|带我|切换到|导航|哪个页面|在哪里|怎么找到|哪儿看/.test(message);
 }
-export function resolveNavigation(message: string, context: AssistantContext = {}): NavigationTarget | null {
+export function resolveNavigation(message: string, context: AssistantScope = {}): NavigationTarget | null {
   if (!looksLikeNavigation(message)) return null;
   for (const rule of RULES) {
     if (!visiblePage(rule.page)) continue;

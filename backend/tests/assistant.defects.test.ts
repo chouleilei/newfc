@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 /**
  * 本轮审查缺陷的回归用例。
  *
@@ -156,7 +157,7 @@ describe('缺陷修复回归:导出与预览载荷', () => {
 describe('缺陷修复回归:会话载荷与参数校验', () => {
   it('会话详情只回解析后的 response，不再把 response_json 原样传一遍', async () => {
     const db = testDb();
-    const chat = await assistant.chat(db as any, { message: '列出预算版本', context: { year: 2026 } });
+    const chat = await assistant.chat(db as any, { message: '列出预算版本', pageContext: pageSnapshot({ year: 2026 }) });
     const detail: any = assistant.conversation(db as any, chat.conversationId);
     expect(detail.messages.length).toBeGreaterThan(0);
     for (const message of detail.messages) {
@@ -188,8 +189,9 @@ describe('缺陷修复回归:会话载荷与参数校验', () => {
     expect(() => executeTool(db, 'calculate_anomalies', { versionId: version.id, threshold: '不是数字' })).toThrow(/threshold/);
     expect(() => executeTool(db, 'calculate_execution', { versionId: version.id, sheetKey: { nested: 1 } })).toThrow(/sheetKey/);
     expect(() => executeTool(db, 'generate_report', { kind: 'monthly_execution', versionId: version.id, topN: 999 })).toThrow(/topN/);
-    const attribution: any = executeTool(db, 'calculate_attribution', { versionId: version.id, direction: 'unfavorable', maxDepth: 2, topN: 5, evil: { drop: true } });
-    // 白名单只放行已知字段：evil 被丢弃，params 只回显受支持的三个参数。
+    expect(() => executeTool(db, 'calculate_attribution', { versionId: version.id, evil: { drop: true } })).toThrow(/evil/);
+    const attribution: any = executeTool(db, 'calculate_attribution', { versionId: version.id, direction: 'unfavorable', maxDepth: 2, topN: 5 });
+    // 未知参数明确拒绝，合法查询返回支持的参数。
     expect(attribution.version.id).toBe(version.id);
     expect(attribution.params).toEqual({ maxDepth: 2, topN: 5, direction: 'unfavorable' });
     db.close();

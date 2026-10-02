@@ -1,4 +1,3 @@
-import { DOMAIN_ID_FIELDS } from './domainContext';
 /**
  * AI 助手的全局会话状态(唯一实例)。
  *
@@ -12,7 +11,7 @@ import { DOMAIN_ID_FIELDS } from './domainContext';
  *
  * 页面范围(现行 specs/ai.md 页面上下文契约)：
  *   - 业务页面的真实筛选由各页面适配器登记进 AssistantContextRegistry，
- *     发送时 buildSnapshot() 冻结成 AssistantPageContextV2 随请求发出；
+ *     发送时 buildSnapshot() 冻结成 AssistantPageContext 随请求发出；
  *   - manualContext 只保留在内存里，作为 /assistant 页自身筛选器的状态，
  *     不再持久化到 localStorage、也不再覆盖业务页面(§6)。
  *   - routeContext 由当前路由推导，只作页面适配器登记前的兜底与标签来源。
@@ -24,14 +23,11 @@ import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { message } from 'antd';
 import { ApiError, api } from '../api/client';
-import {
-  assistantApi, cleanContext, streamChat,
-  type AssistantChatResponse, type AssistantContext, type AssistantConversation,
-  type AssistantInsightRow, type AssistantProgress,
-} from '../api/assistant';
-import { derivePageContext, type ContextField, type RoutePageInfo } from './pageContext';
+import { type AssistantChatResponse, type AssistantScope, type AssistantConversation, type AssistantInsightRow, type AssistantProgress } from '@contracts/assistant';
+import { assistantApi, cleanContext, streamChat } from '../api/assistant';
+import { normalizeScope } from './context';
+import { derivePageContext, type RoutePageInfo } from './pageContext';
 import { AssistantRegistryProvider, useAssistantRegistry } from './AssistantContextRegistry';
-import { AssistantPageContextV2 } from './context';
 
 export interface VersionRow {
   id: number; year: number; name: string; status: string; is_current: 0 | 1; kind: 'budget' | 'forecast';
@@ -59,35 +55,22 @@ export interface ChatTurn {
   origin?: { pageKey: string };
 }
 
-/** 合并结果：除了最终上下文，还如实标出每个字段的来源，供抽屉渲染徽标。 */
-export interface ContextMerge {
-  /** 最终发送的上下文(不含 page) */
-  context: AssistantContext;
-  /** 真正生效的路由推导字段 */
-  fromRoute: ContextField[];
-  /** 用户手动选择的字段 */
-  fromManual: ContextField[];
-  /** 与手动年度冲突、因此放弃的路由推导字段 */
-  droppedRoute: ContextField[];
-}
-
 interface AssistantValue {
   /* 会话 */
   turns: ChatTurn[];
   conversationId?: number;
   sending: boolean;
-  send: (text: string) => Promise<void>;
+  send: (text: string) => Promise<boolean>;
   stopGenerating: () => void;
   openConversation: (id: number) => Promise<void>;
   startNewConversation: () => void;
   useStream: boolean;
   setUseStream: (value: boolean) => void;
   /* 上下文 */
-  manualContext: AssistantContext;
-  patchManualContext: (patch: Partial<AssistantContext>) => void;
-  adoptResolvedContext: (resolved: AssistantContext) => void;
+  manualContext: AssistantScope;
+  patchManualContext: (patch: Partial<AssistantScope>) => void;
+  adoptResolvedContext: (resolved: AssistantScope) => void;
   routeInfo: RoutePageInfo;
-  merged: ContextMerge;
   /* 助手活跃时才请求的数据 */
   versions: VersionRow[];
   batches: BatchRow[];
@@ -111,96 +94,26 @@ const AssistantStateContext = createContext<AssistantValue | null>(null);
 /**
  * 手动筛选的初始值。
  *
- * V2 口径(§6)：manualContext 不再持久化、不再覆盖业务页面，只作为 /assistant 页
+ * 页面口径(§6)：manualContext 不再持久化、不再覆盖业务页面，只作为 /assistant 页
  * 自身筛选器的内存状态；刷新页面即清空，业务页面范围以页面适配器登记为准。
  *
  * 这里刻意**不预填年度**：预填会让「2027 年执行情况如何」这类问题里的年度被
  * 筛选器里的旧值盖掉，也会让多轮追问无法沿用上一轮解析出的年度。
  * 缺省年度由后端解析(默认当前自然年)并在「口径」里如实标出。
  */
-function loadStoredContext(): AssistantContext {
+function loadStoredContext(): AssistantScope {
   return {};
-}
-
-/**
- * 按字段合并路由推导与手动筛选。
- *
- * 额外一条一致性修补：手动年度与路由推导出的版本/快照年度冲突时，放弃**路由推导**的那一项。
- * 不修补的话前端会送出「2025 年 + 2026 年的版本」，后端 validateContextConsistency
- * 直接判成「年度不一致」，整轮报错——而用户只是带着上次选的年度走到了另一年的版本页。
- * 冲突判定有两条依据：路由自己带的 year 参数(如 /analysis?year=)，以及版本/快照列表里的年度。
- */
-export function mergeAssistantContext(
-  routeContext: AssistantContext,
-  manualContext: AssistantContext,
-  suppressed: ReadonlySet<ContextField>,
-  yearOfVersion: (id: number) => number | undefined,
-  yearOfBatch: (id: number) => number | undefined,
-): ContextMerge {
-  const manual = cleanContext(manualContext);
-  const route = cleanContext(routeContext);
-  const context: AssistantContext = {};
-  const fromRoute: ContextField[] = [];
-  const fromManual: ContextField[] = [];
-  const droppedRoute: ContextField[] = [];
-  /** 路由里的年度与手动年度不同：该路由推导出的版本/快照都属于另一个年度。 */
-  const routeYearConflicts = manual.year != null && route.year != null && route.year !== manual.year;
-  const yearBound: ContextField[] = ['budgetVersionId', 'targetVersionId', 'actualSnapshotId', 'importBatchId'];
-  for (const [key, value] of Object.entries(route)) {
-    const field = key as ContextField;
-    if (suppressed.has(field)) continue;
-    if (manual[field] != null) continue;
-    if (manual.year != null && yearBound.includes(field)) {
-      const own = field === 'actualSnapshotId' ? yearOfBatch(value as number) : yearOfVersion(value as number);
-      if (routeYearConflicts || (own != null && own !== manual.year)) { droppedRoute.push(field); continue; }
-    }
-    (context as Record<string, unknown>)[field] = value;
-    fromRoute.push(field);
-  }
-  for (const [key, value] of Object.entries(manual)) {
-    const field = key as ContextField;
-    (context as Record<string, unknown>)[field] = value;
-    fromManual.push(field);
-  }
-  return { context, fromRoute, fromManual, droppedRoute };
-}
-
-/** 把 V2 页面范围映射回兼容口径(后端优先采用 V2，旧字段保持同口径以便回退)。
- *  旧 context 协议没有 metricId 等扩展字段，这些只在 V2 pageContext 里传；
- *  baseVersionId/compareVersionId 属于版本对比页口径，回填 targetVersionId 以外
- *  还需要保留原始语义(后端 V2 校验不依赖旧字段，这里是给旧客户端回退看的)。 */
-function scopeToLegacyContext(pageContext: AssistantPageContextV2): AssistantContext {
-  const scope = pageContext.scope ?? {};
-  return cleanContext({
-    ...Object.fromEntries([...DOMAIN_ID_FIELDS, 'period', 'periodFrom', 'periodTo', 'statementScope'].filter((k) => (scope as any)[k] != null).map((k) => [k, (scope as any)[k]])),
-    page: pageContext.pageKey,
-    year: scope.year,
-    budgetVersionId: scope.budgetVersionId,
-    targetVersionId: scope.targetVersionId,
-    actualSnapshotId: scope.actualSnapshotId,
-    importBatchId: scope.importBatchId,
-    orgId: scope.orgScopeId,
-    accountId: scope.accountScopeId,
-  });
 }
 
 function AssistantProviderInner({ children }: { children: ReactNode }) {
   const location = useLocation();
   const registry = useAssistantRegistry();
-  const [manualContext, setManualContext] = useState<AssistantContext>(loadStoredContext);
+  const [manualContext, setManualContext] = useState<AssistantScope>(loadStoredContext);
   const [conversationId, setConversationId] = useState<number | undefined>(undefined);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [sending, setSending] = useState(false);
   const [useStream, setUseStream] = useState(true);
   const [dockOpen, setDockOpen] = useState(false);
-  /**
-   * 被手动清空、因此不再接受路由推导的字段。
-   *
-   * 只放在内存里：清空是「这一页这一次别再自动填了」的意思，不是永久墓碑，
-   * 所以路由一变就整体重置(见下面的 effect)。
-   */
-  const [suppressed, setSuppressed] = useState<ReadonlySet<ContextField>>(() => new Set());
-
   /** 流式请求的中断句柄：支持「停止生成」，避免长时间等待时只能刷新页面 */
   const abortRef = useRef<AbortController | null>(null);
   /**
@@ -222,11 +135,6 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
   );
   const onAssistantPage = location.pathname === '/assistant';
   const active = dockOpen || onAssistantPage;
-
-  // 路由变化后抑制集重置：新页面的推导值应当重新生效。
-  useEffect(() => {
-    setSuppressed((prev) => (prev.size ? new Set() : prev));
-  }, [location.pathname, location.search]);
 
   // 卸载时必须中断在途的 SSE：否则退出后流还在读、回调还在 setState，
   // 直到后端把整轮跑完为止。
@@ -277,58 +185,20 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
     enabled: active,
   });
 
-  const versionYear = useCallback(
-    (id: number) => (versions ?? []).find((row) => row.id === id)?.year,
-    [versions],
-  );
-  const batchYear = useCallback(
-    (id: number) => (batches ?? []).find((row) => row.id === id)?.year,
-    [batches],
-  );
-
-  /**
-   * 合并路由推导与手动筛选。
-   *
-   * §6：manualContext 只在 /assistant 页生效——它是该页自身的筛选器；
-   * 业务页面的范围完全以页面适配器登记为准，不再被手动筛选覆盖。
-   */
-  const merged = useMemo(
-    () => mergeAssistantContext(routeInfo.context, onAssistantPage ? manualContext : {}, suppressed, versionYear, batchYear),
-    [routeInfo, manualContext, onAssistantPage, suppressed, versionYear, batchYear],
-  );
-
   const beginRequest = (): number => {
     requestSeqRef.current += 1;
     return requestSeqRef.current;
   };
   const isCurrentRequest = (seq: number): boolean => mountedRef.current && seq === requestSeqRef.current;
 
-  const patchManualContext = useCallback((patch: Partial<AssistantContext>) => {
+  const patchManualContext = useCallback((patch: Partial<AssistantScope>) => {
     setManualContext((prev) => ({ ...prev, ...patch }));
-    // 手动清空的字段同时抑制该字段的路由推导，否则「清空」在有推导值的页面上看不出效果。
-    setSuppressed((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const [key, value] of Object.entries(patch)) {
-        if (key === 'page') continue;
-        const field = key as ContextField;
-        if (value == null) { if (!next.has(field)) { next.add(field); changed = true; } }
-        else if (next.delete(field)) changed = true;
-      }
-      return changed ? next : prev;
-    });
   }, []);
 
   /** 采用助手解析出的上下文，回填到筛选器；用户随时可以自己改回来。 */
-  const adoptResolvedContext = useCallback((resolved: AssistantContext) => {
-    const { page: _page, ...rest } = resolved;
+  const adoptResolvedContext = useCallback((resolved: AssistantScope) => {
+    const rest = normalizeScope(resolved);
     setManualContext((prev) => ({ ...prev, ...cleanContext(rest) }));
-    setSuppressed((prev) => {
-      if (!prev.size) return prev;
-      const next = new Set(prev);
-      for (const key of Object.keys(cleanContext(rest))) next.delete(key as ContextField);
-      return next;
-    });
     message.success('已把助手解析出的筛选条件回填到上下文');
   }, []);
 
@@ -337,6 +207,8 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
     abortRef.current?.abort();
     abortRef.current = null;
     beginRequest();
+    registry.clearFocus();
+    registry.setSelection(null);
     setConversationId(undefined);
     setTurns([]);
   }, []);
@@ -345,6 +217,8 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
     abortRef.current?.abort();
     abortRef.current = null;
     const seq = beginRequest();
+    registry.clearFocus();
+    registry.setSelection(null);
     try {
       const detail = await assistantApi.conversation(id);
       // 期间又切了别的会话(或组件已卸载)：这份结果已经过期，丢掉，
@@ -371,26 +245,21 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
     abortRef.current = null;
   }, []);
 
-  const sendRef = useRef<(text: string) => Promise<void>>(async () => {});
+  const sendRef = useRef<(text: string) => Promise<boolean>>(async () => false);
   sendRef.current = async (text: string) => {
     const messageText = text.trim();
-    if (!messageText || sending) return;
+    if (!messageText || sending) return false;
     /**
      * 发送瞬间冻结页面上下文(§3.3)。
      * 页面未就绪或超限时明确提示、不发送(§3.7：失败时不扩大范围)；
-     * 页面未登记(未知路由重定向前)退回路由推导的兜底口径。
+     * 页面未登记时阻止发送。
      */
     const snapshot = registry.buildSnapshot();
-    if (snapshot.status === 'not_ready' || snapshot.status === 'too_large') {
-      message.warning(snapshot.reason);
-      return;
+    if (snapshot.status !== 'ok') {
+      message.warning('reason' in snapshot ? snapshot.reason : '页面上下文尚未登记，请重试');
+      return false;
     }
-    const legacyContext = snapshot.status === 'ok'
-      ? scopeToLegacyContext(snapshot.pageContext)
-      : cleanContext({ ...merged.context, ...(routeInfo.page === 'unknown' ? {} : { page: routeInfo.page }) });
-    /* UX-26：回答与发起时的页面身份绑定。已登记页面以注册快照的 pageKey 为准；
-       未登记(未知路由重定向前)退回路由推导。 */
-    const origin = { pageKey: snapshot.status === 'ok' ? snapshot.pageContext.pageKey : routeInfo.page };
+    const origin = { pageKey: snapshot.pageContext.pageKey };
     const stamp = Date.now();
     const assistantKey = `assistant-${stamp}`;
     const seq = beginRequest();
@@ -400,12 +269,11 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
       { key: assistantKey, role: 'assistant', text: '', pending: true, origin },
     ]);
     setSending(true);
-    // 页面感知：V2 页面快照与兼容口径一起送给后端；后端优先采用 V2。
+    // 发送冻结后的唯一页面快照。
     const body = {
       conversationId,
       message: messageText,
-      context: legacyContext,
-      ...(snapshot.status === 'ok' ? { pageContext: snapshot.pageContext } : {}),
+      pageContext: snapshot.pageContext,
     };
     const applyDone = (response: AssistantChatResponse) => {
       // 世代号不一致说明用户已经切走：不要把 conversationId 拽回这一轮的会话，
@@ -435,6 +303,7 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
         // 非流式路径同样透传 signal，「停止生成」在关掉流式开关后也如实生效。
         applyDone(await assistantApi.chat(body, { signal: controller.signal }));
       }
+      return true;
     } catch (err) {
       // 用户主动停止：不算错误，保留已经流出来的正文
       if (controller.signal.aborted) {
@@ -444,10 +313,11 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
             : turn)));
         }
       } else if (isCurrentRequest(seq)) {
-        const detail = err instanceof ApiError ? `${err.body.message}（${err.body.code}）` : err instanceof Error ? err.message : '请求失败';
+        const detail = err instanceof ApiError ? `${err.body.code === 'CONTEXT_PROTOCOL_UNSUPPORTED' ? '请刷新页面后重试，问题文本已保留。' : ''}${err.body.message}（${err.body.code}）` : err instanceof Error ? err.message : '请求失败';
         setTurns((prev) => prev.map((turn) => (turn.key === assistantKey ? { ...turn, pending: false, progress: null, text: turn.text || `请求失败：${detail}` } : turn)));
         message.error(detail);
       }
+      return false;
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       if (mountedRef.current) setSending(false);
@@ -483,7 +353,6 @@ function AssistantProviderInner({ children }: { children: ReactNode }) {
     patchManualContext,
     adoptResolvedContext,
     routeInfo,
-    merged,
     versions: versions ?? [],
     batches: batches ?? [],
     orgs: orgTreeRows?.rows ?? [],

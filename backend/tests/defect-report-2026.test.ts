@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTestApp, authFetch } from './http-helpers';
 import ExcelJS from 'exceljs';
@@ -391,12 +392,7 @@ describe('D06 成本型指标展示方向', () => {
       expect(row.getCell(13).numFmt).toBe('0.00%');
     }
 
-    const aiReport = await assistant.reportDraft(db, {
-      kind: 'monthly_execution',
-      versionId: version.id,
-      batchId: saved.batchId,
-      narrative: false,
-    });
+    const aiReport = await assistant.reportDraft(db, { kind: 'monthly_execution', versionId: version.id, batchId: saved.batchId, narrative: false, pageContext: pageSnapshot() });
     const metricBullets = aiReport.sections.find((section) => section.key === 'metrics')!.bullets;
     for (const code of ['P02', 'P06']) {
       const bullet = metricBullets.find((item) => item.includes(`(${code})`))!;
@@ -409,10 +405,7 @@ describe('D06 成本型指标展示方向', () => {
     const previousBaseUrl = process.env.AI_BASE_URL;
     delete process.env.AI_BASE_URL;
     try {
-      const answer = await assistant.chat(db, {
-        message: '2026 年执行情况如何',
-        context: { year: 2026, budgetVersionId: version.id, actualSnapshotId: saved.batchId },
-      });
+      const answer = await assistant.chat(db, { message: '2026 年执行情况如何', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id, actualSnapshotId: saved.batchId }) });
       expect(answer.text).toContain('营业总成本 预算 0.01 / 实际 0.01 万元');
       expect(answer.text).toContain('总成本 预算 0.01 / 实际 0.01 万元');
       expect(answer.text).not.toMatch(/(?:营业总成本|总成本) 预算 -/);
@@ -726,11 +719,7 @@ describe('D13 AI 报告事实 token 双向守卫', () => {
       entries: [{ orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain, amount: '50.00' }],
     });
     process.env.AI_BASE_URL = 'http://model.test/v1';
-    const template = await assistant.reportDraft(db, {
-      kind: 'monthly_execution',
-      versionId: version.id,
-      narrative: false,
-    });
+    const template = await assistant.reportDraft(db, { kind: 'monthly_execution', versionId: version.id, narrative: false, pageContext: pageSnapshot() });
     const decimal = template.narrative.match(/\d+\.\d+/)?.[0];
     expect(decimal).toBeTruthy();
     const rewrites = [
@@ -744,10 +733,7 @@ describe('D13 AI 报告事实 token 双向守卫', () => {
         ok: true,
         json: async () => ({ choices: [{ message: { content: rewritten } }], model: 'fake-model' }),
       })));
-      const result = await assistant.reportDraft(db, {
-        kind: 'monthly_execution',
-        versionId: version.id,
-      });
+      const result = await assistant.reportDraft(db, { kind: 'monthly_execution', versionId: version.id, pageContext: pageSnapshot() });
       expect(result.model).toBe('template');
       expect(result.narrativeSource).toBe('template');
       expect(withoutGeneratedAt(result.narrative)).toBe(withoutGeneratedAt(template.narrative));
@@ -799,7 +785,7 @@ describe('D14 SSE 客户端断开取消模型与落库', () => {
       const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat/stream`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: '你好' }),
+        body: JSON.stringify({ message: '你好', pageContext: pageSnapshot() }),
         signal: clientController.signal,
       });
       expect(response.status).toBe(200);

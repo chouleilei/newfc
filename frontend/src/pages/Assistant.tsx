@@ -5,7 +5,7 @@ import { pageDefinition } from '@contracts/page-catalog';
  * 职责边界:只做展示、交互和调用。所有金额、汇总、完成率、版本状态与快照口径
  * 都来自后端事实;写操作一律「预览 → 确认」,前端不绕过任何业务校验。
  *
- * 聊天核心(会话、流式、世代号、上下文合并)住在 `src/assistant/AssistantProvider.tsx`,
+ * 聊天核心(会话、流式、世代号、快照发送)住在 `src/assistant/AssistantProvider.tsx`,
  * 与全局悬浮小窗「财务助手」共享同一份状态;本页只保留页面特有的重功能:
  * 会话列表、保存的洞察、归因/报告/导入/口径抽屉、操作预览卡与新建操作弹窗。
  *
@@ -24,10 +24,8 @@ import { ApiError, can } from '../api/client';
 import { DOMAIN_PROMPTS } from '../assistant/domainContext';
 import { PAGE_CATALOG, pagePath } from '@contracts/page-catalog';
 import type { PageId } from '@contracts/page-catalog';
-import {
-  assistantApi, previewIdempotencyKey,
-  type AssistantAction, type InsightKind,
-} from '../api/assistant';
+import { type AssistantAction, type InsightKind } from '@contracts/assistant';
+import { assistantApi, previewIdempotencyKey } from '../api/assistant';
 import { useAssistant, type ChatTurn } from '../assistant/AssistantProvider';
 import { useAssistantPageContext } from '../assistant/contextHooks';
 import { READ_INTENT_LABEL } from '../assistant/labels';
@@ -46,7 +44,7 @@ import { ReportDrawer } from '../components/assistant/ReportDrawer';
 import { ImportHelpDrawer } from '../components/assistant/ImportHelpDrawer';
 import { relativeTime, shortTime } from '../utils/relativeTime';
 import { FinanceEmpty } from '../components/FinanceEmpty';
-import type { AssistantContext } from '../api/assistant';
+import type { AssistantScope } from '@contracts/assistant';
 
 /** 独立页的通用快捷提问(抽屉里按当前页面另有一套，见 assistant/pageContext.ts) */
 const QUICK_PROMPTS = [
@@ -133,7 +131,7 @@ function TurnView({ turn, currentPage, onAdoptContext, onNavigate, onSuggestion,
   turn: ChatTurn;
   /** 当前页面 pageKey：回答发起页与当前页不同时标注「基于原页面范围」(UX-26) */
   currentPage: string;
-  onAdoptContext: (context: AssistantContext) => void;
+  onAdoptContext: (context: AssistantScope) => void;
   onNavigate: (path: string) => void;
   onSuggestion: (text: string) => void;
   onCreatePreview: (action: { type: string; params: Record<string, unknown> }) => void;
@@ -329,11 +327,11 @@ export default function Assistant() {
   const queryClient = useQueryClient();
   const {
     turns, conversationId, sending, send, stopGenerating, openConversation, startNewConversation,
-    useStream, setUseStream, manualContext, patchManualContext, adoptResolvedContext, merged,
+    useStream, setUseStream, manualContext, patchManualContext, adoptResolvedContext,
     versions, batches, conversations, insights, refetchConversations, refetchInsights, routeInfo,
   } = useAssistant();
-  /** 本页发送用的上下文：/assistant 没有路由推导值，因此与手动筛选等价 */
-  const context = merged.context;
+  /** 本页发送用的上下文：独立助手页面的真实手动筛选 */
+  const context = manualContext;
 
   /**
    * /assistant 页把自身筛选器登记为页面 scope(§6)：
@@ -342,14 +340,7 @@ export default function Assistant() {
   useAssistantPageContext({
     pageKey: 'assistant',
     ready: true,
-    scope: {
-      year: manualContext.year,
-      budgetVersionId: manualContext.budgetVersionId,
-      targetVersionId: manualContext.targetVersionId,
-      actualSnapshotId: manualContext.actualSnapshotId,
-      orgScopeId: manualContext.orgId,
-      accountScopeId: manualContext.accountId,
-    },
+    scope: manualContext,
     view: {},
   });
   const [draft, setDraft] = useState('');
@@ -462,8 +453,7 @@ export default function Assistant() {
   const submitDraft = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
-    setDraft('');
-    void send(trimmed);
+    void send(trimmed).then((sent) => { if (sent) setDraft((current) => current.trim() === trimmed ? '' : current); });
     /* 能力卡/推荐问题点完就整块卸载,把焦点收回输入框,方便直接继续追问 */
     inputRef.current?.focus();
   };
@@ -550,8 +540,8 @@ export default function Assistant() {
     if (config.needs === 'version') {
       params.versionId = context.budgetVersionId;
       if (context.actualSnapshotId != null) params.batchId = context.actualSnapshotId;
-      if (context.orgId != null) params.orgScopeId = context.orgId;
-      if (context.accountId != null) params.accountScopeId = context.accountId;
+      if (context.orgScopeId != null) params.orgScopeId = context.orgScopeId;
+      if (context.accountScopeId != null) params.accountScopeId = context.accountScopeId;
     }
     if (config.needs === 'year') params.year = context.year;
     if (config.needs === 'compare') { params.baseVersionId = context.budgetVersionId; params.targetVersionId = context.targetVersionId; }

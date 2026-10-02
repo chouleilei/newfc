@@ -11,7 +11,7 @@
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Alert, Button, Input, Space, Tag, Tooltip, Typography } from 'antd';
 import type { TextAreaRef } from 'antd/es/input/TextArea';
-import type { AssistantChatResponse } from '../../api/assistant';
+import type { AssistantChatResponse } from '@contracts/assistant';
 import type { ChatTurn } from '../../assistant/AssistantProvider';
 import { RESOLUTION_FIELD_LABEL, RESOLUTION_ORIGIN_LABEL } from '../../assistant/labels';
 import { CitationList, FactsPanel } from './FactsPanel';
@@ -276,7 +276,7 @@ export function numberCheckAlert(response: AssistantChatResponse): { message: st
  */
 export function EvidenceFold({ turn, onAdoptContext, testId, hideFacts = false }: {
   turn: ChatTurn;
-  onAdoptContext?: (context: AssistantChatResponse['resolvedContext']) => void;
+  onAdoptContext?: (context: AssistantChatResponse['effectiveContext']) => void;
   testId?: string;
   /** 小窗(400px)里事实明细表放不下:计数仍进摘要,表本体留在完整页(hideFacts=true) */
   hideFacts?: boolean;
@@ -290,11 +290,11 @@ export function EvidenceFold({ turn, onAdoptContext, testId, hideFacts = false }
     ...(response.notices ?? []).map((notice) => ({ message: notice })),
     ...(warning ? [warning] : []),
   ];
-  const hasEvidence = Boolean(response.resolution?.length || response.citations?.length || response.facts?.length);
+  const hasEvidence = Boolean(response.contextTrace?.used?.length || response.citations?.length || response.facts?.length);
   if (!warnings.length && !hasEvidence) return null;
   const summary = [
     warnings.length ? `提示 ${warnings.length}` : null,
-    response.resolution?.length ? `口径 ${response.resolution.length}` : null,
+    response.contextTrace?.used?.length ? `口径 ${response.contextTrace?.used.length}` : null,
     response.citations?.length ? `引用 ${response.citations.length}` : null,
     response.facts?.length ? `事实 ${response.facts.length}` : null,
   ].filter(Boolean).join(' · ');
@@ -331,22 +331,22 @@ export function EvidenceFold({ turn, onAdoptContext, testId, hideFacts = false }
               ) : null}
             </Space>
           ) : null}
-          {response.resolution?.length ? (
+          {response.contextTrace?.used?.length ? (
             <Space size={[6, 6]} wrap>
               <span className="newfc-ai-scope-key">口径</span>
-              {response.resolution.map((item, index) => {
-                const origin = RESOLUTION_ORIGIN_LABEL[item.origin] ?? { text: item.origin };
+              {response.contextTrace?.used.map((item, index) => {
+                const origin = RESOLUTION_ORIGIN_LABEL[item.origin as keyof typeof RESOLUTION_ORIGIN_LABEL] ?? { text: item.origin };
                 return (
                   <Tooltip key={`${item.field}-${index}`} title={item.reason}>
                     <Tag bordered={false} className="newfc-ai-meta" color={origin.color}>
-                      {RESOLUTION_FIELD_LABEL[item.field] ?? item.field}：{item.label ?? item.value}
+                      {RESOLUTION_FIELD_LABEL[item.field as keyof typeof RESOLUTION_FIELD_LABEL] ?? item.field}：{item.label ?? item.value}
                       <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>{origin.text}</Typography.Text>
                     </Tag>
                   </Tooltip>
                 );
               })}
-              {onAdoptContext && response.resolvedContext ? (
-                <Button size="small" type="link" onClick={() => onAdoptContext(response.resolvedContext!)}>采用这些筛选</Button>
+              {onAdoptContext && response.effectiveContext ? (
+                <Button size="small" type="link" onClick={() => onAdoptContext(response.effectiveContext!)}>采用这些筛选</Button>
               ) : null}
             </Space>
           ) : null}

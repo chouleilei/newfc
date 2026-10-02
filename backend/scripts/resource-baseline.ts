@@ -297,7 +297,7 @@ async function main() {
     const chatMs: number[] = [];
     let routing = '';
     for (let i = 0; i < 5; i++) {
-      const r = await call('POST', '/api/assistant/chat', { message: '2026年预算执行情况', context: { year: 2026, budgetVersionId: ids.versions.max } });
+      const r = await call('POST', '/api/assistant/chat', { message: '2026年预算执行情况', pageContext: { schemaVersion: 2, snapshotId: 'resource-chat', routeInstanceId: 'resource-route', contextVersion: 1, pageKey: 'assistant', scope: { year: 2026, budgetVersionId: ids.versions.max } } });
       chatMs.push(r.ms);
       routing = r.json?.routing ?? `HTTP ${r.status}`;
     }

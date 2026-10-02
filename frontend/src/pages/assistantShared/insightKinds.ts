@@ -1,4 +1,4 @@
-import type { InsightKind } from '../../api/assistant';
+import type { InsightKind } from '@contracts/assistant';
 
 /**
  * 洞察类型目录:Assistant 页与「洞察报告」页(/insights)共同引用,

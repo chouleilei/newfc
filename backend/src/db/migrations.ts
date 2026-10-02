@@ -1,3 +1,4 @@
+import { normalizeAssistantResponses } from './assistant-response-migration';
 import type { DB } from './connection';
 import { NEWFC_MIGRATIONS } from './migrations-newfc';
 
@@ -5,6 +6,7 @@ export interface Migration {
   version: number;
   name: string;
   sql: string;
+  apply?: (db: DB) => void;
   /** raw=true:事务外执行(可 PRAGMA foreign_keys=OFF 后重建表;表重建场景延迟外键在 COMMIT 仍会报错) */
   raw?: boolean;
   /**
@@ -1382,6 +1384,7 @@ CREATE TABLE cleaning_reopen_session (
 
 // newfc 自有迁移(V39 起)按领域维护在 migrations-newfc.ts,保持只追加。
 MIGRATIONS.push(...NEWFC_MIGRATIONS);
+MIGRATIONS.push({ version: 66, name: 'assistant_single_context', sql: '', apply: normalizeAssistantResponses });
 
 /**
  * V34 一次性导入:AI_BASE_URL 已配置且 ai_channel 为空时,把 env 配置落成名为
@@ -1642,6 +1645,7 @@ CREATE TABLE IF NOT EXISTS schema_migration (
       const tx = db.transaction(() => {
         db.exec(m.sql);
         if (m.version === 34) importEnvDefaultChannel(db);
+        m.apply?.(db);
         db.prepare('INSERT INTO schema_migration (version, name, applied_at) VALUES (?, ?, ?)').run(
           m.version,
           m.name,

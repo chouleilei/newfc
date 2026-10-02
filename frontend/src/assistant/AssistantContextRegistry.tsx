@@ -19,7 +19,8 @@ import {
   createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
 import { useLocation } from 'react-router-dom';
-import { newContextId, normalizeScope, normalizeView, CONTEXT_MAX_BYTES, DRAFT_MAX_BYTES, type AssistantPageContextV2, type DraftDescriptor, type FocusDescriptor, type PageScope, type SelectionDescriptor, type SurfaceDescriptor,  } from './context';
+import { CONTEXT_MAX_BYTES, DRAFT_MAX_BYTES, type AssistantPageContext, type DraftDescriptor, type FocusDescriptor, type PageScope, type SelectionDescriptor, type SurfaceDescriptor } from '@contracts/assistant';
+import { newContextId, normalizeScope, normalizeView } from './context';
 
 export type PageReadyState = 'loading' | 'ready' | 'error';
 
@@ -70,7 +71,7 @@ interface FocusEntry {
 
 /** 发送时冻结的结果。 */
 export type SnapshotBuild =
-  | { status: 'ok'; pageContext: AssistantPageContextV2 }
+  | { status: 'ok'; pageContext: AssistantPageContext }
   | { status: 'not_ready'; reason: string }
   | { status: 'too_large'; reason: string }
   | { status: 'unregistered' };
@@ -210,6 +211,11 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
       && jsonEqual(next.scope, entry.scope)
       && jsonEqual(next.view, entry.view)
     ) return;
+    if (next.pageKey !== entry.pageKey || !jsonEqual(next.scope, entry.scope) || !jsonEqual(next.view, entry.view)) {
+      surfacesRef.current = [];
+      focusRef.current = null;
+      selectionRef.current = null;
+    }
     next.contextVersion = entry.contextVersion + 1;
     pageRef.current = next;
     bump();
@@ -219,6 +225,9 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
     const entry = pageRef.current;
     if (!entry || entry.token !== token) return;
     pageRef.current = null;
+    surfacesRef.current = [];
+    focusRef.current = null;
+    selectionRef.current = null;
     bump();
   }, [bump]);
 
@@ -304,7 +313,7 @@ export function AssistantRegistryProvider({ children }: { children: ReactNode })
         return { status: 'not_ready', reason: `草稿序列化失败：${err instanceof Error ? err.message : String(err)}` };
       }
     }
-    const pageContext: AssistantPageContextV2 = {
+    const pageContext: AssistantPageContext = {
       schemaVersion: 2,
       snapshotId: newContextId(),
       pageKey: page.pageKey,

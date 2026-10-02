@@ -46,11 +46,7 @@ describe('chat 页面对齐集成(§13.3)', () => {
     const db = makeDb();
     const fx = buildFixture(db);
     const version = standardBudgetVersion(fx);
-    const result = await assistant.chat(db, {
-      message: '本年执行怎么样',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: version.id } }),
-    });
+    const result = await assistant.chat(db, { message: '本年执行怎么样', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: version.id } }) });
     expect(result.contextStatus).toBe('aligned');
     expect(result.effectiveContext?.pageKey).toBe('analysis');
     expect(result.contextSummary).toContain('年度执行分析');
@@ -64,11 +60,7 @@ describe('chat 页面对齐集成(§13.3)', () => {
     const db = makeDb();
     const fx = buildFixture(db);
     const version = standardBudgetVersion(fx);
-    const input = {
-      message: '列出预算版本',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: version.id } }),
-    };
+    const input = { message: '列出预算版本', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: version.id } }) };
     const plain = await assistant.chat(db, { ...input });
     // streamChat 复用 svc.chat + onToken；onToken 改变输出路径不改变口径。
     const streamed = await assistant.chat(db, { ...input }, '', { onToken: () => {} });
@@ -85,13 +77,9 @@ describe('chat 页面对齐集成(§13.3)', () => {
     const v2 = budget.createVersion(db, { year: 2026, name: 'V2-追赶' });
     const pageVersion = v1;
     expect(pageVersion).toBeTruthy();
-    const result = await assistant.chat(db, {
-      message: 'V2-追赶 这个版本的执行情况',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: pageVersion!.id } }),
-    });
+    const result = await assistant.chat(db, { message: 'V2-追赶 这个版本的执行情况', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: pageVersion!.id } }) });
     expect(result.contextStatus).toBe('explicit_override');
-    expect(result.resolvedContext.budgetVersionId).toBe(v2.id);
+    expect(result.effectiveContext.budgetVersionId).toBe(v2.id);
     const override = result.contextTrace?.overrides.find((o) => o.field === 'budgetVersionId');
     expect(override).toBeTruthy();
     expect(override?.from).toBe(pageVersion!.id);
@@ -107,17 +95,13 @@ describe('chat 页面对齐集成(§13.3)', () => {
     budget.saveEntries(db, compare.id, [
       { orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain, amount: '120.00' },
     ]);
-    const result = await assistant.chat(db, {
-      message: '这两个版本差异是什么',
-      context: {},
-      pageContext: v2Context({
+    const result = await assistant.chat(db, { message: '这两个版本差异是什么', pageContext: v2Context({
         pageKey: 'version_compare',
         scope: { baseVersionId: base.id, compareVersionId: compare.id },
         view: { sheetKey: 'all' },
-      }),
-    });
-    expect(result.resolvedContext.budgetVersionId).toBe(base.id);
-    expect(result.resolvedContext.targetVersionId).toBe(compare.id);
+      }) });
+    expect(result.effectiveContext.budgetVersionId).toBe(base.id);
+    expect(result.effectiveContext.targetVersionId).toBe(compare.id);
     expect(result.facts.some((item) => item.type === 'version_variance')).toBe(true);
     expect(result.facts.some((item) => item.type === 'missing_context')).toBe(false);
     db.close();
@@ -129,20 +113,11 @@ describe('chat 页面对齐集成(§13.3)', () => {
     const first = standardBudgetVersion(fx);
     const second = budget.createVersion(db, { year: 2026, name: 'V2' });
     // 第一轮:页面指向 V1
-    const round1 = await assistant.chat(db, {
-      message: '列出预算版本',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: first.id } }),
-    });
+    const round1 = await assistant.chat(db, { message: '列出预算版本', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: first.id } }) });
     // 第二轮:同一页面会话内追问,页面仍指向 V1 —— 上一轮 resolved 的是 V1,不变;
     // 但若页面换到 V2(用户点了别的版本),页面优先于会话继承。
-    const round2 = await assistant.chat(db, {
-      conversationId: round1.conversationId,
-      message: '费用占比呢',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: second.id } }),
-    });
-    expect(round2.resolvedContext.budgetVersionId).toBe(second.id);
+    const round2 = await assistant.chat(db, { conversationId: round1.conversationId, message: '费用占比呢', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: second.id } }) });
+    expect(round2.effectiveContext.budgetVersionId).toBe(second.id);
     db.close();
   });
 
@@ -164,14 +139,10 @@ describe('chat 页面对齐集成(§13.3)', () => {
     expect(reconciliation).toBeTruthy();
 
     // 助手侧:带着该核验焦点提问,返回的 verification_fact 与页面同源同值
-    const result = await assistant.chat(db, {
-      message: '这个核验是什么意思',
-      context: {},
-      pageContext: v2Context({
+    const result = await assistant.chat(db, { message: '这个核验是什么意思', pageContext: v2Context({
         scope: { year: 2026, budgetVersionId: version.id },
         focus: { kind: 'fact', factType: 'verification', ownerKey: 'analysis:root', factKey: 'reconciliation' },
-      }),
-    });
+      }) });
     const fact = result.facts.find((f) => f.type === 'verification_fact');
     expect(fact).toBeTruthy();
     const data = fact!.data as { factKey: string; serverLevel: string; facts: Record<string, unknown> };
@@ -188,18 +159,14 @@ describe('chat 页面对齐集成(§13.3)', () => {
     saveActualSnapshot(fx, 2026, '2026-06-30', [
       { orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain, amount: '88.00' },
     ]);
-    const result = await assistant.chat(db, {
-      message: '这个核验是什么',
-      context: {},
-      pageContext: v2Context({
+    const result = await assistant.chat(db, { message: '这个核验是什么', pageContext: v2Context({
         scope: { year: 2026, budgetVersionId: version.id },
         focus: {
           kind: 'fact', factType: 'verification', ownerKey: 'analysis:root', factKey: 'reconciliation',
           // 伪造字段:后端必须忽略,按服务重算
           label: '伪造的通过结论', level: 'ok', details: ['伪造明细'],
         } as Record<string, unknown>,
-      }),
-    });
+      }) });
     const fact = result.facts.find((f) => f.type === 'verification_fact');
     expect(fact).toBeTruthy();
     const data = fact!.data as { label: string };
@@ -213,10 +180,7 @@ describe('chat 页面对齐集成(§13.3)', () => {
     const fx = buildFixture(db);
     const created = standardBudgetVersion(fx);
     const version = budget.getVersion(db, created.id);
-    const result = await assistant.chat(db, {
-      message: '我这么改会有什么影响',
-      context: {},
-      pageContext: v2Context({
+    const result = await assistant.chat(db, { message: '我这么改会有什么影响', pageContext: v2Context({
         pageKey: 'budget_edit',
         scope: { year: 2026, budgetVersionId: version.id },
         draft: {
@@ -230,8 +194,7 @@ describe('chat 页面对齐集成(§13.3)', () => {
           // 上海主营收入 100 → 123.45 元
           changes: [{ orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain, amount: '123.45' }],
         },
-      }),
-    });
+      }) });
     expect(result.draftApplied).toMatchObject({ kind: 'budget_grid', changeCount: 1 });
     const fact = result.facts.find((f) => f.type === 'draft_impact');
     expect(fact).toBeTruthy();
@@ -256,10 +219,7 @@ describe('chat 页面对齐集成(§13.3)', () => {
     const fx = buildFixture(db);
     const created = standardBudgetVersion(fx);
     const version = budget.getVersion(db, created.id);
-    const result = await assistant.chat(db, {
-      message: '草稿影响如何',
-      context: {},
-      pageContext: v2Context({
+    const result = await assistant.chat(db, { message: '草稿影响如何', pageContext: v2Context({
         pageKey: 'budget_edit',
         scope: { year: 2026, budgetVersionId: version.id },
         draft: {
@@ -272,8 +232,7 @@ describe('chat 页面对齐集成(§13.3)', () => {
           },
           changes: [{ orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain, amount: '123.45' }],
         },
-      }),
-    });
+      }) });
     const conv = assistant.conversation(db, result.conversationId);
     const assistantMsg = conv.messages.find((m) => m.role === 'assistant');
     expect(assistantMsg).toBeTruthy();
@@ -314,11 +273,7 @@ describe('chat 页面对齐集成(§13.3)', () => {
 
   it('未知 pageKey 的 chat 请求被 CONTEXT_INVALID 拒绝', async () => {
     const db = makeDb();
-    await expect(assistant.chat(db, {
-      message: '你好',
-      context: {},
-      pageContext: v2Context({ pageKey: 'not_a_page' }),
-    })).rejects.toMatchObject({ code: 'CONTEXT_INVALID' });
+    await expect(assistant.chat(db, { message: '你好', pageContext: v2Context({ pageKey: 'not_a_page' }) })).rejects.toMatchObject({ code: 'CONTEXT_INVALID' });
     db.close();
   });
 
@@ -327,15 +282,11 @@ describe('chat 页面对齐集成(§13.3)', () => {
     const fx = buildFixture(db);
     const v1 = standardBudgetVersion(fx);
     const v2 = budget.createVersion(db, { year: 2026, name: 'V2' });
-    await expect(assistant.chat(db, {
-      message: '这个单元格',
-      context: {},
-      pageContext: v2Context({
+    await expect(assistant.chat(db, { message: '这个单元格', pageContext: v2Context({
         pageKey: 'budget_edit',
         scope: { year: 2026, budgetVersionId: v1.id },
         focus: { kind: 'cell', source: 'budget', sourceId: v2.id, orgId: fx.orgIds.shanghai, accountId: fx.accIds.incomeMain },
-      }),
-    })).rejects.toMatchObject({ code: 'CONTEXT_STALE' });
+      }) })).rejects.toMatchObject({ code: 'CONTEXT_STALE' });
     db.close();
   });
 
@@ -346,11 +297,7 @@ describe('chat 页面对齐集成(§13.3)', () => {
     // setup.ts 已清空模型环境变量,此处再显式确保
     process.env.AI_BASE_URL = '';
     process.env.AI_API_KEY = '';
-    const result = await assistant.chat(db, {
-      message: '本年执行怎么样',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: version.id } }),
-    });
+    const result = await assistant.chat(db, { message: '本年执行怎么样', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: version.id } }) });
     expect(result.routing).toBe('rules');
     expect(result.contextStatus).toBe('aligned');
     expect(result.effectiveContext?.pageKey).toBe('analysis');

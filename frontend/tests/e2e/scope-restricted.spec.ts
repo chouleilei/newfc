@@ -1,3 +1,4 @@
+import { pageSnapshot } from '../assistant-context';
 import { expect, test } from './access';
 
 /**
@@ -56,7 +57,7 @@ test('受限账号:侧栏与首页按范围裁剪,越权接口与问答拒绝', 
   const cell = await page.request.get(`/api/evidence/budget-cell?versionId=1&orgId=${hz.id}&accountId=1`);
   expect([403, 404]).toContain(cell.status());
 
-  const chat = await page.request.post('/api/assistant/chat', { headers, data: { message: '杭州公司预算执行情况', context: { year: 2026 } } });
+  const chat = await page.request.post('/api/assistant/chat', { headers, data: { message: '杭州公司预算执行情况', pageContext: pageSnapshot({ year: 2026 }) } });
   expect(chat.status()).toBe(404);
   expect(await chat.text()).not.toMatch(/"budgetCents"/);
 

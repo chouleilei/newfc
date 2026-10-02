@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 /**
  * T-2 首个纵向闭环:预算导入 → 页面汇总 → 同源 AI 查询(AC-F08 / AC-F03 / AC-F20 / AC-X03 / AC-X05 / AC-X06)。
  *
@@ -236,8 +237,8 @@ describe('T-2 预算导入 → 汇总 → 同源问答', () => {
     const tool = as(db, sh.userId, () => executeTool(db, 'calculate_execution', { versionId: version.id, sheetKey: 'all' } as any)) as any;
     expect(accountCell(tool, 'I')).toEqual(accountCell(page, 'I'));
 
-    const chat = await (await postJson(sh.session, `${base}/api/assistant/chat`, { message: '2026年预算执行情况', context: { year: 2026, budgetVersionId: version.id } })).json() as any;
-    expect(chat.resolvedContext.orgId).toBe(fx.orgIds.shanghai);
+    const chat = await (await postJson(sh.session, `${base}/api/assistant/chat`, { message: '2026年预算执行情况', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) })).json() as any;
+    expect(chat.effectiveContext.orgScopeId).toBe(fx.orgIds.shanghai);
     const text = JSON.stringify(chat.facts);
     expect(text).toContain('"budgetCents":123456789');
     expect(text).not.toContain('173456789');
@@ -282,7 +283,7 @@ describe('T-2 模型失败与越权工具参数(AC-X06)', () => {
     return { db, fx, version, sh };
   }
 
-  const ask = (db: DB, userId: number, versionId: number) => as(db, userId, () => assistant.chat(db, { message: '2026年预算执行情况', context: { year: 2026, budgetVersionId: versionId } } as any, 'tester'));
+  const ask = (db: DB, userId: number, versionId: number) => as(db, userId, () => assistant.chat(db, { message: '2026年预算执行情况', pageContext: pageSnapshot({ year: 2026, budgetVersionId: versionId }) } as any, 'tester'));
   const completion = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
   it('未配置/超时/5xx:规则兜底给出同样的事实,如实标注模型错误,不伪造完成率', async () => {

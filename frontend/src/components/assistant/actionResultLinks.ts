@@ -7,7 +7,7 @@
  *
  * 只读前端展示：数值与目标 ID 均来自后端 preview/result，不在此推断业务规则。
  */
-import type { AssistantAction } from '../../api/assistant';
+import type { AssistantAction } from '@contracts/assistant';
 
 export interface ActionResultLink {
   path: string;

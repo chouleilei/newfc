@@ -38,10 +38,10 @@ describe('pageKey 目录', () => {
     expect(derivePageContext('/data', '').page).toBe('backup');
   });
 
-  it('/budget/:id 动态路由识别为 budget_edit 并携带版本 ID', () => {
+  it('/budget/:id 动态路由只识别为 budget_edit', () => {
     const result = derivePageContext('/budget/42', '');
     expect(result.page).toBe('budget_edit');
-    expect(result.context).toEqual({});
+    expect(result).not.toHaveProperty('context');
   });
 
   it('/budget 列表页识别为 budget_versions', () => {
@@ -53,10 +53,10 @@ describe('pageKey 目录', () => {
     expect(derivePageContext('/settings/other', '').page).toBe('unknown');
   });
 
-  it('analysis 查询参数映射到上下文字段', () => {
+  it('analysis URL 不生成发送范围', () => {
     const result = derivePageContext('/analysis', '?year=2026&version=3&forecast=4&batch=7&org=11&account=21');
     expect(result.page).toBe('analysis');
-    expect(result.context).toEqual({});
+    expect(result).not.toHaveProperty('context');
   });
 
   it('全部 28 个路由都有非 unknown 的页面身份', () => {

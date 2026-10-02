@@ -19,15 +19,12 @@ import { rollup, type RollupResult } from '../core/rollup';
 import { loadSnapshotNodes } from '../modules/tree/snapshot';
 import { listRows } from '../modules/actual/actual.helpers';
 import { listMetricsForVersion } from '../modules/metric/metric.service';
-import { type DraftKind } from '../contracts/page-catalog';
+import type { DraftKind } from '../contracts/page-catalog';
+import type { DraftDescriptor } from '../contracts/assistant';
 
 
 /** 草稿 wire 格式(§5.7)：kind + base(最小基线) + changes(对应保存接口的受控 DTO)。 */
-export interface DraftDescriptor {
-  kind: DraftKind;
-  base: Record<string, unknown>;
-  changes: unknown;
-}
+
 
 export interface DraftBudgetOverlayEntry extends OverlayCellBase {
   formula: string;

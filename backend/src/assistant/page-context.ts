@@ -1,31 +1,35 @@
+import { SCOPE_INT_FIELDS, SCOPE_TEXT_FIELDS, SCOPE_DATE_FIELDS, CONTEXT_MAX_BYTES, DRAFT_MAX_BYTES, DRAFT_MAX_CHANGES, SELECTION_MAX_REFS, type AssistantPageContext, type PageScope, type SurfaceDescriptor, type SurfaceEntityRef, type FocusDescriptor, type SelectionDescriptor, type SurfaceKind, type ContextTrace, type DraftDescriptor } from '../contracts/assistant';
 import { validateDomainContext, domainBatchContext } from './domain-context';
-import { DOMAIN_ID_FIELDS, DOMAIN_ENTITY_FIELDS, normalizeDomainContext, type DomainContext } from './domain-scope';
+import { DOMAIN_ID_FIELDS, type DomainContext } from '../contracts/assistant';
+import { DOMAIN_ENTITY_FIELDS, normalizeDomainContext } from './domain-scope';
 /**
- * AssistantPageContextV2 后端解析入口(现行 specs/ai.md 页面上下文契约§5、§9.1)。
+ * AssistantPageContext 后端解析入口(现行 specs/ai.md 页面上下文契约§5、§9.1)。
  *
  * 浏览器输入不可信(§3.4)：前端传入的 ID、级别、金额、图表值和核验结果都只是定位线索。
  * 本模块在调用任何业务工具之前完成四件事：
- *   1. 校验 V2 schema、pageKey、请求大小和页面 view 白名单；
+ *   1. 校验 快照协议、pageKey、请求大小和页面 view 白名单；
  *   2. 查询数据库验证版本、快照、组织、科目、指标及其他资源 ID；
  *   3. 验证 surface、focus 和 selection 是否属于页面范围；
  *   4. 按 §6 优先级把 surface > focus > 页面 scope 合并成统一的页面取数范围。
  *
  * 失败时不扩大范围(§3.7)：任何校验失败都以 CONTEXT_* 错误拒绝，绝不静默退回全集团或首页。
  */
+import { currentAuth } from '../core/request-context';
+import { assertOrgVisible, requirePermission, requireAllOrgs } from '../modules/security/scope';
 import { AppError, Errors } from '../core/errors';
 import type { DB } from '../db/connection';
 import { insightRowsFilter } from './ownership';
-import type { AssistantContext } from './schemas';
-import { PAGE_CATALOG, pageDefinition } from '../contracts/page-catalog';
+import type { AssistantScope } from '../contracts/assistant';
+import { PAGE_CATALOG, pageDefinition, isPageId, type PageId } from '../contracts/page-catalog';
 import { type DomainCapability, type DraftKind, type PageDefinition as PageCapability } from '../contracts/page-catalog';
 
-import { normalizeDraftInput, type DraftDescriptor, type NormalizedDraft } from './draft-context';
+import { normalizeDraftInput, type NormalizedDraft } from './draft-context';
 
-export type { DraftDescriptor, NormalizedDraft } from './draft-context';
 
 /* ============ 错误码(§11)：不为每个组件或资源类型创造独立错误码 ============ */
 
 export type ContextErrorCode =
+  | 'CONTEXT_PROTOCOL_UNSUPPORTED'
   | 'CONTEXT_INVALID'
   | 'CONTEXT_NOT_READY'
   | 'CONTEXT_STALE'
@@ -36,6 +40,7 @@ export type ContextErrorCode =
 
 const CONTEXT_ERROR_STATUS: Record<ContextErrorCode, number> = {
   CONTEXT_INVALID: 400,
+  CONTEXT_PROTOCOL_UNSUPPORTED: 409,
   CONTEXT_NOT_READY: 409,
   CONTEXT_STALE: 409,
   CONTEXT_CONFLICT: 409,
@@ -55,91 +60,9 @@ export function capabilityUnavailable(message: string): AppError {
 /* ============ 大小与数量限制(§5.8) ============ */
 
 /** 常规上下文最大 64 KiB。 */
-export const CONTEXT_MAX_BYTES = 64 * 1024;
-/** 带草稿请求中草稿部分最大 5 MiB。 */
-export const DRAFT_MAX_BYTES = 5 * 1024 * 1024;
-/** 草稿最多 10000 项变更。 */
-export const DRAFT_MAX_CHANGES = 10_000;
-/** refs 选区最多 500 个稳定业务引用；超过必须用 bounds 或 query。 */
-export const SELECTION_MAX_REFS = 500;
-
-/* ============ V2 类型(§5) ============ */
-
-export interface PageScope extends DomainContext {
-  year?: number;
-  periodStart?: string;
-  periodEnd?: string;
-  asOfDate?: string;
-  budgetVersionId?: number;
-  targetVersionId?: number;
-  actualSnapshotId?: number;
-  importBatchId?: number;
-  orgScopeId?: number;
-  accountScopeId?: number;
-  metricId?: number;
-  insightId?: number;
-  conversionId?: number;
-  mappingVersionId?: number;
-  templateId?: number;
-  baseVersionId?: number;
-  compareVersionId?: number;
-}
-
-export type SurfaceKind = 'drawer' | 'modal' | 'popover' | 'context_menu';
-
-export interface SurfaceEntityRef {
-  entityType: string;
-  id: number;
-}
-
-export interface SurfaceDescriptor {
-  id: string;
-  kind: SurfaceKind;
-  key: string;
-  entity?: SurfaceEntityRef | null;
-  parentId?: string | null;
-}
-
-export type FocusDescriptor =
-  | { kind: 'entity'; entityType: string; id: number }
-  | { kind: 'cell'; source: 'budget' | 'actual'; sourceId: number; orgId: number; accountId: number; valueKind?: 'amount' | 'quantity' | 'formula' | 'note' }
-  | { kind: 'chart_point'; seriesKey: string; dimensionType: 'org' | 'account' | 'metric' | 'period' | 'version'; dimensionId?: number; period?: string }
-  | { kind: 'fact'; factType: 'verification'; ownerKey: string; factKey: string; scopeRef?: Record<string, number | string> }
-  | { kind: 'form_field'; formKind: string; field: string };
-
-export type SelectionDescriptor =
-  | { mode: 'refs'; refs: SurfaceEntityRef[] }
-  | { mode: 'bounds'; bounds: { sheetKey?: string; orgIds?: number[]; accountIds?: number[] } }
-  | { mode: 'query'; query: Record<string, string | number | boolean | null> };
-
-export interface AssistantPageContextV2 {
-  schemaVersion: 2;
-  snapshotId: string;
-  pageKey: string;
-  routeInstanceId: string;
-  contextVersion: number;
-  scope?: PageScope;
-  view?: Record<string, unknown>;
-  surfaces?: SurfaceDescriptor[];
-  focus?: FocusDescriptor | null;
-  selection?: SelectionDescriptor | null;
-  draft?: DraftDescriptor | null;
-}
-
 /* ============ schema 校验 ============ */
 
 const SURFACE_KINDS: ReadonlySet<string> = new Set(['drawer', 'modal', 'popover', 'context_menu']);
-const SCOPE_INT_FIELDS: (keyof PageScope)[] = [
-  'budgetVersionId', 'targetVersionId', 'actualSnapshotId', 'importBatchId',
-  'orgScopeId', 'accountScopeId', 'metricId', 'insightId', 'conversionId', 'mappingVersionId', 'templateId',
-  'baseVersionId', 'compareVersionId', ...DOMAIN_ID_FIELDS,
-];
-const SCOPE_TEXT_FIELDS = ['period', 'periodFrom', 'periodTo', 'statementScope'];
-const SCOPE_DATE_FIELDS: (keyof PageScope)[] = ['periodStart', 'periodEnd', 'asOfDate'];
-const DRAFT_KINDS: ReadonlySet<string> = new Set([
-  'budget_grid', 'actual_grid', 'org_form', 'account_form', 'metric_formula', 'calculation_rule', 'cleaning_template', 'alias_rule',
-]);
-
 function fail(message: string, field?: string, snapshotId?: string): never {
   throw contextError('CONTEXT_INVALID', message, { field, snapshotId, reason: message });
 }
@@ -335,7 +258,7 @@ function parseSelection(raw: unknown, page: PageCapability, snapshotId: string):
   return fail(`selection.mode「${mode}」不合法`, 'selection.mode', snapshotId);
 }
 
-function parseScope(raw: unknown, snapshotId: string): PageScope {
+export function parseAssistantScope(raw: unknown, snapshotId: string): PageScope {
   if (raw == null) return {};
   if (!isPlainObject(raw)) fail('scope 必须是对象', 'scope', snapshotId);
   let out: PageScope;
@@ -364,15 +287,17 @@ function parseScope(raw: unknown, snapshotId: string): PageScope {
 }
 
 /**
- * 解析并校验 V2 schema(§9.1 第 1 步)。只做强格式校验与白名单校验，不查库。
+ * 解析并校验 快照协议(§9.1 第 1 步)。只做强格式校验与白名单校验，不查库。
  */
-export function parsePageContextV2(raw: unknown): AssistantPageContextV2 | null {
-  if (raw == null) return null;
+export function parseAssistantPageContext(raw: unknown): AssistantPageContext {
+  if (raw == null) throw contextError('CONTEXT_INVALID', 'pageContext 必须提供');
   if (!isPlainObject(raw)) throw contextError('CONTEXT_INVALID', 'pageContext 必须是对象');
-  if (raw.schemaVersion !== 2) throw contextError('CONTEXT_INVALID', 'pageContext.schemaVersion 必须为 2', { field: 'schemaVersion' });
+  for (const key of Object.keys(raw)) if (!['schemaVersion', 'snapshotId', 'pageKey', 'routeInstanceId', 'contextVersion', 'scope', 'view', 'surfaces', 'focus', 'selection', 'draft'].includes(key)) fail(`pageContext 不支持字段「${key}」`, key);
+  if (raw.schemaVersion !== 2) throw contextError('CONTEXT_PROTOCOL_UNSUPPORTED', 'pageContext.schemaVersion 必须为 2', { field: 'schemaVersion' });
   const snapshotId = typeof raw.snapshotId === 'string' ? raw.snapshotId.trim() : '';
   if (!snapshotId || snapshotId.length > 80) throw contextError('CONTEXT_INVALID', 'pageContext.snapshotId 必须是 1-80 字符', { field: 'snapshotId' });
   const pageKey = typeof raw.pageKey === 'string' ? raw.pageKey.trim() : '';
+  if (!isPageId(pageKey)) throw contextError('CONTEXT_INVALID', '未知页面或未登记页面');
   const page = pageDefinition(pageKey);
   // 未知 pageKey 不回退 dashboard(§9.4)。
   if (!page) throw contextError('CONTEXT_INVALID', `未知页面「${pageKey}」`, { field: 'pageKey', snapshotId, reason: 'pageKey 不在 PageCapabilityMap 内' });
@@ -390,7 +315,7 @@ export function parsePageContextV2(raw: unknown): AssistantPageContextV2 | null 
     throw contextError('CONTEXT_TOO_LARGE', `草稿超过 ${Math.round(DRAFT_MAX_BYTES / 1024 / 1024)} MiB，请先保存或缩小范围`, { field: 'draft', snapshotId, reason: '草稿超过大小限制' });
   }
 
-  const scope = parseScope(raw.scope, snapshotId);
+  const scope = parseAssistantScope(raw.scope, snapshotId);
   const view = parseView(raw.view, page, snapshotId);
   const surfaces = parseSurfaces(raw.surfaces, page, snapshotId);
   const focus = parseFocus(raw.focus, page, pageKey, snapshotId);
@@ -400,7 +325,6 @@ export function parsePageContextV2(raw: unknown): AssistantPageContextV2 | null 
   if (rawDraft != null) {
     if (!isPlainObject(rawDraft)) fail('draft 必须是对象', 'draft', snapshotId);
     const kind = String(rawDraft.kind ?? '');
-    if (!DRAFT_KINDS.has(kind)) fail(`draft.kind「${kind}」不合法`, 'draft.kind', snapshotId);
     if (!page.draftKinds.includes(kind as DraftKind)) {
       throw contextError('CONTEXT_INVALID', `页面 ${page.label} 不接受「${kind}」类型的草稿`, { field: 'draft.kind', snapshotId, reason: '草稿类型不在页面白名单内' });
     }
@@ -505,14 +429,14 @@ function validateEntityExists(db: DB, entityType: string, id: number, field: str
   }
 }
 
-export interface ResolvedBackendContext {
-  pageKey: string;
+export interface ResolvedAssistantContext {
+  pageKey: PageId;
   pageLabel: string;
   capabilities: DomainCapability[];
   defaultCapability: DomainCapability;
-  /** 合并后的页面取数范围(已映射到既有 AssistantContext 字段)，surface > focus > scope。 */
-  pageContext: AssistantContext;
-  /** 旧 context 表达不了的扩展范围字段。 */
+  /** 合并后的页面取数范围(已映射到既有 AssistantScope 字段)，surface > focus > scope。 */
+  scope: AssistantScope;
+  /** 页面的分析维度。 */
   extras: Pick<PageScope, 'metricId' | 'insightId' | 'conversionId' | 'mappingVersionId' | 'templateId' | 'baseVersionId' | 'compareVersionId' | 'periodStart' | 'periodEnd' | 'asOfDate'>;
   view: Record<string, unknown>;
   focus: FocusDescriptor | null;
@@ -529,10 +453,21 @@ export interface ResolvedBackendContext {
  * 返回的 pageContext 已按 §6 优先级合并 surface > focus > 页面 scope，
  * 之后由 resolveMessageContext 叠加「问题明确指定的范围」与「会话继承补齐」。
  */
-export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendContext | null {
-  const parsed = parsePageContextV2(raw);
-  if (!parsed) return null;
+export function resolveAssistantContext(db: DB, raw: unknown): ResolvedAssistantContext {
+  const parsed = parseAssistantPageContext(raw);
   const page = pageDefinition(parsed.pageKey)!;
+  const auth = currentAuth();
+  if (auth) {
+    requirePermission(auth, page.permission);
+    if (page.allOrgs) requireAllOrgs(auth, page.label);
+    if (parsed.scope?.orgScopeId != null) assertOrgVisible(db, auth, parsed.scope.orgScopeId);
+    if (parsed.focus?.kind === 'cell') assertOrgVisible(db, auth, parsed.focus.orgId);
+    if (parsed.focus?.kind === 'entity' && parsed.focus.entityType === 'org') assertOrgVisible(db, auth, parsed.focus.id);
+    if (parsed.focus?.kind === 'chart_point' && parsed.focus.dimensionType === 'org' && parsed.focus.dimensionId != null) assertOrgVisible(db, auth, parsed.focus.dimensionId);
+    for (const surface of parsed.surfaces ?? []) if (surface.entity?.entityType === 'org') assertOrgVisible(db, auth, surface.entity.id);
+    if (parsed.selection?.mode === 'refs') for (const ref of parsed.selection.refs) if (ref.entityType === 'org') assertOrgVisible(db, auth, ref.id);
+    if (parsed.selection?.mode === 'bounds') for (const id of parsed.selection.bounds.orgIds ?? []) assertOrgVisible(db, auth, id);
+  }
   const { snapshotId } = parsed;
   const scope = parsed.scope ?? {};
   const warnings: string[] = [];
@@ -636,7 +571,7 @@ export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendCont
   }
 
   /* ---- §6 优先级合并：surface(最上层优先) > focus > 页面 scope ---- */
-  validateDomainContext(db, { ...scope, page: parsed.pageKey, orgId: scope.orgScopeId });
+  validateDomainContext(db, { ...scope, pageKey: parsed.pageKey });
   const mergedScope: PageScope = { ...scope };
   const applyEntity = (entityType: string, id: number) => {
     const field = ENTITY_SCOPE_FIELD[entityType];
@@ -676,19 +611,19 @@ export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendCont
   /* ---- 草稿：白名单解析 + 基线校验(§9.6)，原始 changes 的裁剪在 draft-context 内完成 ---- */
   const draft = parsed.draft ? normalizeDraftInput(db, parsed.draft, { snapshotId }) : null;
 
-  Object.assign(mergedScope, domainBatchContext(db, { ...mergedScope, page: parsed.pageKey, orgId: mergedScope.orgScopeId }));
+  Object.assign(mergedScope, domainBatchContext(db, { ...mergedScope, pageKey: parsed.pageKey, orgScopeId: mergedScope.orgScopeId }));
   const effectiveBudgetVersionId = mergedScope.baseVersionId ?? mergedScope.budgetVersionId;
   const effectiveTargetVersionId = mergedScope.compareVersionId ?? mergedScope.targetVersionId;
-  const pageContext: AssistantContext = {
-    ...normalizeDomainContext(mergedScope as Record<string, unknown>),
-    page: parsed.pageKey,
+  const resolvedScope: AssistantScope = {
+    ...mergedScope,
+    pageKey: parsed.pageKey,
     ...(mergedScope.year != null ? { year: mergedScope.year } : {}),
     ...(effectiveBudgetVersionId != null ? { budgetVersionId: effectiveBudgetVersionId } : {}),
     ...(effectiveTargetVersionId != null ? { targetVersionId: effectiveTargetVersionId } : {}),
     ...(mergedScope.actualSnapshotId != null ? { actualSnapshotId: mergedScope.actualSnapshotId } : {}),
     ...(mergedScope.importBatchId != null ? { importBatchId: mergedScope.importBatchId } : {}),
-    ...(mergedScope.orgScopeId != null ? { orgId: mergedScope.orgScopeId } : {}),
-    ...(mergedScope.accountScopeId != null ? { accountId: mergedScope.accountScopeId } : {}),
+    ...(mergedScope.orgScopeId != null ? { orgScopeId: mergedScope.orgScopeId } : {}),
+    ...(mergedScope.accountScopeId != null ? { accountScopeId: mergedScope.accountScopeId } : {}),
   };
 
   return {
@@ -696,7 +631,7 @@ export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendCont
     pageLabel: page.label,
     capabilities: page.capabilities,
     defaultCapability: page.defaultCapability,
-    pageContext,
+    scope: resolvedScope,
     extras: {
       ...(mergedScope.metricId != null ? { metricId: mergedScope.metricId } : {}),
       ...(mergedScope.insightId != null ? { insightId: mergedScope.insightId } : {}),
@@ -721,19 +656,6 @@ export function resolveBackendContext(db: DB, raw: unknown): ResolvedBackendCont
 
 /* ============ contextSummary / contextTrace(§9.7) ============ */
 
-export interface ContextTraceEntry {
-  field: string;
-  value: number | string;
-  origin: string;
-  reason: string;
-}
-
-export interface ContextTrace {
-  used: ContextTraceEntry[];
-  overrides: { field: string; from: number | string; to: number | string; reason: string }[];
-  warnings: string[];
-}
-
 const SUMMARY_FIELD_LABEL: Record<string, string> = {
   ...Object.fromEntries(DOMAIN_ID_FIELDS.map((k) => [k, ({projectId: '主数据项目', contractId: '合同', claimId: '报销单', feasProjectId: '可研项目', scenarioId: '可研方案', icProjectId: '投资项目', comparisonId: '投资快照', modelId: '预测模型', forecastVersionId: '预测版本', forecastRunId: '预测运行', riskId: '风险', reportId: '分析报告', standardReportId: '标准报表', governanceIssueId: '治理问题', mgmtMetricId: '管理会计指标', statementBatchId: '财报批次', projectBudgetBatchId: '项目预算批次', planBatchId: '计划批次', easBatchId: 'EAS 批次', feasReportId: '可行性报告', jobId: '后台任务'} as Record<string,string>)[k]])),
   period: '期间', periodFrom: '起始期间', periodTo: '截至期间', statementScope: '财报口径',
@@ -742,8 +664,8 @@ const SUMMARY_FIELD_LABEL: Record<string, string> = {
   targetVersionId: '对比版本',
   actualSnapshotId: '实际快照',
   importBatchId: '导入批次',
-  orgId: '组织',
-  accountId: '科目',
+  orgScopeId: '组织',
+  accountScopeId: '科目',
   metricId: '指标',
 };
 
@@ -758,8 +680,8 @@ export function contextFieldLabel(field: string): string {
 export function buildContextSummary(
   db: DB,
   pageLabel: string,
-  context: AssistantContext,
-  extras: ResolvedBackendContext['extras'],
+  context: AssistantScope,
+  extras: ResolvedAssistantContext['extras'],
   view: Record<string, unknown>,
 ): string {
   const parts: string[] = [pageLabel];
@@ -775,12 +697,12 @@ export function buildContextSummary(
     const row = rowOf<{ snapshot_date: string }>(db, 'SELECT snapshot_date FROM actual_snapshot_batch WHERE id=?', context.actualSnapshotId);
     if (row) parts.push(`截至 ${row.snapshot_date}`);
   }
-  if (context.orgId != null) {
-    const row = rowOf<{ name: string }>(db, 'SELECT name FROM org WHERE id=?', context.orgId);
+  if (context.orgScopeId != null) {
+    const row = rowOf<{ name: string }>(db, 'SELECT name FROM org WHERE id=?', context.orgScopeId);
     if (row) parts.push(row.name);
   }
-  if (context.accountId != null) {
-    const row = rowOf<{ name: string }>(db, 'SELECT name FROM account WHERE id=?', context.accountId);
+  if (context.accountScopeId != null) {
+    const row = rowOf<{ name: string }>(db, 'SELECT name FROM account WHERE id=?', context.accountScopeId);
     if (row) parts.push(row.name);
   }
   if (extras.metricId != null) {
@@ -797,13 +719,13 @@ export function buildContextSummary(
  * pageContext 是页面给出的值；resolution 里 origin=message 且值不同即为覆盖。
  */
 export function detectOverrides(
-  pageContext: AssistantContext,
+  scope: AssistantScope,
   resolution: { field: string; value: number; origin: string; reason: string }[],
 ): ContextTrace['overrides'] {
   const overrides: ContextTrace['overrides'] = [];
   for (const item of resolution) {
     if (item.origin !== 'message') continue;
-    const pageValue = (pageContext as Record<string, unknown>)[item.field];
+    const pageValue = (scope as Record<string, unknown>)[item.field];
     if (pageValue == null || Number(pageValue) === Number(item.value)) continue;
     overrides.push({ field: item.field, from: Number(pageValue), to: item.value, reason: item.reason });
   }

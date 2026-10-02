@@ -1,8 +1,9 @@
+import { pageSnapshot } from './assistant-context';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTestApp, authFetch } from './http-helpers';
 import ExcelJS from 'exceljs';
 import { detectIntents, detectRankFocus, looksLikeWriteConfirmation } from '../src/assistant/intent';
-import { resolveMessageContext } from '../src/assistant/resolve';
+import { resolveMessageContext } from '../src/assistant/message-context';
 import { queryFacts } from '../src/assistant/facts';
 import * as assistant from '../src/assistant/service';
 import { executeTool, toolDefinitions } from '../src/assistant/tools';
@@ -99,7 +100,7 @@ describe('AI 助手:财务转换只读工具(原来是盲区)', () => {
     const db = testDb();
     expect(() => executeTool(db, 'get_finance_conversion', {})).toThrow(/conversionId/);
     expect(() => executeTool(db, 'get_finance_mapping_version', { mappingVersionId: 0 })).toThrow(/mappingVersionId/);
-    expect(() => executeTool(db, 'list_finance_conversions', { limit: 999 })).toThrow(/1-100/);
+    expect(() => executeTool(db, 'list_finance_conversions', { limit: 999 })).toThrow(/limit/);
     // 没有任何批次时如实返回空，不报错
     expect(executeTool(db, 'list_finance_conversions', {})).toMatchObject({ count: 0, batches: [] });
   });
@@ -148,7 +149,7 @@ describe('AI 助手:财务转换只读工具(原来是盲区)', () => {
     expect(types).toContain('finance_conversion_detail');
     expect(types).toContain('finance_mapping_version');
 
-    const answer = await assistant.chat(db, { message: '上次财务数据转换为什么失败，映射有没有漏的科目', context: { year: 2026 } });
+    const answer = await assistant.chat(db, { message: '上次财务数据转换为什么失败，映射有没有漏的科目', pageContext: pageSnapshot({ year: 2026 }) });
     expect(answer.routing).toBe('rules');
     expect(answer.text).toMatch(/财务转换批次/);
     expect(answer.text).toMatch(/利润表勾稽未通过/);
@@ -191,10 +192,7 @@ describe('AI 助手:正文数字核对', () => {
         }],
       }),
     })));
-    const answer = await assistant.chat(db, {
-      message: `把 2026 年版本 #${version.id} 复制成 2027 年草案，整体增长 5%`,
-      context: { year: 2026, budgetVersionId: version.id },
-    });
+    const answer = await assistant.chat(db, { message: `把 2026 年版本 #${version.id} 复制成 2027 年草案，整体增长 5%`, pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.routing).toBe('model');
     expect(answer.numberCheck.unverified).not.toContain('5.00');
     expect(answer.numberCheck.unverified).not.toContain('0.05');
@@ -217,7 +215,7 @@ describe('AI 助手:正文数字核对', () => {
       }
       return { ok: true, json: async () => ({ choices: [{ message: { content: '收入实际 987654.32 万元。' } }] }) };
     }));
-    const answer = await assistant.chat(db, { message: '2026 年执行情况如何', context: { year: 2026, budgetVersionId: version.id } });
+    const answer = await assistant.chat(db, { message: '2026 年执行情况如何', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.routing).toBe('model');
     expect(answer.numberCheck.status).toBe('unverified');
     expect(answer.numberCheck.unverified).toContain('987654.32');
@@ -250,7 +248,7 @@ describe('AI 助手:正文数字核对', () => {
         }),
       };
     }));
-    const answer = await assistant.chat(db, { message: '2026 年执行情况如何', context: { year: 2026, budgetVersionId: version.id } });
+    const answer = await assistant.chat(db, { message: '2026 年执行情况如何', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.routing).toBe('model');
     // 科目金额正数写法是界面口径,必须放行
     expect(answer.numberCheck.unverified).not.toContain('35.00');
@@ -269,14 +267,11 @@ describe('AI 助手:写操作确认路径', () => {
     expect(looksLikeWriteConfirmation('确认执行')).toBe(true);
     expect(looksLikeWriteConfirmation('确认一下这个版本的状态')).toBe(false);
 
-    const first = await assistant.chat(db, {
-      message: `把 2026 年版本 #${version.id} 复制成 2027 年草案，整体增长 5%`,
-      context: { year: 2026, budgetVersionId: version.id },
-    });
+    const first = await assistant.chat(db, { message: `把 2026 年版本 #${version.id} 复制成 2027 年草案，整体增长 5%`, pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(first.action?.type).toBe('copy_budget');
     expect(first.action?.previewable).toBe(true);
 
-    const second = await assistant.chat(db, { conversationId: first.conversationId, message: '确认执行' });
+    const second = await assistant.chat(db, { conversationId: first.conversationId, message: '确认执行', pageContext: pageSnapshot() });
     expect(second.notices.some((n) => n.includes('不会写入任何数据'))).toBe(true);
     expect(second.action?.type).toBe('copy_budget');
     expect(second.action?.inherited).toBe(true);
@@ -288,7 +283,7 @@ describe('AI 助手:写操作确认路径', () => {
 
   it('没有历史操作建议时也如实说明，不假装有待确认操作', async () => {
     const { db } = fixtureWithActual();
-    const answer = await assistant.chat(db, { message: '确认' });
+    const answer = await assistant.chat(db, { message: '确认', pageContext: pageSnapshot() });
     expect(answer.action).toBeNull();
     expect(answer.notices.some((n) => n.includes('没有待确认的操作建议'))).toBe(true);
   });
@@ -304,7 +299,7 @@ describe('AI 助手:流式进度事件', () => {
     const events: { stage: string; label: string }[] = [];
     await assistant.chat(
       db,
-      { message: '2026 年执行完成情况如何', context: { year: 2026, budgetVersionId: version.id } },
+      { message: '2026 年执行完成情况如何', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) },
       '',
       { onProgress: (event) => events.push({ stage: event.stage, label: event.label }) },
     );
@@ -332,7 +327,7 @@ describe('AI 助手:流式进度事件', () => {
     const events: { stage: string; label: string; detail?: string }[] = [];
     await assistant.chat(
       db,
-      { message: '哪个组织亏得最多', context: { year: 2026, budgetVersionId: version.id } },
+      { message: '哪个组织亏得最多', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) },
       '',
       { onProgress: (event) => events.push(event) },
     );
@@ -354,21 +349,21 @@ describe('AI 助手:模板模式退化修复', () => {
     const { db, fx, version } = fixtureWithActual();
     // 「上海」是「上海公司」的核心名，唯一命中
     const single = resolveMessageContext(db, '上海今年收入完成得怎么样', {}, {}, { defaultVersion: true });
-    expect(single.context.orgId).toBe(fx.orgIds.shanghai);
-    expect(single.resolution.find((r) => r.field === 'orgId')?.reason).toMatch(/名称片段/);
+    expect(single.context.orgScopeId).toBe(fx.orgIds.shanghai);
+    expect(single.resolution.find((r) => r.field === 'orgScopeId')?.reason).toMatch(/名称片段/);
     expect(single.ambiguities).toHaveLength(0);
 
     // 再建两个「江垭」开头的组织 → 片段不唯一
     org.createOrg(db, { parentId: fx.orgIds.east, code: 'JYD', name: '江垭电站' });
     org.createOrg(db, { parentId: fx.orgIds.east, code: 'JYW', name: '江垭温泉' });
     const ambiguous = resolveMessageContext(db, '江垭今年收入完成得怎么样', {}, {}, { defaultVersion: true });
-    expect(ambiguous.context.orgId).toBeUndefined();
-    expect(ambiguous.ambiguities[0]).toMatchObject({ field: 'orgId', token: '江垭' });
+    expect(ambiguous.context.orgScopeId).toBeUndefined();
+    expect(ambiguous.ambiguities[0]).toMatchObject({ field: 'orgScopeId', token: '江垭' });
     expect(ambiguous.ambiguities[0].candidates.map((c) => c.code).sort()).toEqual(['JYD', 'JYW']);
 
-    const answer = await assistant.chat(db, { message: '江垭今年收入完成得怎么样', context: { year: 2026, budgetVersionId: version.id } });
+    const answer = await assistant.chat(db, { message: '江垭今年收入完成得怎么样', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.notices.some((n) => n.includes('江垭电站') && n.includes('江垭温泉'))).toBe(true);
-    expect(answer.resolvedContext.orgId).toBeUndefined();
+    expect(answer.effectiveContext.orgScopeId).toBeUndefined();
   });
 
   it('数量科目提问不再只讲金额而显示成 0.00', async () => {
@@ -390,7 +385,7 @@ describe('AI 助手:模板模式退化修复', () => {
         { orgId: fx.orgIds.shanghai, accountId: qLeaf, quantity: '600.25' },
       ],
     });
-    const answer = await assistant.chat(db, { message: '2026 年发电量完成了多少', context: { year: 2026, budgetVersionId: version.id } });
+    const answer = await assistant.chat(db, { message: '2026 年发电量完成了多少', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.text).toMatch(/数量科目：发电量\(Q101\) 预算 1000\.50 \/ 实际 600\.25 万度/);
     expect(answer.text).toMatch(/完成率 60\.0%/);
   });
@@ -408,9 +403,9 @@ describe('AI 助手:模板模式退化修复', () => {
     expect(detectRankFocus('下一个')).toBe(2);
     expect(detectRankFocus('你好')).toBeNull();
 
-    const first = await assistant.chat(db, { message: '哪个组织亏得最多', context: { year: 2026, budgetVersionId: version.id } });
+    const first = await assistant.chat(db, { message: '哪个组织亏得最多', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(first.text).toMatch(/第 1 名/);
-    const second = await assistant.chat(db, { conversationId: first.conversationId, message: '那第二名呢' });
+    const second = await assistant.chat(db, { conversationId: first.conversationId, message: '那第二名呢', pageContext: pageSnapshot() });
     expect(second.intents.inheritedRead).toContain('attribution');
     expect(second.text).toMatch(/第 2 名/);
     expect(second.text).not.toBe(first.text);
@@ -424,7 +419,7 @@ describe('AI 助手:模板模式退化修复', () => {
 describe('AI 助手:会话与洞察管理、限流与度量', () => {
   it('会话可重命名与删除，洞察可删除，业务痕迹保留', async () => {
     const { db, version } = fixtureWithActual();
-    const chat = await assistant.chat(db, { message: '2026 年执行完成情况如何', context: { year: 2026, budgetVersionId: version.id } });
+    const chat = await assistant.chat(db, { message: '2026 年执行完成情况如何', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     const renamed: any = assistant.renameConversation(db, chat.conversationId, '2026 执行复盘', 'tester');
     expect(renamed.title).toBe('2026 执行复盘');
 
@@ -447,7 +442,7 @@ describe('AI 助手:会话与洞察管理、限流与度量', () => {
 
   it('每轮返回模型调用度量并写入 ai.chat 操作日志', async () => {
     const { db, version } = fixtureWithActual();
-    const answer = await assistant.chat(db, { message: '2026 年执行完成情况如何', context: { year: 2026, budgetVersionId: version.id } }, 'tester');
+    const answer = await assistant.chat(db, { message: '2026 年执行完成情况如何', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) }, 'tester');
     expect(answer.metrics.durationMs).toBeGreaterThanOrEqual(0);
     expect(answer.metrics.modelCalls).toBe(0);
     const logs = queryLogs(db, { action: 'ai.chat' });
@@ -475,7 +470,7 @@ describe('AI 助手:会话与洞察管理、限流与度量', () => {
     const post = async () => {
       const response = await authFetch(`http://127.0.0.1:${port}/api/assistant/chat`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message: '列出预算版本' }),
+        body: JSON.stringify({ message: '列出预算版本', pageContext: pageSnapshot() }),
       });
       return { status: response.status, body: await response.json() as any };
     };
@@ -515,7 +510,7 @@ describe('AI 助手:会话与洞察管理、限流与度量', () => {
       return { status: response.status, body: await response.json() as any };
     };
     try {
-      const chat = await call('POST', '/api/assistant/chat', { message: '列出预算版本', context: { year: 2026 } });
+      const chat = await call('POST', '/api/assistant/chat', { message: '列出预算版本', pageContext: pageSnapshot({ year: 2026 }) });
       expect(chat.status).toBe(200);
       const conversationId = chat.body.conversationId;
       const renamed = await call('PATCH', `/api/assistant/conversations/${conversationId}`, { title: '版本盘点' });

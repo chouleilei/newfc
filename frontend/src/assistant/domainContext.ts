@@ -1,7 +1,4 @@
 /** 新领域 ID 不与经营预算 ID 混用；目录由后端契约测试核对。 */
-export const DOMAIN_ID_FIELDS = ['projectId', 'contractId', 'claimId', 'feasProjectId', 'scenarioId', 'icProjectId', 'comparisonId', 'modelId', 'forecastVersionId', 'forecastRunId', 'riskId', 'reportId', 'standardReportId', 'governanceIssueId', 'mgmtMetricId', 'statementBatchId', 'projectBudgetBatchId', 'planBatchId', 'easBatchId', 'feasReportId', 'jobId'] as const;
-export type DomainContext = Partial<Record<typeof DOMAIN_ID_FIELDS[number], number>> & { period?: string; periodFrom?: string; periodTo?: string; statementScope?: 'parent' | 'subsidiary' | 'consolidated' };
-
 export const DOMAIN_PROMPTS = {
   "eas": [
     "当前期间对账有哪些错误与警告",

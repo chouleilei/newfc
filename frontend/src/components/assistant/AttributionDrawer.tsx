@@ -1,3 +1,4 @@
+import { useAssistantRegistry } from '../../assistant/AssistantContextRegistry';
 /**
  * 差异归因抽屉(方案《AI助手完整方案》4.3)。
  *
@@ -7,9 +8,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Descriptions, Drawer, Empty, Segmented, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
-import type {
-  AssistantContext, AttributionDirection, AttributionLeaf, AttributionNode, AttributionReport,
-} from '../../api/assistant';
+import type { AssistantScope, AttributionDirection, AttributionLeaf, AttributionNode, AttributionReport } from '@contracts/assistant';
 import { assistantApi } from '../../api/assistant';
 import { ApiError } from '../../api/client';
 import { centsToWan, formatQuantity, formatRateOrReason } from '../../utils/money';
@@ -95,24 +94,30 @@ export function AttributionDrawer({
 }: {
   open: boolean;
   onClose: () => void;
-  context: AssistantContext;
+  context: AssistantScope;
   onSaveInsight?: (params: Record<string, unknown>) => void;
 }) {
+  const registry = useAssistantRegistry();
   const [direction, setDirection] = useState<AttributionDirection>('all');
   const [maxDepth, setMaxDepth] = useState(3);
   const versionId = context.budgetVersionId;
 
   const { data, isFetching, error } = useQuery<AttributionReport>({
-    queryKey: ['assistant-attribution', versionId, context.actualSnapshotId, context.orgId, context.accountId, direction, maxDepth],
-    queryFn: () => assistantApi.attribution({
+    queryKey: ['assistant-attribution', versionId, context.actualSnapshotId, context.orgScopeId, context.accountScopeId, direction, maxDepth],
+    queryFn: () => {
+      const snapshot = registry.buildSnapshot();
+      if (snapshot.status !== 'ok') throw new Error('当前页面范围未就绪');
+      return assistantApi.attribution({
+      pageContext: snapshot.pageContext,
       versionId: versionId as number,
       ...(context.actualSnapshotId == null ? {} : { batchId: context.actualSnapshotId }),
-      ...(context.orgId == null ? {} : { orgScopeId: context.orgId }),
-      ...(context.accountId == null ? {} : { accountScopeId: context.accountId }),
+      ...(context.orgScopeId == null ? {} : { orgScopeId: context.orgScopeId }),
+      ...(context.accountScopeId == null ? {} : { accountScopeId: context.accountScopeId }),
       maxDepth,
       topN: 10,
       direction,
-    }),
+    });
+    },
     enabled: open && versionId != null,
   });
 

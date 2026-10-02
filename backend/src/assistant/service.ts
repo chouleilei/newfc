@@ -1,5 +1,6 @@
 import { resolveDomainMessage, summarizeDomainFacts, domainSuggestions, domainSource } from './domain-facts';
-import { validateDomainContext, domainBatchContext, DOMAIN_ID_FIELDS } from './domain-context';
+import { DOMAIN_ID_FIELDS } from '../contracts/assistant';
+import { validateDomainContext, domainBatchContext } from './domain-context';
 import { domainWriteRequest, isDomainIntent } from './domain-intents';
 import crypto from 'crypto';
 import { promptSupplement } from '../modules/settings/prompt-supplements.service';
@@ -32,13 +33,16 @@ import {
   buildRoutingPrompt,
   buildTaskPrompt,
 } from './prompts';
-import { normalizeContext } from './context';
-import { citationsForFacts, deterministicExtras, queryFacts, type FactRecord } from './facts';
+import { parseChatRequest } from './schemas';
+import { parseAssistantScope } from './page-context';
+import { deterministicExtras, queryFacts } from './facts';
+import { citationsForFacts } from './citations';
+import type { AssistantFact as FactRecord, AssistantProposedAction as ProposedAction, NumberCheck, AssistantProgress as ChatProgress, AssistantChatResponse } from '../contracts/assistant';
 import {
   detectIntents, detectRankFocus, looksLikeFollowUp, looksLikeWriteConfirmation,
   needsBudgetVersion, readIntentLabel, withInheritedIntents, type IntentDetection,
 } from './intent';
-import { contextDigest, resolveMessageContext, type ContextResolution } from './resolve';
+import { contextDigest, resolveMessageContext } from './message-context';
 import { resolveNavigation, type NavigationTarget } from './navigation';
 import { reportDraft as buildReportDraft, centsToWanText, normalizeReportKind, sectionMarkdown, type ReportDraft } from './report-draft';
 import { rewriteTemplateNarrative } from './narrative';
@@ -49,12 +53,10 @@ import { authorizeToolCall, requireActionPermission, requireAllOrgsForAction, sc
 import type { Permission } from '../contracts/permissions';
 import { assertOrgVisible } from '../modules/security/scope';
 import { currentAuth } from '../core/request-context';
-import type { AssistantContext } from './schemas';
-import {
-  buildContextSummary, detectOverrides, resolveBackendContext,
-  type FocusDescriptor, type ResolvedBackendContext,
-} from './context-v2';
-import { pageDefinition } from '../contracts/page-catalog';
+import type { AssistantScope, ContextResolution } from '../contracts/assistant';
+import { type FocusDescriptor } from '../contracts/assistant';
+import { buildContextSummary, detectOverrides, resolveAssistantContext, type ResolvedAssistantContext } from './page-context';
+import { pageDefinition, isPageId } from '../contracts/page-catalog';
 import { type DomainCapability } from '../contracts/page-catalog';
 import { allowedToolsForCapabilities, filterIntentsByCapability, pickCapability } from './page-capabilities';
 import { computeDraftImpact, draftSummary } from './draft-context';
@@ -192,7 +194,7 @@ function ensureConversation(db: DB, id?: number, title = ''): number {
   return Number(result.lastInsertRowid);
 }
 
-function validateContextConsistency(db: DB, context: ReturnType<typeof normalizeContext>): void {
+function validateContextConsistency(db: DB, context: AssistantScope): void {
   if (context.budgetVersionId != null) {
     const version = budget.getVersion(db, context.budgetVersionId);
     if (context.year != null && version.year !== context.year) {
@@ -241,7 +243,7 @@ function normalizeActionType(value: unknown): string {
  */
 function deterministicSummary(
   facts: FactRecord[],
-  context: AssistantContext = {},
+  context: AssistantScope = {},
   options: { rankFocus?: number | null } = {},
 ): string {
   if (!facts.length) return '当前问题没有足够的上下文。请提供年度、预算版本或实际快照；如涉及修改，请先创建预览并确认。';
@@ -555,7 +557,7 @@ function summarizeAnomalyText(anomalies: any): string {
 }
 
 /** 版本列表的确定性摘要。 */
-function summarizeVersionsText(versions: any[], context: AssistantContext): string {
+function summarizeVersionsText(versions: any[], context: AssistantScope): string {
   if (!versions.length) return `${context.year ? `${context.year} 年` : ''}还没有任何预算或预测版本。可在预算版本页新建，或让我基于历史预算/实际生成草案（需确认）。`;
   const current = versions.filter((v: any) => v.is_current === 1)
     .map((v: any) => `${v.kind === 'forecast' ? '预测' : '预算'}当前生效「${v.name}」(${v.status})`);
@@ -566,7 +568,7 @@ function summarizeVersionsText(versions: any[], context: AssistantContext): stri
 }
 
 /** 上下文相关建议:只根据已获得的事实和缺失条件生成，全部标记为建议供用户点击。 */
-function buildSuggestions(facts: FactRecord[], context: AssistantContext, navigation: NavigationTarget | null): string[] {
+function buildSuggestions(facts: FactRecord[], context: AssistantScope, navigation: NavigationTarget | null): string[] {
   const domain = domainSuggestions(facts, context);
   if (domain) return domain;
   const out: string[] = [];
@@ -649,7 +651,7 @@ function parseName(message: string): string | null {
 }
 
 /** 基准来源：实际 / 历史快照 / 预算。 */
-function parseBaseFrom(message: string, context: AssistantContext): { baseFrom: 'budget' | 'actual' | 'actual_snapshot'; baseSnapshotId?: number } {
+function parseBaseFrom(message: string, context: AssistantScope): { baseFrom: 'budget' | 'actual' | 'actual_snapshot'; baseSnapshotId?: number } {
   if (/快照/.test(message) && context.actualSnapshotId != null) return { baseFrom: 'actual_snapshot', baseSnapshotId: context.actualSnapshotId };
   if (/实际(?:数|值|完成)?/.test(message)) return { baseFrom: 'actual' };
   return { baseFrom: 'budget' };
@@ -664,7 +666,7 @@ function parseBaseFrom(message: string, context: AssistantContext): { baseFrom: 
 function inferActionFromRules(
   db: DB,
   message: string,
-  context: AssistantContext,
+  context: AssistantScope,
   detection: IntentDetection,
 ): { type: string; params: Record<string, unknown> } | null {
   if (!detection.write.length) return null;
@@ -820,25 +822,13 @@ function actionIsConstructible(db: DB, type: string, params: Record<string, unkn
   }
 }
 
-export interface ProposedAction {
-  type: string;
-  params: Record<string, unknown>;
-  /** model = 模型抽取参数；rules = 关键词兜底 */
-  source: 'model' | 'rules';
-  /** 参数已通过 normalizePreview 干跑校验，可直接调用 /assistant/preview */
-  previewable: boolean;
-  reason?: string;
-  /** previewable=false 时说明缺什么 */
-  validationMessage?: string;
-  /** true 表示这是上一轮的操作建议(本轮没有重述写请求)，参数已重新干跑校验 */
-  inherited?: boolean;
-}
+
 
 /** 先让模型抽参数，失败或不可构造时退回规则推断。 */
 async function resolveProposedAction(
   db: DB,
   message: string,
-  context: AssistantContext,
+  context: AssistantScope,
   detection: IntentDetection,
   digest: unknown,
   signal?: AbortSignal,
@@ -882,14 +872,15 @@ async function resolveProposedAction(
  *
  * 三者来自同一条 response_json，因此一次查询取回，避免重复读同一行。
  */
-function inheritedTurn(db: DB, conversationId: number): { context: AssistantContext; read: string[]; action: ProposedAction | null } {
+function inheritedTurn(db: DB, conversationId: number): { context: AssistantScope; read: string[]; action: ProposedAction | null; needsRange?: boolean } {
   const row = db.prepare(
     "SELECT response_json FROM ai_message WHERE conversation_id=? AND role='assistant' ORDER BY id DESC LIMIT 1",
   ).get(conversationId) as { response_json: string } | undefined;
   if (!row) return { context: {}, read: [], action: null };
   const parsed = parseJson<Record<string, unknown>>(row.response_json, {});
-  let context: AssistantContext = {};
-  try { context = normalizeContext(plainObject(parsed.resolvedContext)); } catch { context = {}; }
+  const effective = plainObject(parsed.effectiveContext);
+  const { pageKey, pageLabel: _label, view: _view, historical: _historical, reusable, historicalRange: _range, ...rawScope } = effective;
+  const context: AssistantScope = reusable === false ? {} : { ...parseAssistantScope(rawScope, 'history'), ...(typeof pageKey === 'string' && isPageId(pageKey) ? { pageKey } : {}) };
   const intents = plainObject(parsed.intents);
   const read = Array.isArray(intents.read) ? intents.read.filter((value): value is string => typeof value === 'string') : [];
   const rawAction = plainObject(parsed.action);
@@ -902,7 +893,7 @@ function inheritedTurn(db: DB, conversationId: number): { context: AssistantCont
       reason: typeof rawAction.reason === 'string' ? rawAction.reason : undefined,
     }
     : null;
-  return { context, read, action };
+  return { context, read, action, needsRange: reusable === false };
 }
 
 /** 单条事实的历史摘要：只留识别信息与排行榜头部，避免把整份报表塞回提示词。 */
@@ -954,6 +945,22 @@ function historyMessagesForModel(db: DB, conversationId: number, limit = 10): an
     const content = row.content.length > 4_000 ? `${row.content.slice(0, 4_000)}…[已截断]` : row.content;
     if (row.role !== 'assistant') return { role: row.role, content };
     const parsed = parseJson<Record<string, any>>(row.response_json, {});
+    const range = plainObject(parsed.effectiveContext);
+    try {
+      if (range.reusable === false) throw new AppError('CONTEXT_NOT_READY', '历史范围不可续用', 409);
+      const { pageKey, pageLabel: _label, view: _view, historical: _historical, reusable: _reusable, historicalRange: _raw, ...scope } = range;
+      const verified = parseAssistantScope(scope, 'history-model');
+      const page = typeof pageKey === 'string' ? pageDefinition(pageKey) : null;
+      if (page) requireActionPermission(page.permission, '引用历史回答');
+      if (verified.budgetVersionId != null || verified.targetVersionId != null) requireActionPermission('budget:read', '引用历史预算');
+      if (verified.actualSnapshotId != null) requireActionPermission('actual:read', '引用历史实际');
+      const auth = currentAuth();
+      if (verified.orgScopeId != null && auth) assertOrgVisible(db, auth, verified.orgScopeId);
+      validateDomainContext(db, verified);
+    } catch {
+      return { role: 'assistant', content: '[历史回答的范围在当前权限下无法核验，请明确新范围并重新取数。]' };
+    }
+
     const facts = Array.isArray(parsed.facts) ? parsed.facts.slice(0, 6).map(factForHistory) : [];
     if (!facts.length) return { role: 'assistant', content };
     const summary = stringifyForModel(facts, 4_000);
@@ -971,8 +978,8 @@ function historyMessagesForModel(db: DB, conversationId: number, limit = 10): an
 const MAX_TOOL_CALLS_PER_ROUND = 8;
 
 /** 模型不可扩大已核验的本轮范围；遗漏的维度由服务端注入，冲突显式报错。 */
-export function alignDomainToolArguments(name: string, args: Record<string, unknown>, context: AssistantContext, view: Record<string, unknown> = {}): Record<string, unknown> {
-  const fields: Record<string, Record<string, keyof AssistantContext>> = {
+export function alignDomainToolArguments(name: string, args: Record<string, unknown>, context: AssistantScope, view: Record<string, unknown> = {}): Record<string, unknown> {
+  const fields: Record<string, Record<string, keyof AssistantScope>> = {
     feasibility_report_read: { reportId: 'feasReportId', projectId: 'feasProjectId', scenarioId: 'scenarioId' }, task_status: { jobId: 'jobId' }, statement_trends: { from: 'periodFrom', to: 'periodTo', scope: 'statementScope' },
     contract_detail: { contractId: 'contractId' }, expense_detail: { claimId: 'claimId' }, project_profile: { projectId: 'projectId' },
     feasibility_result: { projectId: 'feasProjectId', scenarioId: 'scenarioId' }, investment_comparison: { projectId: 'icProjectId', comparisonId: 'comparisonId' },
@@ -999,18 +1006,18 @@ export function alignDomainToolArguments(name: string, args: Record<string, unkn
     for (const key of ['status', 'schemeId']) bindView(key, view[key]);
   }
   if (name === 'domain_workspace') {
-    const prefix = ({ eas: 'eas', risk: 'risk', forecast: 'forecast' } as Record<string, string>)[context.page ?? ''];
+    const prefix = ({ eas: 'eas', risk: 'risk', forecast: 'forecast' } as Record<string, string>)[context.pageKey ?? ''];
     if (prefix && ['locks','corrections','aux','scans','rules','reviews','publications'].includes(String(view.tab))) bindView('kind', `${prefix}_${view.tab}`);
     for (const key of ['status', 'includeWithdrawn', 'pendingOnly']) bindView(key, view[key]);
   }
   if (name === 'master_entities') { bindView('keyword', view.keyword); if (['projects','suppliers'].includes(String(view.tab))) bindView('kind', view.tab === 'suppliers' ? 'supplier' : 'project'); }
   const filtered = Object.entries(view).some(([k,v]) => ['status','keyword','level','folder','kind','todo','stage'].includes(k) && v != null && v !== '');
   if (filtered && (name === 'contract_summary' || name === 'expense_audit_queue' || (name === 'forecast_runs' && !context.modelId) || (name === 'risk_summary' && !context.riskId) || name === 'report_list')) throw new AppError('CONTEXT_CONFLICT', '当前台账有筛选，请使用 domain_ledger 保留筛选口径', 409);
-  if (name === 'domain_ledger') { const kind = ({ contracts: 'contracts', expense: 'expense', forecast: 'forecast', risk: 'risk', feasibility: 'feasibility', investment_control: 'investment', analysis_reports: 'reports' } as Record<string,string>)[context.page ?? '']; if (kind) { if (out.kind != null && out.kind !== kind) throw new AppError('CONTEXT_CONFLICT', '台账类型与当前页面不一致', 409); out.kind = kind; } for (const key of ['status','keyword','level','folder','todo','stage','kind']) { const param = key === 'kind' ? 'reportKind' : key; if (view[key] == null || view[key] === '') continue; if (out[param] != null && String(out[param]) !== String(view[key])) throw new AppError('CONTEXT_CONFLICT', `工具筛选 ${param} 与当前页面不一致`, 409); out[param] = view[key]; } }
+  if (name === 'domain_ledger') { const kind = ({ contracts: 'contracts', expense: 'expense', forecast: 'forecast', risk: 'risk', feasibility: 'feasibility', investment_control: 'investment', analysis_reports: 'reports' } as Record<string,string>)[context.pageKey ?? '']; if (kind) { if (out.kind != null && out.kind !== kind) throw new AppError('CONTEXT_CONFLICT', '台账类型与当前页面不一致', 409); out.kind = kind; } for (const key of ['status','keyword','level','folder','todo','stage','kind']) { const param = key === 'kind' ? 'reportKind' : key; if (view[key] == null || view[key] === '') continue; if (out[param] != null && String(out[param]) !== String(view[key])) throw new AppError('CONTEXT_CONFLICT', `工具筛选 ${param} 与当前页面不一致`, 409); out[param] = view[key]; } }
   if (name === 'domain_batch_read') { const histories = { statement: context.statementBatchId, project_budget: context.projectBudgetBatchId, plan: context.planBatchId, eas: context.easBatchId }; const selected = Object.entries(histories).filter(([, id]) => id != null); if (selected.length === 1) { const [kind, batchId] = selected[0]; if ((out.kind != null && out.kind !== kind) || (out.batchId != null && String(out.batchId) !== String(batchId))) throw new AppError('CONTEXT_CONFLICT', '工具批次与当前详情不一致', 409); out.kind = kind; out.batchId = batchId; } }
   const liveTools: Record<string, number | undefined> = { statement_overview: context.statementBatchId, project_budget_summary: context.projectBudgetBatchId, plan_execution_overview: context.planBatchId, eas_period_status: context.easBatchId };
   if (liveTools[name] != null) throw new AppError('CONTEXT_CONFLICT', '当前打开指定历史批次，请使用 domain_batch_read 查询，不能替换为当前生效数据', 409);
-  const dimensions = { ...(fields[name] ?? {}), orgScopeId: 'orgId', period: 'period', year: 'year' } as Record<string, keyof AssistantContext>;
+  const dimensions = { ...(fields[name] ?? {}), orgScopeId: 'orgScopeId', period: 'period', year: 'year' } as Record<string, keyof AssistantScope>;
   for (const [param, field] of Object.entries(dimensions)) {
     if (!toolAcceptsParam(name, param) || context[field] == null) continue;
     if (out[param] != null && String(out[param]) !== String(context[field])) throw new AppError('CONTEXT_CONFLICT', `工具参数 ${param} 与本轮已核验范围不一致`, 409);
@@ -1024,9 +1031,9 @@ function runToolCalls(
   db: DB,
   calls: { id?: string; name: string; arguments: Record<string, unknown> }[],
   round: number,
-  context: AssistantContext,
+  context: AssistantScope,
   messages: any[],
-  allowedTools?: ReadonlySet<string>,
+  allowedTools: ReadonlySet<string>,
   view: Record<string, unknown> = {},
 ): FactRecord[] {
   const out: FactRecord[] = [];
@@ -1113,13 +1120,13 @@ async function runModelRouting(
   db: DB,
   input: {
     message: string;
-    context: AssistantContext;
+    context: AssistantScope;
     detection: IntentDetection;
     digest: unknown;
     view?: Record<string, unknown>;
     conversationId: number;
-    /** 本轮允许的领域能力工具集(V2 页面口径)；缺省不限制(旧客户端)。 */
-    allowedTools?: ReadonlySet<string>;
+    /** 本轮允许的领域能力工具集(页面口径)；由唯一页面目录提供。 */
+    allowedTools: ReadonlySet<string>;
   },
   emit?: (chunk: string) => void,
   onProgress?: (event: ChatProgress) => void,
@@ -1143,10 +1150,10 @@ async function runModelRouting(
   let modelName = 'configured';
   /** 模型调用度量：次数与累计耗时，随响应返回并写入操作日志，便于估算用量。 */
   const usage = { modelCalls: 0, modelMs: 0, toolCalls: 0 };
-  /** V2 页面口径下只暴露页面允许的领域能力工具(§9.3)。 */
+  /** 页面口径下只暴露页面允许的领域能力工具(§9.3)。 */
   /** 同时按当前身份过滤(AC-F24):不向模型暴露必然被拒的工具。 */
   const roundToolDefinitions = toolDefinitions.filter((def) =>
-    (!input.allowedTools || input.allowedTools.has(def.function.name)) && toolAllowed(def.function.name));
+    input.allowedTools.has(def.function.name) && toolAllowed(def.function.name));
 
   /**
    * 跑一轮请求。
@@ -1318,15 +1325,7 @@ function collectAllowedNumbers(value: unknown, into: Set<string>, budget: { left
   }
 }
 
-export interface NumberCheck {
-  /** ok = 全部数值都能与事实对上；unverified = 有对不上的；skipped = 没有可核对的事实或正文没有数值 */
-  status: 'ok' | 'unverified' | 'skipped';
-  /** 正文里被核对的数值个数 */
-  checked: number;
-  /** 正文里出现、但无法由本轮事实推导出来的数值(最多 10 个) */
-  unverified: string[];
-  note: string;
-}
+
 
 /**
  * 用户自己在提问里写出的数值，以及助手抽出的操作参数。
@@ -1394,14 +1393,7 @@ function checkNumbersAgainstFacts(
 }
 
 /** 流式进度事件：让客户端知道等待期间后端在做什么，而不是干等一个转圈。 */
-export interface ChatProgress {
-  /** 阶段标识：context / routing / tool / fallback / answer / template */
-  stage: 'context' | 'routing' | 'tool' | 'fallback' | 'answer' | 'template';
-  /** 面向用户的一句话，例如「正在计算差异归因」 */
-  label: string;
-  /** 可选补充说明(工具名、命中范围等) */
-  detail?: string;
-}
+
 
 export interface ChatOptions {
   /** 有值时逐块回调正文，用于 SSE 真流式 */
@@ -1424,7 +1416,7 @@ function throwIfChatAborted(signal?: AbortSignal): void {
   throw error;
 }
 
-/* ============ V2 页面上下文集成(§9.1、§9.5、§9.6) ============ */
+/* ============ 页面上下文集成(§9.1、§9.5、§9.6) ============ */
 
 /**
  * 核验焦点 → 从领域服务重新取得核验事实(§9.5)。
@@ -1433,7 +1425,7 @@ function throwIfChatAborted(signal?: AbortSignal): void {
 function fetchVerificationFact(
   db: DB,
   focus: Extract<FocusDescriptor, { kind: 'fact' }>,
-  context: AssistantContext,
+  context: AssistantScope,
   view: Record<string, unknown>,
 ): VerificationFactItem | null {
   const [root] = focus.ownerKey.split(':');
@@ -1442,8 +1434,8 @@ function fetchVerificationFact(
   const scopeInput = {
     versionId: 0,
     batchId: context.actualSnapshotId ?? null,
-    orgScopeId: scopedOrgId(db, context.orgId),
-    accountScopeId: context.accountId ?? null,
+    orgScopeId: scopedOrgId(db, context.orgScopeId),
+    accountScopeId: context.accountScopeId ?? null,
     sheetKey: typeof view.sheetKey === 'string' ? view.sheetKey : null,
   };
   requireActionPermission('analysis:read', '核验分析事实');
@@ -1498,59 +1490,29 @@ function summarizeDraftValidation(draft: { baseline: string; changeCount: number
 }
 
 /** 后端实际采用的安全范围(§9.7 effectiveContext)。 */
-function buildEffectiveContext(backendCtx: ResolvedBackendContext, context: AssistantContext) {
-  return {
-    ...Object.fromEntries([...DOMAIN_ID_FIELDS, 'period', 'periodFrom', 'periodTo', 'statementScope'].filter((k) => (context as any)[k] != null).map((k) => [k, (context as any)[k]])),
-    pageKey: backendCtx.pageKey,
-    pageLabel: backendCtx.pageLabel,
-    ...(context.year != null ? { year: context.year } : {}),
-    ...(context.budgetVersionId != null ? { budgetVersionId: context.budgetVersionId } : {}),
-    ...(context.targetVersionId != null ? { targetVersionId: context.targetVersionId } : {}),
-    ...(context.actualSnapshotId != null ? { actualSnapshotId: context.actualSnapshotId } : {}),
-    ...(context.importBatchId != null ? { importBatchId: context.importBatchId } : {}),
-    ...(context.orgId != null ? { orgScopeId: context.orgId } : {}),
-    ...(context.accountId != null ? { accountScopeId: context.accountId } : {}),
-    ...(backendCtx.extras.metricId != null ? { metricId: backendCtx.extras.metricId } : {}),
-    view: backendCtx.view,
-  };
+function buildEffectiveContext(backendCtx: ResolvedAssistantContext, context: AssistantScope) {
+  return { ...context, pageKey: backendCtx.pageKey, pageLabel: backendCtx.pageLabel, view: backendCtx.view };
 }
 
-export async function chat(
-  db: DB,
-  input: { conversationId?: number; message: string; context?: unknown; pageContext?: unknown },
-  actor = '',
-  options: ChatOptions = {},
-) {
-  const startedAt = Date.now();
-  throwIfChatAborted(options.signal);
-  const usage = { modelCalls: 0, modelMs: 0, toolCalls: 0 };
-  const message = boundedText(input?.message, 'message', 20_000, true);
-  let requested: ReturnType<typeof normalizeContext>;
-  try { requested = normalizeContext(input?.context); }
-  catch (err) { throw Errors.validation(err instanceof Error ? err.message : 'context格式不正确'); }
+/** HTTP 与 SSE 在产生响应或调用模型前共用的只读预检。 */
+export function prepareChat(db: DB, input: unknown) {
+  const request = parseChatRequest(input);
+  const message = request.message;
+  const backendCtx = resolveAssistantContext(db, request.pageContext);
+  const requested: AssistantScope = { ...backendCtx.scope };
   validateContextConsistency(db, requested);
-  /**
-   * V2 页面上下文统一解析入口(§9.1)：schema/大小/白名单、资源 ID 与树关系核验、
-   * surface > focus > 页面 scope 合并都在这里完成；篡改 ID、冲突版本、失效焦点、
-   * 未知页面与超限草稿在调用任何业务工具之前被拒绝。
-   */
-  const backendCtx = resolveBackendContext(db, input?.pageContext);
-  if (backendCtx) {
-    requested = { ...requested, ...backendCtx.pageContext };
-    validateContextConsistency(db, requested);
-  }
   Object.assign(requested, domainBatchContext(db, requested));
   // 新会话先用 0 作为无历史的临时 ID，直到回答完成且未取消才真正落库；
   // 这样 SSE 在 open 后立即断开不会留下空会话。
-  let conversationId = input?.conversationId == null ? 0 : ensureConversation(db, input.conversationId, message);
+  let conversationId = request.conversationId == null ? 0 : ensureConversation(db, request.conversationId, message);
 
   // 1) 意图识别(正则)：既作为模型不可用时的路由，也作为提示词里的参考
-  const detected = detectIntents(message, requested.page);
+  const detected = detectIntents(message, requested.pageKey);
   // 2) 上下文解析：年度/组织/科目/版本/快照/导入批次，请求 > 消息 > 上一轮 > 默认
   const inherited = inheritedTurn(db, conversationId);
   // 只读提问才允许句子里的年度覆盖筛选器；写操作里的年份通常是目标年度，不能覆盖。
   const yearOverride = detected.write.length === 0;
-  // §6：V2 页面口径下，问题明确写出的年度/版本/组织/科目可以覆盖页面范围(名称歧义不覆盖)。
+  // §6：页面口径下，问题明确写出的年度/版本/组织/科目可以覆盖页面范围(名称歧义不覆盖)。
   const messageOverride = backendCtx != null && yearOverride;
   let resolved = resolveMessageContext(db, message, requested, inherited.context, {
     defaultVersion: needsBudgetVersion(detected),
@@ -1560,7 +1522,7 @@ export async function chat(
   // 3) 纯追问(本轮一个意图都没命中)时沿用上一轮意图，否则「那第二名呢」只会退化成版本列表。
   //    从消息里解析出新的组织/科目范围也算追问信号(如「上海公司呢」)。
   const scopeFromMessage = resolved.resolution.some(
-    (item) => item.origin === 'message' && (item.field === 'orgId' || item.field === 'accountId'),
+    (item) => item.origin === 'message' && (item.field === 'orgScopeId' || item.field === 'accountScopeId'),
   );
   const detection = withInheritedIntents(detected, inherited.read, message, { scopeFromMessage });
   // 继承来的意图需要版本、而上下文里还没有版本时，重解析一次补上该年度当前生效版本。
@@ -1568,44 +1530,51 @@ export async function chat(
     resolved = resolveMessageContext(db, message, requested, inherited.context, { defaultVersion: true, yearOverride, messageOverride });
   }
   const { context, resolution } = resolved;
+  if (inherited.needsRange && looksLikeFollowUp(message) && Object.keys(requested).every((key) => key === 'pageKey') && !resolution.some((item) => item.origin === 'message')) {
+    throw new AppError('CONTEXT_NOT_READY', '历史回答范围无法确定，请明确年度及业务对象后再提问', 409);
+  }
   /* AC-X04:受限用户的组织范围由服务端确定。页面/消息/上一轮给出的组织必须在授权范围内;
      未指定时取唯一授权根并如实写入解析说明;多根时留空,由需要组织范围的查询要求明确选择。 */
   const chatAuth = currentAuth();
   if (chatAuth && !chatAuth.allOrgs) {
-    if (context.orgId != null) assertOrgVisible(db, chatAuth, context.orgId);
+    if (requested.orgScopeId == null && inherited.context.orgScopeId != null && !resolution.some((item) => item.field === 'orgScopeId' && item.origin === 'message')) assertOrgVisible(db, chatAuth, inherited.context.orgScopeId);
+    if (context.orgScopeId != null) assertOrgVisible(db, chatAuth, context.orgScopeId);
     else if (chatAuth.orgRootIds.length === 1) {
-      context.orgId = chatAuth.orgRootIds[0];
-      const orgRow = db.prepare('SELECT name FROM org WHERE id=?').get(context.orgId) as { name: string } | undefined;
-      resolution.push({ field: 'orgId', value: context.orgId, origin: 'default', reason: '按当前账号的授权组织范围', label: orgRow?.name });
+      context.orgScopeId = chatAuth.orgRootIds[0];
+      const orgRow = db.prepare('SELECT name FROM org WHERE id=?').get(context.orgScopeId) as { name: string } | undefined;
+      resolution.push({ field: 'orgScopeId', value: context.orgScopeId, origin: 'default', reason: '按当前账号的授权组织范围', label: orgRow?.name });
     }
   }
   validateDomainContext(db, context);
-  const domainResolved = resolveDomainMessage(db, message, context, inherited.context, detection.read, looksLikeFollowUp(message) && (!requested.page || requested.page === inherited.context.page || requested.page === 'assistant'));
+  const domainResolved = resolveDomainMessage(db, message, context, inherited.context, detection.read, looksLikeFollowUp(message) && (!requested.pageKey || requested.pageKey === inherited.context.pageKey || requested.pageKey === 'assistant'));
   const ambiguities = resolved.ambiguities;
-  options.onProgress?.({
-    stage: 'context',
-    label: '已解析提问范围',
-    detail: [
-      context.year == null ? null : `${context.year} 年`,
-      context.budgetVersionId == null ? null : `版本 #${context.budgetVersionId}`,
-      detection.read.length ? `方向：${detection.read.map(readIntentLabel).join('、')}` : null,
-    ].filter(Boolean).join('，') || undefined,
-  });
   validateContextConsistency(db, context);
+  return { conversationId, message, backendCtx, requested, inherited, detection, context, resolution, domainResolved, ambiguities };
+}
+
+export async function chat(
+  db: DB,
+  input: unknown,
+  actor = '',
+  options: ChatOptions = {},
+  prepared?: ReturnType<typeof prepareChat>,
+) {
+  const startedAt = Date.now();
+  throwIfChatAborted(options.signal);
+  const usage = { modelCalls: 0, modelMs: 0, toolCalls: 0 };
+  const { conversationId: preparedConversationId, message, backendCtx, requested, inherited, detection, context, resolution, domainResolved, ambiguities } = prepared ?? prepareChat(db, input);
+  let conversationId = preparedConversationId;
+  options.onProgress?.({ stage: 'context', label: '已解析提问范围', detail: context.year == null ? undefined : `${context.year} 年` });
   const digest = contextDigest(db, context, resolution);
   if (backendCtx) (digest as unknown as Record<string, unknown>).pageView = backendCtx.view;
 
-  /* ===== V2 页面范围落地(§9.1、§9.4、§9.6、§9.7) ===== */
-  const pageCap = backendCtx ? pageDefinition(backendCtx.pageKey) : null;
-  const capability: DomainCapability | null = backendCtx && pageCap
-    ? pickCapability(pageCap, detection.read, { hasVerificationFocus: backendCtx.focus?.kind === 'fact' })
-    : null;
-  /** 模型只暴露本轮 PageCapabilityMap 允许的领域能力(§9.3)；旧客户端不限制。 */
-  const allowedTools = backendCtx && pageCap ? new Set(allowedToolsForCapabilities(pageCap.capabilities)) : undefined;
+  /* ===== 页面范围落地(§9.1、§9.4、§9.6、§9.7) ===== */
+  const pageCap = pageDefinition(backendCtx.pageKey)!;
+  const capability: DomainCapability | null = pickCapability(pageCap, detection.read, { hasVerificationFocus: backendCtx.focus?.kind === 'fact' });
+  /** 模型只暴露本轮 PageCapabilityMap 允许的领域能力(§9.3)；所有请求均受本页能力限制。 */
+  const allowedTools = new Set(allowedToolsForCapabilities(pageCap.capabilities));
   /** 规则兜底同样按页面能力过滤读意图；被拒绝的意图如实告知，不静默换口径。 */
-  const [allowedReadIntents, deniedReadIntents] = backendCtx && pageCap
-    ? filterIntentsByCapability(pageCap, detection.read)
-    : [detection.read, [] as string[]];
+  const [allowedReadIntents, deniedReadIntents] = filterIntentsByCapability(pageCap, detection.read);
   const effectiveDetection: IntentDetection = deniedReadIntents.length ? { ...detection, read: allowedReadIntents as IntentDetection['read'] } : detection;
 
   /** 核验焦点：从领域服务重新取得核验事实；客户端 label/details/level 一律不参与(§9.5)。 */
@@ -1717,14 +1686,14 @@ export async function chat(
   const navigation = resolveNavigation(message, context) ?? cellNoteNavigation(facts);
   let action: ProposedAction | null = null;
   try {
-    action = domainWriteRequest(message, context.page) || detection.read.some(isDomainIntent) ? null : await resolveProposedAction(db, message, context, detection, digest, options.signal);
+    action = domainWriteRequest(message, context.pageKey) || detection.read.some(isDomainIntent) ? null : await resolveProposedAction(db, message, context, detection, digest, options.signal);
   } catch (error) {
     throwIfChatAborted(options.signal);
     action = null;
   }
   throwIfChatAborted(options.signal);
   const notices: string[] = [];
-  if (domainWriteRequest(message, context.page)) notices.push('本轮仅查询与解释，没有执行付款、审批、复核、测算、发布、导入或导出；请在对应业务页面核对后显式操作。');
+  if (domainWriteRequest(message, context.pageKey)) notices.push('本轮仅查询与解释，没有执行付款、审批、复核、测算、发布、导入或导出；请在对应业务页面核对后显式操作。');
   /**
    * 名称片段有歧义时如实说明。
    *
@@ -1732,9 +1701,9 @@ export async function chat(
    * 和不带组织的问法一字不差。现在片段命中多个节点就明确列出候选，让用户补一句话即可。
    */
   for (const item of ambiguities) {
-    if (item.field === 'orgId' && context.orgId != null) continue;
-    if (item.field === 'accountId' && context.accountId != null) continue;
-    const label = item.field === 'orgId' ? '组织' : '科目';
+    if (item.field === 'orgScopeId' && context.orgScopeId != null) continue;
+    if (item.field === 'accountScopeId' && context.accountScopeId != null) continue;
+    const label = item.field === 'orgScopeId' ? '组织' : '科目';
     notices.push(
       `「${item.token}」可能指 ${item.candidates.map((c) => `${c.name}(${c.code})`).join('、')}，`
       + `助手没有替你二选一，本轮按未指定${label}范围回答。要限定请给出完整名称或编码。`,
@@ -1747,7 +1716,7 @@ export async function chat(
    * 2. 明确告诉用户对话里的「确认」不会写入，真实路径是预览卡片上的确认按钮。
    */
   const confirmAttempt = looksLikeWriteConfirmation(message);
-  if (!action && inherited.action && !detection.read.some(isDomainIntent) && !domainWriteRequest(message, context.page) && (confirmAttempt || looksLikeFollowUp(message))) {
+  if (!action && inherited.action && !detection.read.some(isDomainIntent) && !domainWriteRequest(message, context.pageKey) && (confirmAttempt || looksLikeFollowUp(message))) {
     const check = actionIsConstructible(db, inherited.action.type, inherited.action.params);
     action = check.ok
       ? { ...inherited.action, previewable: true, inherited: true }
@@ -1757,7 +1726,7 @@ export async function chat(
     notices.push(
       action
         ? '在聊天里回复「确认」不会写入任何数据。请在下方操作卡片点「创建预览」，核对逐行影响后再点「确认」，落库前后端会再复查版本状态与预览基线。'
-        : detection.read.some(isDomainIntent) || domainWriteRequest(message, context.page) ? '聊天中的确认不会写入数据，请前往对应业务页面核对并显式操作。' : '在聊天里回复「确认」不会写入任何数据，而且当前没有待确认的操作建议。请重述要做的操作（例如「把 2026 年预算复制成 2027 年草案，增长 5%」），助手会给出参数并提供「创建预览」按钮。',
+        : detection.read.some(isDomainIntent) || domainWriteRequest(message, context.pageKey) ? '聊天中的确认不会写入数据，请前往对应业务页面核对并显式操作。' : '在聊天里回复「确认」不会写入任何数据，而且当前没有待确认的操作建议。请重述要做的操作（例如「把 2026 年预算复制成 2027 年草案，增长 5%」），助手会给出参数并提供「创建预览」按钮。',
     );
   }
   /* 干跑只做参数形态/读取校验,不重新断言源/目标版本当前状态(那在 confirm 的基线复核里),
@@ -1779,8 +1748,8 @@ export async function chat(
   for (const item of domainResolved.trace) contextWarnings.push(`${item.reason}：${item.value}`);
   for (const warning of backendCtx?.warnings ?? []) contextWarnings.push(warning);
   if (verificationFactWarning) contextWarnings.push(verificationFactWarning);
-  const contextOverrides = backendCtx ? detectOverrides(backendCtx.pageContext, resolution) : [];
-  if (backendCtx) for (const item of domainResolved.trace) { const oldValue = (backendCtx.pageContext as any)[item.field]; if (item.origin === 'message' && oldValue != null && oldValue !== item.value) contextOverrides.push({ field: item.field as any, from: oldValue, to: item.value, reason: `${item.reason}，覆盖页面范围` }); }
+  const contextOverrides = backendCtx ? detectOverrides(backendCtx.scope, resolution) : [];
+  if (backendCtx) for (const item of domainResolved.trace) { const oldValue = (backendCtx.scope as any)[item.field]; if (item.origin === 'message' && oldValue != null && oldValue !== item.value) contextOverrides.push({ field: item.field as any, from: oldValue, to: item.value, reason: `${item.reason}，覆盖页面范围` }); }
   for (const override of contextOverrides) {
     notices.push(override.reason.includes('覆盖') ? override.reason : `问题指定的${override.field}已覆盖页面范围`);
   }
@@ -1790,7 +1759,7 @@ export async function chat(
   const numberCheck = routing === 'model'
     ? checkNumbersAgainstFacts(text, facts, { message, actionParams: action?.params })
     : { status: 'skipped' as const, checked: 0, unverified: [], note: '正文来自后端确定性模板，数字无需核对' };
-  const response = {
+  const response: Omit<AssistantChatResponse, 'conversationId'> = {
     text,
     facts,
     citations: citationsForFacts(facts),
@@ -1798,9 +1767,7 @@ export async function chat(
     action,
     navigation,
     /** 后端最终使用的上下文；前端据此回填下拉框，下一轮也会继承 */
-    resolvedContext: context,
     /** 每一项上下文的来源与依据，供前端如实展示「助手替你选了什么」 */
-    resolution,
     /** model = 模型自主调用只读工具；rules = 关键词兜底 */
     routing,
     /** 本轮实际生效的模型名；template 表示模型不可用、答案来自后端确定性模板 */
@@ -1825,8 +1792,8 @@ export async function chat(
       inheritedRead: detection.inheritedRead,
     },
     modelError,
-    /* ===== V2 页面范围回答口径(§9.7)；随 response_json 持久化，历史会话直接读取当时响应 ===== */
-    ...(backendCtx ? {
+    /* ===== 页面范围回答口径(§9.7)；随 response_json 持久化，历史会话直接读取当时响应 ===== */
+    ...{
       /** aligned = 已对齐当前页面；explicit_override = 问题覆盖了页面范围 */
       contextStatus: (contextOverrides.length ? 'explicit_override' : 'aligned') as 'aligned' | 'explicit_override',
       /** 后端实际采用的安全范围 */
@@ -1842,9 +1809,9 @@ export async function chat(
       capability,
       /** 是否采用草稿、类型和变更数量；不含原值 */
       draftApplied: backendCtx.draft ? draftSummary(backendCtx.draft) : null,
-    } : {}),
+    },
   };
-  response.metrics.durationMs = Date.now() - startedAt;
+  response.metrics!.durationMs = Date.now() - startedAt;
   const timestamp = now();
   throwIfChatAborted(options.signal);
   if (conversationId === 0) conversationId = ensureConversation(db, undefined, message);
@@ -1866,7 +1833,7 @@ export async function chat(
       messageChars: message.length,
       factTypes: facts.map((f) => f.type),
       intents: detection.read,
-      // V2 页面口径摘要(§9.8)：只记 pageKey/capability/contextStatus/draftApplied，不记上下文步骤明细。
+      // 页面口径摘要(§9.8)：只记 pageKey/capability/contextStatus/draftApplied，不记上下文步骤明细。
       ...(backendCtx ? {
         pageKey: backendCtx.pageKey,
         capability,
@@ -2715,16 +2682,29 @@ export function saveInsight(db: DB, input: { conversationId?: number; title?: un
  * 三个入口都不写业务数据；数字全部来自现有分析 service。
  * ------------------------------------------------------------------ */
 
+/** 显式操作参数与页面快照须一致；领域工具仍独立验权。 */
+function auxiliaryContext(db: DB, input: Record<string, unknown>, batchField: 'actualSnapshotId' | 'importBatchId' = 'actualSnapshotId') {
+  if ('context' in input) throw new AppError('CONTEXT_INVALID', '仅接受 pageContext', 400);
+  const parsed = resolveAssistantContext(db, input.pageContext);
+  const fields = { versionId: 'budgetVersionId', batchId: batchField, year: 'year', targetVersionId: 'targetVersionId', orgScopeId: 'orgScopeId', accountScopeId: 'accountScopeId' } as const;
+  for (const [parameter, field] of Object.entries(fields)) {
+    const expected = parsed.scope[field];
+    if (input[parameter] != null && expected != null && input[parameter] !== expected) throw new AppError('CONTEXT_CONFLICT', `${parameter} 与页面范围不一致`, 409);
+  }
+  if (input.sheetKey != null && parsed.view.sheetKey != null && input.sheetKey !== parsed.view.sheetKey) throw new AppError('CONTEXT_CONFLICT', 'sheetKey 与页面范围不一致', 409);
+  return parsed;
+}
+
 /** 差异归因:按组织、科目和方向排序,支持逐层展开(方案 4.3)。 */
 export function attribution(db: DB, input: Record<string, unknown>) {
   const p = plainObject(input);
   // §9.1：与 chat 共用统一解析入口；页面范围作为参数的缺省来源。
-  const pageCtx = resolveBackendContext(db, p.pageContext);
+  const pageCtx = auxiliaryContext(db, p);
   return executeTool(db, 'calculate_attribution', {
-    versionId: positiveInt(p.versionId ?? pageCtx?.pageContext.budgetVersionId, 'versionId'),
-    batchId: p.batchId == null ? pageCtx?.pageContext.actualSnapshotId ?? null : positiveInt(p.batchId, 'batchId'),
-    orgScopeId: p.orgScopeId == null ? pageCtx?.pageContext.orgId ?? null : positiveInt(p.orgScopeId, 'orgScopeId'),
-    accountScopeId: p.accountScopeId == null ? pageCtx?.pageContext.accountId ?? null : positiveInt(p.accountScopeId, 'accountScopeId'),
+    versionId: positiveInt(p.versionId ?? pageCtx?.scope.budgetVersionId, 'versionId'),
+    batchId: p.batchId == null ? pageCtx?.scope.actualSnapshotId ?? null : positiveInt(p.batchId, 'batchId'),
+    orgScopeId: p.orgScopeId == null ? pageCtx?.scope.orgScopeId ?? null : positiveInt(p.orgScopeId, 'orgScopeId'),
+    accountScopeId: p.accountScopeId == null ? pageCtx?.scope.accountScopeId ?? null : positiveInt(p.accountScopeId, 'accountScopeId'),
     sheetKey: p.sheetKey == null ? (typeof pageCtx?.view.sheetKey === 'string' ? pageCtx.view.sheetKey : null) : boundedText(p.sheetKey, 'sheetKey', 80),
     ...(p.maxDepth == null ? {} : { maxDepth: Number(p.maxDepth) }),
     ...(p.topN == null ? {} : { topN: Number(p.topN) }),
@@ -2735,11 +2715,11 @@ export function attribution(db: DB, input: Record<string, unknown>) {
 /** 导入辅助:错误解释 + 组织/科目匹配建议 + 未匹配与重复清单(方案 4.1)。 */
 export function importHelp(db: DB, input: Record<string, unknown>) {
   const p = plainObject(input);
-  const pageCtx = resolveBackendContext(db, p.pageContext);
+  const pageCtx = auxiliaryContext(db, p, 'importBatchId');
   if (p.errors != null && !Array.isArray(p.errors)) throw Errors.validation('errors必须是数组');
   if (Array.isArray(p.errors) && p.errors.length > 20_000) throw Errors.validation('errors 最多 20000 条');
   return executeTool(db, 'explain_import', {
-    batchId: p.batchId == null ? pageCtx?.pageContext.importBatchId ?? null : positiveInt(p.batchId, 'batchId'),
+    batchId: p.batchId == null ? pageCtx?.scope.importBatchId ?? null : positiveInt(p.batchId, 'batchId'),
     errors: Array.isArray(p.errors) ? p.errors : undefined,
     suggestionLimit: p.suggestionLimit == null ? null : positiveInt(p.suggestionLimit, 'suggestionLimit'),
   });
@@ -2757,19 +2737,25 @@ export function importHelp(db: DB, input: Record<string, unknown>) {
 export async function reportDraft(db: DB, input: Record<string, unknown>): Promise<ReportDraft & { model: string }> {
   const p = plainObject(input);
   // §9.1：与 chat 共用统一解析入口；页面范围作为参数的缺省来源。
-  const pageCtx = resolveBackendContext(db, p.pageContext);
+  const pageCtx = auxiliaryContext(db, p);
   // 与 generate_report 工具同一道授权(AC-X04):权限、组织范围与集团口径章节限制。
-  const authorized = authorizeToolCall(db, 'generate_report', {
+  return generateReportDraft(db, {
     kind: normalizeReportKind(p.kind),
-    versionId: p.versionId == null ? pageCtx?.pageContext.budgetVersionId ?? null : positiveInt(p.versionId, 'versionId'),
-    year: p.year == null ? pageCtx?.pageContext.year ?? null : validYear(p.year, 'year'),
-    batchId: p.batchId == null ? pageCtx?.pageContext.actualSnapshotId ?? null : positiveInt(p.batchId, 'batchId'),
-    targetVersionId: p.targetVersionId == null ? pageCtx?.pageContext.targetVersionId ?? null : positiveInt(p.targetVersionId, 'targetVersionId'),
-    orgScopeId: p.orgScopeId == null ? pageCtx?.pageContext.orgId ?? null : positiveInt(p.orgScopeId, 'orgScopeId'),
-    accountScopeId: p.accountScopeId == null ? pageCtx?.pageContext.accountId ?? null : positiveInt(p.accountScopeId, 'accountScopeId'),
+    versionId: p.versionId == null ? pageCtx?.scope.budgetVersionId ?? null : positiveInt(p.versionId, 'versionId'),
+    year: p.year == null ? pageCtx?.scope.year ?? null : validYear(p.year, 'year'),
+    batchId: p.batchId == null ? pageCtx?.scope.actualSnapshotId ?? null : positiveInt(p.batchId, 'batchId'),
+    targetVersionId: p.targetVersionId == null ? pageCtx?.scope.targetVersionId ?? null : positiveInt(p.targetVersionId, 'targetVersionId'),
+    orgScopeId: p.orgScopeId == null ? pageCtx?.scope.orgScopeId ?? null : positiveInt(p.orgScopeId, 'orgScopeId'),
+    accountScopeId: p.accountScopeId == null ? pageCtx?.scope.accountScopeId ?? null : positiveInt(p.accountScopeId, 'accountScopeId'),
     sheetKey: p.sheetKey == null ? (typeof pageCtx?.view.sheetKey === 'string' ? pageCtx.view.sheetKey : null) : boundedText(p.sheetKey, 'sheetKey', 80),
     topN: p.topN == null ? null : positiveInt(p.topN, 'topN'),
+    narrative: p.narrative == null ? true : Boolean(p.narrative),
   });
+}
+
+/** 业务报告 service 使用正式领域 DTO；页面入口先由 reportDraft 核验快照。 */
+export async function generateReportDraft(db: DB, p: Parameters<typeof buildReportDraft>[1] & { narrative?: boolean }): Promise<ReportDraft & { model: string }> {
+  const authorized = authorizeToolCall(db, 'generate_report', p as unknown as Record<string, unknown>);
   const draft = buildReportDraft(db, authorized as unknown as Parameters<typeof buildReportDraft>[1]);
   const wantsNarrative = p.narrative == null ? true : Boolean(p.narrative);
   if (!wantsNarrative) return { ...draft, model: 'template' };

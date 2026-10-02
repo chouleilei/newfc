@@ -2,7 +2,7 @@
  * 助手界面共用的中文标签(独立页与全局抽屉都要用同一套说法)。
  * 键与后端保持一一对应：resolution.field / resolution.origin / intent.ts 的只读意图。
  */
-import type { ContextResolution } from '../api/assistant';
+import type { ContextResolution } from '@contracts/assistant';
 
 /** 上下文解析来源的展示文案。default/message 是助手替用户做的选择，必须让用户看到。 */
 export const RESOLUTION_ORIGIN_LABEL: Record<ContextResolution['origin'], { text: string; color?: string }> = {
@@ -17,8 +17,8 @@ export const RESOLUTION_FIELD_LABEL: Record<ContextResolution['field'], string> 
   budgetVersionId: '预算版本',
   targetVersionId: '对比版本',
   actualSnapshotId: '实际快照',
-  orgId: '组织范围',
-  accountId: '科目范围',
+  orgScopeId: '组织范围',
+  accountScopeId: '科目范围',
   importBatchId: '导入批次',
 };
 

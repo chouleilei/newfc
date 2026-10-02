@@ -42,7 +42,7 @@ import {
 import type { MenuProps } from 'antd';
 import { TableSkeleton } from '../components/Skeletons';
 import { useAssistantFocus, useAssistantPageContext, useAssistantSelection, useAssistantSurface } from '../assistant/contextHooks';
-import { DraftDescriptor } from '../assistant/context';
+import { DraftDescriptor } from '@contracts/assistant';
 import { useUrlScopeSync } from '../hooks/useUrlScopeSync';
 import type { ScopeIssue } from '../utils/workspaceScope';
 import WorkspaceScopeBar from '../components/WorkspaceScopeBar';

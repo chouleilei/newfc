@@ -9,7 +9,7 @@
 import { type ReactNode } from 'react';
 import { AssistantSurfaceParentContext } from '../../assistant/AssistantContextRegistry';
 import { useAssistantSurface } from '../../assistant/contextHooks';
-import { SurfaceKind } from '../../assistant/context';
+import { SurfaceKind } from '@contracts/assistant';
 
 export function AssistantSurfaceBoundary({ open, kind, surfaceKey, entity, parentId, children }: {
   open: boolean;

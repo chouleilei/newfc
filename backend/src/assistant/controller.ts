@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from 'express';
 import { requireActionPermission, requireAllOrgsForAction } from './tool-policy';
+import type { ChatRequest } from '../contracts/assistant';
 import type { DB } from '../db/connection';
 import * as svc from './service';
 import { qualityAdvice } from './quality-advice';
@@ -33,7 +34,8 @@ function sseWrite(res: Response, event: string, data: unknown): void {
  * 响应头已经发出后无法再改成 JSON 错误，因此异常以 `event: error` 下发，
  * 并始终补一个 `event: done`，保证客户端不会卡在等待 done 的状态。
  */
-async function streamChat(req: Request, res: Response, db: DB, request: { conversationId?: number; message: string; context?: unknown }, actor: string): Promise<void> {
+async function streamChat(req: Request, res: Response, db: DB, request: ChatRequest, actor: string): Promise<void> {
+  const prepared = svc.prepareChat(db, request);
   sseHeaders(res);
   // 立刻发一个 open 事件，确认连接已建立(也用于击穿代理的首包缓冲)。
   sseWrite(res, 'open', { ok: true });
@@ -53,7 +55,7 @@ async function streamChat(req: Request, res: Response, db: DB, request: { conver
       // 期间如实播报「正在计算差异归因」这类阶段，避免界面上只有一个转圈。
       onProgress: (event) => { if (!closed) sseWrite(res, 'progress', event); },
       signal: controller.signal,
-    });
+    }, prepared);
     completed = true;
     if (!closed) sseWrite(res, 'done', { ...result, done: true });
   } catch (err) {

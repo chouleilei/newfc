@@ -1,17 +1,19 @@
 import { STATEMENT_METRIC_LABELS } from '../contracts/statements';
 import { CONTRACT_STAGE_LABELS, CONTRACT_STATUS_LABELS, type ContractStage, type ContractStatus } from '../contracts/project-contract';
 import type { DB } from '../db/connection';
-import type { AssistantContext } from './schemas';
-import type { FactRecord, FactSource } from './citations';
+import type { AssistantScope } from '../contracts/assistant';
+import type { AssistantFact as FactRecord, FactSource } from '../contracts/assistant';
 import { executeTool, toolLabel } from './tools';
 import { isDomainIntent, DOMAIN_PAGE_INTENTS, domainWriteRequest } from './domain-intents';
-import { DOMAIN_ID_FIELDS, normalizeDomainContext, domainBatchContext } from './domain-context';
+import { DOMAIN_ID_FIELDS } from '../contracts/assistant';
+import { domainBatchContext } from './domain-context';
+import { normalizeDomainContext } from './domain-scope';
 import type { ReadIntent } from './intent';
 import { crossDomainSearch } from '../modules/search/search.service';
 import type { SearchType } from '../contracts/search';
 import { currentAuth } from '../core/request-context';
 
-export function resolveDomainMessage(db: DB, message: string, context: AssistantContext, inherited: AssistantContext, read: ReadIntent[], followUp: boolean): { clarification: FactRecord | null; trace: { field: string; value: number | string; origin: string; reason: string }[] } {
+export function resolveDomainMessage(db: DB, message: string, context: AssistantScope, inherited: AssistantScope, read: ReadIntent[], followUp: boolean): { clarification: FactRecord | null; trace: { field: string; value: number | string; origin: string; reason: string }[] } {
   const trace: { field: string; value: number | string; origin: string; reason: string }[] = [];
   const month = message.match(/((?:19|20)\d{2})\s*(?:年\s*|[-/])\s*(0?[1-9]|1[0-2])\s*(?:月|期间)?/);
   if (month) { context.period = `${month[1]}-${month[2].padStart(2, '0')}`; context.year = Number(month[1]); trace.push({ field: 'period', value: context.period, origin: 'message', reason: '采用问题明确指定的期间' }); }
@@ -96,15 +98,15 @@ export function domainSource(tool: string, args: Record<string, unknown>, data: 
     asOf: data.generatedAt ?? data.report?.generatedAt ?? data.comparison?.createdAt ?? data.latestRun?.createdAt ?? data.run?.createdAt ?? data.batch?.createdAt ?? new Date().toISOString() };
 }
 
-export function queryDomainFacts(db: DB, message: string, context: AssistantContext, read: ReadIntent[], view: Record<string, unknown> = {}): FactRecord[] {
+export function queryDomainFacts(db: DB, message: string, context: AssistantScope, read: ReadIntent[], view: Record<string, unknown> = {}): FactRecord[] {
   const facts: FactRecord[] = [];
   const add = (name: string, args: Record<string, unknown>) => {
-    const cleanArgs = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+    const cleanArgs = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined && v !== null));
     try { const data = executeTool(db, name, cleanArgs); facts.push({ type: `tool:${name}`, data, source: domainSource(name, cleanArgs, data) }); }
     catch (error) { facts.push({ type: 'query_error', data: { requested: toolLabel(name), code: (error as { code?: string }).code ?? 'QUERY_UNAVAILABLE', message: error instanceof Error ? error.message : '查询暂不可用' }, source: { asOf: new Date().toISOString() } }); }
   };
   const need = (field: string, reason: string) => facts.push({ type: 'missing_context', data: { field, reason }, source: {} });
-  const orgScopeId = context.orgId ?? null, period = context.period;
+  const orgScopeId = context.orgScopeId ?? null, period = context.period;
   const ledger = (kind: string) => add('domain_ledger', { kind, orgScopeId, status: view.status, keyword: view.keyword || undefined, folder: view.folder, level: view.level, reportKind: view.kind, projectId: context.projectId, todo: view.todo, stage: view.stage });
   const filtered = Object.entries(view).some(([k,v]) => ['status','keyword','level','folder','kind','todo','stage'].includes(k) && v != null && v !== '');
   for (const intent of read) {
@@ -133,7 +135,7 @@ export function queryDomainFacts(db: DB, message: string, context: AssistantCont
       case 'configuration': add('configuration_overview', {}); break;
     }
   }
-  if (domainWriteRequest(message, context.page)) facts.unshift({ type: 'domain_write_guidance', data: { message: '助手只读取事实并提供建议。导入、测算、扫描、付款、复核、审批、发布和导出请在对应业务页面核对后显式操作；本轮没有执行这些操作。' }, source: {} });
+  if (domainWriteRequest(message, context.pageKey)) facts.unshift({ type: 'domain_write_guidance', data: { message: '助手只读取事实并提供建议。导入、测算、扫描、付款、复核、审批、发布和导出请在对应业务页面核对后显式操作；本轮没有执行这些操作。' }, source: {} });
   return facts;
 }
 
@@ -200,13 +202,13 @@ export function summarizeDomainFacts(facts: FactRecord[]): string | null {
   return lines.join('\n\n');
 }
 
-export function domainSuggestions(facts: FactRecord[], context: AssistantContext): string[] | null {
-  const domain = facts.some(domainFact) || !!(context.page && DOMAIN_PAGE_INTENTS[context.page]);
+export function domainSuggestions(facts: FactRecord[], context: AssistantScope): string[] | null {
+  const domain = facts.some(domainFact) || !!(context.pageKey && DOMAIN_PAGE_INTENTS[context.pageKey]);
   if (!domain) return null;
   const options: Record<string, string[]> = {
     contracts: ['查看合同付款节点与当前阶段阻碍', '打开合同台账'], expense: ['查看当前报销单审核发现与制度依据', '打开费用审核'],
     risk: ['查看当前高风险与逾期整改', '打开风险台账'], forecast: ['查看当前预测模型基准与情景运行', '打开财务预测'],
     feasibility: ['查看当前方案指标与未通过检查', '打开可行性测算'], project_profile: ['这个项目的预算执行、合同付款和风险情况如何', '打开项目全景'],
   };
-  return options[context.page ?? ''] ?? ['打开相关业务页面核对来源', '搜索“项目”'];
+  return options[context.pageKey ?? ''] ?? ['打开相关业务页面核对来源', '搜索“项目”'];
 }

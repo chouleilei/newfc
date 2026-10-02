@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 /**
  * 跨年提问回归测试(审查 Blocker 修复)。
  *
@@ -70,17 +71,13 @@ describe('跨年提问不再把聊天问挂(审查 Blocker 回归)', () => {
     const { db, fx, v2026, v2025, b2026 } = fixtureWithCrossYear();
     // 页面:2026 年 + V1 + 2026-06-30 快照;目标对比版本是 2026 的另一个版本
     const v2026b = budget.createVersion(db, { year: 2026, name: 'V2-追赶' });
-    const answer: any = await assistant.chat(db, {
-      message: '2025正式 这个版本的执行情况怎么样',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: v2026.id, targetVersionId: v2026b.id, actualSnapshotId: b2026 } }),
-    });
+    const answer: any = await assistant.chat(db, { message: '2025正式 这个版本的执行情况怎么样', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: v2026.id, targetVersionId: v2026b.id, actualSnapshotId: b2026 } }) });
     expect(answer.ok).not.toBe(false);
-    expect(answer.resolvedContext.budgetVersionId).toBe(v2025.id);
-    expect(answer.resolvedContext.year).toBe(2025);
+    expect(answer.effectiveContext.budgetVersionId).toBe(v2025.id);
+    expect(answer.effectiveContext.year).toBe(2025);
     // 跨年的对比版本与快照必须被清理,validateContextConsistency 不应再报冲突
-    expect(answer.resolvedContext.targetVersionId).toBeUndefined();
-    expect(answer.resolvedContext.actualSnapshotId).toBeUndefined();
+    expect(answer.effectiveContext.targetVersionId).toBeUndefined();
+    expect(answer.effectiveContext.actualSnapshotId).toBeUndefined();
     expect(fx.orgIds.shanghai).toBeGreaterThan(0);
     db.close();
   });
@@ -88,40 +85,29 @@ describe('跨年提问不再把聊天问挂(审查 Blocker 回归)', () => {
   it('路径B:裸月份只在本年度快照内匹配,不跨年命中前年快照', async () => {
     const { db, v2026, b2026 } = fixtureWithCrossYear();
     // 2026 年只有 6-30 快照;问「3月的完成情况」时 2025-03-31 不该被跨年命中
-    const answer: any = await assistant.chat(db, {
-      message: '3月的完成情况怎么样',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: v2026.id, actualSnapshotId: b2026 } }),
-    });
+    const answer: any = await assistant.chat(db, { message: '3月的完成情况怎么样', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: v2026.id, actualSnapshotId: b2026 } }) });
     expect(answer.ok).not.toBe(false);
     // 快照保持页面已选的 2026-06-30(3 月之前没有 2026 快照时不动页面值),年度仍是 2026
-    expect(answer.resolvedContext.year).toBe(2026);
-    expect(answer.resolvedContext.actualSnapshotId).toBe(b2026);
+    expect(answer.effectiveContext.year).toBe(2026);
+    expect(answer.effectiveContext.actualSnapshotId).toBe(b2026);
     db.close();
   });
 
   it('路径B2:显式日期允许跨年,年度、快照与预算基线一起切换', async () => {
     const { db, v2026, v2025, b2025, b2026 } = fixtureWithCrossYear();
-    const answer: any = await assistant.chat(db, {
-      message: '看看 2025-03-31 快照的完成情况',
-      context: {},
-      pageContext: v2Context({ scope: { year: 2026, budgetVersionId: v2026.id, actualSnapshotId: b2026 } }),
-    });
+    const answer: any = await assistant.chat(db, { message: '看看 2025-03-31 快照的完成情况', pageContext: v2Context({ scope: { year: 2026, budgetVersionId: v2026.id, actualSnapshotId: b2026 } }) });
     expect(answer.ok).not.toBe(false);
-    expect(answer.resolvedContext.actualSnapshotId).toBe(b2025);
+    expect(answer.effectiveContext.actualSnapshotId).toBe(b2025);
     // 快照跨年后,页面的跨年预算版本必须替换为快照年度的确定性默认版本。
-    expect(answer.resolvedContext.year).toBe(2025);
-    expect(answer.resolvedContext.budgetVersionId).toBe(v2025.id);
+    expect(answer.effectiveContext.year).toBe(2025);
+    expect(answer.effectiveContext.budgetVersionId).toBe(v2025.id);
     expect(answer.contextStatus).toBe('explicit_override');
     db.close();
   });
 
   it('路径C:请求自带矛盾年度与快照时报 CONTEXT_CONFLICT(409)而非裸 VALIDATION_FAILED(400)', async () => {
     const { db, b2025 } = fixtureWithCrossYear();
-    await expect(assistant.chat(db, {
-      message: '执行情况怎么样',
-      context: { year: 2026, actualSnapshotId: b2025 },
-    })).rejects.toMatchObject({ code: 'CONTEXT_CONFLICT', status: 409 });
+    await expect(assistant.chat(db, { message: '执行情况怎么样', pageContext: pageSnapshot({ year: 2026, actualSnapshotId: b2025 }) })).rejects.toMatchObject({ code: 'CONTEXT_CONFLICT', status: 409 });
     db.close();
   });
 
@@ -129,10 +115,7 @@ describe('跨年提问不再把聊天问挂(审查 Blocker 回归)', () => {
     const { db, fx, v2026, v2025 } = fixtureWithCrossYear();
     void fx;
     // 修复前这里会静默返回「2025 预算 vs 2026 对比版本」的错误口径
-    await expect(assistant.chat(db, {
-      message: '执行情况怎么样',
-      context: { year: 2025, budgetVersionId: v2025.id, targetVersionId: v2026.id },
-    })).rejects.toMatchObject({ code: 'CONTEXT_CONFLICT', status: 409 });
+    await expect(assistant.chat(db, { message: '执行情况怎么样', pageContext: pageSnapshot({ year: 2025, budgetVersionId: v2025.id, targetVersionId: v2026.id }) })).rejects.toMatchObject({ code: 'CONTEXT_CONFLICT', status: 409 });
     db.close();
   });
 });

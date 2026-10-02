@@ -20,11 +20,9 @@ import { getAnalysisReport } from '../modules/analysis-reports/report.service';
 import { getReport } from '../modules/standard-reports/standard-report.service';
 import { getIssue } from '../modules/governance/governance.service';
 
-import { DOMAIN_ID_FIELDS, type DomainIdField, type DomainContext } from './domain-scope';
-export { DOMAIN_ID_FIELDS, DOMAIN_ENTITY_FIELDS, normalizeDomainContext } from './domain-scope';
-export type { DomainContext, DomainIdField } from './domain-scope';
+import { DOMAIN_ID_FIELDS, type DomainIdField, type DomainContext } from '../contracts/assistant';
 
-export function validateDomainContext(db: DB, c: DomainContext & { orgId?: number; year?: number; page?: string }): void {
+export function validateDomainContext(db: DB, c: DomainContext & { orgScopeId?: number; year?: number; pageKey?: string }): void {
   const auth = currentAuth();
   const permit = (p: Parameters<typeof requirePermission>[1]) => { if (auth) requirePermission(auth, p); };
   const relation = (field: DomainIdField, actual: number | null | undefined) => {
@@ -33,7 +31,7 @@ export function validateDomainContext(db: DB, c: DomainContext & { orgId?: numbe
   // 组织过滤为子树范围；对象组织必须在该范围内。只查 ID，金额由 service 精确读取。
   const org = (id: number | null | undefined) => {
     if (id != null && auth) assertOrgVisible(db, auth, id);
-    if (id != null && c.orgId != null && !db.prepare('WITH RECURSIVE sub(id) AS (SELECT ? UNION SELECT o.id FROM org o JOIN sub ON o.parent_id=sub.id) SELECT id FROM sub WHERE id=?').get(c.orgId, id)) {
+    if (id != null && c.orgScopeId != null && !db.prepare('WITH RECURSIVE sub(id) AS (SELECT ? UNION SELECT o.id FROM org o JOIN sub ON o.parent_id=sub.id) SELECT id FROM sub WHERE id=?').get(c.orgScopeId, id)) {
       throw new AppError('CONTEXT_CONFLICT', '当前对象与指定组织范围不一致', 409);
     }
   };
@@ -43,7 +41,7 @@ export function validateDomainContext(db: DB, c: DomainContext & { orgId?: numbe
   if (c.easBatchId != null) { permit('eas:read'); org(getEasBatch(db, c.easBatchId).orgId); }
   if (c.feasReportId != null) { permit('investment:read'); const r = getFeasReport(db, c.feasReportId); relation('scenarioId', r.scenarioId); relation('feasProjectId', r.projectId); org(getFeasProject(db, r.projectId).orgId); }
   if (c.jobId != null) { permit('tasks:read'); getJobFor(db, auth, c.jobId); }
-  if (c.projectId != null) { permit(c.page === 'project_budget' ? 'project_budget:read' : c.page === 'plan' ? 'plan:read' : c.page === 'contracts' ? 'contract:read' : 'project:read'); org(getProject(db, c.projectId).orgId); }
+  if (c.projectId != null) { permit(c.pageKey === 'project_budget' ? 'project_budget:read' : c.pageKey === 'plan' ? 'plan:read' : c.pageKey === 'contracts' ? 'contract:read' : 'project:read'); org(getProject(db, c.projectId).orgId); }
   if (c.contractId != null) { permit('contract:read'); const d = getContractDetail(db, c.contractId); org(d.orgId); relation('projectId', d.projectId); }
   if (c.claimId != null) { permit('expense:read'); org(getClaimDetail(db, c.claimId).orgId); }
   if (c.feasProjectId != null) { permit('investment:read'); org(getFeasProject(db, c.feasProjectId).orgId); }
@@ -64,7 +62,7 @@ export function validateDomainContext(db: DB, c: DomainContext & { orgId?: numbe
 }
 
 /** 指定批次的期间来自已核验的来源；明确冲突不能被当前年度默认值掩盖。 */
-export function domainBatchContext(db: DB, c: DomainContext & { orgId?: number; year?: number; page?: string }): { year?: number; period?: string; statementScope?: DomainContext['statementScope'] } {
+export function domainBatchContext(db: DB, c: DomainContext & { orgScopeId?: number; year?: number; pageKey?: string }): { year?: number; period?: string; statementScope?: DomainContext['statementScope'] } {
   validateDomainContext(db, c);
   const sources = [
     c.statementBatchId == null ? null : (() => { const b = getStatementBatch(db, c.statementBatchId); return { period: b.period, year: Number(b.period.slice(0, 4)), statementScope: b.scope }; })(),

@@ -1,6 +1,6 @@
 import { Segmented } from 'antd';
 import { INSIGHT_KINDS } from '../pages/assistantShared/insightKinds';
-import type { InsightKind } from '../api/assistant';
+import type { InsightKind } from '@contracts/assistant';
 
 /**
  * 洞察类型选择器:新建洞察(Insights 页)与保存洞察(Assistant 页)共用,

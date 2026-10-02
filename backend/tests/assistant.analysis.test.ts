@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 import { describe, it, expect } from 'vitest';
 import { createTestApp, authFetch } from './http-helpers';
 import { attributionReport } from '../src/assistant/attribution';
@@ -171,21 +172,21 @@ describe('AI 助手:差异归因逐层展开', () => {
     expect((attribution!.data as any).totals.varianceCents).toBe(-170_000_000);
     expect(attribution!.source.budgetVersionId).toBe(version.id);
 
-    const answer: any = await assistant.chat(db, { message: '本年差异归因是什么原因', context: { year: 2026, budgetVersionId: version.id } });
+    const answer: any = await assistant.chat(db, { message: '本年差异归因是什么原因', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.facts.length).toBe(answer.citations.length);
     expect(answer.text).toContain('净差异 -170.00 万元(不利)');
     expect(answer.text).toContain('已核对一致');
 
     // 只给年度时自动回退到该年度的当前生效版本，并如实记录来源(问题2:上下文自动解析)
-    const resolved: any = await assistant.chat(db, { message: '差异归因原因是什么', context: { year: 2026 } });
-    expect(resolved.resolvedContext.budgetVersionId).toBe(version.id);
-    expect(resolved.resolution.some((r: any) => r.field === 'budgetVersionId' && r.origin === 'default')).toBe(true);
+    const resolved: any = await assistant.chat(db, { message: '差异归因原因是什么', pageContext: pageSnapshot({ year: 2026 }) });
+    expect(resolved.effectiveContext.budgetVersionId).toBe(version.id);
+    expect(resolved.contextTrace.used.some((r: any) => r.field === 'budgetVersionId' && r.origin === 'default')).toBe(true);
     expect(resolved.facts.some((f: any) => f.type === 'attribution')).toBe(true);
     expect(resolved.facts.some((f: any) => f.type === 'missing_context')).toBe(false);
 
     // 确实没有任何版本可用时才返回缺失条件，而不是编造数字
     const empty = testDb();
-    const none: any = await assistant.chat(empty, { message: '差异归因原因是什么', context: { year: 2026 } });
+    const none: any = await assistant.chat(empty, { message: '差异归因原因是什么', pageContext: pageSnapshot({ year: 2026 }) });
     expect(none.facts.some((f: any) => f.type === 'missing_context')).toBe(true);
     empty.close();
     db.close();
@@ -319,7 +320,7 @@ describe('AI 助手:报告生成', () => {
 
   it('模型不可用时报告仍可用,并保持模板叙述', async () => {
     const { db, version } = fixtureWithActual();
-    const result = await assistant.reportDraft(db, { kind: 'monthly_execution', versionId: version.id });
+    const result = await assistant.reportDraft(db, { kind: 'monthly_execution', versionId: version.id, pageContext: pageSnapshot() });
     expect(result.model).toBe('template');
     expect(result.narrativeSource).toBe('template');
     expect(result.narrative).toContain('净差异 -170.00 万元');
@@ -347,12 +348,12 @@ describe('AI 助手:报告生成', () => {
 
   it('chat 在报告意图下直接返回可用的模板报告', async () => {
     const { db, version } = fixtureWithActual();
-    const answer: any = await assistant.chat(db, { message: '生成本年度执行月报', context: { year: 2026, budgetVersionId: version.id } });
+    const answer: any = await assistant.chat(db, { message: '生成本年度执行月报', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.facts.some((f: any) => f.type === 'report_draft')).toBe(true);
     expect(answer.text).toContain('预算执行月报');
     expect(answer.facts.length).toBe(answer.citations.length);
 
-    const discussion: any = await assistant.chat(db, { message: '准备预算讨论材料', context: { year: 2026, budgetVersionId: version.id } });
+    const discussion: any = await assistant.chat(db, { message: '准备预算讨论材料', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     const draft = discussion.facts.find((f: any) => f.type === 'report_draft');
     expect(draft.data.kind).toBe('budget_discussion');
     db.close();
@@ -447,8 +448,8 @@ describe('AI 助手:导入辅助', () => {
     const db = testDb();
     const fx = buildFixture(db);
     expect(() => importHelpReport(db, {})).toThrow(/batchId|errors/);
-    expect(() => assistant.importHelp(db, { errors: 'x' })).toThrow(/errors/);
-    expect(() => assistant.importHelp(db, { batchId: 0 })).toThrow(/batchId/);
+    expect(() => assistant.importHelp(db, { errors: 'x', pageContext: pageSnapshot() })).toThrow(/errors/);
+    expect(() => assistant.importHelp(db, { batchId: 0, pageContext: pageSnapshot() })).toThrow(/batchId/);
 
     const version = budget.createVersion(db, { year: 2026, name: '导入批次' });
     budget.saveEntries(db, version.id, budgetRows(fx));
@@ -460,7 +461,7 @@ describe('AI 助手:导入辅助', () => {
       payload: { versionId: version.id, entries: [] } as any,
       summary: { rowCount: 0, errors: [{ row: 2, field: 'accountCode', message: '科目编码不存在: C0102' }] },
     });
-    const help = assistant.importHelp(db, { batchId: batch.id });
+    const help = assistant.importHelp(db, { batchId: batch.id, pageContext: pageSnapshot() });
     expect(help.batch?.id).toBe(batch.id);
     expect(help.batch?.status).toBe('pending');
     expect(help.errorCount).toBe(1);
@@ -482,7 +483,7 @@ describe('AI 助手:导入辅助', () => {
       payload: { versionId: version.id, entries: [] } as any,
       summary: { rowCount: 0, errors: [{ row: 2, field: 'orgCode', message: '组织编码不存在: SH0' }] },
     });
-    const answer: any = await assistant.chat(db, { message: '导入报错了,帮我解释错误并列出未匹配项', context: { year: 2026, importBatchId: batch.id } });
+    const answer: any = await assistant.chat(db, { message: '导入报错了,帮我解释错误并列出未匹配项', pageContext: pageSnapshot({ year: 2026, importBatchId: batch.id }) });
     expect(answer.facts.some((f: any) => f.type === 'import_help')).toBe(true);
     expect(answer.text).toContain('导入诊断');
     expect(answer.text).toContain('未匹配组织编码 1 个');
@@ -517,25 +518,25 @@ describe('AI 助手:新增只读接口的 HTTP 契约', () => {
       return { status: response.status, body: await response.json() as any };
     };
 
-    const attribution = await post('/api/assistant/attribution', { versionId: version.id, maxDepth: 2, topN: 5, direction: 'unfavorable' });
+    const attribution = await post('/api/assistant/attribution', { versionId: version.id, maxDepth: 2, topN: 5, direction: 'unfavorable', pageContext: pageSnapshot() });
     expect(attribution.status).toBe(200);
     expect(attribution.body.reconciliation.matched).toBe(true);
     expect(attribution.body.params).toMatchObject({ maxDepth: 2, topN: 5, direction: 'unfavorable' });
 
-    const report = await post('/api/assistant/report', { kind: 'monthly_execution', versionId: version.id });
+    const report = await post('/api/assistant/report', { kind: 'monthly_execution', versionId: version.id, pageContext: pageSnapshot() });
     expect(report.status).toBe(200);
     expect(report.body.sections.length).toBe(6);
     expect(report.body.narrativeSource).toBe('template');
 
-    const help = await post('/api/assistant/import-help', { errors: [{ row: 2, field: 'orgCode', message: '组织编码不存在: SH9' }] });
+    const help = await post('/api/assistant/import-help', { errors: [{ row: 2, field: 'orgCode', message: '组织编码不存在: SH9' }], pageContext: pageSnapshot() });
     expect(help.status).toBe(200);
     expect(help.body.unmatched.org[0].candidates[0].code).toBe('SH');
 
-    const invalid = await post('/api/assistant/report', { kind: 'weekly' });
+    const invalid = await post('/api/assistant/report', { kind: 'weekly', pageContext: pageSnapshot() });
     expect(invalid.status).toBe(400);
     expect(invalid.body.code).toBe('VALIDATION_FAILED');
 
-    const missing = await post('/api/assistant/import-help', {});
+    const missing = await post('/api/assistant/import-help', { pageContext: pageSnapshot() });
     expect(missing.status).toBe(400);
 
     await new Promise<void>((resolve) => server.close(() => resolve()));

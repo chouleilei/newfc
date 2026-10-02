@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 /**
  * 侧栏导航扩展与新页面开发计划(2026-09)验收:
  * - 阶段二:编制进度总览 —— 覆盖度与质量门禁同源;快照口径不漂移;空版本全零行;锁定版本照常返回。
@@ -161,7 +162,7 @@ describe('阶段三:预警中心', () => {
     const chat = await authFetch(`${base}/assistant/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: '列出预算版本', context: {} }),
+      body: JSON.stringify({ message: '列出预算版本', pageContext: pageSnapshot({  }) }),
     });
     expect(chat.status).not.toBe(429);
     // 阈值非法值 400

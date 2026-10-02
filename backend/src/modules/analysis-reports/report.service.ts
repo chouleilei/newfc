@@ -18,7 +18,7 @@ import { currentOrgScope, currentOrgScopeId, notVisible, orgInScope, requirePerm
 import { assertDistinctReviewer } from '../security/review';
 import { storeFile, type ObjectStore } from '../files/object-store';
 import { submitJob } from '../jobs/job.service';
-import { reportDraft as assistantReportDraft } from '../../assistant/service';
+import { generateReportDraft as assistantReportDraft } from '../../assistant/service';
 import { rewriteTemplateNarrative } from '../../assistant/narrative';
 import { PROMPT_VERSION, REPORT_REWRITE_TASK } from '../../assistant/prompts';
 import { riskInvestmentDraft } from './risk-investment-draft';

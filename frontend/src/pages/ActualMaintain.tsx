@@ -40,7 +40,7 @@ import { AddYearModal } from './actualMaintain/AddYearModal';
 import { ActualGridTable } from './actualMaintain/ActualGridTable';
 import { HistoryImport } from './actualMaintain/HistoryImport';
 import { useAssistantFocus, useAssistantPageContext, useAssistantSelection, useAssistantSurface } from '../assistant/contextHooks';
-import { DraftDescriptor } from '../assistant/context';
+import { DraftDescriptor } from '@contracts/assistant';
 import { useUrlScopeSync } from '../hooks/useUrlScopeSync';
 import { resolveActualMode, buildScopeSearch, type ScopeIssue, type ScopeParseResult } from '../utils/workspaceScope';
 import WorkspaceScopeBar from '../components/WorkspaceScopeBar';

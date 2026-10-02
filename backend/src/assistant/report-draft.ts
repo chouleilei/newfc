@@ -20,10 +20,11 @@ import * as budget from '../modules/budget/budget.service';
 import { attributionReport, type AttributionLeaf } from './attribution';
 import { anomalyReport } from './anomaly';
 import { multiYearTrend, type MultiYearTrendResult } from '../modules/report/multi-year';
-import { citationsForFacts, type FactRecord, type FactSource } from './citations';
-import type { AssistantCitation } from './schemas';
+import { citationsForFacts } from './citations';
+import type { AssistantFact as FactRecord, FactSource } from '../contracts/assistant';
+import type { AssistantCitation } from '../contracts/assistant';
 
-export type ReportKind = 'monthly_execution' | 'annual_review' | 'budget_discussion';
+import type { ReportKind, ReportSection, ReportDraft as AssistantReportDraft } from '../contracts/assistant';
 
 export interface ReportDraftInput {
   kind: ReportKind | string;
@@ -42,51 +43,7 @@ export interface ReportDraftInput {
   topN?: number | null;
 }
 
-export interface ReportSection {
-  key: string;
-  title: string;
-  /** 确定性要点,每条都可在 data 与 citations 中溯源 */
-  bullets: string[];
-  /** 结构化数据,供前端表格化展示 */
-  data?: unknown;
-  citations: AssistantCitation[];
-}
-
-export interface ReportDraft {
-  kind: ReportKind;
-  kindLabel: string;
-  title: string;
-  generatedAt: string;
-  period: { year: number | null; asOfDate: string | null; timeProgressValue: number | null };
-  scope: {
-    versionId: number | null;
-    versionName: string | null;
-    versionStatus: string | null;
-    targetVersionId: number | null;
-    actualSource: string | null;
-    actualBatchId: number | null;
-    orgScopeId: number | null;
-    accountScopeId: number | null;
-    sheetKey: string | null;
-    treeSnapshotIds: { org: number | null; account: number | null };
-  };
-  sections: ReportSection[];
-  /** 供模型与前端使用的结构化事实(与 sections 同源) */
-  facts: FactRecord[];
-  citations: AssistantCitation[];
-  /** 确定性模板叙述;模型可用时由 service 改写,数字不变 */
-  narrative: string;
-  narrativeSource: 'template' | 'model';
-  /**
-   * 需要逐字保留的事实词条(组织/科目/版本/快照名称等中文专名),供叙述守卫使用。
-   * 事实 token 正则只认数字与字母编码,中文专名必须显式声明,否则模型可以把
-   * 「上海公司」改写成「杭州公司」而守卫仍然通过。只保留确实出现在 narrative 中的词条。
-   */
-  factTerms: string[];
-  /** AI 建议,展示时必须标记为建议 */
-  suggestions: string[];
-  notes: string[];
-}
+export interface ReportDraft extends Omit<AssistantReportDraft, 'model'> { factTerms: string[] }
 
 const KIND_LABEL: Record<ReportKind, string> = {
   monthly_execution: '预算执行月报',

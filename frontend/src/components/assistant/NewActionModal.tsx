@@ -6,7 +6,8 @@
 import { useState } from 'react';
 import { Alert, Form, Input, InputNumber, Modal, Select, message } from 'antd';
 import { ApiError } from '../../api/client';
-import { assistantApi, previewIdempotencyKey, type AssistantAction, type AssistantContext } from '../../api/assistant';
+import { type AssistantAction, type AssistantScope } from '@contracts/assistant';
+import { assistantApi, previewIdempotencyKey } from '../../api/assistant';
 
 const TYPE_OPTIONS = [
   { value: 'budget_draft', label: '预算草案(按基准与增长率生成新版本)' },
@@ -26,7 +27,7 @@ export function NewActionModal({
 }: {
   open: boolean;
   onClose: () => void;
-  context: AssistantContext;
+  context: AssistantScope;
   conversationId?: number;
   onCreated: (action: AssistantAction) => void;
 }) {

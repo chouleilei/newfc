@@ -1,3 +1,4 @@
+import { pageSnapshot } from './assistant-context';
 import { afterEach, describe, expect, it } from 'vitest';
 import { testDb, buildFixture, budget, actual, org, account } from './helpers';
 import { cellNotes } from '../src/assistant/cell-notes';
@@ -189,10 +190,7 @@ describe('确定性兜底路径(无模型)', () => {
     delete process.env.AI_BASE_URL;
     delete process.env.AI_API_KEY;
     const { db, fx, version } = fixtureWithNotes();
-    const answer = await assistant.chat(db, {
-      message: '上海公司主营业务收入有备注吗',
-      context: { year: 2026, budgetVersionId: version.id },
-    });
+    const answer = await assistant.chat(db, { message: '上海公司主营业务收入有备注吗', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.routing).toBe('rules');
     expect(answer.text).toContain('按已签合同 500 万计提');
     expect(answer.text).toContain('上海公司 × 主营业务收入');
@@ -212,10 +210,7 @@ describe('确定性兜底路径(无模型)', () => {
     delete process.env.AI_BASE_URL;
     delete process.env.AI_API_KEY;
     const { db, fx, version } = fixtureWithNotes();
-    const answer = await assistant.chat(db, {
-      message: '南京公司有什么备注吗',
-      context: { year: 2026, budgetVersionId: version.id },
-    });
+    const answer = await assistant.chat(db, { message: '南京公司有什么备注吗', pageContext: pageSnapshot({ year: 2026, budgetVersionId: version.id }) });
     expect(answer.text).toContain('没有查询到单元格备注');
     // 空结果不挂定位导航
     expect(answer.navigation).toBeNull();

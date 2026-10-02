@@ -113,9 +113,9 @@ test.describe('全局助手抽屉', () => {
 
     await askInDock(page, '这个版本执行得怎么样');
 
-    // 网络层断言:pageContext(V2)与兼容口径 context 都送到了后端
+    // 网络层断言：只发送页面快照。
     expect(bodies.length).toBeGreaterThan(0);
-    expect(bodies[0].context).toMatchObject({ page: 'budget_edit', budgetVersionId: versionId });
+    expect(bodies[0]).not.toHaveProperty('context');
     expect(bodies[0].pageContext?.pageKey).toBe('budget_edit');
     expect(bodies[0].pageContext?.scope?.budgetVersionId).toBe(versionId);
 
@@ -215,6 +215,7 @@ test.describe('全局助手抽屉', () => {
     const pageBody = bodies[bodies.length - 1];
     expect(pageBody.pageContext?.scope?.year, '手动清空后本轮不得再带年度').toBeUndefined();
     expect(pageBody.pageContext?.pageKey).toBe('assistant');
-    expect(pageBody.context.page).toBe('assistant');
+    expect(pageBody.pageContext.pageKey).toBe('assistant');
+    expect(pageBody).not.toHaveProperty('context');
   });
 });

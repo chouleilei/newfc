@@ -10,24 +10,15 @@ import { DOMAIN_PAGE_INTENTS, DOMAIN_READ_RULES } from './domain-intents';
  * 全过程只读，且每一项都记录来源与原因，便于前端如实展示「助手替你选了什么」。
  */
 import type { DB } from '../db/connection';
-import type { AssistantContext } from './schemas';
+import type { AssistantScope } from '../contracts/assistant';
 import { AppError } from '../core/errors';
+import { currentAuth } from '../core/request-context';
 import { orgTreeFilter } from './tool-policy';
 
-export type ResolutionOrigin = 'request' | 'message' | 'conversation' | 'default';
-
-export interface ContextResolution {
-  field: 'year' | 'budgetVersionId' | 'targetVersionId' | 'actualSnapshotId' | 'orgId' | 'accountId' | 'importBatchId';
-  value: number;
-  origin: ResolutionOrigin;
-  /** 人类可读的命中依据，例如「命中年度「2025 年」」或「2026 年当前生效预算版本」 */
-  reason: string;
-  /** 便于前端直接显示的名称(版本名、组织名、科目名、快照日期) */
-  label?: string;
-}
+import type { ContextResolution, ResolutionOrigin } from '../contracts/assistant';
 
 export interface ResolvedContextResult {
-  context: AssistantContext;
+  context: AssistantScope;
   resolution: ContextResolution[];
   /**
    * 名称片段命中多个组织/科目、因此**故意没有解析**的项。
@@ -149,7 +140,7 @@ function coreName(name: string): string | null {
 }
 
 export interface NodeAmbiguity {
-  field: 'orgId' | 'accountId';
+  field: 'orgScopeId' | 'accountScopeId';
   /** 消息里出现的名称片段 */
   token: string;
   candidates: { id: number; code: string; name: string }[];
@@ -306,14 +297,14 @@ export interface ResolveOptions {
 export function resolveMessageContext(
   db: DB,
   message: string,
-  requested: AssistantContext = {},
-  inherited: AssistantContext = {},
+  requested: AssistantScope = {},
+  inherited: AssistantScope = {},
   options: ResolveOptions = {},
 ): ResolvedContextResult {
   const text = String(message || '');
-  const context: AssistantContext = { ...requested };
-  const domainQuery = !/经营预算|预算版本|预算编制|预算执行月报/.test(text) && (!!(requested.page && DOMAIN_PAGE_INTENTS[requested.page]) || DOMAIN_READ_RULES.some((r) => r.pattern.test(text)));
-  if (domainQuery) { delete context.budgetVersionId; delete context.targetVersionId; delete context.actualSnapshotId; delete context.importBatchId; delete context.accountId; }
+  const context: AssistantScope = { ...requested };
+  const domainQuery = !/经营预算|预算版本|预算编制|预算执行月报/.test(text) && (!!(requested.pageKey && DOMAIN_PAGE_INTENTS[requested.pageKey]) || DOMAIN_READ_RULES.some((r) => r.pattern.test(text)));
+  if (domainQuery) { delete context.budgetVersionId; delete context.targetVersionId; delete context.actualSnapshotId; delete context.importBatchId; delete context.accountScopeId; }
   const resolution: ContextResolution[] = [];
   const ambiguities: NodeAmbiguity[] = [];
   const record = (field: ContextResolution['field'], value: number, origin: ResolutionOrigin, reason: string, label?: string) => {
@@ -345,7 +336,7 @@ export function resolveMessageContext(
       context.year = inherited.year;
       record('year', inherited.year, 'conversation', '沿用上一轮的年度');
     } else {
-      const fallback = (requested.page && DOMAIN_PAGE_INTENTS[requested.page]) || DOMAIN_READ_RULES.some((r) => r.pattern.test(text)) ? { year: new Date().getFullYear(), reason: '新业务未指定年度，采用当前自然年' } : defaultYear(db);
+      const fallback = (requested.pageKey && DOMAIN_PAGE_INTENTS[requested.pageKey]) || DOMAIN_READ_RULES.some((r) => r.pattern.test(text)) ? { year: new Date().getFullYear(), reason: '新业务未指定年度，采用当前自然年' } : defaultYear(db);
       if (fallback) {
         context.year = fallback.year;
         record('year', fallback.year, 'default', fallback.reason);
@@ -573,33 +564,33 @@ export function resolveMessageContext(
         throw new AppError('NOT_FOUND', `组织「${outside.hit.row.name}」不存在或无权访问`, 404);
       }
     }
-    if (context.orgId == null) {
+    if (context.orgScopeId == null) {
       const matched = matchNode(text, rows);
       if (matched.hit) {
-        context.orgId = matched.hit.row.id;
-        record('orgId', matched.hit.row.id, 'message', matched.hit.reason, matched.hit.row.name);
+        context.orgScopeId = matched.hit.row.id;
+        record('orgScopeId', matched.hit.row.id, 'message', matched.hit.reason, matched.hit.row.name);
       } else if (matched.ambiguous) {
         // 片段命中多个组织：不猜。上层会据此提示用户，而不是静默按全范围回答。
         ambiguities.push({
-          field: 'orgId',
+          field: 'orgScopeId',
           token: matched.ambiguous.token,
           candidates: matched.ambiguous.candidates.map((row) => ({ id: row.id, code: row.code, name: row.name })),
         });
-      } else if (inherited.orgId != null && rows.some((r) => r.id === inherited.orgId)) {
-        context.orgId = inherited.orgId;
-        const row = rows.find((r) => r.id === inherited.orgId)!;
-        record('orgId', row.id, 'conversation', '沿用上一轮的组织范围', row.name);
+      } else if (inherited.orgScopeId != null && rows.some((r) => r.id === inherited.orgScopeId)) {
+        context.orgScopeId = inherited.orgScopeId;
+        const row = rows.find((r) => r.id === inherited.orgScopeId)!;
+        record('orgScopeId', row.id, 'conversation', '沿用上一轮的组织范围', row.name);
       }
     } else if (options.messageOverride) {
       // 问题明确写出的组织覆盖页面范围；名称有歧义时不覆盖，照常返回候选(§6)。
       const matched = matchNode(text, rows);
-      if (matched.hit && matched.hit.row.id !== context.orgId) {
-        const previous = rows.find((row) => row.id === context.orgId);
-        context.orgId = matched.hit.row.id;
-        record('orgId', matched.hit.row.id, 'message', `${matched.hit.reason}，已覆盖页面的组织「${previous?.name ?? ''}」`, matched.hit.row.name);
+      if (matched.hit && matched.hit.row.id !== context.orgScopeId) {
+        const previous = rows.find((row) => row.id === context.orgScopeId);
+        context.orgScopeId = matched.hit.row.id;
+        record('orgScopeId', matched.hit.row.id, 'message', `${matched.hit.reason}，已覆盖页面的组织「${previous?.name ?? ''}」`, matched.hit.row.name);
       } else if (matched.ambiguous) {
         ambiguities.push({
-          field: 'orgId',
+          field: 'orgScopeId',
           token: matched.ambiguous.token,
           candidates: matched.ambiguous.candidates.map((row) => ({ id: row.id, code: row.code, name: row.name })),
         });
@@ -610,31 +601,31 @@ export function resolveMessageContext(
   /* ---------- 科目 ---------- */
   if (!domainQuery && tableExists(db, 'account')) {
     const rows = db.prepare('SELECT id,code,name,status FROM account ORDER BY sort_order, id').all() as NodeRow[];
-    if (context.accountId == null) {
+    if (context.accountScopeId == null) {
       const matched = matchNode(text, rows);
       if (matched.hit) {
-        context.accountId = matched.hit.row.id;
-        record('accountId', matched.hit.row.id, 'message', matched.hit.reason, matched.hit.row.name);
+        context.accountScopeId = matched.hit.row.id;
+        record('accountScopeId', matched.hit.row.id, 'message', matched.hit.reason, matched.hit.row.name);
       } else if (matched.ambiguous) {
         ambiguities.push({
-          field: 'accountId',
+          field: 'accountScopeId',
           token: matched.ambiguous.token,
           candidates: matched.ambiguous.candidates.map((row) => ({ id: row.id, code: row.code, name: row.name })),
         });
-      } else if (inherited.accountId != null && rows.some((r) => r.id === inherited.accountId)) {
-        context.accountId = inherited.accountId;
-        const row = rows.find((r) => r.id === inherited.accountId)!;
-        record('accountId', row.id, 'conversation', '沿用上一轮的科目范围', row.name);
+      } else if (inherited.accountScopeId != null && rows.some((r) => r.id === inherited.accountScopeId)) {
+        context.accountScopeId = inherited.accountScopeId;
+        const row = rows.find((r) => r.id === inherited.accountScopeId)!;
+        record('accountScopeId', row.id, 'conversation', '沿用上一轮的科目范围', row.name);
       }
     } else if (options.messageOverride) {
       const matched = matchNode(text, rows);
-      if (matched.hit && matched.hit.row.id !== context.accountId) {
-        const previous = rows.find((row) => row.id === context.accountId);
-        context.accountId = matched.hit.row.id;
-        record('accountId', matched.hit.row.id, 'message', `${matched.hit.reason}，已覆盖页面的科目「${previous?.name ?? ''}」`, matched.hit.row.name);
+      if (matched.hit && matched.hit.row.id !== context.accountScopeId) {
+        const previous = rows.find((row) => row.id === context.accountScopeId);
+        context.accountScopeId = matched.hit.row.id;
+        record('accountScopeId', matched.hit.row.id, 'message', `${matched.hit.reason}，已覆盖页面的科目「${previous?.name ?? ''}」`, matched.hit.row.name);
       } else if (matched.ambiguous) {
         ambiguities.push({
-          field: 'accountId',
+          field: 'accountScopeId',
           token: matched.ambiguous.token,
           candidates: matched.ambiguous.candidates.map((row) => ({ id: row.id, code: row.code, name: row.name })),
         });
@@ -670,7 +661,7 @@ export function resolveMessageContext(
 }
 
 export interface ContextDigest {
-  resolved: AssistantContext;
+  resolved: AssistantScope;
   resolution: ContextResolution[];
   years: number[];
   versions: { id: number; year: number; name: string; status: string; kind: string; isCurrent: boolean }[];
@@ -684,7 +675,7 @@ export interface ContextDigest {
  * 给模型的轻量上下文摘要。只含 ID、名称和状态，不含任何金额或明细，
  * 让模型知道「有哪些年度/版本/快照可用、当前解析到了什么」，再自行决定调用哪些只读工具。
  */
-export function contextDigest(db: DB, context: AssistantContext, resolution: ContextResolution[]): ContextDigest {
+export function contextDigest(db: DB, context: AssistantScope, resolution: ContextResolution[]): ContextDigest {
   const digest: ContextDigest = {
     resolved: context,
     resolution,
@@ -695,7 +686,9 @@ export function contextDigest(db: DB, context: AssistantContext, resolution: Con
     account: null,
     closedYears: [],
   };
-  if (tableExists(db, 'budget_version')) {
+  const auth = currentAuth();
+  const can = (permission: string) => !auth || auth.permissions.has(permission as never);
+  if (can('budget:read') && tableExists(db, 'budget_version')) {
     digest.years = (db.prepare('SELECT DISTINCT year FROM budget_version ORDER BY year DESC LIMIT 20').all() as { year: number }[]).map((r) => r.year);
     const rows = (context.year == null
       ? db.prepare('SELECT id,year,name,status,is_current,kind FROM budget_version ORDER BY year DESC, created_at DESC, id DESC LIMIT 30').all()
@@ -703,22 +696,22 @@ export function contextDigest(db: DB, context: AssistantContext, resolution: Con
     ) as VersionRow[];
     digest.versions = rows.map((row) => ({ id: row.id, year: row.year, name: row.name, status: row.status, kind: row.kind || 'budget', isCurrent: row.is_current === 1 }));
   }
-  if (tableExists(db, 'actual_snapshot_batch')) {
+  if (can('actual:read') && tableExists(db, 'actual_snapshot_batch')) {
     const rows = (context.year == null
       ? db.prepare('SELECT id,year,snapshot_date,revision FROM actual_snapshot_batch ORDER BY snapshot_date DESC, revision DESC LIMIT 20').all()
       : db.prepare('SELECT id,year,snapshot_date,revision FROM actual_snapshot_batch WHERE year=? ORDER BY snapshot_date DESC, revision DESC LIMIT 20').all(context.year)
     ) as BatchRow[];
     digest.snapshots = rows.map((row) => ({ id: row.id, year: row.year, snapshotDate: row.snapshot_date, revision: row.revision }));
   }
-  if (context.orgId != null && tableExists(db, 'org')) {
-    const row = db.prepare('SELECT id,code,name FROM org WHERE id=?').get(context.orgId) as { id: number; code: string; name: string } | undefined;
+  if (context.orgScopeId != null && tableExists(db, 'org')) {
+    const row = db.prepare('SELECT id,code,name FROM org WHERE id=?').get(context.orgScopeId) as { id: number; code: string; name: string } | undefined;
     digest.org = row ?? null;
   }
-  if (context.accountId != null && tableExists(db, 'account')) {
-    const row = db.prepare('SELECT id,code,name,type FROM account WHERE id=?').get(context.accountId) as { id: number; code: string; name: string; type: string } | undefined;
+  if (context.accountScopeId != null && tableExists(db, 'account')) {
+    const row = db.prepare('SELECT id,code,name,type FROM account WHERE id=?').get(context.accountScopeId) as { id: number; code: string; name: string; type: string } | undefined;
     digest.account = row ?? null;
   }
-  if (tableExists(db, 'actual_year_state')) {
+  if (can('actual:read') && tableExists(db, 'actual_year_state')) {
     // 年度关闭在库里记为 frozen(见 migrations 的 actual_year_state.status)。
     digest.closedYears = (db.prepare("SELECT year FROM actual_year_state WHERE status='frozen' ORDER BY year DESC LIMIT 20").all() as { year: number }[]).map((r) => r.year);
   }

@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
  */
 import { useMemo, useState } from 'react';
 import { Collapse, Empty, Descriptions, Table, Tag, Tooltip, Typography, Space } from 'antd';
-import type { AssistantCitation, AssistantFact } from '../../api/assistant';
+import type { AssistantCitation, AssistantFact } from '@contracts/assistant';
 import { centsToWan, formatRate, formatRateOrReason } from '../../utils/money';
 
 const FACT_LABEL: Record<string, string> = {

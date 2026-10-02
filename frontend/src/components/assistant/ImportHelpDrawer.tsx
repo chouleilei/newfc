@@ -1,3 +1,4 @@
+import { useAssistantRegistry } from '../../assistant/AssistantContextRegistry';
 /**
  * 导入辅助抽屉(方案《AI助手完整方案》4.1「解释错误、建议组织/科目匹配、列出未匹配和重复项」)。
  *
@@ -6,7 +7,7 @@
  */
 import { useState } from 'react';
 import { Alert, Button, Card, Descriptions, Drawer, Empty, Input, InputNumber, Space, Spin, Table, Tag, Typography, message } from 'antd';
-import type { ImportHelpReport } from '../../api/assistant';
+import type { ImportHelpReport } from '@contracts/assistant';
 import { assistantApi } from '../../api/assistant';
 import { ApiError } from '../../api/client';
 
@@ -69,6 +70,7 @@ export function ImportHelpDrawer({
   onClose: () => void;
   defaultBatchId?: number;
 }) {
+  const registry = useAssistantRegistry();
   const [batchId, setBatchId] = useState<number | null>(defaultBatchId ?? null);
   const [errorsText, setErrorsText] = useState('');
   const [report, setReport] = useState<ImportHelpReport | null>(null);
@@ -93,7 +95,10 @@ export function ImportHelpDrawer({
     }
     setLoading(true);
     try {
+      const snapshot = registry.buildSnapshot();
+      if (snapshot.status !== 'ok') throw new Error('当前页面范围未就绪');
       setReport(await assistantApi.importHelp({
+        pageContext: snapshot.pageContext,
         ...(batchId == null ? {} : { batchId }),
         ...(errors ? { errors } : {}),
         suggestionLimit: 3,

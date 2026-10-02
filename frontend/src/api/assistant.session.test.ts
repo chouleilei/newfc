@@ -1,3 +1,4 @@
+import { pageSnapshot } from '../../tests/assistant-context';
 import { afterEach, expect, it, vi } from 'vitest';
 import { streamChat } from './assistant';
 import { getSession, setSession, type SessionInfo } from './client';
@@ -12,7 +13,7 @@ it('旧助手流的迟到401不会退出新账号', async () => {
   const dispatchEvent = vi.fn(); vi.stubGlobal('window', { dispatchEvent });
   let resolve!: (response: Response) => void;
   vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((r) => { resolve = r; })));
-  const result = streamChat({ message: '查询' });
+  const result = streamChat({ message: '查询', pageContext: pageSnapshot() });
   setSession(other);
   resolve(new Response(JSON.stringify({ code: 'UNAUTHORIZED' }), { status: 401, headers: { 'content-type': 'application/json' } }));
   await expect(result).rejects.toMatchObject({ body: { code: 'SESSION_CHANGED' } });
@@ -27,7 +28,7 @@ it('账号变化后停止输出旧助手流并取消读取', async () => {
   const body = new ReadableStream<Uint8Array>({ start(c) { controller = c; }, pull() { reading(); }, cancel });
   vi.stubGlobal('fetch', vi.fn(async () => new Response(body)));
   const onToken = vi.fn(); const onDone = vi.fn();
-  const result = streamChat({ message: '查询' }, { onToken, onDone });
+  const result = streamChat({ message: '查询', pageContext: pageSnapshot() }, { onToken, onDone });
   await started; await Promise.resolve(); setSession(other);
   controller.enqueue(new TextEncoder().encode('event: token\ndata: {"text":"旧账号数据"}\n\nevent: done\ndata: {}\n\n'));
   await expect(result).rejects.toMatchObject({ body: { code: 'SESSION_CHANGED' } });

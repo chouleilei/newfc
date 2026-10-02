@@ -215,7 +215,7 @@ test.describe('全页面回答范围自动对齐(§13.4)', () => {
       // 主范围字段:页面声明了主范围时,请求体必须携带
       if (pageCase.scopeField) {
         expect(
-          body.pageContext?.scope?.[pageCase.scopeField] ?? body.context?.[pageCase.scopeField === 'baseVersionId' ? 'budgetVersionId' : pageCase.scopeField],
+          body.pageContext?.scope?.[pageCase.scopeField],
           `主范围 ${pageCase.scopeField} 必须进入请求`,
         ).toBeTruthy();
       }

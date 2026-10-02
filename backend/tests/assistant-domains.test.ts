@@ -1,13 +1,14 @@
+import { pageSnapshot } from './assistant-context';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { boot, post, json, upload } from './t3-helpers';
 import { statementWorkbook } from './t3-statement-sample';
 import { createScopedUser, sessionFor } from './http-helpers';
 import { detectIntents } from '../src/assistant/intent';
-import { resolveMessageContext } from '../src/assistant/resolve';
+import { resolveMessageContext } from '../src/assistant/message-context';
 import { resolveDomainMessage } from '../src/assistant/domain-facts';
 import * as budget from '../src/modules/budget/budget.service';
 import { DOMAIN_READ_RULES } from '../src/assistant/domain-intents';
-import { resolveBackendContext } from '../src/assistant/context-v2';
+import { resolveAssistantContext } from '../src/assistant/page-context';
 import { runWithContext } from '../src/core/request-context';
 import { loadAuthContext } from '../src/modules/security/security.service';
 import { executeTool, toolDefinitions } from '../src/assistant/tools';
@@ -39,7 +40,7 @@ describe('助手跨域问答闭环 AC-F20/AC-X04/X06', () => {
     const version = budget.createVersion(db, { year: 2026, name: '同编号经营预算' });
     expect(detectIntents('当前财务报表净利润是多少', 'statements').read).not.toContain('execution');
     expect(detectIntents('预测版本 #1 的运行结果', 'forecast').read).not.toContain('budget_versions');
-    const parsed = resolveMessageContext(db, `财务预测版本 #${version.id}`, { page: 'forecast' });
+    const parsed = resolveMessageContext(db, `财务预测版本 #${version.id}`, { pageKey: 'forecast' });
     expect(parsed.context.budgetVersionId).toBeUndefined();
     const context: any = { page: 'feasibility' };
     expect(() => resolveDomainMessage(db, '可研项目 #987654 的指标', context, {}, ['feasibility'], false)).toThrow();
@@ -74,11 +75,11 @@ describe('助手跨域问答闭环 AC-F20/AC-X04/X06', () => {
     expect(first.text).toContain('履约执行');
     expect(first.facts.some((f: any) => f.type === 'domain_write_guidance')).toBe(false);
     expect(first.citations.find((c: any) => c.source === 'tool:contract_detail').references).toContainEqual(expect.objectContaining({ kind: 'contract', id, path: `/contracts?id=${id}` }));
-    const follow = await json(post(base, admin, '/api/assistant/chat', { conversationId: first.conversationId, message: '它的付款节点呢', context: { page: 'assistant' } }));
-    expect(follow.resolvedContext.contractId).toBe(id);
+    const follow = await json(post(base, admin, '/api/assistant/chat', { conversationId: first.conversationId, message: '它的付款节点呢', pageContext: pageSnapshot({ pageKey: 'assistant' }) }));
+    expect(follow.effectiveContext.contractId).toBe(id);
     expect(follow.facts.find((f: any) => f.type === 'tool:contract_detail').data.id).toBe(id);
     const eas = await json(post(base, admin, '/api/assistant/chat', { message: '2026 年 5 月 EAS 对账状态', pageContext: pc('eas', { orgScopeId: fx.orgIds.shanghai }) }));
-    expect(eas.resolvedContext.period).toBe('2026-05'); expect(eas.citations.some((c: any) => c.period === '2026-05')).toBe(true);
+    expect(eas.effectiveContext.period).toBe('2026-05'); expect(eas.citations.some((c: any) => c.period === '2026-05')).toBe(true);
   });
   it('名称有歧义列出候选，名称找不到不返回其他合同金额，唯一编码能定位', async () => {
     const { base, db, admin, fx } = await boot();
@@ -101,7 +102,7 @@ describe('助手跨域问答闭环 AC-F20/AC-X04/X06', () => {
     const auth = loadAuthContext(db, all.userId)!;
     runWithContext({ requestId: 'test', source: 'http', auth }, () => {
       expect(() => executeTool(db, 'expense_detail', { claimId: 1 })).toThrow(/权限/);
-      expect(() => resolveBackendContext(db, { ...pc('contracts'), surfaces: [{ id: 's', kind: 'drawer', key: 'contract', entity: { entityType: 'contract', id } }] })).toThrow(/权限/);
+      expect(() => resolveAssistantContext(db, { ...pc('contracts'), surfaces: [{ id: 's', kind: 'drawer', key: 'contract', entity: { entityType: 'contract', id } }] })).toThrow(/权限/);
     });
   });
   it('费用详情只解释当前审核运行，制度检索无命中明确说明', async () => {
@@ -132,24 +133,24 @@ describe('跨域受控模型与降级', () => {
   it('模型必须保留页面指标、期间、分组和页签筛选', async () => {
     const { alignDomainToolArguments } = await import('../src/assistant/service');
     const view = { metricIds: [1, 2], periods: ['2025-05', '2025-06'], groupBy: 'dimension', dimensionId: 3 };
-    expect(alignDomainToolArguments('mgmt_analysis', {}, { page: 'mgmt' }, view)).toEqual(view);
-    expect(() => alignDomainToolArguments('mgmt_analysis', { metricIds: [99] }, { page: 'mgmt' }, view)).toThrow(/筛选/);
-    expect(() => alignDomainToolArguments('mgmt_analysis', { periods: ['2026-01'] }, { page: 'mgmt' }, view)).toThrow(/筛选/);
-    expect(alignDomainToolArguments('domain_workspace', {}, { page: 'eas' }, { tab: 'corrections', pendingOnly: true })).toEqual({ kind: 'eas_corrections', pendingOnly: true });
-    expect(() => alignDomainToolArguments('domain_workspace', { kind: 'eas_locks' }, { page: 'eas' }, { tab: 'corrections' })).toThrow(/筛选/);
-    expect(alignDomainToolArguments('master_entities', {}, { page: 'master_entities' }, { tab: 'suppliers', keyword: '水利' })).toEqual({ kind: 'supplier', keyword: '水利' });
+    expect(alignDomainToolArguments('mgmt_analysis', {}, { pageKey: 'mgmt' }, view)).toEqual(view);
+    expect(() => alignDomainToolArguments('mgmt_analysis', { metricIds: [99] }, { pageKey: 'mgmt' }, view)).toThrow(/筛选/);
+    expect(() => alignDomainToolArguments('mgmt_analysis', { periods: ['2026-01'] }, { pageKey: 'mgmt' }, view)).toThrow(/筛选/);
+    expect(alignDomainToolArguments('domain_workspace', {}, { pageKey: 'eas' }, { tab: 'corrections', pendingOnly: true })).toEqual({ kind: 'eas_corrections', pendingOnly: true });
+    expect(() => alignDomainToolArguments('domain_workspace', { kind: 'eas_locks' }, { pageKey: 'eas' }, { tab: 'corrections' })).toThrow(/筛选/);
+    expect(alignDomainToolArguments('master_entities', {}, { pageKey: 'master_entities' }, { tab: 'suppliers', keyword: '水利' })).toEqual({ kind: 'supplier', keyword: '水利' });
   });
   it('历史批次采用实际来源期间，显式年度或月份冲突拒绝', async () => {
     const { base, admin, fx } = await boot();
     const batch = await json(upload(base, admin, '/api/statements/import', await statementWorkbook(), '2025-05.xlsx', { orgId: String(fx.orgIds.shanghai), period: '2025-05', scope: 'consolidated' }));
     const r = await json(post(base, admin, '/api/assistant/chat', { message: '当前财报批次的金额', pageContext: pc('statements', { statementBatchId: batch.id }) }));
-    expect(r.resolvedContext).toMatchObject({ year: 2025, period: '2025-05', statementScope: 'consolidated' });
+    expect(r.effectiveContext).toMatchObject({ year: 2025, period: '2025-05', statementScope: 'consolidated' });
     expect(r.facts.find((f: any) => f.type === 'tool:domain_batch_read').data.batch.id).toBe(batch.id);
     expect(r.citations.some((c: any) => c.period === '2025-05')).toBe(true);
     expect((await post(base, admin, '/api/assistant/chat', { message: '当前金额', pageContext: pc('statements', { statementBatchId: batch.id, year: 2026 }) })).status).toBe(409);
     expect((await post(base, admin, '/api/assistant/chat', { message: '2026 年 5 月的财务报表', pageContext: pc('statements', { statementBatchId: batch.id }) })).status).toBe(409);
     const named = await json(post(base, admin, '/api/assistant/chat', { message: `财报批次 #${batch.id} 的金额`, pageContext: pc('statements') }));
-    expect(named.resolvedContext).toMatchObject({ year: 2025, period: '2025-05' });
+    expect(named.effectiveContext).toMatchObject({ year: 2025, period: '2025-05' });
   });
   it('当前台账筛选只返回命中合同，供应商页签不误读项目', async () => {
     const { base, db, admin, fx } = await boot();
@@ -207,7 +208,7 @@ describe('跨域受控模型与降级', () => {
       expect(r.facts.some((f: any) => f.type === `tool:${tool}`), JSON.stringify(r)).toBe(true);
       expect(r.facts.some((f: any) => f.type === 'budget_versions')).toBe(false);
     }
-    expect(() => resolveBackendContext(db, pc('statements', { statementBatchId: 987654 }))).toThrow(/不存在|无权/);
+    expect(() => resolveAssistantContext(db, pc('statements', { statementBatchId: 987654 }))).toThrow(/不存在|无权/);
     const { alignDomainToolArguments } = await import('../src/assistant/service');
     expect(() => alignDomainToolArguments('statement_overview', {}, { statementBatchId: 1 })).toThrow(/历史批次/);
     expect(alignDomainToolArguments('domain_batch_read', {}, { planBatchId: 7 })).toEqual({ kind: 'plan', batchId: 7 });

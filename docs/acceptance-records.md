@@ -528,3 +528,15 @@ F07/F20/F24/F26；T-8.1、T-8.2；AC-T8-01/02/03 的源码与聚焦测试证据�
 Node 24.21.0；后端 `npx tsc --noEmit` 与 9 文件 / 47 用例通过（t8-tool-contract、page-capabilities.contract、assistant.catalog-tools、assistant-scope、assistant.extensions、t6-search、t3-assistant、t4-assistant、t5-linkage）。前端 `npx tsc -b` 与 5 文件 / 53 用例通过（App、pageContext、domainContext、AssistantContextRegistry、userPrefs）。CommonJS 实际加载注册表为 79 项；git diff --check 通过。此前未知参数忽略的测试改为明确拒绝，并用合法参数验证越权，避免参数错误掩盖授权问题。
 
 这是两个相互引用目录及消费者的连续迁移提交；T-8.3～T-8.6、最终浏览器/全量/构建/迁移/资源门禁仍待完成，不标记全阶段完成。测试只用临时/内存数据库，未部署或迁移生产库。
+
+## T-8.3 单一页面快照与历史响应迁移（2026-10-03）
+
+F07/F20/F24/F26；T-8.3；AC-T8-04/05/06 与 AC-T8-03 的源码、聚焦及临时文件库证据。共享契约统一到 `contracts/assistant.ts`，范围字段统一为 orgScopeId/accountScopeId/pageKey。聊天、SSE、归因、报告与导入辅助均消费 pageContext；HTTP/SSE 共用只读预检，在响应头、模型或会话落库之前拒绝旧单传/双传、缺快照、未知版本/页面及资源冲突。独立助手发送空或实际手动筛选的快照，页面登记缺失时阻止发送，去掉 URL 猜范围、兼容字段映射和合并状态。失败/协议刷新提示保留输入。
+
+V66 仅规范化 ai_message.response_json 的上下文元数据：已知范围映射到 effectiveContext/contextTrace，历史范围标记 historical，未知范围保存 historicalRange 并标记不可续用；损坏 JSON 报记录 ID，整个迁移回滚。正文、事实、引用、金额字符串、归属及生命周期不重算。运行入口没有旧 JSON reader；历史追问核对当前授权，模型历史摘要也过滤无法核验的旧范围。业务报告 service 使用独立正式 DTO，页面报告入口先核验快照。
+
+Node 24.21.0；后端源码 `npx tsc --noEmit` 通过。助手及报告/导航/预算闭环扩展回归 19 文件 / 302 项通过；追加历史模型授权用例后，t8-protocol 与 assistant.routing 2 文件 / 58 项通过。前端 pageContext、Registry、domainContext、session 4 文件 / 27 项与 `npx tsc -b` 通过。`npx tsc -p tsconfig.test.json` 中本次触及文件无类型错误；仍有未触及的 t4-contracts、t5 投资/预测等旧 HTTP Response.json unknown 类型错误，后续阶段全量记录，不关闭检查。
+
+临时文件库实际验证 V65→V66、重复 migrate 不转换、坏 JSON 回滚、迁移前完整备份包及现有 restoreBackup 恢复后重迁移到 V66；已知历史组织授权撤销后拒绝追问，明确选择新范围时旧正文/事实不进入受控模型。前端路由/页签/范围变更清理焦点和选区，失败输入保留的浏览器门禁仍在阶段最终 E2E 中核对。
+
+T-8.4～T-8.6 与最终全量/浏览器/构建/资源门禁未完成，不能据此标记 T-8 完成。生产 schema 仍为 V65；未部署、未运行生产迁移或替换正式产物。
