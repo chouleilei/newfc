@@ -20,12 +20,12 @@ test('侧栏新菜单项可达、高亮正确,深链直达一致', async ({ page
   /** 侧栏叶子项点击后应:URL 到达目标路由、该项呈现 antd 选中态、顶栏标题同步。 */
   const leaves: { menu: string; url: RegExp; title: string; marker?: string }[] = [
     { menu: '洞察报告', url: /\/insights$/, title: '洞察报告', marker: '新建洞察' },
-    { menu: '进度总览', url: /\/progress$/, title: '进度总览' },
+    { menu: '进度总览', url: /\/progress$/, title: '编制进度' },
     { menu: '导入批次', url: /\/data\?tab=imports$/, title: '导入批次' },
-    { menu: '清洗模板与别名', url: /\/cleaning-config$/, title: '清洗模板与别名', marker: '目标数据集' },
-    { menu: '预警中心', url: /\/alerts$/, title: '预警中心', marker: '完成率偏离阈值' },
+    { menu: '清洗模板与别名', url: /\/cleaning-config$/, title: '清洗配置', marker: '目标数据集' },
+    { menu: '预警中心', url: /\/alerts$/, title: '异常预警中心', marker: '完成率偏离阈值' },
     { menu: '指标趋势', url: /\/metric-trend$/, title: '指标趋势' },
-    { menu: '健康体检', url: /\/master-health$/, title: '健康体检' },
+    { menu: '健康体检', url: /\/master-health$/, title: '主数据健康' },
     { menu: '一致性检查', url: /\/data\?tab=check$/, title: '一致性检查' },
     { menu: 'AI 渠道设置', url: /\/settings\/ai$/, title: 'AI 渠道设置', marker: '功能绑定' },
   ];
@@ -46,7 +46,7 @@ test('侧栏新菜单项可达、高亮正确,深链直达一致', async ({ page
     await expect(page).toHaveURL(leaf.url);
     // 高亮:antd 选中态落在被点击的叶子 menuitem 上
     await expect(leafItem(page, leaf.menu)).toHaveClass(/ant-menu-item-selected/);
-    // 顶栏标题同步(pageTitle 特判与 leafLabel 都要对)
+    // 顶栏使用目录中的完整页名；菜单可以使用目录中的短名。
     await expect(page.locator('.newfc-header').getByText(leaf.title, { exact: true })).toBeVisible();
     if (leaf.marker) {
       await expect(page.getByText(leaf.marker, { exact: false }).first()).toBeVisible();

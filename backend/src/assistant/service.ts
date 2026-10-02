@@ -1630,7 +1630,7 @@ export async function chat(
 
   const pageFacts: FactRecord[] = [];
   if (selectionData) pageFacts.push({ type: 'selection_analysis', data: selectionData, source: { year: context.year, budgetVersionId: context.budgetVersionId, actualSnapshotId: context.actualSnapshotId } });
-  /* V2：核验焦点与草稿影响的事实附加上去——页面、助手与导出共用同一份核验结论(§9.5)。 */
+  /* 核验焦点与草稿影响的事实附加上去——页面、助手与导出共用同一份核验结论(§9.5)。 */
   if (verificationFact) {
     pageFacts.push({
       type: 'verification_fact',
@@ -1761,7 +1761,7 @@ export async function chat(
      文案不能暗示「已重新校验过版本状态」,否则会高估实际校验强度。 */
   if (action?.inherited) notices.push(`本轮沿用上一轮的操作建议（${action.type}），参数已重新读取，最终仍以确认时的状态与基线复查为准。`);
 
-  /* ===== V2 提示：能力拒绝、草稿状态与覆盖说明(§6、§9.4、§10.4) ===== */
+  /* ===== 页面提示：能力拒绝、草稿状态与覆盖说明(§6、§9.4、§10.4) ===== */
   if (backendCtx && deniedReadIntents.length) {
     notices.push(`当前页面（${backendCtx.pageLabel}）不提供「${deniedReadIntents.map((intent) => readIntentLabel(intent as never)).join('、')}」所需的确定性能力，已按本页可回答范围作答；请前往对应页面提问。`);
   }

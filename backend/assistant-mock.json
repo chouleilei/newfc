@@ -34,25 +34,6 @@
     ],
     "action": null,
     "navigation": null,
-    "resolvedContext": {
-      "year": 2026,
-      "budgetVersionId": 3
-    },
-    "resolution": [
-      {
-        "field": "year",
-        "value": 2026,
-        "origin": "message",
-        "reason": "命中年度「2026 年」"
-      },
-      {
-        "field": "budgetVersionId",
-        "value": 3,
-        "origin": "default",
-        "reason": "2026 年当前生效预算版本",
-        "label": "V1"
-      }
-    ],
     "routing": "rules",
     "model": "template",
     "intents": {
@@ -1008,6 +989,51 @@
       "notices": [
         "当前页面不提供执行分析能力，请前往「本年执行」页面后再提问。"
       ]
+    },
+    "metricDraftRequest": {
+      "message": "检查当前公式",
+      "pageContext": {
+        "schemaVersion": 2,
+        "snapshotId": "config-example",
+        "routeInstanceId": "metric-route",
+        "contextVersion": 1,
+        "pageKey": "metric",
+        "scope": {},
+        "view": {},
+        "draft": {
+          "kind": "metric_formula",
+          "base": {
+            "operation": "update",
+            "id": 3,
+            "updatedAt": "2026-10-03T00:00:00.000Z"
+          },
+          "changes": {
+            "name": "调整后的指标"
+          }
+        }
+      }
+    },
+    "queryRequest": {
+      "message": "检查全部筛选结果",
+      "pageContext": {
+        "schemaVersion": 2,
+        "snapshotId": "query-example",
+        "routeInstanceId": "metric-route",
+        "contextVersion": 2,
+        "pageKey": "metric",
+        "scope": {},
+        "view": {
+          "kind": "ratio",
+          "status": "active"
+        },
+        "selection": {
+          "mode": "query",
+          "query": {
+            "kind": "ratio",
+            "status": "active"
+          }
+        }
+      }
     }
   },
   "v2Errors": {
@@ -1097,19 +1123,6 @@
     ],
     "action": null,
     "navigation": null,
-    "resolvedContext": {
-      "year": 2026,
-      "budgetVersionId": 3
-    },
-    "resolution": [
-      {
-        "field": "budgetVersionId",
-        "value": 3,
-        "origin": "conversation",
-        "reason": "沿用上一轮的版本",
-        "label": "V1"
-      }
-    ],
     "routing": "model",
     "intents": {
       "read": [
@@ -1120,7 +1133,25 @@
         "execution"
       ]
     },
-    "modelError": null
+    "modelError": null,
+    "effectiveContext": {
+      "year": 2026,
+      "budgetVersionId": 3
+    },
+    "contextTrace": {
+      "used": [
+        {
+          "field": "budgetVersionId",
+          "value": 3,
+          "origin": "conversation",
+          "reason": "沿用上一轮的版本",
+          "label": "V1"
+        }
+      ],
+      "overrides": [],
+      "warnings": []
+    },
+    "contextStatus": "aligned"
   },
   "chatWithProposedAction": {
     "conversationId": 3,
@@ -1143,19 +1174,6 @@
       "reason": "用户要求复制 V2 到 2027 并整体增长 5%"
     },
     "navigation": null,
-    "resolvedContext": {
-      "year": 2026,
-      "budgetVersionId": 3
-    },
-    "resolution": [
-      {
-        "field": "budgetVersionId",
-        "value": 3,
-        "origin": "request",
-        "reason": "前端显式传入",
-        "label": "V2"
-      }
-    ],
     "routing": "model",
     "intents": {
       "read": [],
@@ -1164,6 +1182,24 @@
       ],
       "suppressed": []
     },
-    "modelError": null
+    "modelError": null,
+    "effectiveContext": {
+      "year": 2026,
+      "budgetVersionId": 3
+    },
+    "contextTrace": {
+      "used": [
+        {
+          "field": "budgetVersionId",
+          "value": 3,
+          "origin": "request",
+          "reason": "前端显式传入",
+          "label": "V2"
+        }
+      ],
+      "overrides": [],
+      "warnings": []
+    },
+    "contextStatus": "aligned"
   }
 }

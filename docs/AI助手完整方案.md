@@ -146,11 +146,17 @@ GET  /api/assistant/insights/:id
 {
   "conversationId": 12,
   "message": "解释本年度利润低于预算的原因",
-  "context": {
-    "year": 2026,
-    "budgetVersionId": 3,
-    "actualSnapshotId": 18,
-    "page": "execution"
+  "pageContext": {
+    "schemaVersion": 2,
+    "snapshotId": "example-snapshot",
+    "routeInstanceId": "example-route",
+    "contextVersion": 1,
+    "pageKey": "assistant",
+    "scope": {
+      "year": 2026,
+      "budgetVersionId": 3,
+      "actualSnapshotId": 18
+    }
   }
 }
 ```
@@ -317,7 +323,7 @@ interface ChatModel {
 - **同义词扩充**：「超支 / 亏得最多 / 拖后腿 / 垫底 / 拉低 / 进度太慢 / 排个名 / 省了 / 结余」等口语说法都能路由。
 - **宽泛词收窄**：裸「对比」不再触发版本对比（改为要求「版本对比 / 两个版本 / 与…版本比」等词组）；「为什么」必须跟一个业务判断词，「成本费用为什么是负数」回到业务解释而不是差异归因。
 
-### 11.2 上下文自动解析（`assistant/resolve.ts`）
+### 11.2 上下文自动解析（`assistant/message-context.ts`）
 
 原实现只接受前端下拉框选好的整数 ID，问「2025 年执行情况」但没手动选版本时只能返回 `missing_context`。现在从自然语言解析：
 
@@ -329,7 +335,7 @@ interface ChatModel {
 
 优先级为 **请求显式传入 > 本轮消息 > 上一轮会话继承 > 数据库默认值**。需要版本才能计算的意图在缺少版本时回退到该年度**当前生效版本**（无当前生效版本时取最新定稿，再取最新版本）；纯列表类问题（如「列出预算版本」）不会被悄悄缩小范围。消息里的年度与前端已选版本冲突时以消息年度为准并换用该年度的版本，而不是抛校验错误。
 
-每一项解析结果都以 `resolution[]` 返回来源（`request` / `message` / `conversation` / `default`）与命中依据，前端逐项展示为「口径」标签，并提供「采用这些筛选」把 `resolvedContext` 回填到筛选器。助手替用户做的每个选择都是可见、可覆盖的。
+每一项解析结果都以 `contextTrace.used[]` 返回来源（`request` / `message` / `conversation` / `default`）与命中依据，前端逐项展示为「口径」标签，并提供「采用这些筛选」把 `effectiveContext` 回填到筛选器。助手替用户做的每个选择都是可见、可覆盖的。
 
 ### 11.3 写操作参数由模型抽取（4.2「AI 只负责把自然语言转换为参数」）
 
@@ -356,7 +362,7 @@ interface ChatModel {
 
 ### 11.6 多轮追问接得上
 
-会话历史回灌给模型时，助手消息除正文外还附上一轮的**结构化事实有界摘要**（归因保留 `totals` 与前 5 名排行榜，执行分析保留版本、截至日期与指标，异常保留计数与前 5 条，报告保留章节要点，其余截断到 600 字符）。同时上一轮的 `resolvedContext` 作为本轮继承上下文，用户不必每轮重复指定年度和版本。
+会话历史回灌给模型时，助手消息除正文外还附上一轮的**结构化事实有界摘要**（归因保留 `totals` 与前 5 名排行榜，执行分析保留版本、截至日期与指标，异常保留计数与前 5 条，报告保留章节要点，其余截断到 600 字符）。同时上一轮的 `effectiveContext` 作为本轮继承上下文，用户不必每轮重复指定年度和版本。
 
 只回灌上下文与事实还不够：意图识别只看当轮消息，所以模板降级模式下「那第二名呢」一个意图都不命中，会退化成一份版本列表。因此增加**意图继承**（`withInheritedIntents`）：本轮既没有只读意图也没有写意图，且消息带追问标记（「那…」「…呢」「第二名」「再往下拆」「继续」「刚才那个」等）或从消息里解析出了新的组织/科目范围（如「上海公司呢」）时，沿用上一轮的只读意图。
 
@@ -379,68 +385,20 @@ interface ChatModel {
 - 新增 `frontend/tests/e2e/assistant.spec.ts`（4 项 Playwright）从界面验证：不动任何筛选器提问也能算出数字且「口径」如实标注来源、口语化提问路由到差异归因、追问不重述话题也能延续并收窄范围、写操作参数从原话解析且创建预览后未确认不落库、关闭流式后表现一致。数据自备 2027 年度版本与快照，与财务导入 E2E 互不干扰。
 - **真机验证**：用一个 OpenAI 兼容 mock 上游跑通模型路径——`stream: true` 请求、21 个只读工具、分片 `delta.tool_calls` 正确拼成一次工具调用、`delta.content` 按上游节奏逐块转发（首块 ~200ms 到达，不是等完整回答）、模型抽参得到 `source=model` 的可预览参数、追问提示词到达上游；上游超时 / 返回 500 / 返回非法响应三种情况都降级为关键词兜底并写明原因，且只发一次上游请求。
 
-## 12. 全页面回答范围自动对齐（2026-09，AssistantPageContextV2）
+## 12. newfc 独立助手契约（T-8）
 
-前两轮的上下文主要来自 URL 推导与 `/assistant` 页手动筛选，读不到组件内部状态，`page` 字段也没有真正约束取数。本轮按《小澧助手全页面回答范围自动对齐》实施「页面登记 → 发送冻结 → 后端核验合并 → 范围随回答展示」链路，原则不变：**数字与范围事实只由后端确定性服务给出，模型只做意图路由与行文。**
+当前行为和验收以 specs/ai.md、specs/acceptance.md 与 docs/acceptance-records.md 为准；前面来源章节的历史版本/验收数字不代表本阶段通过。
 
-### 12.1 协议：AssistantPageContextV2
+聊天、SSE、独立助手与归因/报告/导入辅助统一使用 schemaVersion 为 2 的 AssistantPageContext；pageContext 必填，旧 context 与双传明确拒绝。响应只有 effectiveContext/contextTrace。页面未就绪阻止发送，未知协议提示刷新并保留输入。页面切换、页签/对象/筛选改变、表单保存/取消、迟到清理按实例和 token 隔离。
 
-提问请求新增可选 `pageContext`（`schemaVersion=2`）：
+contracts/page-catalog.ts 是页面/路由/页签/权限/能力定义的唯一来源。TOOL_REGISTRY 是工具的 schema/标签/权限/能力/支持选择模式与执行的唯一来源，模型和规则均通过 executeTool。协议字段由 contracts/assistant.ts 共享；协议解析为 assistant/page-context.ts，消息范围解析为 assistant/message-context.ts。
 
-- `snapshotId`：1–80 字符，用于关联本轮请求和错误定位，不提供幂等去重。
-- `pageKey`：28 个页面键，与 `PAGE_CAPABILITY_MAP` 一一对应。
-- `routeInstanceId`：1–80 字符，前端用于隔离迟到更新；后端不保存 route 历史或判断实例过期。
-- `contextVersion`：非负安全整数。页面语义变化时前端递增；后端当前只校验格式，不比较回退。
-- `scope / view / surfaces / focus / selection / draft`：分别表达页面取数范围、白名单视图、浮层链、单一焦点、多选对象和请求内草稿。
+八类草稿均有实际入口：预算和实际网格，以及组织、科目、指标、测算、清洗模板、别名。六类配置草稿与正式保存共用领域校验，base 按操作区分新建 clientKey、已有对象 id/updatedAt、清洗分析的有权文件/批次引用；patch 合并服务器基线。字段帮助/错误可以定位，输入与 hover 不发助手请求。草稿基线变化返回 DRAFT_STALE；原始 changes、备注与文件内容/令牌不进入模型、日志或会话。
 
-大小限制相互独立：除 `draft` 外的 PageContext 按 UTF-8 序列化后不超过 64 KiB；`draft` 不超过 5 MiB；`changes` 不超过 10,000 项；`selection.refs` 不超过 500 项。前端做快速预检，后端按真实字节和 schema 最终裁决。
+后台先生成草稿校验/影响和字段事实。指标检查完整依赖和循环，明确不重算历史；测算有版本才同源只读试算；清洗读取真实文件/待确认预览前检查所有者、目标、指纹和过期，且不创建业务记录或快照。模型、规则降级、SSE 和取消路径共用这些边界。
 
-发送瞬间由前端 `AssistantContextRegistry` 冻结快照；回答过程中页面变化只影响下一轮。旧 `context` 字段保留兼容，携带 V2 时由后端优先采用经过校验的 V2 页面范围。
+bounds 限定网格真实单元格，与工作表和范围求交，父子去重、金额/数量分开；refs 只处理全部核验过的选中指标/别名；query 复用真实列表筛选并覆盖分页外集合。处理对象最多500，详情最多30并说明截断；不支持的工具明确拒绝，消息或草稿与活动选择冲突不能扩大范围。
 
-### 12.2 前端：Registry、页面适配器与范围条
+V66 在临时文件库验证既有响应一次规范化、重复迁移、坏 JSON 回滚及备份恢复。原正文、事实、引用和业务金额保留；未知历史范围不续用，已知历史范围仍受现时权限约束。运行入口没有旧 reader。
 
-- Registry 拆成稳定 API 与响应式 View，注册、更新和清理由 token + routeInstanceId 保护；路由清理使用 layout effect，避免 SPA 新页面刚登记就被上一页清掉。
-- 28 个页面均登记身份与主要范围；页面异步数据未完成或失败时，`buildSnapshot()` 返回 `not_ready`，AssistantProvider 显示 warning 并停止发送。`ready` 状态不进入请求，因此 `CONTEXT_NOT_READY` 是保留码而不是正常 UI 流程的常见服务端响应。
-- `AssistantScopeBar` 展示页面名、范围 chips、当前焦点和未保存修改数；发送后以后端 `contextSummary` 为准。
-- `/assistant` 页筛选器只属于本页内存状态，不再通过持久化 `manualContext` 覆盖业务页面。
-- 草稿序列化器使用稳定代理和 latest ref：语义没变化时不递增 `contextVersion`，发送时仍读取当前渲染状态。
-
-当前生产级深度接线包括预算/实际网格焦点、矩形选区和草稿，Analysis/Structure 的筛选、图表、VerifyBar、EvidenceDrawer，以及首页、指标趋势、历年对比、版本对比的语义图表焦点。协议支持另外六种配置表单草稿，但对应页面尚未全部接入真实未保存表单状态。
-
-### 12.3 后端：统一解析、能力调度与跨年规则
-
-- `assistant/context-v2.ts` 在调用业务工具前完成 schema、大小、view 白名单、资源 ID、年度/版本/快照和树关系校验。页面内部合并顺序为 **最上层 surface > focus > page scope**；selection 当前完成结构、数量和实体校验并随请求保留，但不会通用地自动改写所有查询范围。
-- `resolve.ts` 再叠加 **本轮问题明确范围 > 页面范围 > 会话仅补空 > 默认值**。问题明确覆盖页面时返回 `contextStatus=explicit_override` 和 `contextTrace.overrides`，不是一般性 conflict。
-- 跨年规则：明确点名另一年度版本时同步切换年度并清除冲突的目标版本/实际快照；裸月份只在当前活动年度内匹配；完整日期、快照编号和“最新快照”等强信号允许跨年。跨年命中快照时年度、快照和同年预算基线原子切换，无同年基线则清除冲突版本。
-- 请求自身的 `year` 与预算版本、目标版本或实际快照矛盾时返回 `CONTEXT_CONFLICT`（409）。版本对比要求 `baseVersionId / compareVersionId` 同时存在且属于同一年度。
-- `CONTEXT_STALE` 用于焦点归属已不匹配：例如 budget/actual cell 的 sourceId 与当前页面版本/快照不同，或 verification owner 不属于当前 pageKey；不会仅因 `contextVersion` 数字回退触发。
-- 页面能力目录限定模型工具和规则意图。普通聊天中不支持的能力通常被过滤并生成 notice，`CAPABILITY_UNAVAILABLE` 保留给直接能力调用，不是所有越界提问的常规响应。
-
-### 12.4 核验事实与草稿隐私
-
-- Analysis、Structure 和 EvidenceDrawer 的领域响应提供 `verificationFacts`，页面 VerifyBar 与助手共用。客户端只传 `ownerKey / factKey` 定位，label、details、level、数量和差额均被忽略并由后端重取。
-- 结构小计核验按具体断裂 parentId 与未预算实际承接关系分类；只要仍有一个不可解释父级，整体保持 `bad`，不会被另一个可解释父级错误降级。
-- 预算/实际网格草稿在请求内叠加数据库基线，用正式 money、quantity、rollup 和指标服务重算；清空/零值遵循正式整包保存的删除语义。revision、updatedAt、当前批次或树基线变化时报 `DRAFT_STALE`。
-- 不保留：原始 `draft.changes`、单元格修改值、`changedCells` 明细。
-- 可返回或持久化：`draftApplied.kind / baseline / changeCount / issueCount`，以及 `totalDeltaCents / accountDeltas / metricDeltas / quantityChanges` 等聚合确定性影响。
-- 草稿不进入 preview/confirm；正式写入仍必须重新创建预览并由用户携带确认令牌确认。
-
-### 12.5 回答、历史、错误与测试
-
-带 `pageContext` 的回答额外返回：
-
-- `contextStatus`：`aligned` 或 `explicit_override`。
-- `effectiveContext`：后端实际采用的安全常用字段子集，不保证回显 scope 中每个扩展资源字段。
-- `contextSummary` 和 `contextTrace.used / overrides / warnings`。
-- `capability`。
-- `draftApplied`：类型、基线、变更数和问题数。
-
-这些安全摘要随 `response_json` 持久化，历史会话显示当时范围；操作日志只记 pageKey、capability、contextStatus 和 draftApplied 摘要。原始草稿、请求头、密钥、文件内容、DOM 和截图不保存。
-
-错误语义：`CONTEXT_INVALID` 用于格式/白名单/资源失败；`CONTEXT_CONFLICT` 用于确定性关系矛盾；`CONTEXT_STALE` 用于焦点归属变化；`CONTEXT_TOO_LARGE` 用于各层上限；`DRAFT_STALE` 用于基线变化。`CONTEXT_NOT_READY` 与 `CAPABILITY_UNAVAILABLE` 是已定义的保留/直接调用码，正常 UI 聊天分别以前端阻断和 notice 为主。
-
-v0.2.3 验证规模：后端 44 个文件 / 651 项，前端 10 个文件 / 127 项，Playwright 11 个 spec / 55 项。数据驱动的 `assistant-pages.spec.ts` 遍历 28 个 pageCase；跨年、版本对比、草稿隐私、核验事实与 Registry 陈旧闭包均有专门回归。
-
-更细的实施分层、已知边界与后续清单见《小澧助手全页面回答范围自动对齐：v0.2.3 实施记录与后续清单》。
-
-
+完整接口、示例和测试证据分别见 backend/AI_ASSISTANT.md、backend/assistant-openapi.json、backend/assistant-mock.json 与 docs/acceptance-records.md。阶段验收和生产发布分开登记。

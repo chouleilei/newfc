@@ -55,7 +55,7 @@
 | data_export | /data?tab=export | DataManage | analysis:export/全组织 | operations |
 | logs | /data?tab=logs | DataManage | audit:read | operations |
 
-工具迁移基线：79 项，经营预算/财务/项目/投资工具与后续新增领域工具均已归入同一执行器。模型参数由 Zod 生成，未知字段拒绝。金额单位继续沿用领域 service；列表上限见各工具 schema/service，规则降级复用相同执行器。
+工具迁移基线：79 项；T-8.5 新增两项网格选区工具，当前共 81 项。经营预算/财务/项目/投资工具与后续新增领域工具均已归入同一执行器。模型参数由 Zod 生成，未知字段拒绝。金额单位继续沿用领域 service；列表上限见各工具 schema/service，规则降级复用相同执行器。
 
 | 工具 | 权限 | 范围 | 能力 |
 |---|---|---|---|
@@ -86,6 +86,8 @@
 | get_budget_cell_history | budget:read | org_cell | budget |
 | get_cell_evidence | analysis:read | org_cell | evidence |
 | get_cell_notes | analysis:read | org_cell | budget, actual, evidence |
+| get_budget_selection | budget:read | org_scope / bounds | budget, evidence |
+| get_actual_selection | actual:read | org_scope / bounds | actual, evidence |
 | get_budget_matrix | budget:read | all_orgs | budget |
 | get_budget_quality | budget:read | all_orgs | budget |
 | get_budget_progress | budget:read | all_orgs | budget |
@@ -138,3 +140,25 @@
 | task_status | tasks:read | global | domain_support |
 | authorization_scope | assistant:use | global | domain_support |
 | configuration_overview | settings:read | global | domain_support |
+
+
+## 配置草稿与选择入口
+
+| 页面/操作 | 草稿 | 字段/同源校验 |
+|---|---|---|
+| 组织新建、编辑、移动、状态确认 | org_form | 具体操作白名单、服务器 updatedAt、层级循环与引用 |
+| 科目新建、编辑、移动、状态；表格新建/编辑 | account_form | 类型、数量单位与汇总、引用、表格根科目与折叠规则 |
+| 指标线性/比率新建与编辑 | metric_formula | 完整依赖、循环、分子分母、量纲与方向 |
+| 数据管理测算模板新建与编辑 | calculation_rule | 数量/单价/税率、输出引用、指定版本只读试算 |
+| 预算/实际清洗向导、配置页模板 | cleaning_template | 当前用户文件所有者、指纹、有效期、区域/列/单位/映射、业务基线 |
+| 配置页别名、向导名称映射 | alias_rule | 规范化重名、目标有效性、当前映射与长期别名区分 |
+
+字段含义与约束在 `contracts/config-fields.ts` 维护，正式保存与草稿复用领域 validator。已有对象使用同源 updatedAt，新建使用 clientKey；向导分析携带当前文件来源与指纹。问答不创建树快照或导入批次；正式提交在短事务内重检。
+
+| 选择 | 实际页面 | 同源服务/工具 | 处理边界 |
+|---|---|---|---|
+| bounds | 预算编制、实际录入网格 | analysis/selection.service；get_budget_selection、get_actual_selection | 页面工作表与有权组织求交，父子叶子去重；金额/数量分别 bigint 汇总，范围内草稿叠加 |
+| refs | 指标、清洗别名列表 | selection-context；list_metrics、list_cleaning_aliases | 全部选中 ID 核验、失效/冲突拒绝，编辑和切页签清空 |
+| query | 指标、清洗别名筛选结果 | 与正式列表共用 list-filters 和 service | 先核对总量，覆盖分页外匹配项；筛选变更清选择，拒绝 SQL/自报总数/行数据 |
+
+三种选择均限制 500 个对象/单元格，详情最多 30 项并说明省略；不支持的工具拒绝活动选择。注册表 token 防止迟到清理覆盖新对象。OpenAPI 的页面与工具快照由 `scripts/update-assistant-catalog.ts` 派生，运行时仍只引用源码目录。

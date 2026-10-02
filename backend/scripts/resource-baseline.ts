@@ -302,6 +302,38 @@ async function main() {
       routing = r.json?.routing ?? `HTTP ${r.status}`;
     }
     result.assistantDegraded = { requests: 5, routing, p50Ms: pct(chatMs, 50), maxMs: pct(chatMs, 100) };
+    // T-8:现行快照、六类表单草稿与真实选区，不触发正式业务写入。
+    const orgTree = await must('选择组织', call('GET', '/api/org/tree'));
+    const accountTree = await must('选择科目', call('GET', '/api/account/tree'));
+    const orgRows = orgTree.rows as { id: number; code: string; parent_id: number | null }[];
+    const accountRows = accountTree.rows as { id: number; code: string; parent_id: number | null; type: string }[];
+    const leafOrgs = orgRows.filter((r) => !orgRows.some((c) => c.parent_id === r.id));
+    const leafAccounts = accountRows.filter((r) => !accountRows.some((c) => c.parent_id === r.id));
+    const scope = { year: 2026, budgetVersionId: ids.versions.max };
+    const snapshot = (pageKey: string, extra: Record<string, unknown> = {}) => ({ schemaVersion: 2, snapshotId: 'resource-t8-' + pageKey, routeInstanceId: 'resource-route', contextVersion: 1, pageKey, scope, ...extra });
+    sampler.start();
+    const selected = await call('POST', '/api/assistant/chat', { message: '分析当前选择', pageContext: snapshot('budget_edit', { view: { sheetKey: 'all' }, selection: { mode: 'bounds', bounds: { sheetKey: 'all', orgIds: leafOrgs.slice(0, 2).map((r) => r.id), accountIds: leafAccounts.map((r) => r.id) } } }) });
+    const selectedFact = selected.json?.facts?.find((f: any) => f.type === 'selection_analysis');
+    if (selected.status !== 200 || selectedFact?.data?.count !== 400 || selectedFact?.data?.cells?.length !== 30 || selectedFact?.data?.truncated !== true) throw new Error('T-8 400 格选择负载未返回完整汇总与有界详情');
+    result.assistantSelection = { status: selected.status, count: selectedFact?.data?.count, details: selectedFact?.data?.cells?.length, truncated: selectedFact?.data?.truncated, ms: Math.round(selected.ms), peakRssMiB: sampler.stop() };
+    const moneyAccount = leafAccounts.find((r) => r.type !== 'quantity')!;
+    const quantityAccounts = leafAccounts.filter((r) => r.type === 'quantity');
+    const drafts = [
+      { page: 'org', kind: 'org_form', changes: { code: 'RESOURCE_NEW', name: '资源草稿', parentId: null } },
+      { page: 'account', kind: 'account_form', changes: { code: 'RESOURCE_NEW', name: '资源草稿', parentId: null, type: 'quantity', unit: '件', quantityAgg: 'sum' } },
+      { page: 'metric', kind: 'metric_formula', changes: { code: 'RESOURCE_NEW', name: '资源草稿', terms: [{ sourceType: 'account', sourceAccountId: moneyAccount.id, coefficient: 1 }] } },
+      { page: 'calculations', kind: 'calculation_rule', changes: { code: 'RESOURCE_NEW', name: '资源草稿', ruleType: 'multiply', config: { leftAccountCode: quantityAccounts[0].code, rightAccountCode: quantityAccounts[1].code, outputAccountCode: moneyAccount.code } } },
+      { page: 'cleaning_config', kind: 'alias_rule', changes: { targetKind: 'budget', mappingKind: 'org', sourceText: '资源草稿', targetCode: leafOrgs[0].code } },
+      { page: 'cleaning_config', kind: 'cleaning_template', changes: { name: '资源草稿', targetKind: 'budget', config: {} } },
+    ];
+    const draftResults = [];
+    for (const d of drafts) {
+      const r = await call('POST', '/api/assistant/chat', { message: '检查当前修改', pageContext: snapshot(d.page, { draft: { kind: d.kind, base: { operation: 'create', clientKey: 'resource-new' }, changes: d.changes } }) });
+      const f = r.json?.facts?.find((item: any) => item.type === 'draft_validation');
+      if (r.status !== 200 || f?.data?.kind !== d.kind || f?.data?.unsaved !== true) throw new Error(`T-8 ${d.kind} 草稿负载未返回校验事实`);
+      draftResults.push({ kind: d.kind, status: r.status, issues: f?.data?.issues?.length, ms: Math.round(r.ms) });
+    }
+    result.assistantConfigDrafts = draftResults;
 
     // T-6:跨域检索(20 次,关键词命中 100 家公司)
     const searchMs: number[] = [];

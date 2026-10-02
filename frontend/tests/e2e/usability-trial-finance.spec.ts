@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 /**
  * UX-31 代理试用(finance 项目):方案第七节的场景 5/6(导入相关)。
  * finance 夹具(集团/华东/上海公司 SH/杭州公司 HZ;I01 主营收入/C01 主营成本 等),
- * 免鉴权;临时版本跑完删除,别名跑完删除。
+ * 通过测试账号登录;临时版本跑完删除,别名跑完删除。
  *
  * 覆盖的关键业务检查:
  * - 未确认导入不写入库(S5 确认前 / S6 被拒后,API 双重核对)
@@ -154,8 +154,8 @@ test('UX31-S5 文件导入:非标准 Excel 含错别名与元单位,就地修正
   await expect(wizard.locator('.ant-statistic').filter({ hasText: '新增' }).first()).toContainText('3');
   await expect(wizard.locator('.ant-statistic').filter({ hasText: '覆盖' }).first()).toContainText('0');
   await expect(wizard.locator('.ant-statistic').filter({ hasText: '清零' }).first()).toContainText('0');
-  await expect(wizard.getByRole('cell', { name: '单位', exact: true }), '预览摘要应展示文件单位').toBeVisible();
-  await expect(wizard.getByRole('cell', { name: '元', exact: true }), '文件单位应被明确记录为元(而非系统猜测)').toBeVisible();
+  await expect(wizard.locator('.ant-descriptions').getByText('单位', { exact: true }), '预览摘要应展示文件单位').toBeVisible();
+  await expect(wizard.locator('.ant-descriptions').getByText('元', { exact: true }), '文件单位应被明确记录为元(而非系统猜测)').toBeVisible();
   await trial.shot(page, '05_文件导入_预览摘要.png');
 
   trial.step('核对(API):确认前不得写入任何数据');
