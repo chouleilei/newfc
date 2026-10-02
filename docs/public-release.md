@@ -2,7 +2,7 @@
 
 范围：T-0～T-7；AC-F01～F26、AC-X01～X10 的已记录场景。26 项功能的逐项证据见 [覆盖矩阵](coverage-matrix.md)，已执行场景和历史差异见 [验收记录](acceptance-records.md)。功能覆盖不代表所有输入、第三方服务或真实业务数据都已验证。
 
-维护者明确指示公开发布，仓库为 https://github.com/chouleilei/newfc。项目开源许可证仍待选定，本次不默认附加 MIT；许可状态见 [NOTICE](../NOTICE.md)。
+维护者明确指示公开发布，仓库为 https://github.com/chouleilei/newfc。维护者已确认以 [MIT](../LICENSE) 开源，授权适用于本仓库源码及 v0.1.0 发布源码；第三方声明见 [NOTICE](../NOTICE.md)。
 
 ## 发布内容
 

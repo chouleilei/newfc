@@ -1,5 +1,6 @@
 # newfc 水利财务分析
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/chouleilei/newfc)](https://github.com/chouleilei/newfc/releases)
 
 面向水利业务的单机财务分析系统。TypeScript + Express + React/Vite + SQLite，单 Node 进程部署；文件、任务与备份保存在本地，无需 MySQL、Redis、MinIO、Celery、Dify 或 DB-GPT。
@@ -70,8 +71,8 @@ npm run dev                           # http://localhost:5173
 - [功能覆盖](docs/coverage-matrix.md)、[完成度与后续改进](docs/function-completeness.md)
 - [公开版验收摘要](docs/public-release.md)、[验收记录](docs/acceptance-records.md)
 - [更新记录](CHANGELOG.md)、[参与开发](CONTRIBUTING.md)、[安全反馈](SECURITY.md)
-- [源码与业务规则来源](docs/source-provenance.md)、[第三方声明与许可状态](NOTICE.md)
+- [源码与业务规则来源](docs/source-provenance.md)、[MIT 许可证](LICENSE)、[第三方声明](NOTICE.md)
 
 首个公开版本为 **v0.1.0**，覆盖 26 项功能及 T-0～T-7。财务预测采用受限公式引擎，工作簿在 Excel 中编辑后导入；检索使用关键词/FTS。后续重点为审批浏览器回归、大数据量列表完整性和页面加载性能。公开仓库不包含运行库、生产凭据、真实财务原件或内部运维 QA 原件。
 
-项目源码现已按维护者指示公开；开源许可证尚未选定，不默认授予 MIT 等开源许可中的再分发授权。第三方依赖继续适用各自许可证，见 NOTICE.md。
+项目以 [MIT 许可证](LICENSE) 开源，允许使用、修改、分发和商业使用，须保留版权及许可声明。MIT 授权适用于本仓库源码及 v0.1.0 发布源码；第三方依赖继续适用各自许可证，见 [NOTICE.md](NOTICE.md)。

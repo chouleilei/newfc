@@ -19,7 +19,7 @@
 - `frontend/`：src、tests/e2e、index.html、package.json/package-lock.json、tsconfig、vite/vitest/playwright 配置、`DESIGN.md`。
 - 根目录：`.gitignore`、`.env.example`（已改写为 newfc 配置）。
 - `docs/` 中 newbd 的现行业务文档（预算口径、财务转换方案与手册、组织/科目编码、AI 助手方案），原 `docs/README.md` 改名为 `docs/inherited-docs-index.md`。代码注释里的「§x.y」多指向这些文档或已排除的历史归档。
-- 许可证：newbd 仓库未包含 LICENSE/第三方声明文件；这不代表自动获得开源授权。公开版本尚未指定项目开源许可证，许可状态与第三方声明见根目录 NOTICE.md；字体及运行依赖许可文本见 docs/third-party-licenses.txt。
+- 许可证：初始 newbd 快照未包含 LICENSE/第三方声明文件；2026-10-02 维护者明确指定 newfc 以 MIT 开源，授权包含本仓库源码及 v0.1.0 发布源码。项目许可见根目录 LICENSE，第三方声明见 NOTICE.md；字体及运行依赖许可文本见 docs/third-party-licenses.txt。
 
 ### 排除
 
