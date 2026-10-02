@@ -41,6 +41,22 @@ backups/
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
+*.env
+*.db
+*.db-wal
+*.db-shm
+*.pem
+*.key
+*.p12
+*.pfx
+
+# 内部 QA 原件留本地；公开仓库提供摘要与经核对的模拟截图
+/docs/qa/*
+!/docs/qa/README.md
+/docs/private/
+/deploy/*.local.conf
 
 # OS Files
 .DS_Store

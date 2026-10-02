@@ -1,6 +1,6 @@
 # 架构与来源
 
-状态：已确定的目标架构；初始化和代码兼容性尚待验证。部署过程见[运行规范](operations.md)。
+状态：目标架构已落地，初始化与继承基线已验证（T-0）；证据见 docs/acceptance-records.md。部署过程见[运行规范](operations.md)。
 
 ## 项目标识与来源
 
@@ -11,7 +11,7 @@
 | newbd | /root/newbd，实际指向 /data/newbd | 初始源码来源，现有应用继续独立运行 |
 | newbd 固定基线 | c67f6c4336956d64673be5f65a4c63d570ade593 | 本次调研与首次源码快照基线 |
 | lishui-finance-ai | /root/lishui-finance-ai，已提交基线 e50b4b6 / 6.1.0 | 业务需求、样本、接口与规则参考 |
-| 新应用 newfc | /root/newfc，目录已创建 | 当前含总计划和 specs；后续初始化独立 .git、源码和运行配置 |
+| 新应用 newfc | /root/newfc，目录已创建 | 已初始化独立 .git、源码与运行配置；已独立上线 |
 | 本方案 | /root/newfc/newfc-plan.md | 总览入口；细则由 specs 各主题文件维护 |
 
 上述提交是调研基线，不自动跟随任一原仓库的最新分支。初始化采用这一明确基线，后续修复另行评估。
@@ -54,7 +54,7 @@ newbd 的改进按需评估和移植：记录来源提交、受影响模块和�
 
 | 层次 | 选择与职责 |
 |---|---|
-| 前端 | 复用 newbd 的 React + TypeScript + Vite 与交互基础，按领域扩展 |
+| 前端 | React + TypeScript + Vite，沿用本项目交互并按领域扩展 |
 | API | TypeScript + Express；保持薄路由与输入校验 |
 | 业务 | 按领域组织 controller/schema/service/repository，复用现有聚焦模块，避免统一大 service |
 | 财务计算 | 精确金额表示、十进制计算和明确舍入规则，由领域服务执行 |
@@ -62,7 +62,7 @@ newbd 的改进按需评估和移植：记录来源提交、受影响模块和�
 | 文件 | 本地对象层，保留对象键、SHA-256、不可变原件和权限下载 |
 | AI | 应用内模型适配、受控工具、页面上下文、引用与数字校验 |
 | 后台工作 | 持久任务状态 + 有界执行；CPU 重任务按需交给线程或临时子进程 |
-| 部署 | 默认与 newbd 一致，使用 systemd 管理单 Node 常驻进程，提供 API、SSE 和前端构建产物；按需复用宿主反向代理 |
+| 部署 | 使用 systemd 管理单 Node 常驻进程，提供 API、SSE 和前端构建产物；按需复用宿主反向代理 |
 
 ~~~mermaid
 flowchart TD
@@ -80,16 +80,16 @@ flowchart TD
   Jobs --> Models
 ~~~
 
-优先使用 newbd 前端与接口体系。lishui 的页面和组件可按需要移植，但不承诺旧 API、表结构和页面布局逐项原样兼容；需要保持的是已确认的业务结果与流程。
+采用本项目统一的前端与接口体系，保持已确认的业务结果与流程；来源系统 API、表结构和页面布局不要求逐项原样兼容。
 
-复杂预测公式可评估复用 lishui 的 Node/Univer 计算能力，按任务启动并限制并发。扫描件 OCR、语义模型优先调用外部 API，避免本机常驻大模型；相应代价是网络依赖与 API 费用。
+预测采用内置受限公式引擎与 Worker 隔离，支持范围见实施任务；不增加独立计算服务。扫描件 OCR、语义模型优先调用外部 API，避免本机常驻大模型；相应代价是网络依赖与 API 费用。
 
 ## 模块依赖约束
 
 - Express 路由做认证、参数解析和响应；领域 service 执行业务规则及权限范围；repository 只处理持久化。
 - API、后台任务和 AI 工具调用同一 service，不各写一套计算或数据筛选。
 - 跨域通过明确的读取/业务接口协作；同一事实只有一个写入归属。禁止助手绕过 service 直接写表。
-- 继续使用 newbd 的 backend/src/modules、core、assistant 及 frontend/src 结构。按实际修改需要拆文件，不机械地给每个简单模块制造四层空壳。
+- 使用 backend/src/modules、core、assistant 及 frontend/src 结构。按实际修改需要拆文件，不机械地给每个简单模块制造四层空壳。
 - 新 API 以运行时 schema 校验；前端类型从共享契约或生成物取得，避免手写不一致 DTO。具体生成工具在首个契约闭环中选定。
 - 状态与领域数据直接落 SQLite；不得通过读取 old newbd/lishui 目录形成运行依赖。
 

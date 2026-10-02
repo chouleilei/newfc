@@ -1,6 +1,6 @@
 # AGENTS.md
 
-newfc：以 newbd（c67f6c4 快照）为代码基础、扩展 lishui-finance-ai 业务功能的水利财务分析系统。单人维护、单机部署。
+newfc：独立的水利财务分析系统，单人维护、单机部署。源码与业务规则来源见 docs/source-provenance.md。
 
 ## 先读
 

@@ -1,0 +1,20 @@
+title = "newfc secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Exact synthetic key used to verify that model credentials never enter logs"
+condition = "AND"
+paths = ['''(?:^|/)backend/tests/jobs-observability\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^sk-live-secret-123456$''']
+
+[[rules.allowlists]]
+description = "Dashboard action identifier, not an API credential"
+condition = "AND"
+paths = ['''(?:^|/)frontend/src/pages/dashboard/nextActions\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^adopt-2026-budget$''']

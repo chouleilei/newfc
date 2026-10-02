@@ -1,5 +1,7 @@
 # 运维手册
 
+本手册以 Linux/systemd 单机部署为例。模板中的 `/root/newfc`、`/data/newfc-data` 和 Node 路径需要按自己的安装位置调整。生产凭据由部署者设置；公开版不提供可共享的供应商账号。
+
 规则来源：[specs/operations.md](../specs/operations.md)。本手册记录 newfc 实际的命令和路径。
 
 ## 固定运行参数（OPEN-07 结论）
@@ -10,10 +12,10 @@
 | SQLite | 3.53.2（better-sqlite3 内置），FTS5 + trigram 分词可用 | 启动自检记录 |
 | 服务 | `newfc.service`，模板 `deploy/newfc.service` | 与 newbd-budget.service 完全独立 |
 | 端口 | 3760（生产），3761/3762（E2E），测试用 0 随机端口 | 3748 为 newbd 占用 |
-| 数据目录 | `/data/newfc-data`（持久盘 /dev/vdb1） | `newfc.sqlite` + WAL/SHM、`backups/`、`files/`、`cleaning-uploads/` |
+| 数据目录 | `/data/newfc-data`（示例路径） | `newfc.sqlite` + WAL/SHM、`backups/`、`files/`、`cleaning-uploads/` |
 | 运行身份 | root + `ProtectSystem=strict`、`ProtectHome=read-only`、`ReadWritePaths=/data/newfc-data` | 代码位于 /root/newfc（仅 root 可读）；文件系统隔离保证进程只能写本实例数据目录 |
 | 配置 | `/data/newfc-data/newfc.env`（chmod 600），模板为仓库根 `.env.example` | 不共用 newbd 的 .env |
-| 外网 | `https://newfc.tangdalei.com`：宿主 nginx 独立站点 `/etc/nginx/sites-available/newfc.tangdalei.com`（副本 `deploy/nginx-newfc.tangdalei.com.conf`），Let's Encrypt 证书由 certbot 自动续期；`newfc.env` 设 `NEWFC_TRUST_PROXY=1` | 2026-09-30 启用；HTTP 301 到 HTTPS，Cookie 带 Secure，3760 只监听本机 |
+| 外网 | 自有域名 + HTTPS，模板 `deploy/nginx-newfc.example.conf`；单层可信代理时设 `NEWFC_TRUST_PROXY=1` | 关闭 SSE 缓冲、HTTP 跳转 HTTPS，服务只监听本机 |
 
 ## 首次安装
 
@@ -103,21 +105,29 @@ NEWFC_DATA_DIR=/data/newfc-data npm run admin:create -- --username admin --displ
 
 ## OCR 适配（费用审核 AC-F22）
 
-- **配置**：在「系统设置 → 业务设置 → 集成」里填 `OCR 服务地址`（https，或本机 http）和可选的 `OCR 服务密钥`。未配置时，审核运行记录 `OCR_UNAVAILABLE`，材料核对只看附件名，需要人工查看原件。
-- **调用范围**：只识别 pdf/png/jpg/jpeg/bmp/tif/tiff/webp/ofd 附件。在后台任务里、写事务之外调用，单次超时 30 秒。
-- **请求**：`POST <OCR 服务地址>`，`Content-Type: application/json`，配置了密钥时带 `Authorization: Bearer <密钥>`。请求体：`{"fileName": "...", "contentType": "image/jpeg", "contentBase64": "..."}`。
-- **响应**：HTTP 200 的 JSON，`{"text": "全文"}` 或 `{"pages": [{"page": 1, "text": "..."}]}`，两种至少返回一种。非 200、超时或缺字段时记录 `OCR_FAILED`，不当作通过。
+- **原有 OCR 服务**：发布适配代码后，在「系统设置 → 业务设置 → 业务参数 → 集成」将 `OCR 接口类型` 选为“原有 OCR 服务（异步）”，`OCR 服务地址` 填 `https://ocr.example.com/api`（不带查询参数），填写 `OCR 登录账号` 和 `OCR 登录密码`，`OCR 识别类型` 默认 `1`，`异步 OCR 超时（秒）` 默认 `120`。`OCR 服务密钥` 不用于这种接口。无需 Dify 或额外转接进程；设置保存后供下一次审核使用，已进入人工复核的单据可通过重跑审核生成新运行。
+- **原 JSON 接口**：`OCR 接口类型` 缺省为“JSON 同步接口”，旧配置继续有效；服务地址填写完整调用地址，服务密钥可选，超时仍为 30 秒。
+- **调用与失败处理**：仅 pdf/png/jpg/jpeg/bmp/tif/tiff/webp/ofd 附件进入识别，在后台任务、写事务之外调用。服务不支持的格式、认证失败、任务失败、超时、空结果均记录 `OCR_FAILED` 并提示人工查看原件；服务地址未配置记 `OCR_UNAVAILABLE`。不接受重定向，不把识别失败当作审核通过。具体网络契约、响应上限与设置项见 [实施规范](../specs/implementation.md#实施决定t-4)。
 - **缓存**：结果按附件 sha256 写入 `ex_ocr_cache`，同一原件不再重复识别。更换 OCR 供应商后如需重新识别，先停服务，再清空该表（`DELETE FROM ex_ocr_cache;`）。
-- **兼容性**：接第三方 OCR 时需要一层很薄的转接服务，把上面的契约映射到供应商 API。OPEN-05 结论：与 lishui 一致——lishui 的 OCR 由 Dify 工作流承担，newfc 不引入 Dify，因此沿用本契约；未接 OCR 服务时按附件名核对并转人工复核。
+- **验收边界**：原有服务曾在 lishui 的受控联调中识别 PDF 成功；这不是 newfc 当前真实服务验收。本次适配有 HTTP 协议桩和费用审核集成测试，newfc 已配置实际供应商凭据，并按用户确认用合成扫描件完成费用流程验证，不能从其他项目运行目录复制配置。
 
 ## 模型渠道与费用制度（OPEN-05）
 
-- **模型**：与 lishui 一致，OpenAI 兼容协议、供应商 SiliconFlow。在 `/data/newfc-data/newfc.env` 填 `AI_BASE_URL="https://api.siliconflow.cn/v1"`、`AI_API_KEY`、`AI_MODEL`（须支持 function calling），然后 `systemctl restart newfc`。未配置时助手与费用审核按规则运行，并如实标注“未配置模型”。
-- **费用制度样本**：lishui 首版预审规则（差旅 5,000、住宿 1,500、业务招待 3,000、办公 10,000、培训 20,000、车辆 5,000 元；必备材料至少命中 min(2, N) 项）已转写为 `deploy/expense-policy-lishui.json`。发布：
+- **模型**：在系统设置中创建自己的模型渠道并绑定功能，或使用下面的环境变量示例（库内绑定优先），采用 OpenAI 兼容协议。在 `/data/newfc-data/newfc.env` 填 `AI_BASE_URL="https://api.siliconflow.cn/v1"`、`AI_API_KEY`、`AI_MODEL`（须支持 function calling），然后 `systemctl restart newfc`。未配置时助手与费用审核按规则运行，并如实标注“未配置模型”。
+- **费用制度样本**：lishui 首版预审规则（差旅 5,000、住宿 1,500、业务招待 3,000、办公 10,000、培训 20,000、车辆 5,000 元；必备材料至少命中 min(2, N) 项）已转写为 `deploy/expense-policy-v1.json`。发布：
 
   ```bash
   cd /root/newfc/backend && export PATH=/root/.nvm/versions/node/v24.21.0/bin:$PATH
-  NEWFC_DATA_DIR=/data/newfc-data npm run expense:policy:import -- --file ../deploy/expense-policy-lishui.json
+  NEWFC_DATA_DIR=/data/newfc-data npm run expense:policy:import -- --file ../deploy/expense-policy-v1.json
   ```
 
   同编码已有生效版本时跳过；调整阈值在页面“制度依据”发布新版本（条款不可改，只能出新版本）。
+
+
+## 仓库独立化与兼容入口
+
+产品与前端内部命名统一为 newfc，助手显示为“财务助手”。浏览器升级时仅在同源下迁移已知旧键，账号偏好只接受 account:<服务端 ID>，不迁移旧显示名/default 空间。来源与历史验收不改写，保留项见 [独立化清理记录](repository-independence.md)。
+
+旧组织/科目 API 初始化脚本已移除；主数据通过正式页面维护或受控导入。`backend/scripts/fixtures/water-finance-master-data.cjs` 仅导出模拟夹具定义，没有数据库或网络操作。`npm run seed:e2e:simulation` 只重建专用可丢弃目录，不能作为生产初始化命令。
+
+费用样本改名为 `deploy/expense-policy-v1.json`；保留已发布的 `LISHUI-EXPENSE-V1` 编码以保证导入幂等和审核引用，不改现有运行数据。使用同编码重新导入仍默认跳过；新版本发布须按既有流程显式指定 `--new-version`。`import:newbd` 保留为来源特定的离线快照兼容入口，并继续拒绝原项目运行路径。

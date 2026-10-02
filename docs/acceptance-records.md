@@ -1,5 +1,7 @@
 # 验收记录
 
+公开版说明：历史内部 QA 原件保留在维护者本地，链接统一指向 [QA 材料说明](qa/README.md)。公开发布检查见 [公开版验收摘要](public-release.md)。
+
 格式与判定规则见 [specs/acceptance.md](../specs/acceptance.md)。结果只有：通过 / 失败 / 未执行。未列出的验收 ID 均为未执行。
 
 ## T-0 独立源码与运行基线
@@ -288,3 +290,222 @@ E2E 运行前提：webServer 直接跑 `backend/dist/index.js`，必须先在 ba
 | AI 提示补充 | V65 `ai_prompt_supplement`：七个改写任务各一条补充说明（≤1000 字，带期望版本，清空代替删除），附在系统硬约束与任务说明之后并声明不得违背其上约束；数字/编码守卫不变；非空时 prompt 版本为 `基础版本+s.<sha256 前 8 位>` 并随生成物落库；审计只记长度与哈希；不开放整段提示词替换（与 lishui 可配置 system prompt 的差异） | 同上 用例 3 |
 
 测试汇总（2026-10-01，T-7 全部提交后）：后端 `npx tsc --noEmit` 通过，`npx vitest run` 101 个文件 / 953 个用例通过；前端 `npx vitest run` 40 个文件 / 432 个用例通过，`npx tsc -b` 通过。E2E 未重跑；V61～V65 迁移尚未在生产执行（需经 `scripts/deploy.sh` 发布）。
+
+## T-7 功能闭环复核（2026-10-01）
+
+对应功能 `dashboard`、`finance_forecast`、`investment_feasibility`、`financial_statements`、`master_data`、`system_settings`；任务 T-7，AC-F03/F07/F10/F11/F12/F23 与 AC-X04/X05/X10。核对基线 `811d13a`，增量为当前工作区改动，尚未提交/发布。检查结论见 [功能完成度检查](function-completeness.md)。本次无新增依赖或迁移；HTTP/财务测试只用系统临时目录 SQLite，未访问生产库及其他项目运行目录。
+
+| 场景 | 执行方式 | 实际结果 | 判定 |
+|---|---|---|---|
+| 预测复核队列与首页待办 | `t7-forecast-workflow.test.ts` 新增队列用例 | 草稿/已审/归档模型不进入队列；授权上海只见上海，授权华东可见上海+杭州；与首页计数一致；范围外组织 404、无读权限 403；复核后计数变 0 | 通过 |
+| 可研待办与审批依据 | `t7-feasibility-workflow.test.ts` | 待审报告与首页计数一致；参数变化后草稿/退回稿提交和待审稿批准均返回 409 `FEAS_REPORT_STALE`；拒绝不改版本/状态，过期稿仍可退回；历史已审报告标记过期且保留 | 通过 |
+| 报告生成并发变化 | 同上新增独立用例，桩改写阶段通过真实 HTTP 修改参数 | 生成结束重新核验，返回 `FEAS_REPORT_STALE`，`if_report` 行数仍为 0 | 通过 |
+| 待办深链与页面门禁 | 前端 `pages/invest/reviewWorkflow.test.tsx` | `/forecast?tab=reviews` 直接展示队列；可研待审深链按状态取数并定位详情；过期草稿禁提交，过期待审稿禁批准、仍可退回 | 通过 |
+| 扩展字段失败与重试 | 同上项目/供应商两例 | 失败明确显示原因，新建不可点击；重试加载成功后可新建 | 通过 |
+| 财报批次变化刷新趋势 | 同上财报用例，通过页面激活与确认 | 激活调用成功后旧趋势缓存失效，下一次读取须重新取数 | 通过 |
+| 既有功能全量回归 | 后端 `npx tsc --noEmit && npx vitest run`；前端 `npx vitest run && npx tsc -b` | 后端 101 文件 / 955 项通过，源码类型检查通过；前端 41 文件 / 438 项通过，类型检查通过 | 通过 |
+| T-7 浏览器全量/正式发布/真实模型与 OCR | 未执行 | 本次仅代码和自动化回归；生产发布状态沿用既有记录，真实供应商输出仍待样本验证 | 未执行 |
+
+补充检查：`backend npx tsc --noEmit -p tsconfig.test.json` 尚未通过，主要是历史 HTTP 测试直接使用 `Response.json()` 的 `unknown` 结果。对 `811d13a` 的独立临时快照（同一 Node/依赖，含前端共享计算源码）复现 694 条既有类型错误；本次触及的三个 HTTP 测试文件改为复用已有 `t3-helpers.json`，剩余 443 条报错均在其他测试文件，源码和本次修改的测试文件无报错；三个文件的 7 项聚焦回归再次通过。不新增响应解析机制。此附加检查与上表规定的源码类型检查/Vitest 分开判定，不把测试可执行等同于全部测试文件类型检查通过。
+
+## 前后端日常操作复核（2026-10-01）
+
+对应功能 `expense_audit`、`cross_domain_search`、`project_budget`、`dashboard` 与 `finance_forecast`；任务 T-7 收口，AC-F03/F09/F11/F22/F26、AC-X04。基线仍为 `811d13a`，改动在工作区，未提交/发布；无新增依赖、迁移或常驻服务。
+
+| 场景 | 实际证据与结果 | 判定 |
+|---|---|---|
+| 授权根与所属组织分离 | `ExpenseClaims.test.tsx`：只授权华东的账号默认不传 orgId，费用列表与统计取全部授权范围；首页待审深链显示下级单据 | 通过 |
+| 创建与后台审核后的页面更新 | 同上：新建后列表/计数重查；详情关闭时审核结束仍刷新待复核筛选，结束后不继续轮询；首页待办/概况缓存失效 | 通过 |
+| 状态统计失败 | 同上：保留成功加载的费用列表，显示明确失败原因与重试动作，成功后提示消失 | 通过 |
+| 较早预算批次检索 | `t6-search.test.ts`：临时库内 302 个批次，较早匹配批次仍可搜索/联想；上海授权看不到南京明细批次；领域关键词不使用通配符 | 通过 |
+| 后端聚焦与全量 | `npx vitest run tests/t6-search.test.ts tests/t4-project-budget.test.ts` 8/8；`npx vitest run` 101 文件 / 956 项；`npx tsc --noEmit` 通过 | 通过 |
+| 前端聚焦与全量 | `npx vitest run src/pages/expense/ExpenseClaims.test.tsx` 4/4；`npx vitest run` 42 文件 / 442 项；`npm run build:e2e` 内的 `tsc -b` 与 Vite 构建通过 | 通过 |
+| 独立构建与浏览器链路 | 后端 `npx tsc --outDir .e2e-dist`，前端 `npm run build:e2e`；finance 项目的 `project-contract cross-domain risk-investment finance-data` 共 11/11 通过。覆盖费用父组织授权、创建/审核/复核/工作台、合同导入、财报/EAS、投资对比、预测待复核队列→详情→复核后移除→基准/情景对比、风险/报告、检索进入项目档案 | 通过 |
+
+浏览器通过临时 `.e2e-dist/audit.config.ts` 复用原 Playwright 配置，仅启 finance 服务，设置工作目录为 frontend 并把后端入口替换成 `.e2e-dist/index.js`；执行 `E2E_FRONTEND_DIST=.e2e-dist npx playwright test --config=.e2e-dist/audit.config.ts --project=finance project-contract cross-domain risk-investment finance-data`。数据库仅为本仓库可丢弃的 `backend/data/finance-e2e`，端口 3761；未构建/替换运行用 dist，未访问运行库或其他项目目录。
+
+首轮浏览器结果为 9 通过、2 失败：既有用例仍按 searchbox 找联想输入框，且仍按“冻结”旧按钮/消息操作预测版本。核对 trace 后更新为实际 combobox、项目档案入口与“冻结并提交复核”，并补实际队列复核场景；重跑上述 11 项全部通过。该记录为聚焦浏览器回归，不替代 finance/simulation 全量或真实供应商验收。
+
+日志保留于 `/tmp/newfc-independent-backend-focused.log`、`/tmp/newfc-independent-backend-all.log`、`/tmp/newfc-independent-frontend-focused.log`、`/tmp/newfc-independent-frontend-all.log`、`/tmp/newfc-independent-frontend-build.log`、`/tmp/newfc-independent-browser-rerun.log`。前端包体积及后续数据量/交互改进优先级见 [功能完成度检查](function-completeness.md#前后端后续改进优先级)。
+
+## 台账分页与定位复核（2026-10-01）
+
+对应功能 `project_budget`、`project_contract`、`expense_audit`、`cross_domain_search`；任务 T-7 收口，AC-F09/F16/F22/F26、AC-X04/X05。仍为 `811d13a` 基线上的工作区增量，未提交/发布；无新增依赖、迁移或常驻服务。
+
+新增 `/api/contracts/page`、`/api/expense/claims/page`、`/api/project-budget/batches/page`，返回公共分页结构。领域列表和分页共用同一过滤函数；范围与筛选同时应用到 count/items，在短读事务中读取。已有数组接口保持兼容；页面使用分页接口，保存 URL 筛选及页码，改变筛选回第一页。预算深链按 ID 读取，激活前读取当前期间的生效批次并显式确认，后端继续校验 expectedCurrentBatchId。
+
+| 场景 | 证据 | 实际结果 |
+|---|---|---|
+| 超过旧上限仍可查看旧单据 | `list-pagination.test.ts`，合同与费用各 502 条，其中 1 条在范围外 | 授权总数 501，第一页 20 条，第 26 页能读取旧单据；相同更新时间按 ID 稳定排序；超尾页收敛到实际尾页，空筛选 page=1 |
+| 范围裁剪与金额精度 | 同上，金额分为 `9007199254740993n` | 分页返回 `90071992547409.93`；范围外对象不计数、不出现在页内 |
+| 预算批次分页与部分可见 | 同上，303 批次含 1 个范围外批次和 1 个混合组织批次 | 受限总数 302，第 31 页可读取较早批次；混合批次只汇总授权金额并标记 partial；年度/期间/状态/关键词过滤有效 |
+| 参数与权限 | 同上，三种分页接口 | 非正整数、超大 pageSize、重复 page 参数均 400；未登录 401、无领域读权限 403 |
+| URL 条件恢复、分页与重查 | `ExpenseClaims.test.tsx` 新增操作用例 | 从网址恢复组织、关键词及第 26 页；翻页保留筛选；重新搜索回第一页；此前创建/审核刷新场景仍通过 |
+| 预算旧批次定位与失败恢复 | `ledgerPagination.test.tsx` | 按 ID 直接读取旧年度批次，不调用有限数组列表；切换 ID 不复用另一对象缓存；失败保留定位并可重试 |
+| 激活确认与当前批次不在列表内 | 同上 | 从期间汇总读取列表外的当前批次 #77，确认框展示替换对象；取消不写入，确认请求带 expectedCurrentBatchId=77 |
+| 后端全量及类型 | `npx tsc --noEmit && npx vitest run` | 102 文件 / 960 项通过，源码类型检查通过 |
+| 前端全量及类型 | `npx vitest run && npx tsc -b` | 43 文件 / 446 项通过，类型检查通过 |
+| 隔离构建与浏览器 | 后端 `npx tsc --outDir .e2e-dist`，前端 `npm run build:e2e`；复用上一节临时 Playwright 配置，运行四组 finance 场景 | 12/12 通过；新增真实合同/费用第二页、刷新保留筛选/页码、搜索回第一页及总数场景；既有财报/EAS、投资/预测复核、风险/报告、检索与费用流程仍通过 |
+
+后端聚焦 `list-pagination.test.ts`、`t4-project-budget.test.ts`、`t6-search.test.ts` 共 12/12。所有库仅为系统临时目录或可丢弃的 `backend/data/finance-e2e`，浏览器端口 3761；运行 dist、运行库和其他项目目录未修改。初次组件检查修正了测试查询方法名称；双确认组件用例改用局部文本查询以减少 jsdom 的样式计算，完整回归通过。此证据仍不是 finance/simulation 浏览器全量或真实供应商验收。
+
+日志：`/tmp/newfc-pagination-backend-focused.log`、`/tmp/newfc-pagination-backend-all.log`、`/tmp/newfc-pagination-frontend-focused.log`、`/tmp/newfc-pagination-frontend-types.log`、`/tmp/newfc-pagination-frontend-build.log`、`/tmp/newfc-pagination-browser.log`；前端全量结果由终端会话输出保存于本次工作记录。
+
+## 原有 OCR 服务适配（2026-10-02）
+
+用户要求适配原项目使用的 `https://ocr.tangdalei.com/api`。任务 T-7，AC-F22/F23、AC-X06；代码基线仍为 `811d13a`，本次增量在已有工作区之上，未提交/发布。按原项目历史源码协议重写 TypeScript 适配（来源见 source-provenance.md），仅只读查阅 lishui 源码/历史文档；没有读取其他项目运行配置、运行数据库或真实凭据，没有修改生产产物和服务。
+
+新增 OCR 接口类型、登录账号/密码、识别类型与总超时设置；通用设置页面根据登记表自动显示新增字段。默认保留 JSON 同步接口，原有服务模式在进程内完成表单登录、multipart 上传、每秒查询任务状态和 Markdown 下载，不新增依赖、迁移或常驻服务。网络调用仍在写事务外，成功结果沿用附件 sha256 缓存；失败与空结果记录 OCR_FAILED，仍由人工复核。
+
+| 场景 | 证据 | 实际结果 | 判定 |
+|---|---|---|---|
+| 原有接口流程 | `ocr-adapter.test.ts` 的真实本地 HTTP 服务 | 登录表单字段、multipart 文件与 api_type 正确；保留 /api 路径前缀；任务 ID 路径编码；processing 后继续查询、完成后读取 Markdown；图片按原文件名与 MIME 上传 | 通过 |
+| 异常、时限与凭据 | 同上 | 401、缺 token/任务 ID、失败状态、畸形 JSON、空结果、响应超过 1 MiB、重定向均拒绝；整个流程共用总时限，超时不下载；错误不含密码/token/供应商原文 | 通过 |
+| 费用审核与缓存 | 同上，临时目录 SQLite + 真实 HTTP 单据操作 | 识别文字参与住宿/交通材料核对；重跑复用缓存；供应商失败不缓存，单据仍为待人工复核、conclusion 为 null | 通过 |
+| 设置与原接口兼容 | 同上及 `master-settings.test.ts`、`t4-expense.test.ts` | 密码不回显/不写审计正文；类型/时限校验；异步根地址拒绝查询参数/片段，整批拒绝不留下其他字段；旧 JSON/OCR 及费用流程通过 | 通过 |
+| 相邻业务设置 | `t6-settings.test.ts` | 投资控制阈值跨项校验、默认设置取值与预测超时行为通过 | 通过 |
+| 后端源码类型与聚焦回归 | Node 24.21.0；`npx tsc --noEmit`；`npx vitest run tests/ocr-adapter.test.ts tests/t4-expense.test.ts tests/master-settings.test.ts tests/t6-settings.test.ts` | 类型检查通过，4 文件 / 27 项通过（新增 OCR 文件 12 项），日志 `/tmp/newfc-ocr-adapter-checks.log` | 通过 |
+| 真实 OCR、浏览器全量及生产发布 | 未执行 | 未取得 newfc 的真实登录凭据；原项目 2026-06-04 的成功记录不替代本次供应商验收。发布后须在 newfc 设置页配置并用真实单据补验；前后端/浏览器全量仍沿用前文记录 | 未执行 |
+
+
+## 独立项目复查与重新发布（2026-10-02）
+
+对应功能 `platform_auth`、`dashboard`、`operating_budget`、`xiaoli_assistant`、`agent_observability`、`cross_domain_search`；任务 T-7 收口，AC-F01/F03/F08/F20/F21/F26、AC-X04/X07。基线仍为 `811d13a`，本次修复与前文尚未发布的 T-7、分页和 OCR 增量共同发布；未提交。问题与修复清单见 [独立项目排查](independence-audit.md)。
+
+产品修复：左上角统一水利财务分析品牌与图标；原预算编制/实际/分析合并为“经营预算”，保留 12 个叶子路由及权限；首页全部收起、深链仅展开所属组、手动单组展开。修复手机顶栏和检索控件、检索误高亮首页、工作台单位和预算初始化文案。登录/退出/失效清空查询缓存并取消在途查询；个人偏好按服务端用户 ID 隔离；收藏、最近访问及模型调用页签按权限/范围裁剪。再次复查发现助手全局提示词和词典混用预算金额口径，改为按领域区分分、元字符串与显式单位，以及差异的方向含义。
+
+旧显示名/default 偏好可能由不同账号共用，因此不自动迁移到 ID 空间；旧记录保留，收藏/保存视图需重新设置。授权收窄仅隐藏该账号不可用的个人入口，不删除记录。
+
+| 浏览器与构建场景 | 实际执行与结果 | 判定 |
+|---|---|---|
+| 首次聚焦界面检查 | 18 项：17 通过、1 失败；截图确认手机顶栏账号菜单超出视口，随后修复布局 | 已修复并复验 |
+| finance/simulation 全量 | `E2E_FRONTEND_DIST=.e2e-dist npx playwright test --config=.e2e-dist/audit.config.ts`：84 项，80 通过、4 失败；助手/实际页/首页旧选择器误选顶栏控件，手机检索用例误用 textbox 而实际为 searchbox | 首次失败记录保留 |
+| 最终构建与受影响场景 | 后端 `npx tsc --outDir .e2e-dist --noEmitOnError`；前端 `npx tsc -b`、Vite 输出 `/tmp/newfc-shell-frontend-final`。复跑 assistant、assistant-dock、cleaning-import、independent-shell、deep-functional-audit、navigation-expansion 共 20 项：19 通过、1 失败 | 主要复验通过 |
+| 导入保护最后复验 | 上一轮实际报表已正确定位，但组件输入框被选中标签挡住，点击超时；改为点击该控件的可见 selector 区域，不使用强制点击，不删断言。cleaning-import 两项 2/2 通过，覆盖六步导入与未保存编辑守卫 | 通过 |
+| 主界面与会话隔离 | independent-shell 三项均通过：品牌、折叠、12 个叶子入口、深链、高亮、万元仅在对应预算页；桌面暗色与 390px 手机检索/账号菜单；同标签页同名账号切换后重查业务数据且不共用收藏 | 通过 |
+| 跨域业务及逐页检查 | 全量中的财报/EAS、合同导入/台账翻页、费用补件/审核/待办、投资/预测复核、风险/报告、检索、受限账号、桌面逐页与各页手机溢出检查通过；失败的跨年度深度交互复验通过，含筛选/穿透/下载/年度关闭/日志 | 通过 |
+
+上述是“全量后按影响复验”的组合证据，不表述成最后一次全量 84/84。浏览器只用本仓库可丢弃的 finance-e2e/e2e-simulation 库和 3761/3762，未对生产执行写入用例。截图 `/tmp/newfc-independent-shell-desktop.png`、`/tmp/newfc-independent-shell-dark.png`、`/tmp/newfc-independent-shell-mobile.png` 已人工核对；修复前手机截图另存 `/tmp/newfc-independent-shell-mobile-before.png`。
+
+日志：`/tmp/newfc-shell-browser-first.log`、`/tmp/newfc-shell-browser-all.log`、`/tmp/newfc-shell-browser-final.log`、`/tmp/newfc-shell-browser-cleaning-final.log`、`/tmp/newfc-shell-backend-final-build.log`、`/tmp/newfc-shell-frontend-final-build.log`。首次全量及 20 项复验的失败 trace、截图和报告分别保存在 `/tmp/newfc-shell-browser-all-results`、`/tmp/newfc-shell-browser-all-report`、`/tmp/newfc-shell-browser-final-results`、`/tmp/newfc-shell-browser-final-report`。
+
+真实模型/OCR 的凭据配置与真实单据输出仍需按原供应商验收补验；协议测试与确定性问答不替代真实供应商验证。附加的后端测试文件类型检查历史错误沿用前文单独记录，不与源码类型/Vitest 混为一项。
+
+发布门禁（`scripts/deploy.sh`，Node 24.21.0）：后端源码 `tsc --noEmit` 与 103 文件 / 972 用例通过；前端 46 文件 / 455 用例通过。包含本次会话缓存隔离三例、同名账号 ID 命名空间、授权入口隐藏与恢复、模型调用页签门禁，以及原有金额/权限/事务/T-7/分页/OCR 回归。实际日志 `/tmp/newfc-shell-deploy-migration.log`。
+
+
+正式发布：`NEWFC_ROOT=/root/newfc NEWFC_DATA_DIR=/data/newfc-data NEWFC_SERVICE=newfc.service NEWFC_PORT=3760 scripts/deploy.sh` 返回 0；后端正式编译、前端 `tsc -b`/Vite 构建通过。脚本停服后创建迁移前备份，再显式应用 V61～V65，替换产物并启动，就绪检查通过。备份 `/data/newfc-data/backups/pre-migrate-cli-budget-backup-2026-10-02-065635.sqlite`（清单 V60）经只读验证：SQLite 完整性、外键、清单、库摘要及对象清单均通过；上一版保留在 backend/dist.old 与 frontend/dist.old。本次没有恢复生产库，也未把只读备份校验称为新的恢复演练。
+
+线上验证（2026-10-02）：newfc.service 于 06:56:36 CST 启动，active/running、NRestarts=0；本机 3760 与 `https://newfc.tangdalei.com` 的 live/ready 均 200，schema 为 V65，数据库/存储检查通过。两端首页与 favicon 内容和正式 dist 完全一致，未登录 dashboard 均 401。公网真实浏览器加载登录页成功，标题 `newfc 水利财务分析`，无 pageerror；截图 `/tmp/newfc-shell-production-login.png`。验证只发只读请求，没有创建测试账号或写入业务数据。日志 `/tmp/newfc-shell-production-check.log`；部署日志 `/tmp/newfc-shell-deploy-migration.log`。
+
+
+线上截图补查：登录页仍无条件显示 `npm run admin:create` 初始化命令，已上线实例容易误导普通用户；改为“请使用管理员分配的账号登录，无法登录时请联系管理员。”，命令仍在运行手册。最后仅修改这一句界面文案，未改业务/接口/依赖，按低影响改动执行 `scripts/deploy.sh --skip-tests`；沿用刚完成的 972/455 全量测试，重新完成前后端编译、前端类型检查及正式构建，不为纯文案新增测试。此次无待执行迁移，使用前一次已验证的 V60 备份；dist.old 现在保存首次更新后的 V65 产物。
+
+最终服务于 2026-10-02 06:59:39 CST 启动，active/running、NRestarts=0，部署返回 0；重新执行本机/公网 live/ready、V65、未登录 401、正式首页/图标匹配和备份完整性检查，全部通过。公网浏览器额外断言新账号帮助可见、初始化命令不可见，标题正确且无 pageerror；更新 `/tmp/newfc-shell-production-login.png`。最终构建/部署日志 `/tmp/newfc-shell-deploy.log`，最终线上日志 `/tmp/newfc-shell-production-check.log`；全量测试及迁移日志保留在 `/tmp/newfc-shell-deploy-migration.log`。
+
+
+## T-7 二次身份排查（2026-10-02，AC-F01/F11/F12、AC-X04）
+
+承接已经部署的独立项目外壳修复，再检查账号切换、在途响应与复核身份。新增修复：CSRF 刷新仅在原账号/权限/组织范围/改密状态不变时重试一次；变化时不重放旧操作，清会话回登录页；旧普通请求、下载和助手流不能返回旧数据或以迟到 401 清掉新会话。可研和预测本人提交提示由服务端按账号 ID 生成，修复同名及改名误判；后台复核权限和例外原因校验继续有效。无新增依赖或迁移。
+
+聚焦后端：`t7-feasibility-workflow`、`t7-forecast-workflow` 共 2 文件 / 4 用例通过，既有完整 HTTP 流程中增加同名/改名、提交人与不同复核人各自读取的身份字段断言。使用临时数据库。后端源码编译至 `.e2e-dist` 通过；前端 `tsc -b` 与隔离 Vite 构建至 `/tmp/newfc-followup-frontend` 通过。日志 `/tmp/newfc-followup-backend-focused.log`、`/tmp/newfc-followup-backend-build.log`、`/tmp/newfc-followup-frontend-build.log`。
+
+前端聚焦最终验证：4 文件 / 33 用例通过（client、assistant.session、AuthGate、reviewWorkflow）。覆盖账号/权限/组织/改密变化不重试，解码及令牌刷新期间切换会话，迟到 200/401 与 SSE，不同账号同名/实际提交人改名的可研和预测弹窗实际提交，以及既有缓存与过期稿保护。页面用例首轮两项超过默认 5 秒；改为定位具体确认文本并给新增 Antd 交互用例 20 秒时限后完整复验通过，保留所有业务断言。日志 `/tmp/newfc-followup-focused-final.log`，首轮日志 `/tmp/newfc-followup-review-ui.log`。
+
+隔离浏览器回归：finance 项目共 19/19 通过，包含 auth-session、independent-shell、assistant、assistant-dock、risk-investment。新增双页共享 Cookie 场景：A 页留有未提交供应商表单，B 页退出并登录另一账号，A 页写请求只返回一次 403，无重试，回登录页且旧弹窗卸载；服务端检索确认未创建供应商，B 页保持登录。其余覆盖品牌/默认折叠/深链/手机、同名账号偏好隔离、助手一次性与流式、投资控制、可研/预测冻结与情景、风险报告。只使用可丢弃夹具库 3761/3762，没有生产写入。日志 `/tmp/newfc-followup-browser.log`。本轮不重复前一轮全站 84 项审计，范围与组合证据见上文。
+
+正式发布门禁：Node 24.21.0，`scripts/deploy.sh` 的后端源码类型检查、103 文件 / 972 用例，以及前端 47 文件 / 469 用例全部通过，包含全部已有金额、授权、事务、分页、OCR、工作流与新增身份回归。日志 `/tmp/newfc-followup-deploy.log`。
+
+正式重新部署：`NEWFC_ROOT=/root/newfc NEWFC_DATA_DIR=/data/newfc-data NEWFC_SERVICE=newfc.service NEWFC_PORT=3760 scripts/deploy.sh` 返回 0；前后端 dist.new 编译、前端类型与 Vite 构建通过，停服、显式迁移检查、替换、启动及就绪检查成功。本次数据库已是最新版本，没有待执行迁移，也未创建新的迁移前备份；schema 保持 V65，上一版代码产物保留在 dist.old。
+
+线上只读验证（2026-10-02 07:36:33 CST 启动）：newfc.service 为 active/running，NRestarts=0；本机 3760 与 `https://newfc.tangdalei.com` 的 live/ready 均 200，数据库、V65 schema、存储检查通过；未登录 dashboard 均 401，首页和 favicon 内容均与正式 dist 一致。公网 Chromium 加载登录页，标题 `newfc 水利财务分析`、账号帮助正确，无 pageerror。没有生产测试账号或业务写入。日志 `/tmp/newfc-followup-production-check.log`、`/tmp/newfc-followup-service-status.log`；截图 `/tmp/newfc-followup-production-login.png`；完整发布日志 `/tmp/newfc-followup-deploy.log`。
+
+## F20 助手全领域补齐（2026-10-02，AC-F20、AC-X04/X06）
+
+本轮为已授权的助手功能补齐，仅修改工作区源码及验收文档，未提交或发布。页面能力目录从 28 个扩为 50 个，新增独立领域 ID、只读工具、当前页签/筛选/详情上下文、名称歧义澄清、规则降级摘要、精确金额事实与实际来源深链。覆盖经营预算之外的 EAS、财报/趋势、管理会计、项目预算、计划、合同、报销/制度、可研、投资控制、预测、风险、报告、治理、主数据、任务与配置等入口；详细契约唯一维护于 `specs/ai.md`。
+
+关键验收：`90071992547409.93` 元的合同金额从 service 到问答与引用保持字符串精度；预测版本与经营预算版本同号时不混用，可研/投资项目不误读主数据项目。范围外、缺权限、伪造详情 ID、对象与组织冲突被拒绝；模型遗漏 ID 自动补齐，冲突参数不查询其他对象。筛选后合同只返回命中行；管理会计模型参数保留所选指标、期间及分组；EAS 待处理更正、预测撤回记录与主数据页签保留各自过滤。2025-05 历史财报批次在当前年度环境中仍返回 2025 年及实际期间，显式年度/月度冲突返回 409，不换成当前生效数据。费用只引用当前审核运行，制度无命中明确说明，模型故障仍输出真实规则事实和流式正文。聊天不付款、复核、批准或发布。
+
+自动化证据（Node 24.21.0；全部测试库为临时目录/内存库）：
+
+- 本轮前段后端全量 `tsc --noEmit && vitest run`：104 文件 / 983 用例通过；前端全量：49 文件 / 473 用例通过。后续增补三个领域用例及收尾修复后，没有把前段全量结果冒充最终完整全量结果。
+- 收尾后端类型检查及 `assistant-domains`、`assistant-context-v2`、`assistant.routing`、`assistant` 聚焦回归：4 文件 / 121 用例通过；最后合同中文状态/查询意图修正后，`assistant-domains` 15/15 再次通过，后端隔离编译至 `.e2e-dist` 成功。
+- 收尾前端 `domainContext`、`DomainFactView`、`pageContext`、`workspaceScope`：4 文件 / 41 用例通过；`tsc -b` 与隔离 Vite 构建成功，产物仅在 `.e2e-dist`。最终构建日志 `/tmp/newfc-assistant-frontend-final-build.log`。
+- Chromium finance 项目 `assistant-dock` 与 `assistant-domains`：最终构建后 5/5 通过（32.8 秒），包含手机输入区滚动可达性与推荐单列断言；日志 `/tmp/newfc-assistant-browser-final.log`。测试从临时目录 `/tmp/newfc-assistant-qa-9Xohhh` 的一次性 SQLite 夹具运行，服务仅绑定 3761，无生产库/生产服务写入。使用 `E2E_USE_EXISTING_SERVER=1 E2E_TARGET_IS_DISPOSABLE=1`，没有运行默认仓库目录 seed。
+- 手机输入后等待布局稳定、再次滚动定位并重拍截图，跨域浏览器场景 1/1 通过（15.0 秒）；日志 `/tmp/newfc-assistant-browser-mobile-final.log`。复核结束已关闭本轮临时 3761 服务。
+- 受控模型响应验证工具注参、冲突拒绝、全部工具失败降级与供应商超时；这些是协议/降级测试，不代表真实外部模型供应商或 OCR 单据已经验收。
+
+浏览器及视觉复核保留既有「年度账册」风格，未重设计。任务视角发现助手被合同抽屉遮挡，工程视角发现手机消息区高度归零，窄屏阅读视角发现推荐问题双列截断；分别修复浮层层级、手机整页滚动与单列推荐，并复拍验证。首屏可见业务范围，输入区可滚动访问；桌面与 390×844 手机页面均无页面横向溢出。截图保存在 [助手 QA 目录](qa/README.md)：`assistant-contract-desktop.png`、`assistant-contract-mobile.png`、`assistant-home-desktop.png`、`assistant-home-mobile.png`、`assistant-home-mobile-composer.png`。
+
+边界：制度查询当前是关键词匹配，未宣称语义召回；列表按有界条数显示，不宣称全库金额汇总；正式财务写入仍走业务页面。外部模型/OCR 的真实业务单据联调、生产发布均未在本轮执行。没有新增常驻中间件、依赖或数据库迁移，没有访问其他项目运行目录。
+
+## F20 线上发布与真实供应商联调准备（2026-10-02，AC-F20、AC-F22/F23、AC-X04/X06）
+
+用户明确要求“部署到线上；真实模型和 OCR 单据联调”后，执行 `NEWFC_ROOT=/root/newfc NEWFC_DATA_DIR=/data/newfc-data NEWFC_SERVICE=newfc.service NEWFC_PORT=3760 scripts/deploy.sh`，返回 0。Node 24.21.0 发布门禁：后端 `tsc --noEmit`、104 文件 / 987 用例通过；前端 49 文件 / 473 用例通过。后端正式编译、前端 `tsc -b` 与 Vite 构建到 dist.new 均成功；随后停服、显式迁移检查、替换、启动和就绪检查完成。schema 保持 V65，无待执行迁移，未创建新的迁移前备份，上一版代码保留在 backend/dist.old、frontend/dist.old。既有 V60 迁移前备份另经只读完整性、外键、清单、库摘要及对象清单核验通过；未执行恢复演练。发布日志 `/tmp/newfc-assistant-production-deploy.log`。
+
+生产服务于 2026-10-02 14:25:31 CST 启动，active/running、NRestarts=0。本机 3760 与 `https://newfc.tangdalei.com` 的 live/ready 均返回 200，数据库、V65 schema、存储检查通过；两端首页与 favicon 摘要均与正式 dist 一致，未登录 dashboard 均 401。正式后端产物包含 50 个页面能力及 19 个新增领域工具。使用只读生产数据库连接、从数据库加载既有管理员 AuthContext，对合同汇总、费用队列、预测运行、风险汇总、授权范围和配置概览六个只读工具完成 service 验证；未创建生产测试账号/会话或写入测试业务。公网 Chromium 登录页标题及账号帮助正确，无 pageerror。结果与截图见 [生产检查 JSON](qa/README.md)、[生产登录页](qa/README.md)，控制台日志 `/tmp/newfc-assistant-production-check.log`。
+
+真实联调的就绪检查发现：newfc.env 无模型地址、模型名或密钥，数据库无模型渠道/功能绑定及 OCR 设置；报销单、附件、文件对象均为 0。已向用户请求在 newfc 后台配置凭据，或提供本机安全配置文件路径，以及脱敏真实单据路径、金额与预期结果。没有读取或复制其他项目运行配置，没有在聊天/日志中输出凭据。
+
+已完成真实网络协议核对：SiliconFlow `/v1/models` 未认证请求返回 401；通过与生产适配相同的 Node fetch 访问 OCR 首页和 `/openapi.json` 均 200，线上 OpenAPI 版本 2.0.0 包含 `/api/auth/token`、`/api/ocr/pdf`、`/api/status/{task_id}`、`/api/download/{task_id}`。登录为 username/password 表单，上传必填 api_type/file，完成状态 completed，与现有适配一致。在线 schema 留存于 `/tmp/newfc-ocr-provider-schema.json`；脱敏就绪报告见 [联调状态](qa/README.md)。这证明网络和公开协议可达，**不代表认证、真实模型推理、OCR 单据识别或费用审核结果已验收**；缺少凭据与样本时未伪造联调成功。
+
+
+## 模型与 OCR 配置接入（2026-10-02 20:10 CST）
+
+用户明确授权接入并提供 newfc 模型/OCR 凭据后，调用线上正式编译产物的渠道、绑定与业务设置 service；身份由数据库中有效管理员 `tangdalei` 构建，验证 `settings:manage` 与全组织权限，以 CLI 上下文写入脱敏审计。配置先全量校验、后短事务提交，外呼在事务外执行；未读取或修改其他项目运行库，没有创建生产测试账号、会话、报销单或附件。
+
+- 主模型渠道 `New API Gemini`：`https://new-api.tangdalei.com/v1`，`gemini-flash-latest`，超时 60 秒、启用流式；七项 AI 功能均绑定该渠道。模型凭据仅保存在 newfc 运行库，不写入 Git/验收日志。
+- OCR：`tangdalei_http`，`https://ocr.tangdalei.com/api`，登录账号/密码已配置；类型 `1`，异步超时 120 秒。没有引入 Dify/DB-GPT、嵌入或重排服务。
+- 配置前创建独立 SQLite 备份（文件权限 600），只读完整性检查通过；备份路径与 SHA-256 见证据。渠道和业务设置均由每次调用读取，无需重启；结束时生产 ready/V65 通过。本次只接入配置，没有重新构建或发布当前工作树代码。
+
+| 真实供应商检查 | 实际结果 | 判定 |
+|---|---|---|
+| 模型渠道连通 | 成功，7,812 ms；系统按超过 5 秒标记 degraded，表示响应较慢 | 可用，有延迟 |
+| 模型工具调用 | 指定只读测试工具和 `sample_id` 参数匹配，4,180 ms | 通过 |
+| 模型 SSE 流式 | 收到正文标记和最终结果，2,256 ms | 通过 |
+| OCR 登录 | HTTP 200，取得 token；未记录 token | 通过 |
+| OCR 异步识别 | 合成栅格 PDF 的登录→上传→状态轮询→Markdown 下载完整成功，15,477 ms；`NEWFC-TEST-20261002`、`2026-10-02`、`123.45` 均一致 | 通过（合成样本） |
+| 真实业务单据费用验收 | 仍未取得脱敏真实单据与人工期望；本次未创建生产业务数据 | 未执行 |
+
+脱敏结果与配置前备份摘要见 [provider-activation.json](qa/README.md)。此前“未配置”的就绪报告是接入前的历史快照；现已接入并验证供应商实际调用，真实业务验收仍须单独补齐。
+
+
+## 合成单据收尾与字段修复发布（2026-10-02）
+
+范围：T-7；AC-F07/F22/F23、AC-X03/X04/X06/X08。用户明确要求完成费用联调与字段修复发布，并说明“不需要真实单据”，本轮使用明确标记 SYNTHETIC TEST ONLY 的合成栅格 PDF 完成收尾，不再等待真实单据。基线为 `811d13a` 加当前增量，未创建新提交；发布源为 `/root/newfc`，只合入当前工作树的字段控件修复及其回归测试，保留生产源码已有的助手、分页、身份隔离和 OCR 异步适配。
+
+验收实例使用独立临时 SQLite 夹具，经真实登录、CSRF、组织授权及同源 HTTP/API 流程操作。供应商使用已配置的 New API/gemini-flash-latest 和 tangdalei OCR，未模拟模型或 OCR 响应；外呼不在写事务内。
+
+| 场景 | 预期与实际 | 结果 |
+|---|---|---|
+| 首轮提交 | 合成金额 `6000.00`、日期 `2026-10-02`、编号 `SYN-20261002-001` 均被 OCR 正确识别；模型与 OCR 状态均为 ok。制度上限 `5000.00`，返回 LIMIT_EXCEEDED 及真实条款引用，缺 Accommodation 返回 MATERIAL_MISSING | 通过 |
+| 模型建议与待复核 | 模型建议指出超限、缺材料和测试凭证标识；页面显示待复核，正式结论 null。两次费用模型调用均 success，分别 9336/9615 ms | 通过 |
+| 权限 | 跨组织详情 404；提交人无复核权限返回 403 | 通过 |
+| 补件重审 | 独立复核人退回补件，增加 Accommodation 合成证明后重新提交；缺材料规则消失，超限仍保留，新审核结论仍为空 | 通过 |
+| 人工门禁 | 旧 runId 返回 EXPENSE_RUN_STALE；高风险无例外理由返回 EXPENSE_EXCEPTION_REQUIRED；不同复核人填写明确合成测试例外后通过，selfReview=false；已结论再次复核返回 CLAIM_STATE | 通过 |
+| 字段保存 | 浏览器在新建项目录入 `1234567890123.123456`，API 持久值与项目档案显示完全一致；组件回归另覆盖文本、日期及字典项 | 通过 |
+| 隔离与清理 | 前后生产 ex_claim、ex_attachment、file_object 均为 0；临时库的渠道密钥、OCR 密码及会话已清理，库与证据的凭据排除扫描通过 | 通过 |
+
+发布运行 `/root/newfc/scripts/deploy.sh`（未跳过测试），Node 24.21.0。后端 tsc 与 104 文件 / 987 测试通过；前端 50 文件 / 474 测试通过，tsc -b、正式前后端构建通过。显式迁移检查后 schema 保持 V65、无待执行迁移，正式产物替换及启动就绪成功，上一版产物保留在 dist.old。最终启动与健康信息见 release.json；本机与公网 live/ready 均 200，首页及首页引用的全部 JS/CSS 与正式 dist 的 SHA-256 一致，未登录 dashboard 返回 401。七项模型绑定与 OCR 配置在重启后保持有效。
+
+脱敏证据见 [收尾目录](qa/README.md)、[流程结果](qa/README.md)、[发布核验](qa/README.md)。历史“等待真实单据”的记录保留为当时状态；本次按用户确认以合成样本完成这两项收尾。未执行真实业务单据识别准确率评估，合成测试中的人工批准只存在临时库。
+
+
+## 全仓库独立化清理（2026-10-02）
+
+T-0/T-7；AC-X01、AC-F20/F22。用户明确要求整个仓库清理非必要来源项目痕迹，保留确有必要的兼容与业务口径。本轮删除两个混用 newfc 本地数据库与旧 3748 API 的初始化运维流程，提取纯模拟主数据；前端统一财务助手、FinanceEmpty、newfc 样式/变量/事件/浏览器键，保留同源账号 ID 偏好迁移；制度样本及测试改名，已发布业务编码保持不变。现行文档与接口示例已同步；来源、历史证据、安全拒绝规则、离线快照兼容、迁移名称和业务映射均保留并说明理由。详见 [仓库独立化记录](repository-independence.md)。
+
+Node 24.21.0。后端 tsc 与 104 文件 / 988 用例通过；前端全量 51 文件 / 477 用例通过。最终标签迁移逻辑及新增用例经兼容专项 3 文件 / 27 用例通过；最终前端 tsc -b 与前后端隔离构建通过。最终制度/隔离专项 2 文件 / 9 用例通过，补强后的源码/样式隔离门禁 8 用例通过。finance/simulation 浏览器运行 assistant-dock、fullscreen、independent-shell、navigation-expansion，共 11/11 通过；亮暗桌面与手机截图人工复查通过。E2E 配置加载即拒绝 3748/3760，未发请求；基线比对确认迁移、前后端组织/科目映射、模拟主数据、制度编码和规则没有改变。git diff --check 通过。
+
+产物仅写入各自 `.e2e-dist`；未替换正式 dist、部署或修改生产库，无新增迁移，schema 保持 V65。未访问原项目目录、数据库、服务或端口；未创建 Git 提交、remote 或推送，保留此前工作树修改。历史验收中的旧文件名、品牌和制度发布命令继续表示当时真实执行记录，不做追溯改写。脱敏摘要、复现命令与截图见 [验收目录](qa/README.md)。
+
+
+## v0.1.0 公开发布准备（2026-10-02）
+
+T-0～T-7；AC-F01～F26、AC-X01～X10 的已记录场景。用户明确要求整理首个公开版本并推送 GitHub，指定仓库名 newfc；已创建独立公开仓库 `chouleilei/newfc` 和 origin，并启用私密漏洞报告。项目开源许可证待定，本次不擅自附加 MIT 授权，来源和许可状态见 NOTICE.md。
+
+公开版补充安装说明、模拟截图、通用 nginx 示例、源码来源与第三方声明、CI、依赖更新和密钥扫描。内部 QA 原件留本地，忽略运行配置、数据库和备份；原始运维文档副本保留在被忽略的 docs/private 中。
+
+独立目录安装新锁文件：Node 24.21.0；后端 104 文件 / 988 项、前端 51 文件 / 478 项最终全量通过；源码类型与正式构建通过。Playwright 新内核安装完成后 finance/simulation 专项最终 11/11 通过。空库实际迁移至 V65、管理员创建、登录、HttpOnly/SameSite=Strict Cookie、匿名 API 拒绝及 SPA/ready 均通过。前后端 npm audit 均零漏洞。完整 Git 历史与公开文件（含压缩/解码）经 Gitleaks 8.30.1 核查，仅精确排除两处已核实的测试值后通过。首次环境差异与最终复验分列，详见 public-release.md。
+
+本轮未执行生产部署、未替换正式 dist 或 node_modules、未改变生产 schema/配置/业务数据，未访问其他项目运行目录。

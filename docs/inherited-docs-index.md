@@ -10,9 +10,8 @@
 | [澧水预算组织编码](澧水预算组织编码.md) / [澧水预算科目编码](澧水预算科目编码.md) | 组织、科目主数据字典 |
 | [AI助手完整方案](AI助手完整方案.md) | 助手的确定性/模型边界与写入确认协议 |
 
-仓库内另有：[backend/AI_ASSISTANT.md](../backend/AI_ASSISTANT.md)(助手实现说明)、[frontend/DESIGN.md](../frontend/DESIGN.md)(视觉规范)、[RELEASE_NOTES.md](../RELEASE_NOTES.md)(版本记录)。
+仓库内另有：[backend/AI_ASSISTANT.md](../backend/AI_ASSISTANT.md)(助手实现说明)、[frontend/DESIGN.md](../frontend/DESIGN.md)(视觉规范)、[CHANGELOG.md](../CHANGELOG.md)(newfc 版本记录)。
 
 ## 历史归档
 
-[archive/](archive/) 存放已完成的开发计划、实施方案、排查与走查报告。它们记录的是**当时**的设计与决策，可能与现行代码不一致；
-代码注释中「§x.y」形式的章节引用多指向这些文档，可按文件名查阅背景，但不作为新开发的依据。
+历史归档未导入 newfc，来源与排除清单见 [源码来源记录](source-provenance.md)。代码注释中「§x.y」形式的章节引用可能指向来源项目的历史文档，不作为 newfc 新开发的依据；现行需求与验收统一从 [specs](../specs/README.md) 查阅。
