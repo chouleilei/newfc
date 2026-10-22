@@ -2,7 +2,7 @@
 
 先阅读 [AGENTS.md](AGENTS.md)、[规范索引](specs/README.md) 和 [源码来源](docs/source-provenance.md)。需求、接口契约和验收规则在 specs 中维护。
 
-使用 Node 24.21.0，在 backend 和 frontend 分别运行 `npm ci`。提交前执行：
+使用 Node 24.22.1，在 backend 和 frontend 分别运行 `npm ci`。提交前执行：
 
 ```bash
 (cd backend && npx tsc --noEmit && npm test -- --run)

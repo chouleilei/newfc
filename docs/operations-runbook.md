@@ -8,7 +8,7 @@
 
 | 项 | 值 | 依据 |
 |---|---|---|
-| Node | 24.21.0，`/root/.nvm/versions/node/v24.21.0/bin/node` | `.nvmrc`；better-sqlite3 12.11.1 在该 ABI（137）下安装并通过全部测试。不用 `/usr/bin/node`（v20，已 EOL 且 ABI 不同） |
+| Node | 24.22.1，`/root/.nvm/versions/node/v24.22.1/bin/node` | `.nvmrc`；better-sqlite3 12.11.1 在该 ABI（137）下安装并通过全部测试。不用 `/usr/bin/node`（v20，已 EOL 且 ABI 不同） |
 | SQLite | 3.53.2（better-sqlite3 内置），FTS5 + trigram 分词可用 | 启动自检记录 |
 | 服务 | `newfc.service`，模板 `deploy/newfc.service` | 与 newbd-budget.service 完全独立 |
 | 端口 | 3760（生产），3761/3762（E2E），测试用 0 随机端口 | 3748 为 newbd 占用 |
@@ -86,7 +86,7 @@ newfc 没有默认账号、默认口令或关鉴权开关。新库启动后登�
 
 ```bash
 cd /root/newfc/backend
-export PATH=/root/.nvm/versions/node/v24.21.0/bin:$PATH
+export PATH=/root/.nvm/versions/node/v24.22.1/bin:$PATH
 NEWFC_DATA_DIR=/data/newfc-data npm run admin:create -- --username admin --display-name 管理员
 # 交互终端输入两次口令(不回显)；非交互: printf '%s\n' "$PW" | NEWFC_DATA_DIR=... npm run admin:create -- --username admin
 ```
@@ -123,7 +123,7 @@ NEWFC_DATA_DIR=/data/newfc-data npm run admin:create -- --username admin --displ
 - **费用制度样本**：lishui 首版预审规则（差旅 5,000、住宿 1,500、业务招待 3,000、办公 10,000、培训 20,000、车辆 5,000 元；必备材料至少命中 min(2, N) 项）已转写为 `deploy/expense-policy-v1.json`。发布：
 
   ```bash
-  cd /root/newfc/backend && export PATH=/root/.nvm/versions/node/v24.21.0/bin:$PATH
+  cd /root/newfc/backend && export PATH=/root/.nvm/versions/node/v24.22.1/bin:$PATH
   NEWFC_DATA_DIR=/data/newfc-data npm run expense:policy:import -- --file ../deploy/expense-policy-v1.json
   ```
 

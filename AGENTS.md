@@ -20,7 +20,7 @@ newfc：独立的水利财务分析系统，单人维护、单机部署。源码
 
 ## 命令
 
-Node 固定 24.21.0（`.nvmrc`）。shell 默认 Node 若不同，先 `export PATH=/root/.nvm/versions/node/v24.21.0/bin:$PATH`，不要用 `/usr/bin/node`（v20，ABI 不匹配）。
+Node 固定 24.22.1（`.nvmrc`）。shell 默认 Node 若不同，先 `export PATH=/root/.nvm/versions/node/v24.22.1/bin:$PATH`，不要用 `/usr/bin/node`（v20，ABI 不匹配）。
 
 | 目的 | 命令 |
 |---|---|

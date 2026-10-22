@@ -15,8 +15,8 @@ Environment=NODE_ENV=production
 Environment=NEWFC_DATA_DIR=/data/newfc-data
 Environment=NEWFC_HOST=127.0.0.1
 Environment=NEWFC_PORT=3760
-# 固定 Node 24.21.0(better-sqlite3 ABI 与 backend/node_modules 一致,见 .nvmrc);不使用系统 /usr/bin/node(v20)。
-ExecStart=/root/.nvm/versions/node/v24.21.0/bin/node /root/newfc/backend/dist/index.js
+# 固定 Node 24.22.1(better-sqlite3 ABI 与 backend/node_modules 一致,见 .nvmrc);不使用系统 /usr/bin/node(v20)。
+ExecStart=/root/.nvm/versions/node/v24.22.1/bin/node /root/newfc/backend/dist/index.js
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=20

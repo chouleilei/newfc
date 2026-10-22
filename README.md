@@ -23,13 +23,13 @@
 
 ## 快速开始
 
-需要 **Node 24.21.0**（见 [.nvmrc](.nvmrc)）和 npm。SQLite 驱动含原生模块，安装时必须使用同一 Node 版本；若平台没有预编译包，需要 Python 3、make 和 C/C++ 编译器。
+需要 **Node 24.22.1**（见 [.nvmrc](.nvmrc)）和 npm。SQLite 驱动含原生模块，安装时必须使用同一 Node 版本；若平台没有预编译包，需要 Python 3、make 和 C/C++ 编译器。
 
 ```bash
 git clone https://github.com/chouleilei/newfc.git
 cd newfc
 # 使用 nvm 时：nvm install && nvm use
-node --version                         # 应为 v24.21.0
+node --version                         # 应为 v24.22.1
 cp .env.example .env                   # 模型配置可留空
 cd backend
 npm ci
