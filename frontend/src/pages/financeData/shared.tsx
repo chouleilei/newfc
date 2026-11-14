@@ -7,21 +7,54 @@ import { decimalSign, formatMoney, formatRatioPercent } from '../../utils/decima
 
 /** T-3 财务数据页面公用:组织/期间选择、金额单元格、原因输入框、状态标签。 */
 
-interface TreeNode { id: number; code: string; name: string; children?: TreeNode[] }
-interface TreeRow { id: number; code: string; name: string; parent_id?: number | null; parentId?: number | null }
-type TreeData = { value: number; title: string; children?: TreeData }[];
+interface TreeNode {
+  id: number;
+  code: string;
+  name: string;
+  status?: string;
+  orgKind?: string;
+  isDirectStation?: boolean;
+  contractPrefixCode?: string;
+  children?: TreeNode[];
+}
+interface TreeRow {
+  id: number;
+  code: string;
+  name: string;
+  status?: string;
+  org_kind?: string;
+  orgKind?: string;
+  is_direct_station?: number;
+  isDirectStation?: boolean;
+  contract_prefix_code?: string;
+  contractPrefixCode?: string;
+  parent_id?: number | null;
+  parentId?: number | null;
+}
+type TreeData = { value: number; title: string; disabled?: boolean; children?: TreeData }[];
 
-function toTreeData(nodes: TreeNode[]): TreeData {
-  return nodes.map((n) => ({ value: n.id, title: `${n.name}(${n.code})`, children: n.children?.length ? toTreeData(n.children) : undefined }));
+function toTreeData(nodes: TreeNode[], opts?: { disableInactive?: boolean; onlyOrgKind?: string }): TreeData {
+  return nodes.map((n) => {
+    const isInactive = n.status === 'inactive' || n.orgKind === 'closed_history';
+    const kindMismatch = Boolean(opts?.onlyOrgKind && (n.orgKind ?? 'legal_entity') !== opts.onlyOrgKind);
+    const disabled = Boolean((opts?.disableInactive && isInactive) || kindMismatch);
+    const suffix = isInactive ? ' [历史停用]' : '';
+    return {
+      value: n.id,
+      title: `${n.name}(${n.code})${suffix}`,
+      disabled,
+      children: n.children?.length ? toTreeData(n.children, opts) : undefined,
+    };
+  });
 }
 
 /** 组织树(后端已按授权范围裁剪)。 */
-export function useOrgTree() {
+export function useOrgTree(opts?: { disableInactive?: boolean; onlyOrgKind?: string }) {
   const q = useQuery({ queryKey: ['org-tree'], queryFn: () => api.get<{ tree: TreeNode[]; rows: TreeRow[] }>('/org/tree') });
   const names = new Map<number, string>();
   const walk = (ns: TreeNode[]) => ns.forEach((n) => { names.set(n.id, n.name); if (n.children) walk(n.children); });
   walk(q.data?.tree ?? []);
-  return { ...q, treeData: toTreeData(q.data?.tree ?? []), orgName: (id?: number | null) => (id == null ? '' : names.get(id) ?? `#${id}`) };
+  return { ...q, treeData: toTreeData(q.data?.tree ?? [], opts), orgName: (id?: number | null) => (id == null ? '' : names.get(id) ?? `#${id}`) };
 }
 
 /** 受限账号只有一个授权根时默认选中它;全组织账号默认不选(集团口径)。 */
@@ -31,13 +64,34 @@ export function defaultOrgId(): number | undefined {
   return user.orgIds.length === 1 ? user.orgIds[0] : undefined;
 }
 
-export function OrgSelect({ value, onChange, allowClear = true, placeholder = '选择组织', width = 220 }: {
-  value?: number; onChange: (v: number | undefined) => void; allowClear?: boolean; placeholder?: string; width?: number;
+export function OrgSelect({
+  value,
+  onChange,
+  allowClear = true,
+  placeholder = '选择组织',
+  width = 220,
+  disabled = false,
+  disableInactive = false,
+  onlyOrgKind,
+}: {
+  value?: number;
+  onChange?: (v: number | undefined) => void;
+  allowClear?: boolean;
+  placeholder?: string;
+  width?: number;
+  disabled?: boolean;
+  disableInactive?: boolean;
+  onlyOrgKind?: string;
 }) {
-  const { treeData, isLoading } = useOrgTree();
+  const { treeData, isLoading } = useOrgTree({ disableInactive, onlyOrgKind });
   return (
     <TreeSelect
-      value={value} onChange={(v) => onChange(v ?? undefined)} treeData={treeData} loading={isLoading} allowClear={allowClear}
+      disabled={disabled}
+      value={value}
+      onChange={(v) => onChange?.(v ?? undefined)}
+      treeData={treeData}
+      loading={isLoading}
+      allowClear={allowClear}
       placeholder={placeholder} treeDefaultExpandAll showSearch treeNodeFilterProp="title" style={{ width }} aria-label="组织"
     />
   );

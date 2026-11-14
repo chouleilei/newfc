@@ -28,7 +28,12 @@ export function listLegalPolicies(
 export function readPolicies(db: DB): PolicyDto[] {
   return (
     db
-      .prepare('SELECT * FROM ct_legal_policy ORDER BY code,version DESC')
+      .prepare(
+        `SELECT p.*, f.original_name AS source_original_name, f.content_type AS source_content_type
+         FROM ct_legal_policy p
+         LEFT JOIN file_object f ON f.id = p.source_file_object_id
+         ORDER BY p.code, p.version DESC`,
+      )
       .all() as any[]
   ).map((p) => ({
     id: p.id,
@@ -40,6 +45,8 @@ export function readPolicies(db: DB): PolicyDto[] {
     sourceNote: p.source_note,
     status: p.status,
     sourceFileObjectId: p.source_file_object_id,
+    originalFileName: p.source_original_name ?? null,
+    contentType: p.source_content_type ?? null,
     clauses: (
       db
         .prepare(
@@ -58,7 +65,12 @@ export function readPolicies(db: DB): PolicyDto[] {
 export function readTemplates(db: DB): TemplateDto[] {
   return (
     db
-      .prepare('SELECT * FROM ct_legal_template ORDER BY code,version DESC')
+      .prepare(
+        `SELECT t.*, f.original_name AS source_original_name, f.content_type AS source_content_type
+         FROM ct_legal_template t
+         LEFT JOIN file_object f ON f.id = t.source_file_object_id
+         ORDER BY t.code, t.version DESC`,
+      )
       .all() as any[]
   ).map((t) => ({
     id: t.id,
@@ -69,6 +81,8 @@ export function readTemplates(db: DB): TemplateDto[] {
     approvalStatus: t.approval_status,
     notes: t.notes,
     sourceFileObjectId: t.source_file_object_id,
+    originalFileName: t.source_original_name ?? null,
+    contentType: t.source_content_type ?? null,
     clauses: (
       db
         .prepare(

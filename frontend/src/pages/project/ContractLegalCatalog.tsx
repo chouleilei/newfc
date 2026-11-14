@@ -17,6 +17,23 @@ import {
 } from 'antd';
 import { contractApi } from '../../api/projectContract';
 import { can, download, errorText, getSession } from '../../api/client';
+export function resolveCatalogDownloadFileName(item: {
+  code: string;
+  originalFileName?: string | null;
+  contentType?: string | null;
+}): string {
+  const orig = (item.originalFileName ?? '').trim();
+  const extMatch = orig.match(/(\.[A-Za-z0-9]{2,8})$/);
+  let ext = extMatch ? extMatch[1].toLowerCase() : '';
+  if (!ext) {
+    const ct = (item.contentType ?? '').toLowerCase();
+    if (ct.includes('application/pdf')) ext = '.pdf';
+    else if (ct.includes('application/msword')) ext = '.doc';
+    else ext = '.docx';
+  }
+  return item.code.toLowerCase().endsWith(ext) ? item.code : `${item.code}${ext}`;
+}
+
 export function ContractLegalCatalog({
   open,
   onClose,
@@ -115,7 +132,7 @@ export function ContractLegalCatalog({
                       onClick={() =>
                         void download(
                           `/contracts/legal-catalog/${kind}/${r.id}/source`,
-                          r.code,
+                          resolveCatalogDownloadFileName(r),
                         )
                       }
                     >
@@ -125,6 +142,7 @@ export function ContractLegalCatalog({
                   {manage && (
                     <>
                       <Upload
+                        accept=".docx,.pdf,.doc"
                         showUploadList={false}
                         beforeUpload={(f) => {
                           action.mutate(() =>

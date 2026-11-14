@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Alert, App as AntdApp, Button, Card, Checkbox, Col, DatePicker, Form, Input, Modal, Row, Select, Space, Statistic, Table, Tag, Typography,
 } from 'antd';
@@ -78,8 +78,31 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
   const deltaCents = changeKind === 'suspend' || changeKind === 'terminate'
     ? 0n
     : (parseMoneyToCentsPreview(deltaText ?? '0') ?? 0n);
+  const effectiveOrMode = contract.changeOrMode ?? 'min';
+  const [debouncedDelta, setDebouncedDelta] = useState<string>('0.00');
 
-  const tierPreview = changeApprovalTierPreview({
+  useEffect(() => {
+    if (!createOpen) return;
+    const timer = window.setTimeout(() => {
+      setDebouncedDelta(changeKind === 'suspend' || changeKind === 'terminate' ? '0.00' : (deltaText?.trim() || '0.00'));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [createOpen, changeKind, deltaText]);
+
+  const serverTierQ = useQuery({
+    queryKey: ['contract-change-tier-preview', contract.id, debouncedDelta, changeKind, involvesBiz, involvesTech],
+    queryFn: () =>
+      contractApi.changeTierPreview(contract.id, {
+        delta: debouncedDelta,
+        changeKind,
+        involvesBizOrEntityChange: involvesBiz,
+        involvesTechChange: involvesTech,
+      }),
+    enabled: createOpen && parseMoneyToCentsPreview(debouncedDelta) !== null,
+    staleTime: 10_000,
+  });
+
+  const localTierPreview = changeApprovalTierPreview({
     originalCents,
     estimatedCeilingCents,
     priorApprovedPositiveCents,
@@ -88,8 +111,12 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
     procurementTier: contract.procurementTier ?? null,
     involvesBizOrEntityChange: involvesBiz,
     involvesTechChange: involvesTech,
-    orMode: 'min',
+    orMode: effectiveOrMode,
   });
+  const tierPreview = {
+    ...localTierPreview,
+    tier: serverTierQ.data?.requiredTier ?? localTierPreview.tier,
+  };
 
   const tierMismatch = !!actualTier && CHANGE_TIER_RANK[actualTier] < CHANGE_TIER_RANK[tierPreview.tier];
   const baseCents = originalCents > 0n ? originalCents : (estimatedCeilingCents ?? 0n);
@@ -264,9 +291,10 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
                 <Alert
                   type={tierMismatch ? 'warning' : 'info'}
                   showIcon
-                  message={'附件 5 要求审批层级：' + CHANGE_APPROVAL_TIER_LABELS[tierPreview.tier]}
+                  message={`附件 5 要求审批层级：${CHANGE_APPROVAL_TIER_LABELS[tierPreview.tier]}（口径：${(serverTierQ.data?.orMode ?? effectiveOrMode) === 'max' ? '比例或定额任一达标·从宽' : '比例与定额双达标·从严'}）`}
                   description={
                     <div>
+                      {serverTierQ.data?.reason && <div>· 判定依据：{serverTierQ.data.reason}</div>}
                       {tierPreview.requireDisciplineFiling && <div>· 涉及增额须报纪审部备案；</div>}
                       {tierPreview.requireTechSpecialAudit && <div style={{ color: '#d46b08' }}>· 单次或累计增额超原合同 10%，须上传技术归口部门专项全面复核意见（制度 9.1.2）；</div>}
                       {tierMismatch && <div style={{ color: '#cf1322' }}>· 当前所选实际审批层级低于制度要求，提交将被阻断。</div>}
@@ -308,12 +336,12 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
             </Col>
             <Col span={12}>
               <Form.Item name="techSpecialAuditDocId" rules={[{ required: tierPreview.requireTechSpecialAudit || involvesTech }]} label="技术归口专项复核意见(>10%时必填)">
-                <Select allowClear options={docOptions(docs)} />
+                <Select allowClear options={docOptions(docs.filter((d) => d.evidenceKind === 'tech_special_audit' || (d.docType as string) === 'approval'))} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item name="outOfPlanDocId" label="计划外审批凭据(超综合计划时必填)">
-                <Select allowClear options={docOptions(docs)} />
+                <Select allowClear options={docOptions(docs.filter((d) => d.evidenceKind === 'out_of_plan_approval'))} />
               </Form.Item>
             </Col>
             <Col span={8}>

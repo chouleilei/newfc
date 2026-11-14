@@ -69,6 +69,11 @@ export function LegalRunView({ run }: { run: LegalRunDto }) {
     (f) => f.blocking || f.severity === 'high' || f.severity === 'medium',
   );
   const minor = run.findings.filter((f) => !major.includes(f));
+  const isDocConverted = run.parseChannel === 'doc_converted' || run.parseStatus === 'doc_converted';
+  const parseDegraded =
+    Boolean(run.parseStatus && run.parseStatus !== 'ok' && run.parseStatus !== 'doc_converted') ||
+    run.findings.some((f) => ['DOC_ENCRYPTED_OR_INVALID', 'PARSE_FAILED', 'OCR_UNAVAILABLE', 'EMPTY_DOCUMENT'].includes(f.code));
+
   return (
     <Space
       direction="vertical"
@@ -91,7 +96,15 @@ export function LegalRunView({ run }: { run: LegalRunDto }) {
           {severityLabel[run.riskLevel]}
         </Tag>
         <Tag>{run.isCurrent ? '当前有效' : '已失效，需重新法审'}</Tag>
+        {isDocConverted && <Tag color="blue">已转码解析</Tag>}
       </Space>
+      {parseDegraded && (
+        <Alert
+          type="warning"
+          showIcon
+          message="文档未能完整提取正文，已自动转人工复核建议"
+        />
+      )}
       {run.templateApprovalStatus === 'candidate' && (
         <Alert
           type="warning"
@@ -310,7 +323,7 @@ export function ContractLegalPanel({
             description={
               q.isLoading
                 ? '正在读取法审记录'
-                : '上传最新 DOCX 正文及签订依据后启动法审。PDF 接口或 OCR 未配置时需补充人工审查。'
+                : '上传最新 DOCX / PDF / DOC 正文及签订依据后启动法审。PDF 接口或 OCR 未配置时需补充人工审查。'
             }
           />
         )}

@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { positiveQueryNumber, useListSearchParams } from '../../hooks/useListSearchParams';
 import {
-  Alert, App as AntdApp, Button, Card, Col, Descriptions, Drawer, Empty, Input, Row, Select, Space, Table, Tabs, Tag, Timeline, Typography, Upload,
+  Alert, App as AntdApp, Button, Card, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Timeline, Typography, Upload,
 } from 'antd';
 import dayjs from 'dayjs';
 import { api, can, download, errorText } from '../../api/client';
@@ -37,11 +37,18 @@ export const TODO_LABEL: Record<ContractTodo, string> = {
   settlement: '待复核结算单', receipt: '待处理收款', distribution: '签署超 10 工作日待分发', guarantee_warranty: '30 天内到期保函/待签证质保',
 };
 
+const datePickerItemProps = {
+  getValueProps: (v?: string) => ({ value: v ? dayjs(v) : null }),
+  normalize: (d: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null),
+};
+
 function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => void }) {
   const { message, modal } = AntdApp.useApp();
   const qc = useQueryClient();
   const [prompt, holder] = usePrompt();
   const [editing, setEditing] = useState(false);
+  const [opModalKind, setOpModalKind] = useState<'distribution' | 'archive' | 'handover' | null>(null);
+  const [opForm] = Form.useForm();
   const [evidenceKind,setEvidenceKind]=useState<EvidenceKind>();
   const [docType, setDocType] = useState<ContractDocType>('contract_text');
   useEffect(() => {
@@ -94,43 +101,23 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
       : kind === 'resume' ? contractApi.resume(c.id, c.version, v.reason)
       : contractApi.reopen(c.id, c.version, v.reason, v.targetStage as ContractStage)));
   };
-  const registerDistribution = async () => {
+  const registerDistribution = () => {
     if (!c) return;
-    const v = await prompt({
-      title: '登记盖章件分发备案',
-      fields: [
-        { name: 'distributedAt', label: '分发日期(YYYY-MM-DD)', required: true, initial: dayjs().format('YYYY-MM-DD') },
-        { name: 'companyFiledAt', label: '报公司企管/结算备案日期(YYYY-MM-DD,可空)' },
-        { name: 'note', label: '备注' },
-      ],
-    });
-    if (v) run.mutate(() => contractApi.updateDistribution(c.id, compact({ expectedVersion: c.version, ...v }) as never));
+    opForm.resetFields();
+    opForm.setFieldsValue({ distributedAt: dayjs().format('YYYY-MM-DD'), companyFiledAt: null, note: '' });
+    setOpModalKind('distribution');
   };
-  const updateArchive = async () => {
+  const updateArchive = () => {
     if (!c) return;
-    const v = await prompt({
-      title: '档案资料验收与移交',
-      fields: [
-        { name: 'archiveStatus', label: '归档状态', required: true, options: [{ value: 'checked', label: '完整性已核验' }, { value: 'transferred', label: '已移交档案室' }], initial: 'checked' },
-        { name: 'actionDate', label: '核验 / 移交日期(YYYY-MM-DD)', initial: dayjs().format('YYYY-MM-DD') },
-        { name: 'transferNo', label: '档案移交单号(移交时填)' },
-      ],
-    });
-    if (v) run.mutate(() => contractApi.updateArchiveStatus(c.id, compact({ expectedVersion: c.version, ...v }) as never));
+    opForm.resetFields();
+    opForm.setFieldsValue({ archiveStatus: 'checked', actionDate: dayjs().format('YYYY-MM-DD'), transferNo: '' });
+    setOpModalKind('archive');
   };
-  const handover = async () => {
+  const handover = () => {
     if (!c) return;
-    const v = await prompt({
-      title: '承办人动态交接',
-      fields: [
-        { name: 'toUndertaker', label: '新承办人姓名', required: true },
-        { name: 'toDept', label: '新承办部门' },
-        { name: 'handoverDate', label: '交接日期(YYYY-MM-DD)', required: true, initial: dayjs().format('YYYY-MM-DD') },
-        { name: 'leftPostDate', label: '原承办人调离日期(可空)' },
-        { name: 'reason', label: '交接说明' },
-      ],
-    });
-    if (v) run.mutate(() => contractApi.handoverUndertaker(c.id, compact({ expectedVersion: c.version, ...v }) as never));
+    opForm.resetFields();
+    opForm.setFieldsValue({ toUndertaker: '', toDept: '', handoverDate: dayjs().format('YYYY-MM-DD'), leftPostDate: null, reason: '' });
+    setOpModalKind('handover');
   };
   const flowCols = <T extends { status: string; submittedBy: string | null; submittedAt: string; reviewedBy: string | null; comment: string | null; exceptionReason: string | null; selfReview: boolean }>() => [
     { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => statusTag(FLOW_STATUS, v) },
@@ -156,9 +143,9 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
           {can('contract:write') && ['active','suspended'].includes(c.status) && <Button danger onClick={() => void command('terminate')}>终止</Button>}
           {writable && ['performance', 'settlement', 'warranty'].includes(c.stage) && <Button onClick={() => void command('suspend')}>中止</Button>}
           {can('contract:write') && c.status === 'suspended' && <Button type="primary" onClick={() => void command('resume')}>恢复履行</Button>}
-          {can('contract:write') && c.status !== 'voided' && (c.signDate || c.documents.some((d) => d.docType === 'signed')) && c.distributionStatus !== 'completed' && <Button onClick={() => void registerDistribution()}>分发备案</Button>}
-          {reviewer && c.status !== 'voided' && c.archiveStatus !== 'transferred' && <Button onClick={() => void updateArchive()}>档案核验/移交</Button>}
-          {can('contract:write') && c.status !== 'voided' && <Button onClick={() => void handover()}>承办人交接</Button>}
+          {can('contract:write') && c.status !== 'voided' && (c.signDate || c.documents.some((d) => d.docType === 'signed')) && c.distributionStatus !== 'completed' && <Button onClick={registerDistribution}>分发备案</Button>}
+          {reviewer && c.status !== 'voided' && c.archiveStatus !== 'transferred' && <Button onClick={updateArchive}>档案核验/移交</Button>}
+          {can('contract:write') && c.status !== 'voided' && <Button onClick={handover}>承办人交接</Button>}
           {writable && c.paidAmount === '0.00' && (c.receivedAmount ?? '0.00') === '0.00' && <Button danger onClick={() => void command('void')}>作废</Button>}
           {reviewer && (c.status === 'closed' || c.status === 'terminated') && <Button onClick={() => void command('reopen')}>重开</Button>}
         </Space>
@@ -166,7 +153,29 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
       {holder}
       {q.error ? <QueryErrorResult title="合同加载失败" error={q.error} refetch={q.refetch} /> : c && (
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
-          <ContractLegalPanel key={c.id} contract={c} onChanged={()=>refresh()}/>
+          {c.migrationMode === 'legacy_tolerant' && (
+            <Alert
+              type="warning"
+              showIcon
+              message={
+                <Space wrap size={6}>
+                  <span>历史容缺迁入合同</span>
+                  {c.syntheticNoFlag && <Tag color="purple">合成号</Tag>}
+                  {c.isReversal && <Tag color="magenta">红冲</Tag>}
+                </Space>
+              }
+              description={`实际签约主体：${c.signingOrgName || c.orgName} ｜ 法定法人统计口径：${c.legalEntityOrgName || c.orgName}${(c.missingFields?.length ?? 0) > 0 ? ` ｜ 待补录缺口：${c.missingFields!.join('、')}` : ''}`}
+            />
+          )}
+          {Boolean(c.legalReviewEnabled || ((c as unknown as { legalReviews?: unknown[] }).legalReviews?.length ?? 0) > 0) ? (
+            <ContractLegalPanel key={c.id} contract={c} onChanged={()=>refresh()}/>
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              message="当前合同类别未纳入强制智能法审范围（可按内部一般流程审核或由法务配置扩展纳管类别）。"
+            />
+          )}
           <Descriptions size="small" column={{xs:1,sm:2,lg:3}} bordered>
             <Descriptions.Item label="组织">{c.orgName}</Descriptions.Item>
             <Descriptions.Item label="项目">{c.projectName ? `${c.projectName}(${c.projectCode})` : '—'}</Descriptions.Item>
@@ -199,7 +208,7 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
                     <Space wrap style={{ marginBottom: 8 }}>
                       <Select aria-label="文档类型" value={docType} onChange={(value) => { setDocType(value); setEvidenceKind(undefined); }} style={{ width: 140 }} options={Object.entries(CONTRACT_DOC_TYPE_LABELS).map(([value, label]) => ({ value, label }))} />
                       <Select aria-label="签订依据分类" value={evidenceKind} allowClear placeholder="签订依据分类（可选）" style={{width:230}} onChange={setEvidenceKind} options={EVIDENCE_KINDS.map(value=>({value,label:EVIDENCE_LABELS[value]}))}/>
-                      <Upload showUploadList={false} beforeUpload={(f) => {
+                      <Upload accept=".docx,.pdf,.doc,.png,.jpg,.jpeg,.wps" showUploadList={false} beforeUpload={(f) => {
                         run.mutate(async () => {
                           const document = await contractApi.uploadDocument(c.id, f, docType, undefined, evidenceKind);
                           setEvidenceKind(undefined);
@@ -209,6 +218,9 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
                       }}>
                         <Button icon={<i className="ri-upload-2-line" aria-hidden />}>上传文档</Button>
                       </Upload>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        支持 .docx、.pdf 及老版 .doc 合同正文（.doc 将在后台转码后纳入法审）
+                      </Typography.Text>
                     </Space>
                   )}
                   <Table rowKey="id" size="small" pagination={false} dataSource={c.documents}
@@ -269,6 +281,19 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
                       <Typography.Text strong>{e.eventType}</Typography.Text>
                       {e.fromStage && e.toStage && e.fromStage !== e.toStage && <Typography.Text> {CONTRACT_STAGE_LABELS[e.fromStage]} → {CONTRACT_STAGE_LABELS[e.toStage]}</Typography.Text>}
                       <Typography.Text type="secondary"> · {e.actor ?? '系统'} · {shortTime(e.createdAt)}</Typography.Text>
+                      {e.detail && Object.keys(e.detail).length > 0 && (
+                        <div style={{ marginTop: 4 }}>
+                          <Space size={[4, 4]} wrap>
+                            {Object.entries(e.detail)
+                              .filter(([, val]) => val !== null && val !== undefined && val !== '')
+                              .map(([k, val]) => (
+                                <Tag key={k}>
+                                  {k}: {typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                                </Tag>
+                              ))}
+                          </Space>
+                        </div>
+                      )}
                     </div>
                   ),
                 }))} />
@@ -277,6 +302,80 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
           ]} />
         </Space>
       )}
+      <Modal
+        open={opModalKind !== null}
+        title={
+          opModalKind === 'distribution'
+            ? '登记盖章件分发备案'
+            : opModalKind === 'archive'
+              ? '档案资料验收与移交'
+              : '承办人动态交接'
+        }
+        onCancel={() => setOpModalKind(null)}
+        destroyOnClose
+        confirmLoading={run.isPending}
+        onOk={() =>
+          opForm.validateFields().then(async (v) => {
+            if (!c || !opModalKind) return;
+            if (opModalKind === 'distribution') {
+              await run.mutateAsync(() => contractApi.updateDistribution(c.id, compact({ expectedVersion: c.version, ...v }) as never));
+            } else if (opModalKind === 'archive') {
+              await run.mutateAsync(() => contractApi.updateArchiveStatus(c.id, compact({ expectedVersion: c.version, ...v }) as never));
+            } else {
+              await run.mutateAsync(() => contractApi.handoverUndertaker(c.id, compact({ expectedVersion: c.version, ...v }) as never));
+            }
+            setOpModalKind(null);
+          })
+        }
+      >
+        <Form form={opForm} layout="vertical" preserve={false}>
+          {opModalKind === 'distribution' && (
+            <>
+              <Form.Item name="distributedAt" label="分发日期" rules={[{ required: true, message: '请选择分发日期' }]} {...datePickerItemProps}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="companyFiledAt" label="报公司企管/结算备案日期（可空）" {...datePickerItemProps}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="note" label="备注">
+                <Input maxLength={500} />
+              </Form.Item>
+            </>
+          )}
+          {opModalKind === 'archive' && (
+            <>
+              <Form.Item name="archiveStatus" label="归档状态" rules={[{ required: true }]}>
+                <Select options={[{ value: 'checked', label: '完整性已核验' }, { value: 'transferred', label: '已移交档案室' }]} />
+              </Form.Item>
+              <Form.Item name="actionDate" label="核验 / 移交日期" {...datePickerItemProps}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="transferNo" label="档案移交单号（移交时填写）">
+                <Input maxLength={100} />
+              </Form.Item>
+            </>
+          )}
+          {opModalKind === 'handover' && (
+            <>
+              <Form.Item name="toUndertaker" label="新承办人姓名" rules={[{ required: true, whitespace: true }]}>
+                <Input maxLength={100} />
+              </Form.Item>
+              <Form.Item name="toDept" label="新承办部门">
+                <Input maxLength={100} />
+              </Form.Item>
+              <Form.Item name="handoverDate" label="交接日期" rules={[{ required: true, message: '请选择交接日期' }]} {...datePickerItemProps}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="leftPostDate" label="原承办人调离日期（可空）" {...datePickerItemProps}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item name="reason" label="交接说明">
+                <Input.TextArea rows={2} maxLength={500} />
+              </Form.Item>
+            </>
+          )}
+        </Form>
+      </Modal>
       {c && <ContractBaseFormModal open={editing} contract={c} onClose={() => setEditing(false)} onSaved={(d) => refresh(d)} />}
     </Drawer>
   );

@@ -17,6 +17,8 @@ import type {
   ContractEvaluationRequest, SupervisionExportLogDto, SupervisionPortalResponseDto, SupervisionPreflightDto,
   ContractCreateRequest, ContractDetailDto, ContractDocType, ContractDocumentDto, ContractDto, ContractImportDto, ContractListQuery, ContractStage, ContractSummaryDto,
   DecisionRequest,
+  ChangeKind, ChangeTierPreviewDto, ContractImportKind, ContractNextNoDto, ContractPrefixMapCreateRequest,
+  ContractPrefixMapDto, ContractPrefixMapPatchRequest, PaymentTierPreviewDto, PrefixEntityStatus, SupervisionExportPurpose,
 } from '@contracts/project-contract';
 import type {
   ClaimAttachmentDto, ClaimCreateRequest, ClaimDetailDto, ClaimDto, ClaimListQuery, ClaimReviewRequest, ClaimSubmitResultDto, ClaimUpdateRequest, ExpenseQueueDto,
@@ -31,6 +33,13 @@ export type * from '@contracts/expense';
 function form(file: File, fields: Record<string, string | number | undefined>): FormData {
   const fd = new FormData();
   fd.append('file', file);
+  for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== '') fd.append(k, String(v));
+  return fd;
+}
+
+function multiForm(files: File[], fields: Record<string, string | number | undefined>): FormData {
+  const fd = new FormData();
+  for (const f of files) fd.append('file', f);
   for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== '') fd.append(k, String(v));
   return fd;
 }
@@ -73,10 +82,39 @@ export const contractApi = {
   publishLegal:(kind:'policies'|'templates',body:unknown)=>api.post(`/contracts/legal-catalog/${kind}`,body),
   changeLegal:(kind:'policies'|'templates',id:number,action:'retire'|'promote',reason:string)=>api.post(`/contracts/legal-catalog/${kind}/${id}/${action}`,{reason}),
   legalSource:(kind:'policies'|'templates',id:number,file:File)=>api.post(`/contracts/legal-catalog/${kind}/${id}/source`,form(file,{})),
+  prefixMap: (q?: { keyword?: string; entityStatus?: PrefixEntityStatus; allowNewOnly?: boolean }) =>
+    api.get<ContractPrefixMapDto[]>(`/contracts/prefix-map${qs({ keyword: q?.keyword, entityStatus: q?.entityStatus, allowNewOnly: q?.allowNewOnly ? 1 : undefined })}`),
+  createPrefixMap: (body: ContractPrefixMapCreateRequest) =>
+    api.post<ContractPrefixMapDto>('/contracts/prefix-map', body),
+  patchPrefixMap: (id: number, body: ContractPrefixMapPatchRequest) =>
+    api.patch<ContractPrefixMapDto>(`/contracts/prefix-map/${id}`, body),
+  suggestNextNo: (q: {
+    orgId: number;
+    signingSubjectOrgId?: number;
+    signingEntityLevel?: 'company' | 'secondary_unit';
+    category?: string;
+    legalCategory?: string;
+    direction?: 'expense' | 'income';
+    year?: number;
+  }) => api.get<ContractNextNoDto>(`/contracts/next-no${qs({ ...q })}`),
   list: (q: Partial<ContractListQuery>) => api.get<ContractDto[]>(`/contracts${qs({ ...q })}`),
   listPage: (q: ContractListQuery & PageQuery) => api.get<PageDto<ContractDto>>(`/contracts/page${qs({ ...q })}`),
   summary: (q: { orgId?: number; projectId?: number }) => api.get<ContractSummaryDto>(`/contracts/summary${qs(q)}`),
   get: (id: number) => api.get<ContractDetailDto>(`/contracts/${id}`),
+  paymentTierPreview: (id: number, q: { amount?: string; plannedDate?: string }) =>
+    api.get<PaymentTierPreviewDto>(`/contracts/${id}/payment-tier-preview${qs({ ...q })}`),
+  changeTierPreview: (
+    id: number,
+    q: { delta?: string; changeKind?: ChangeKind; involvesBizOrEntityChange?: boolean; involvesTechChange?: boolean },
+  ) =>
+    api.get<ChangeTierPreviewDto>(
+      `/contracts/${id}/change-tier-preview${qs({
+        delta: q.delta,
+        changeKind: q.changeKind,
+        involvesBizOrEntityChange: q.involvesBizOrEntityChange ? 1 : undefined,
+        involvesTechChange: q.involvesTechChange ? 1 : undefined,
+      })}`,
+    ),
   create: (body: Partial<ContractCreateRequest>) => api.post<ContractDetailDto>('/contracts', body),
   update: (id: number, body: Record<string, unknown> & { expectedVersion: number }) => api.patch<ContractDetailDto>(`/contracts/${id}`, body),
   advance: (id: number, expectedVersion: number, toStage: ContractStage) => api.post<ContractDetailDto>(`/contracts/${id}/advance`, { expectedVersion, toStage }),
@@ -116,15 +154,24 @@ export const contractApi = {
   upsertWarranty: (id: number, body: ContractWarrantyUpsertRequest) => api.put<ContractDetailDto>(`/contracts/${id}/warranty`, body),
   createDispute: (id: number, body: ContractDisputeCreateRequest) => api.post<ContractDetailDto>(`/contracts/${id}/disputes`, body),
   updateDispute: (id: number, did: number, body: ContractDisputeUpdateRequest) => api.patch<ContractDetailDto>(`/contracts/${id}/disputes/${did}`, body),
-  previewImport: (file: File) => api.post<ContractImportDto>('/contracts/imports', form(file, {})),
+  previewImport: (
+    fileOrFiles: File | File[],
+    opts?: { importMode?: 'standard' | 'legacy_tolerant'; orgId?: number; batchGroup?: string; asOfDate?: string },
+  ) => {
+    const files = Array.isArray(fileOrFiles) ? fileOrFiles : [fileOrFiles];
+    return api.post<ContractImportDto>('/contracts/imports', multiForm(files, { ...opts }));
+  },
+  listImports: (q?: { importMode?: 'standard' | 'legacy_tolerant'; status?: 'previewed' | 'confirmed'; limit?: number }) =>
+    api.get<ContractImportDto[]>(`/contracts/imports${qs({ ...q })}`),
+  importTemplatePath: (kind: ContractImportKind) => `/contracts/imports/templates/${kind}`,
   getImport: (id: number) => api.get<ContractImportDto>(`/contracts/imports/${id}`),
   confirmImport: (id: number, planHash: string) => api.post<ContractImportDto>(`/contracts/imports/${id}/confirm`, { planHash }),
   upsertEvaluation: (id: number, body: ContractEvaluationRequest) => api.put<ContractDetailDto>(`/contracts/${id}/evaluation`, body),
   monthlyLedgerExportPath: (q: { period?: string; orgId?: number }) => `/contracts/exports/monthly-ledger${qs(q)}`,
-  preflightSupervision: (q: { period?: string; orgId?: number; scopeMode?: 'changed' | 'all_active' }) =>
+  preflightSupervision: (q: { period?: string; orgId?: number; scopeMode?: 'changed' | 'all_active'; exportPurpose?: SupervisionExportPurpose }) =>
     api.get<SupervisionPreflightDto>(`/contracts/exports/supervision/preflight${qs(q)}`),
   supervisionExportLogs: () => api.get<SupervisionExportLogDto[]>('/contracts/exports/logs'),
-  exportSupervisionPackage: (body: { period?: string; orgId?: number; scopeMode?: 'changed' | 'all_active' }) =>
+  exportSupervisionPackage: (body: { period?: string; orgId?: number; scopeMode?: 'changed' | 'all_active'; exportPurpose?: SupervisionExportPurpose }) =>
     api.post<Blob>('/contracts/exports/supervision/package', body),
   supervisionPortalFull: (q?: { orgId?: number }) => api.get<SupervisionPortalResponseDto>(`/contracts/supervision-portal/full${qs(q ?? {})}`),
 };

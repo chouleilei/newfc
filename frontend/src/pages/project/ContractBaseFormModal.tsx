@@ -1,8 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Checkbox, Col, Collapse, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Space } from 'antd';
+import { useEffect } from 'react';
+import { Alert, App as AntdApp, Button, Checkbox, Col, Collapse, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Space, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { api, errorText } from '../../api/client';
-import { contractApi, type ContractDetailDto } from '../../api/projectContract';
+import { contractApi, planApi, type ContractDetailDto } from '../../api/projectContract';
 import { compact, defaultOrgId, OrgSelect } from '../financeData/shared';
 import {
   ACQUISITION_METHOD_LABELS, BUDGET_TYPE_LABELS, CONTRACT_CURRENCIES, DECISION_METHOD_LABELS,
@@ -24,6 +25,7 @@ const dateField = (label: string, name: string) => (
   </Form.Item>
 );
 const moneyRule = { pattern: /^-?\d{1,13}(\.\d{1,2})?$/, message: '金额最多 2 位小数' };
+const requiredNonNegMoneyRule = { pattern: /^\d{1,13}(\.\d{1,2})?$/, message: '正常合同金额须为非负数(最多 2 位小数，单价合同可填 0.00)' };
 const nonNegMoneyRule = { pattern: /^(\d{1,13}(\.\d{1,2})?)?$/, message: '须为非负金额(最多 2 位小数)' };
 const ratioRule = { pattern: /^(0(\.\d{1,6})?|1(\.0{1,6})?)?$/, message: '0～1 的小数(最多 6 位)' };
 
@@ -40,12 +42,18 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   });
 
   const legalType = contract?.legalReviewEnabled ?? false;
+  const isLegacyTolerant = contract?.migrationMode === 'legacy_tolerant';
   const amountLocked = !!contract && (
     CONTRACT_STAGE_ORDER.indexOf(contract.stage) > CONTRACT_STAGE_ORDER.indexOf('approval') ||
     (contract.stage === 'approval' && (!legalType || contract.documents.some((d) => d.docType === 'signed') ||
       (contract.reviews.some((r) => r.status === 'approved') && !contract.blockers.some((b) => b.code === 'LEGAL_REVIEW_OUTDATED' || b.code === 'REVIEW_OUTDATED'))))
   );
 
+  const orgIdWatch = Form.useWatch('orgId', form) as number | undefined;
+  const signingSubjectOrgId = Form.useWatch('signingSubjectOrgId', form) as number | undefined;
+  const signingEntityLevel = (Form.useWatch('signingEntityLevel', form) ?? 'company') as 'company' | 'secondary_unit';
+  const contractTypeWatch = Form.useWatch('contractType', form) as string | undefined;
+  const legalCategoryWatch = Form.useWatch('legalCategory', form) as string | undefined;
   const direction = Form.useWatch('direction', form) ?? 'expense';
   const pricingMode = Form.useWatch('pricingMode', form) ?? 'lump_sum';
   const currency = Form.useWatch('currency', form) ?? '人民币';
@@ -62,6 +70,62 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   const tenderBodyType = Form.useWatch('tenderBodyType', form);
   const termType = Form.useWatch('termType', form) ?? 'unspecified';
   const hasWarranty = Form.useWatch('hasWarranty', form);
+
+  const nextNoPreview = useQuery({
+    queryKey: ['contract-next-no', orgIdWatch, signingSubjectOrgId, signingEntityLevel, contractTypeWatch, legalCategoryWatch, direction],
+    queryFn: () =>
+      contractApi.suggestNextNo({
+        orgId: orgIdWatch!,
+        signingSubjectOrgId,
+        signingEntityLevel,
+        category: contractTypeWatch,
+        legalCategory: legalCategoryWatch,
+        direction,
+      }),
+    enabled: open && !contract && !!orgIdWatch,
+    staleTime: 10_000,
+  });
+
+  // 直属电站资金进项合同强制锁定公司名义签订（制度 17.1）
+  useEffect(() => {
+    if (!contract && nextNoPreview.data?.isDirectStation && direction === 'income' && signingEntityLevel !== 'company') {
+      form.setFieldValue('signingEntityLevel', 'company');
+    }
+  }, [contract, nextNoPreview.data?.isDirectStation, direction, signingEntityLevel, form]);
+
+  const currentYear = Number((contract?.signDate ?? dayjs().format('YYYY-MM-DD')).slice(0, 4));
+  const planItemsQ = useQuery({
+    queryKey: ['contract-plan-items', currentYear, orgIdWatch],
+    queryFn: async () => {
+      const batches = await planApi.batches({ year: currentYear, status: 'imported' });
+      const activeBatch = batches.find((b) => b.isCurrent) ?? batches[0];
+      if (!activeBatch) return [];
+      const items = await planApi.items(activeBatch.id);
+      return items.filter((it) => !orgIdWatch || !it.orgId || it.orgId === orgIdWatch || it.undertakeOrgId === orgIdWatch);
+    },
+    enabled: open && !!orgIdWatch,
+    staleTime: 30_000,
+  });
+
+  const fillSuggestedNo = async () => {
+    if (!orgIdWatch) {
+      message.warning('请先选择承办组织');
+      return;
+    }
+    try {
+      const res = await contractApi.suggestNextNo({
+        orgId: orgIdWatch,
+        signingSubjectOrgId,
+        signingEntityLevel,
+        category: contractTypeWatch,
+        legalCategory: legalCategoryWatch,
+        direction,
+      });
+      form.setFieldValue('contractNo', res.suggestedNo);
+    } catch (e) {
+      message.error(errorText(e));
+    }
+  };
 
   const amountCents = parseMoneyToCentsPreview(amount);
   const ceilingCents = parseMoneyToCentsPreview(ceilingAmount);
@@ -86,6 +150,8 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
         ...rest,
         projectId: rest.projectId ?? null,
         supplierId: rest.supplierId ?? null,
+        planItemId: rest.planItemId ?? null,
+        signingSubjectOrgId: rest.signingSubjectOrgId ?? null,
         sourceIncomeContractId: rest.sourceIncomeContractId ?? null,
         expectedVersion: contract.version,
       });
@@ -96,7 +162,8 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
 
   const initialValues = contract ? {
     contractNo: contract.contractNo, name: contract.name, contractType: contract.contractType, orgId: contract.orgId,
-    projectId: contract.projectId, supplierId: contract.supplierId,
+    projectId: contract.projectId, supplierId: contract.supplierId, planItemId: contract.planItemId ?? null,
+    signingSubjectOrgId: contract.signingSubjectOrgId ?? null,
     direction: contract.direction ?? 'expense', pricingMode: contract.pricingMode ?? 'lump_sum',
     unitPriceDesc: contract.unitPriceDesc ?? '', estimatedCeilingAmount: contract.estimatedCeilingAmount ?? '',
     currency: contract.currency ?? '人民币', exchangeRate: contract.exchangeRate ?? '',
@@ -145,17 +212,70 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
       forceRender: true,
       children: (
         <Row gutter={12}>
-          <Col span={10}><Form.Item name="contractNo" label="合同编号" rules={[{ required: true, whitespace: true }]}><Input maxLength={64} disabled={!!contract} /></Form.Item></Col>
+          <Col span={10}>
+            <Form.Item
+              name="contractNo"
+              label={
+                <Space size={8}>
+                  <span>合同编号</span>
+                  {!contract && (
+                    <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => void fillSuggestedNo()}>
+                      生成建议编号
+                    </Button>
+                  )}
+                </Space>
+              }
+              rules={[{ required: true, whitespace: true }]}
+            >
+              <Input maxLength={64} disabled={!!contract} placeholder="XX－YY－序号（补X）/年份－流水号" />
+            </Form.Item>
+          </Col>
           <Col span={4}><Form.Item name="externalNoExempt" label="外部编号豁免" valuePropName="checked"><Checkbox disabled={amountLocked}>免规则校验</Checkbox></Form.Item></Col>
           <Col span={10}><Form.Item name="name" label="合同名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={200} /></Form.Item></Col>
-          <Col span={8}><Form.Item name="orgId" label="组织" rules={[{ required: true, message: '请选择组织' }]}><OrgSelect onChange={(v) => form.setFieldValue('orgId', v)} width={240} allowClear={false} /></Form.Item></Col>
+          {!contract && nextNoPreview.data && (
+            <Col span={24} style={{ marginBottom: 10 }}>
+              <Alert
+                type="info"
+                showIcon
+                message={`规范取号码：${nextNoPreview.data.canonicalPrefix} ｜ 实际签约主体：${nextNoPreview.data.signingOrgName} vs 法定统计法人：${nextNoPreview.data.legalEntityOrgName}`}
+                description={
+                  nextNoPreview.data.isDirectStation && direction === 'income'
+                    ? '直属水电站资金进项合同按制度强制锁定以母公司名义签订。'
+                    : nextNoPreview.data.orgKind === 'direct_unit' && !nextNoPreview.data.isDirectStation && direction === 'income'
+                      ? '直属分支机构签订资金进项合同后，须在 10 个工作日内报公司企管与财务备案。'
+                      : undefined
+                }
+              />
+            </Col>
+          )}
+          <Col span={8}>
+            <Form.Item
+              name="orgId"
+              label="承办组织"
+              extra={contract ? '组织归属创建后不可直接更改' : undefined}
+              rules={[{ required: true, message: '请选择组织' }]}
+            >
+              <OrgSelect
+                disabled={!!contract}
+                disableInactive={!contract}
+                onChange={(v) => form.setFieldValue('orgId', v)}
+                width={240}
+                allowClear={false}
+              />
+            </Form.Item>
+          </Col>
           <Col span={8}><Form.Item name="direction" label="收支方向"><Select disabled={amountLocked} options={Object.entries(DIRECTION_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>
           <Col span={8}><Form.Item name="reportCategory" label="监督报送分类"><Select options={Object.entries(REPORT_CATEGORY_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>
           <Col span={8}><Form.Item name="contractType" label="合同类型"><Input maxLength={50} placeholder="如 工程 / 货物 / 服务" /></Form.Item></Col>
           <Col span={8}><Form.Item name="pricingMode" label="计价方式"><Select disabled={amountLocked} options={Object.entries(PRICING_MODE_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>
           <Col span={8}><Form.Item name="currency" label="币种"><Select showSearch disabled={amountLocked} options={CONTRACT_CURRENCIES.map((c) => ({ value: c, label: c }))} /></Form.Item></Col>
           <Col span={8}>
-            <Form.Item name="originalAmount" label="原始金额(元)" rules={[{ required: true }, moneyRule]} extra={amountLocked ? '已有有效批准或签署件时金额锁定；履约后通过变更调整' : (pricingMode === 'unit_price' ? '单价合同可填 0.00' : '签署前纠错后需重新法审')}>
+            <Form.Item
+              name="originalAmount"
+              label="原始金额(元)"
+              rules={[{ required: true }, isLegacyTolerant ? moneyRule : requiredNonNegMoneyRule]}
+              extra={amountLocked ? '已有有效批准或签署件时金额锁定；履约后通过变更调整' : (pricingMode === 'unit_price' ? '单价合同可填 0.00' : '签署前纠错后需重新法审')}
+            >
               <Input disabled={amountLocked} />
             </Form.Item>
           </Col>
@@ -170,6 +290,21 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
           )}
           <Col span={8}><Form.Item name="paymentCapRatio" label="付款上限比例(0～1,可空)" rules={[ratioRule]}><Input placeholder="如 0.95" /></Form.Item></Col>
           <Col span={8}><Form.Item name="projectId" label="项目"><Select allowClear showSearch optionFilterProp="label" loading={projects.loading} options={projects.options} /></Form.Item></Col>
+          <Col span={8}>
+            <Form.Item name="planItemId" label="关联综合计划项">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                loading={planItemsQ.isLoading}
+                placeholder="可选，绑定已导入综合计划明细"
+                options={(planItemsQ.data ?? []).map((it) => ({
+                  value: it.id,
+                  label: `${it.itemName}${it.projectCode ? ` (${it.projectCode})` : ''}`,
+                }))}
+              />
+            </Form.Item>
+          </Col>
           <Col span={8}><Form.Item name="budgetType" label="立项计划口径"><Select options={Object.entries(BUDGET_TYPE_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>
           <Col span={8}><Form.Item name="fundingSource" label="资金来源"><Select options={Object.entries(FUNDING_SOURCE_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>
           {direction === 'expense' && fundingSource === 'income_contract' && (
@@ -197,7 +332,19 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
           <Col span={16}><Form.Item name="counterpartyNames" label="全部相对方名称（联合体或多方用逗号分隔）"><Input maxLength={1000} /></Form.Item></Col>
           <Col span={8}><Form.Item name="undertakerName" label="承办人"><Input maxLength={100} /></Form.Item></Col>
           <Col span={8}><Form.Item name="undertakerDept" label="承办部门"><Input maxLength={100} /></Form.Item></Col>
-          <Col span={8}><Form.Item name="signingEntityLevel" label="签约主体层级"><Select disabled={amountLocked} options={[{ value: 'company', label: '公司名义' }, { value: 'secondary_unit', label: '二级单位名义' }]} /></Form.Item></Col>
+          <Col span={8}>
+            <Form.Item name="signingEntityLevel" label="签约主体层级">
+              <Select
+                disabled={amountLocked || Boolean(!contract && nextNoPreview.data?.isDirectStation && direction === 'income')}
+                options={[{ value: 'company', label: '公司名义' }, { value: 'secondary_unit', label: '二级单位名义' }]}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="signingSubjectOrgId" label="对外签约名义组织（可选）">
+              <OrgSelect width={240} placeholder="默认按承办组织及层级推导" onChange={(v) => form.setFieldValue('signingSubjectOrgId', v ?? null)} />
+            </Form.Item>
+          </Col>
           <Col span={8}><Form.Item name="ourSignatoryName" label="我方签署人姓名"><Input maxLength={100} /></Form.Item></Col>
           <Col span={8}><Form.Item name="ourSignatoryTitle" label="我方签署人职务"><Input maxLength={100} /></Form.Item></Col>
           <Col span={8}><Form.Item name="ourSignatoryIsLegalRep" label="我方签署人为法定代表人"><Select allowClear options={[{ value: true, label: '是（法定代表人）' }, { value: false, label: '否（须附授权委托书）' }]} /></Form.Item></Col>
@@ -293,7 +440,34 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   return (
     <Modal open={open} title={contract ? '编辑合同 ' + contract.contractNo : '新建合同'} width={900} onCancel={onClose} destroyOnClose confirmLoading={save.isPending}
       styles={{ body: { maxHeight: '72vh', overflowY: 'auto' } }}
-      onOk={() => form.validateFields().then((v) => save.mutate(v))}>
+      onOk={() => form.validateFields().then((v) => save.mutate(v), () => {})}>
+      {isLegacyTolerant && contract && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            <Space wrap size={6}>
+              <span>历史容缺迁入合同（待逐步补录转正）</span>
+              {contract.syntheticNoFlag && <Tag color="purple">合成号</Tag>}
+              {contract.isReversal && <Tag color="magenta">红冲</Tag>}
+            </Space>
+          }
+          description={
+            <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+              <div>
+                实际签约主体：{contract.signingOrgName || contract.orgName} ｜ 法定法人统计口径：{contract.legalEntityOrgName || contract.orgName}
+              </div>
+              {(contract.missingFields?.length ?? 0) > 0 && <div>待补录缺口：{contract.missingFields!.join('、')}</div>}
+              {contract.legacyRawNo && <div>原台账原始编号：{contract.legacyRawNo}</div>}
+              {contract.rawSignDateText && <div>原始签订日期文本：{contract.rawSignDateText}</div>}
+              {contract.rawAmountText && <div>原始金额文本：{contract.rawAmountText}</div>}
+              {contract.foreignAmountText && <div>原币金额原文：{contract.foreignAmountText}</div>}
+              {contract.noExemptReason && <div>无号豁免/赋码说明：{contract.noExemptReason}</div>}
+            </div>
+          }
+        />
+      )}
       <Form form={form} layout="vertical" preserve={false} initialValues={initialValues}>
         <Collapse defaultActiveKey={['base', 'party', 'decision', 'term']} items={collapseItems} />
       </Form>

@@ -2,11 +2,19 @@ import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, TreeSelect, Typography } from 'antd';
+import { Alert, App as AntdApp, Button, Card, Checkbox, DatePicker, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, TreeSelect, Typography } from 'antd';
 import dayjs from 'dayjs';
-import { api, can, errorText } from '../api/client';
+import { api, can, errorText, getSession } from '../api/client';
+import {
+  contractApi,
+  type ContractPrefixMapCreateRequest,
+  type ContractPrefixMapDto,
+  type PrefixEntityStatus,
+  type PrefixKind,
+} from '../api/projectContract';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
+import { OrgSelect } from './financeData/shared';
 import DictItemsTab from './master/DictItemsTab';
 import { CustomFieldItems, extraInitial, mergeExtra, useCustomFields } from './master/CustomFieldItems';
 
@@ -351,8 +359,264 @@ function ResolveTab() {
   );
 }
 
-/** 主数据扩展(AC-F07):项目、供应商、跨域编码映射与解析预览。组织/科目沿用原页面。 */
-const TAB_KEYS = ['projects', 'suppliers', 'mappings', 'resolve', 'dicts'];
+const PREFIX_ENTITY_STATUS_LABELS: Record<PrefixEntityStatus, { text: string; color: string }> = {
+  active_legal: { text: '在运法人', color: 'green' },
+  direct_unit: { text: '直属非法人', color: 'cyan' },
+  inherited_child: { text: '沿用母公司子企业', color: 'geekblue' },
+  closed_history: { text: '历史关停主体', color: 'default' },
+  external: { text: '外部相对方', color: 'orange' },
+  ignore: { text: '噪声过滤', color: 'magenta' },
+};
+
+const PREFIX_KIND_LABELS: Record<PrefixKind, string> = {
+  internal_prefix: '内部规范前缀',
+  typo_alias: '历史笔误/别名',
+  role_prefix: '职能角色前缀',
+  external_counterparty: '外部相对方前缀',
+  noise_header_filter: '表头/噪声过滤',
+};
+
+function PrefixMapTab() {
+  const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
+  const writable = can('master:write') && !!getSession()?.user.allOrgs;
+  const [keyword, setKeyword] = useState('');
+  const [entityStatus, setEntityStatus] = useState<PrefixEntityStatus | undefined>();
+  const [allowNewOnly, setAllowNewOnly] = useState(false);
+  const [editing, setEditing] = useState<ContractPrefixMapDto | 'new' | null>(null);
+  const [form] = Form.useForm<ContractPrefixMapCreateRequest>();
+  const watchedStatus = Form.useWatch('entityStatus', form) ?? 'active_legal';
+  const nullableLegalOrg = watchedStatus === 'external' || watchedStatus === 'ignore';
+
+  const list = useQuery({
+    queryKey: ['contract-prefix-map', keyword, entityStatus, allowNewOnly],
+    queryFn: () => contractApi.prefixMap({ keyword: keyword.trim() || undefined, entityStatus, allowNewOnly }),
+  });
+
+  const save = useMutation({
+    mutationFn: (v: ContractPrefixMapCreateRequest) => {
+      const payload: ContractPrefixMapCreateRequest = {
+        ...v,
+        rawPrefix: v.rawPrefix.trim().toUpperCase(),
+        canonicalPrefix: v.canonicalPrefix.trim().toUpperCase(),
+        legalEntityOrgId: v.legalEntityOrgId ?? null,
+        signingOrgId: v.signingOrgId ?? null,
+        parentCanonicalPrefix: v.parentCanonicalPrefix?.trim().toUpperCase() || undefined,
+        allowNewContract: Boolean(v.allowNewContract),
+      };
+      return editing === 'new'
+        ? contractApi.createPrefixMap(payload)
+        : contractApi.patchPrefixMap((editing as ContractPrefixMapDto).id, payload);
+    },
+    onSuccess: () => {
+      message.success('前缀映射已保存');
+      setEditing(null);
+      void qc.invalidateQueries({ queryKey: ['contract-prefix-map'] });
+    },
+    onError: (e) => message.error(errorText(e)),
+  });
+
+  const openModal = (target: ContractPrefixMapDto | 'new') => {
+    form.resetFields();
+    setEditing(target);
+    if (target === 'new') {
+      form.setFieldsValue({
+        rawPrefix: '',
+        canonicalPrefix: '',
+        entityStatus: 'active_legal',
+        prefixKind: 'internal_prefix',
+        allowNewContract: true,
+        legalEntityOrgId: null,
+        signingOrgId: null,
+        parentCanonicalPrefix: '',
+        note: '',
+      });
+    } else {
+      form.setFieldsValue({
+        rawPrefix: target.rawPrefix,
+        canonicalPrefix: target.canonicalPrefix,
+        legalEntityOrgId: target.legalEntityOrgId,
+        signingOrgId: target.signingOrgId,
+        parentCanonicalPrefix: target.parentCanonicalPrefix,
+        entityStatus: target.entityStatus,
+        prefixKind: target.prefixKind,
+        allowNewContract: target.allowNewContract,
+        note: target.note,
+      });
+    }
+  };
+
+  if (list.error) return <QueryErrorResult title="合同编码前缀映射加载失败" error={list.error} refetch={list.refetch} />;
+
+  return (
+    <>
+      <Space wrap style={{ marginBottom: 12 }}>
+        <Input.Search
+          allowClear
+          placeholder="搜索前缀或单位名称"
+          style={{ width: 220 }}
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+        />
+        <Select<PrefixEntityStatus>
+          allowClear
+          placeholder="主体类型(全部6态)"
+          style={{ width: 180 }}
+          value={entityStatus}
+          onChange={setEntityStatus}
+          options={(Object.entries(PREFIX_ENTITY_STATUS_LABELS) as [PrefixEntityStatus, { text: string }][]).map(([value, meta]) => ({
+            value,
+            label: meta.text,
+          }))}
+        />
+        <Space size={4}>
+          <Switch size="small" checked={allowNewOnly} onChange={setAllowNewOnly} />
+          <span>仅看允许新签</span>
+        </Space>
+        {writable && (
+          <Button type="primary" onClick={() => openModal('new')}>
+            新建前缀映射
+          </Button>
+        )}
+      </Space>
+      <Table<ContractPrefixMapDto>
+        rowKey="id"
+        size="small"
+        loading={list.isLoading}
+        dataSource={list.data ?? []}
+        pagination={{ pageSize: 20 }}
+        scroll={{ x: 1180 }}
+        columns={[
+          { title: '实账前缀', dataIndex: 'rawPrefix', width: 110, render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
+          { title: '规范母公司码', dataIndex: 'canonicalPrefix', width: 110, render: (v: string) => <Tag color="blue">{v}</Tag> },
+          { title: '法定法人主体', dataIndex: 'legalEntityOrgName', width: 150, render: (v: string | null) => v || '—（外部/忽略）' },
+          { title: '对应签约/历史主体', dataIndex: 'signingOrgName', width: 150, render: (v: string | null) => v || '—' },
+          {
+            title: '主体类型',
+            dataIndex: 'entityStatus',
+            width: 135,
+            render: (v: PrefixEntityStatus) => (
+              <Tag color={PREFIX_ENTITY_STATUS_LABELS[v]?.color}>{PREFIX_ENTITY_STATUS_LABELS[v]?.text ?? v}</Tag>
+            ),
+          },
+          {
+            title: '前缀分类',
+            dataIndex: 'prefixKind',
+            width: 135,
+            render: (v: PrefixKind) => PREFIX_KIND_LABELS[v] ?? v,
+          },
+          {
+            title: '允许新签',
+            dataIndex: 'allowNewContract',
+            width: 90,
+            render: (ok: boolean) => (ok ? <Tag color="success">允许</Tag> : <Tag>禁止</Tag>),
+          },
+          {
+            title: '示例号 / 频次',
+            key: 'sample',
+            width: 170,
+            render: (_, r) => (r.sampleContractNo ? `${r.sampleContractNo} (${r.occurrenceCount})` : String(r.occurrenceCount)),
+          },
+          { title: '备注', dataIndex: 'note', ellipsis: true },
+          ...(writable
+            ? [
+                {
+                  title: '操作',
+                  key: 'op',
+                  width: 72,
+                  render: (_: unknown, r: ContractPrefixMapDto) => (
+                    <Button size="small" type="link" onClick={() => openModal(r)}>
+                      编辑
+                    </Button>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
+      <Modal
+        open={editing !== null}
+        title={editing === 'new' ? '新建合同编码前缀映射' : `编辑前缀映射: ${(editing as ContractPrefixMapDto)?.rawPrefix ?? ''}`}
+        onCancel={() => setEditing(null)}
+        onOk={() => form.validateFields().then((v) => save.mutate(v))}
+        confirmLoading={save.isPending}
+        destroyOnClose
+        width={620}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item
+            name="rawPrefix"
+            label="实账前缀 (rawPrefix)"
+            rules={[{ required: true, message: '请输入实账前缀' }]}
+          >
+            <Input disabled={editing !== 'new'} maxLength={40} placeholder="如 HQ / SUB-A" />
+          </Form.Item>
+          <Form.Item
+            name="canonicalPrefix"
+            label="规范母公司码 (canonicalPrefix)"
+            rules={[{ required: true, message: '请输入规范母公司码' }]}
+          >
+            <Input maxLength={24} placeholder="如 HQ / EXT / NOISE" />
+          </Form.Item>
+          <Form.Item name="entityStatus" label="主体类型 (entityStatus)" rules={[{ required: true }]}>
+            <Select
+              options={(Object.entries(PREFIX_ENTITY_STATUS_LABELS) as [PrefixEntityStatus, { text: string }][]).map(([value, meta]) => ({
+                value,
+                label: meta.text,
+              }))}
+              onChange={(st: PrefixEntityStatus) => {
+                if (st === 'external' || st === 'ignore' || st === 'closed_history') {
+                  form.setFieldValue('allowNewContract', false);
+                }
+              }}
+            />
+          </Form.Item>
+          <Form.Item name="prefixKind" label="前缀分类 (prefixKind)" rules={[{ required: true }]}>
+            <Select
+              options={(Object.entries(PREFIX_KIND_LABELS) as [PrefixKind, string][]).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="legalEntityOrgId"
+            label="法定法人主体 (external / ignore 可留空)"
+            rules={nullableLegalOrg ? [] : [{ required: true, message: '内部主体必须关联法定法人组织' }]}
+          >
+            <OrgSelect
+              width={360}
+              onlyOrgKind="legal_entity"
+              placeholder={nullableLegalOrg ? '外部相对方或噪声前缀可留空' : '选择法定统计法人组织'}
+              onChange={(v) => form.setFieldValue('legalEntityOrgId', v ?? null)}
+            />
+          </Form.Item>
+          <Form.Item name="signingOrgId" label="对应签约 / 历史主体（可选）">
+            <OrgSelect
+              width={360}
+              placeholder="选择实际签约或历史关停主体"
+              onChange={(v) => form.setFieldValue('signingOrgId', v ?? null)}
+            />
+          </Form.Item>
+          <Form.Item name="parentCanonicalPrefix" label="上级母公司前缀（可选）">
+            <Input maxLength={24} placeholder="沿用母公司编码的子企业可填母公司前缀" />
+          </Form.Item>
+          <Form.Item name="allowNewContract" valuePropName="checked">
+            <Checkbox disabled={watchedStatus === 'external' || watchedStatus === 'ignore' || watchedStatus === 'closed_history'}>
+              允许用于新签合同自动取号
+            </Checkbox>
+          </Form.Item>
+          <Form.Item name="note" label="备注">
+            <Input.TextArea rows={2} maxLength={500} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  );
+}
+
+/** 主数据扩展(AC-F07):项目、供应商、跨域编码映射、合同编码前缀映射与解析预览。组织/科目沿用原页面。 */
+const TAB_KEYS = ['projects', 'suppliers', 'mappings', 'prefix-map', 'resolve', 'dicts'];
 
 /** `?tab=&keyword=` 由跨域检索(AC-F26)带入:定位到对应页签并预填关键词;切换页签时清除关键词。 */
 export default function MasterEntities() {
@@ -370,6 +634,7 @@ export default function MasterEntities() {
           { key: 'projects', label: '项目', children: <ProjectsTab key={`p:${tab === 'projects' ? keyword : ''}`} initialKeyword={tab === 'projects' ? keyword : ''} /> },
           { key: 'suppliers', label: '供应商', children: <SuppliersTab key={`s:${tab === 'suppliers' ? keyword : ''}`} initialKeyword={tab === 'suppliers' ? keyword : ''} /> },
           { key: 'mappings', label: '编码映射', children: <MappingsTab /> },
+          { key: 'prefix-map', label: '合同编码前缀映射', children: <PrefixMapTab /> },
           { key: 'resolve', label: '解析预览', children: <ResolveTab /> },
           { key: 'dicts', label: '字典项', children: <DictItemsTab /> },
         ]}

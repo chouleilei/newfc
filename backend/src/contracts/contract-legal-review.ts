@@ -156,12 +156,16 @@ export interface PolicyDto extends PolicyInput {
   id: number;
   status: 'active' | 'retired';
   sourceFileObjectId: number | null;
+  originalFileName?: string | null;
+  contentType?: string | null;
   clauses: (PolicyInput['clauses'][number] & { id: number })[];
 }
 export interface TemplateDto extends Omit<TemplateInput, 'approvalStatus'> {
   id: number;
   approvalStatus: 'candidate' | 'official' | 'retired';
   sourceFileObjectId: number | null;
+  originalFileName?: string | null;
+  contentType?: string | null;
   clauses: (TemplateInput['clauses'][number] & { id: number })[];
 }
 export type Verdict = 'pass' | 'revise' | 'manual_review';

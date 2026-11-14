@@ -32,7 +32,7 @@ const nonNegMoneyRule = {
 const ratioRule = {
   validator: (_: unknown, v?: string) => {
     if (!v || !String(v).trim()) return Promise.resolve();
-    return /^(0(.d{1,6})?|1(.0{1,6})?)$/.test(String(v).trim()) ? Promise.resolve() : Promise.reject(new Error('请输入 0～1 小数(最多 6 位)'));
+    return /^(0(\.\d{1,6})?|1(\.0{1,6})?)$/.test(String(v).trim()) ? Promise.resolve() : Promise.reject(new Error('请输入 0～1 小数(最多 6 位)'));
   },
 };
 const datePickerProps = {

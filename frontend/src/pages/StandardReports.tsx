@@ -1,7 +1,7 @@
 import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Descriptions, Drawer, Form, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, App as AntdApp, Button, Collapse, Descriptions, Drawer, Form, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { can, download, errorText, getSession } from '../api/client';
 import { stdReportApi, type StdColumnDto, type StdReportDto, type StdReportGenerate, type StdReportListItemDto, type StdReportType } from '../api/financeData';
 import { QueryErrorResult } from '../components/QueryErrorResult';
@@ -97,7 +97,7 @@ function ReportDrawer({ id, onClose }: { id: number | null; onClose: () => void 
             <Descriptions.Item label="状态">{r.status === 'reviewed' ? <Tag color="success">已复核</Tag> : <Tag color="warning">待复核</Tag>}</Descriptions.Item>
             <Descriptions.Item label="内容指纹"><Typography.Text code copyable={{ text: r.contentSha256 }}>{r.contentSha256.slice(0, 12)}…</Typography.Text></Descriptions.Item>
             <Descriptions.Item label="来源" span={3}>
-              {Object.entries(r.sources).filter(([k]) => k !== 'monthlySheets').map(([k, v]) => <Tag key={k}>{k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}</Tag>)}
+              {Object.entries(r.sources).filter(([k]) => k !== 'monthlySheets' && k !== 'monthlyStats').map(([k, v]) => <Tag key={k}>{k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}</Tag>)}
             </Descriptions.Item>
             {r.reviewedAt && (
               <Descriptions.Item label="复核" span={3}>
@@ -107,6 +107,37 @@ function ReportDrawer({ id, onClose }: { id: number | null; onClose: () => void 
           </Descriptions>
           {r.summary.length > 0 && (
             <Space wrap>{r.summary.map((s) => <Tag key={s.label} style={{ padding: '4px 8px' }}>{s.label}:{s.value}</Tag>)}</Space>
+          )}
+          {r.reportType === 'contract_monthly_pack' && Array.isArray(r.sources.monthlyStats) && r.sources.monthlyStats.length > 0 && (
+            <Collapse
+              size="small"
+              defaultActiveKey={['stats']}
+              items={[
+                {
+                  key: 'stats',
+                  label: '01_月度统计表 · 分币种新签/完结/变更/结算矩阵预览',
+                  children: (
+                    <Table
+                      size="small"
+                      pagination={false}
+                      rowKey="currency"
+                      dataSource={r.sources.monthlyStats as Record<string, unknown>[]}
+                      columns={[
+                        { title: '币种', dataIndex: 'currency', width: 90 },
+                        { title: '本月新签(份)', dataIndex: 'newSignedCount', width: 100, align: 'right' },
+                        { title: '本月新签额(万)', dataIndex: 'newSignedWan', width: 120, align: 'right' },
+                        { title: '本月完结(份)', dataIndex: 'closedCount', width: 100, align: 'right' },
+                        { title: '本月完结额(万)', dataIndex: 'closedWan', width: 120, align: 'right' },
+                        { title: '本月变更(次)', dataIndex: 'changeCount', width: 100, align: 'right' },
+                        { title: '本月变更净额(万)', dataIndex: 'changeDeltaWan', width: 130, align: 'right' },
+                        { title: '本月结算(笔)', dataIndex: 'settlementCount', width: 100, align: 'right' },
+                        { title: '本月净结算(万)', dataIndex: 'settlementNetWan', width: 130, align: 'right' },
+                      ]}
+                    />
+                  ),
+                },
+              ]}
+            />
           )}
           {Array.isArray(r.sources.monthlySheets) && <Tabs items={(r.sources.monthlySheets as { name: string; rows: (string | number | null)[][]; sha256: string }[]).map(sheet => ({ key: sheet.name, label: sheet.name, children: <>
             <Typography.Text type="secondary">冻结内容摘要：{sheet.sha256.slice(0, 16)}</Typography.Text>
@@ -141,7 +172,12 @@ export default function StandardReports() {
         <Select allowClear placeholder="状态" value={status} onChange={setStatus} style={{ width: 110 }} options={[{ value: 'generated', label: '待复核' }, { value: 'reviewed', label: '已复核' }]} />
         {can('report:write') && <Button type="primary" onClick={() => setGenerating(true)}>生成报表</Button>}
       </Space>
-      <Alert type="info" showIcon style={{ marginBottom: 12 }} message="报表生成后内容冻结:来源数据之后的变化不影响已生成报表;页面与 Excel 导出逐行一致。合同付款台账与风险整改台账在后续阶段加入。" />
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="报表生成后内容冻结：来源数据之后的变化不影响已生成报表；页面与 Excel 导出逐行一致（已覆盖预算执行、财务报表摘要、EAS对账、合同付款台账、风险整改台账与月度合同5表台账）。"
+      />
       {list.error ? <QueryErrorResult title="报表加载失败" error={list.error} refetch={list.refetch} /> : (
         <Table<StdReportListItemDto>
           size="small" rowKey="id" loading={list.isLoading} dataSource={list.data ?? []} pagination={{ pageSize: 20, showSizeChanger: false }}
