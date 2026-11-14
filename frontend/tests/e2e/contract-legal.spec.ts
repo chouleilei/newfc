@@ -116,6 +116,11 @@ test('AC-CLR-01/04/05：候选核验、正式范本 pass、页面一次确认、
       isProcurement: true,
       procurementTarget: 'goods',
       procurementMethod: 'inquiry',
+      // V72 requires signatory identity before entering performance.
+      ourSignatoryName: '测试法人',
+      ourSignatoryTitle: '法定代表人',
+      ourSignatoryIsLegalRep: true,
+      counterpartySignatoryIsLegalRep: true,
     });
     const upload = async (
       type: string,
