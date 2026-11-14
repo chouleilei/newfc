@@ -73,7 +73,7 @@ export const contractCommandRequest = z.object({
   approvalTier: z.enum(CHANGE_APPROVAL_TIERS).nullish(),
   terminationAgreementDocumentId: id.nullish(),
 });
-export type ContractCommandRequest = z.input<typeof contractCommandRequest>;
+export type ContractCommandRequest = z.infer<typeof contractCommandRequest>;
 export const contractReopenRequest = z.object({ expectedVersion, reason, targetStage: z.enum(CONTRACT_STAGES).refine((s) => s !== 'closed', '重开目标阶段不能是履约完结') });
 export const contractDocumentForm = z.object({
   docType: z.enum(CONTRACT_DOC_TYPES), name: optionalText(200), evidenceKind: z.enum(EVIDENCE_KINDS).optional(), changeId: id.optional(),
@@ -110,7 +110,7 @@ export const contractChangeRequest = z.object({
   guarantorConsentDocumentId: id.nullish(),
   disciplineFiledAt: date.nullish(),
 });
-export type ContractChangeRequest = z.input<typeof contractChangeRequest>;
+export type ContractChangeRequest = Omit<z.infer<typeof contractChangeRequest>, 'delta'> & { delta?: MoneyString };
 export const contractPaymentRequest = z.object({
   nodeName: z.string().trim().min(1).max(100), amount: moneyString, plannedDate: date.nullish(), evidenceDocumentId: id.nullish(),
   feasibilityDocId: id.nullish(),
@@ -118,7 +118,7 @@ export const contractPaymentRequest = z.object({
   approvalTier: z.enum(CONTRACT_PAYMENT_APPROVAL_TIERS).nullish(), approverName: optionalText(100), approverTitle: optionalText(100),
   approvalDocId: id.nullish(), isFarmerWageTransfer: z.boolean().optional(),
 });
-export type ContractPaymentRequest = z.input<typeof contractPaymentRequest>;
+export type ContractPaymentRequest = z.infer<typeof contractPaymentRequest>;
 export const contractPayRequest = z.object({ paidDate: date, voucherNo: optionalText(64), invoiceDocumentId: id });
 export type ContractPayRequest = z.infer<typeof contractPayRequest>;
 export const CONTRACT_TODOS = ['review', 'change', 'payment', 'pay', 'settlement', 'receipt', 'distribution', 'guarantee_warranty'] as const;

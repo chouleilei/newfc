@@ -14,7 +14,7 @@ const send = (base: string, s: Session, method: 'PATCH' | 'PUT', url: string, bo
   fetchAs(s, `${base}${url}`, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 async function expectStatus(res: Response | Promise<Response>, status: number, text?: string | RegExp) {
   const r = await res;
-  const body = await r.json();
+  const body: any = await r.json();
   expect(r.status, JSON.stringify(body)).toBe(status);
   if (text) expect(body.message).toMatch(text);
   return body;

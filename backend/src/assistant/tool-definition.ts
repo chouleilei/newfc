@@ -8,7 +8,7 @@ export type ToolScope = 'global' | 'org_tree' | 'org_scope' | 'org_cell' | 'all_
 export interface ToolPolicy { permission: Permission; scope: ToolScope }
 export interface ToolDefinition {
   label: string;
-  schema: z.AnyZodObject;
+  schema: z.ZodObject<any>;
   capabilities: DomainCapability[];
   universal: boolean;
   policy: ToolPolicy | ((params: Record<string, unknown>) => ToolPolicy);

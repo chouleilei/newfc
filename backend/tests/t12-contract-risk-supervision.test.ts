@@ -453,11 +453,11 @@ describe('T-12.2 / T-12.3 / T-12.4 多模板导入、双口径导出、OA 门户
       supplierId: 1, originalAmount: '10000.00', signDate: '2026-04-01', hasWarranty: false,
     }));
     await uploadDoc(base, admin, cClose.id, 'procurement', undefined, 'p.pdf');
-    const docTxt = await (await uploadDoc(base, admin, cClose.id, 'contract_text', undefined, 't.pdf')).json();
-    const docSgn = await (await uploadDoc(base, admin, cClose.id, 'signed', undefined, 's.pdf')).json();
+    const docTxt = await json(uploadDoc(base, admin, cClose.id, 'contract_text', undefined, 't.pdf'));
+    const docSgn = await json(uploadDoc(base, admin, cClose.id, 'signed', undefined, 's.pdf'));
     await uploadDoc(base, admin, cClose.id, 'performance', undefined, 'perf.pdf');
     await uploadDoc(base, admin, cClose.id, 'acceptance', undefined, 'acc.pdf');
-    const docInv = await (await uploadDoc(base, admin, cClose.id, 'invoice', undefined, 'inv.pdf')).json();
+    const docInv = await json(uploadDoc(base, admin, cClose.id, 'invoice', undefined, 'inv.pdf'));
     let d = await json(get(base, admin, `/api/contracts/${cClose.id}`));
     d = await json(post(base, admin, `/api/contracts/${cClose.id}/advance`, { expectedVersion: d.version, toStage: 'procurement' }));
     d = await json(post(base, admin, `/api/contracts/${cClose.id}/advance`, { expectedVersion: d.version, toStage: 'drafting' }));
@@ -482,14 +482,13 @@ describe('T-12.2 / T-12.3 / T-12.4 多模板导入、双口径导出、OA 门户
       body: JSON.stringify({ qualityScore: 5, scheduleScore: 4, serviceScore: 5, recommendation: 'preferred', comment: '按期保质交付' }),
     });
     expect(evalRes.status).toBe(200);
-    const evalDetail = await evalRes.json();
+    const evalDetail = await json(evalRes);
     expect(evalDetail.evaluation).toMatchObject({ totalScore: 14, recommendation: 'preferred', comment: '按期保质交付' });
 
     // 小澧助手只读工具（contract_lifecycle_detail & domain_ledger direction/pricingMode 过滤 & 组织隔离）
     const shUser = db.prepare('SELECT id FROM app_user WHERE username = ?').get('t12-viewer') as { id: number };
-    const shAuth = loadAuthContext(db, shUser.id)!;
-    shAuth.permissions.add('assistant:use');
-    shAuth.permissions.add('report:read');
+    const baseShAuth = loadAuthContext(db, shUser.id)!;
+    const shAuth = { ...baseShAuth, permissions: new Set([...baseShAuth.permissions, 'assistant:use' as const, 'report:read' as const]) };
     runWithContext({ requestId: 't12-tool', source: 'http', auth: shAuth }, () => {
       const ledger = executeTool(db, 'domain_ledger', { kind: 'contracts', direction: 'income', pricingMode: 'unit_price' }) as { items: { contractNo: string }[] };
       expect(ledger.items.map((x) => x.contractNo)).toContain('INC-SUP-01');
@@ -549,12 +548,12 @@ describe('T-12.2 / T-12.3 / T-12.4 多模板导入、双口径导出、OA 门户
     await json(post(base, admin, `/api/contracts/${inc.id}/reviews/${dInc.reviews[0].id}/decide`, { decision: 'approve', exceptionReason: '测试' }));
     dInc = await json(get(base, admin, `/api/contracts/${inc.id}`));
     dInc = await json(post(base, admin, `/api/contracts/${inc.id}/advance`, { expectedVersion: dInc.version, toStage: 'performance' }));
-    const invInc = await (await uploadDoc(base, admin, inc.id, 'invoice', undefined, 'inc_inv.pdf')).json();
+    const invInc = await json(uploadDoc(base, admin, inc.id, 'invoice', undefined, 'inc_inv.pdf'));
     dInc = await json(post(base, admin, `/api/contracts/${inc.id}/receipts`, { nodeName: '一期收款', amount: '600000.00', invoiceDocumentId: invInc.id }));
     await json(post(base, admin, `/api/contracts/${inc.id}/receipts/${dInc.receipts[0].id}/decide`, { decision: 'approve', exceptionReason: '测试' }));
     await json(post(base, admin, `/api/contracts/${inc.id}/receipts/${dInc.receipts[0].id}/receive`, { receivedDate: '2026-06-18', voucherNo: '收-0618', invoiceDocumentId: invInc.id }));
 
-    const chgDoc = await (await uploadDoc(base, admin, inc.id, 'change', undefined, 'chg.pdf')).json();
+    const chgDoc = await json(uploadDoc(base, admin, inc.id, 'change', undefined, 'chg.pdf'));
     await json(post(base, admin, `/api/contracts/${inc.id}/changes`, { ...CHANGE_GOVERNANCE,
       changeKind: 'change', delta: '0.00', changeMatter: '调整账户', reason: '账户更新', evidenceDocumentId: chgDoc.id, supplementNo: 'CR-SUP-01',
     }));

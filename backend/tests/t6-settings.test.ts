@@ -31,7 +31,7 @@ describe('T-6 业务设置', () => {
     // 单调:只改“正常”到 0.09 会超过默认“关注” 0.08,整批拒绝
     const order = await put(base, admin, { 'investment.ic_threshold_normal': '0.09' });
     expect(order.status).toBe(400);
-    expect((await order.json()).errors[0].message).toContain('正常 ≤ 关注 ≤ 预警');
+    expect((await json(order)).errors[0].message).toContain('正常 ≤ 关注 ≤ 预警');
 
     // 偏差率 5%:默认阈值下为关注
     const md = await createProject(base, admin, 'SET-IC', '阈值项目', fx.orgIds.shanghai);

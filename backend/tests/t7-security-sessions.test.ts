@@ -40,7 +40,7 @@ describe('T-7 会话管理与角色复制', () => {
     const cur = mine.items.find((s: { current: boolean }) => s.current);
     expect(cur).toBeTruthy();
     const self = await post(base, admin, `/api/security/users/${adminId}/sessions/${cur.sid}/revoke`);
-    expect([self.status, (await self.json()).code]).toEqual([409, 'SESSION_CURRENT']);
+    expect([self.status, (await json(self)).code]).toEqual([409, 'SESSION_CURRENT']);
 
     // 角色复制:权限原样带出,新角色不锁定、无用户;编码冲突 409
     const roles = await json(get(base, admin, '/api/security/roles'));
@@ -49,7 +49,7 @@ describe('T-7 会话管理与角色复制', () => {
     expect(copy).toMatchObject({ code: 'reviewer_east', name: '业务复核(副本)', locked: false, userCount: 0, permissions: reviewer.permissions });
     expect(copy.description).toContain('复制自 business_reviewer');
     const dup = await post(base, admin, `/api/security/roles/${reviewer.id}/copy`, { code: 'reviewer_east' });
-    expect([dup.status, (await dup.json()).code]).toEqual([409, 'ROLE_CODE_TAKEN']);
+    expect([dup.status, (await json(dup)).code]).toEqual([409, 'ROLE_CODE_TAKEN']);
     const adminRole = roles.items.find((x: { locked: boolean }) => x.locked);
     const fromLocked = await json(post(base, admin, `/api/security/roles/${adminRole.id}/copy`, { code: 'admin_copy', name: '管理员模板' }));
     expect(fromLocked).toMatchObject({ locked: false, name: '管理员模板', permissions: adminRole.permissions });

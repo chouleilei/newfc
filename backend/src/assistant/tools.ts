@@ -1,4 +1,4 @@
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { z } from 'zod';
 import { AppError } from '../core/errors';
 import type { DB } from '../db/connection';
 import { BUDGET_TOOL_DEFINITIONS } from './budget-tools';
@@ -21,7 +21,7 @@ export function toolPolicy(name: string, params: Record<string, unknown> = {}): 
   return definition.policy(params);
 }
 export const toolDefinitions = Object.entries(TOOL_REGISTRY).map(([name, definition]) => {
-  const { $schema: _meta, ...parameters } = (zodToJsonSchema as (schema: unknown, options: { target: 'openApi3'; $refStrategy: 'none' }) => Record<string, unknown>)(definition.schema, { target: 'openApi3', $refStrategy: 'none' });
+  const { $schema: _meta, ...parameters } = z.toJSONSchema(definition.schema, { target: 'openapi-3.0', io: 'input', reused: 'inline' }) as Record<string, unknown>;
   return { type: 'function', function: { name, description: `${definition.label}：只读同源业务事实；金额和单位遵循该领域契约`, parameters } };
 });
 export function toolAcceptsParam(name: string, param: string): boolean {
@@ -34,7 +34,7 @@ export function executeTool(db: DB, name: string, input: unknown = {}, selection
   const definition = toolDefinition(name);
   if (!definition) throw new AppError('TOOL_UNKNOWN', `未知工具: ${name}`, 400);
   const parsed = definition.schema.safeParse(input);
-  if (!parsed.success) throw new AppError('TOOL_ARGUMENTS_INVALID', `工具参数无效: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, 400);
+  if (!parsed.success) throw new AppError('TOOL_ARGUMENTS_INVALID', `工具参数无效: ${parsed.error.issues.map((i: z.core.$ZodIssue) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, 400);
   const args = authorizeToolCall(db, name, parsed.data);
   if (selection && (!definition.selectionModes?.includes(selection.selection.mode) || selectionToolName(selection) !== name)) throw new AppError('CAPABILITY_UNAVAILABLE', '此工具不支持当前选择范围，请清空选择或使用选区分析', 400);
   if (selection) for (const [key, value] of Object.entries(args)) {

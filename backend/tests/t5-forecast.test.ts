@@ -14,13 +14,13 @@ const patch = (base: string, s: Session, url: string, body: unknown) =>
   fetchAs(s, `${base}${url}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 async function ok(res: Response | Promise<Response>, status = 200) {
   const r = await res;
-  const body = await r.json();
+  const body: any = await r.json();
   expect(r.status, JSON.stringify(body).slice(0, 2000)).toBe(status);
   return body;
 }
 async function fail(res: Response | Promise<Response>, status: number, code: string) {
   const r = await res;
-  const body = await r.json();
+  const body: any = await r.json();
   expect([r.status, body.code], JSON.stringify(body).slice(0, 2000)).toEqual([status, code]);
   return body;
 }

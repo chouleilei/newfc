@@ -5,7 +5,7 @@ import { Errors } from '../../../core/errors';
 import { writeLog } from '../../audit/log';
 import { parseCleaningPlan, type CleaningTargetKind } from './plan';
 
-export const templateInputSchema = z.object({ name: z.string().max(100).optional(), targetKind: z.enum(['budget', 'actual-current']).optional(), config: z.record(z.unknown()).optional() }).strict();
+export const templateInputSchema = z.object({ name: z.string().max(100).optional(), targetKind: z.enum(['budget', 'actual-current']).optional(), config: z.record(z.string(), z.unknown()).optional() }).strict();
 
 
 export interface ImportMappingTemplateRow {

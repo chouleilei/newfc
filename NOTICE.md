@@ -13,6 +13,7 @@ newfc 初始源码来自固定的 newbd 快照，之后在独立仓库内维护�
 | JSZip | MIT 或 GPL-3.0-or-later 双重许可，本项目采用 MIT 路径 |
 | React、React DOM、React Router、Ant Design、TanStack Query、Day.js | MIT |
 | Apache ECharts、Remix Icon | Apache-2.0 |
+| SheetJS CE (xlsx) | Apache-2.0 |
 | Fraunces、IBM Plex Sans、IBM Plex Mono | SIL Open Font License 1.1 |
 
 运行依赖附带的 LICENSE/NOTICE 和字体声明汇总在 [第三方许可文本](docs/third-party-licenses.txt)。安装包仍应保留各自版权与许可文件；若再分发构建后的 JS、CSS 或字体，也须一并提供相关许可与声明。构建工具和测试工具采用其各自包内的许可证。

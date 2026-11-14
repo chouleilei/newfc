@@ -24,13 +24,13 @@ const patch = (base: string, s: Session, url: string, body: unknown) =>
 
 async function ok(res: Response | Promise<Response>, status = 200) {
   const r = await res;
-  const body = await r.json();
+  const body: any = await r.json();
   expect(r.status, JSON.stringify(body)).toBe(status);
   return body;
 }
 async function fail(res: Response | Promise<Response>, status: number, code: string) {
   const r = await res;
-  const body = await r.json();
+  const body: any = await r.json();
   expect([r.status, body.code], JSON.stringify(body)).toEqual([status, code]);
   return body;
 }

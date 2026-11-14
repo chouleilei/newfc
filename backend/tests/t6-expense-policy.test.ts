@@ -12,7 +12,7 @@ const SAMPLE = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../deploy/
 
 async function ok(res: Response | Promise<Response>, status = 200) {
   const r = await res;
-  const body = await r.json();
+  const body: any = await r.json();
   expect(r.status, JSON.stringify(body)).toBe(status);
   return body;
 }

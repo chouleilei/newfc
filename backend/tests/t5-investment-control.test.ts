@@ -14,13 +14,13 @@ const csv = (rows: string[][]) => Buffer.from(['科目编码,科目名称,分类
 
 async function ok(res: Response | Promise<Response>, status = 200) {
   const r = await res;
-  const body = await r.json();
+  const body: any = await r.json();
   expect(r.status, JSON.stringify(body).slice(0, 2000)).toBe(status);
   return body;
 }
 async function fail(res: Response | Promise<Response>, status: number, code: string) {
   const r = await res;
-  const body = await r.json();
+  const body: any = await r.json();
   expect([r.status, body.code], JSON.stringify(body).slice(0, 2000)).toEqual([status, code]);
   return body;
 }
@@ -102,7 +102,7 @@ describe('T-5 投资控制四算对比(AC-F13)', () => {
     const custom = await ok(post(base, analyst, `${IC}/comparisons`, {
       baseVersionId: design.id, targetVersionId: budget.id, thresholds: { normal: '0.05', attention: '0.1', warning: '0.2' },
     }), 201);
-    const crow = Object.fromEntries(custom.rows.map((r: { canonicalCode: string }) => [r.canonicalCode, r.alertLevel]));
+    const crow = Object.fromEntries(custom.rows.map((r: { canonicalCode: string; alertLevel: string }) => [r.canonicalCode, r.alertLevel]));
     expect(crow).toEqual({ '1': 'attention', '1.1': 'attention', '1.2': 'warning', '2': 'exceed' });
     await fail(post(base, analyst, `${IC}/comparisons`, { baseVersionId: design.id, targetVersionId: budget.id, thresholds: { normal: '0.2', attention: '0.1', warning: '0.3' } }), 400, 'VALIDATION_FAILED');
 

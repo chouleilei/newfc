@@ -175,19 +175,22 @@ export const sensitivityVariable = z.object({
   if (v.mode === 'relative' && v.changes.some((c) => Number(c) <= -1)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: '相对变动必须大于 -100%' });
 });
 
+const basisAssumption = z.object({
+  preparation_basis: note, data_source: note, notes: note, scope_note: note,
+}).strict();
+const sensitivityAssumption = z.object({ variables: z.array(sensitivityVariable).max(20).default([]) }).strict();
+
 export const feasibilityAssumptions = z.object({
-  schema_version: z.literal('standard-1.0', { errorMap: () => ({ message: '仅支持标准模型 standard-1.0' }) }),
-  basis: z.object({
-    preparation_basis: note, data_source: note, notes: note, scope_note: note,
-  }).strict().default({}),
+  schema_version: z.literal('standard-1.0', { message: '仅支持标准模型 standard-1.0' }),
+  basis: basisAssumption.default(() => basisAssumption.parse({})),
   investment_plan: z.array(investmentPlanItem).min(1, '至少需要一年建设投资').max(60),
   revenue_items: z.array(revenueItem).max(50).default([]),
   cost_items: z.array(costItem).max(50).default([]),
-  financing: financingAssumption.default({}),
-  tax: taxAssumption.default({}),
-  depreciation: depreciationAssumption.default({}),
-  evaluation: evaluationAssumption.default({}),
-  sensitivity: z.object({ variables: z.array(sensitivityVariable).max(20).default([]) }).strict().default({}),
+  financing: financingAssumption.default(() => financingAssumption.parse({})),
+  tax: taxAssumption.default(() => taxAssumption.parse({})),
+  depreciation: depreciationAssumption.default(() => depreciationAssumption.parse({})),
+  evaluation: evaluationAssumption.default(() => evaluationAssumption.parse({})),
+  sensitivity: sensitivityAssumption.default(() => sensitivityAssumption.parse({})),
 }).strict().superRefine((v, ctx) => uniqueYears('建设投资')(v.investment_plan, ctx));
 
 export type FeasibilityAssumptions = z.output<typeof feasibilityAssumptions>;

@@ -125,7 +125,7 @@ describe('T-4 联动(V53、管理会计、合同付款台账)', () => {
     const eastAnalyst = createScopedUser(db, { username: 'ct-analyst', roleCodes: ['finance_analyst'], orgIds: [fx.orgIds.east] }).session;
     const westAnalyst = createScopedUser(db, { username: 'ct-analyst-w', roleCodes: ['finance_analyst'], orgIds: [fx.orgIds.west] }).session;
     const whole = await post(base, eastAnalyst, '/api/standard-reports', { reportType: 'contract_payment_ledger', period: '2026-05' });
-    expect([whole.status, (await whole.json()).code]).toEqual([403, 'SCOPE_RESTRICTED']);
+    expect([whole.status, (await json(whole)).code]).toEqual([403, 'SCOPE_RESTRICTED']);
     const outside = await post(base, westAnalyst, '/api/standard-reports', { reportType: 'contract_payment_ledger', period: '2026-05', orgId: fx.orgIds.east });
     expect(outside.status).toBe(404);
     expect((await get(base, westAnalyst, `/api/standard-reports/${ledger.id}`)).status).toBe(404);

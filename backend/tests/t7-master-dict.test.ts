@@ -17,7 +17,7 @@ describe('T-7 字典项', () => {
     await json(post(base, admin, '/api/master/dict-items', { dictType: 'fund_source', itemValue: 'fiscal', itemLabel: '财政资金', sortOrder: 1 }));
 
     const dup = await post(base, admin, '/api/master/dict-items', { dictType: 'project_stage', itemValue: 'design', itemLabel: '重复' });
-    expect([dup.status, (await dup.json()).code]).toEqual([409, 'DUPLICATE']);
+    expect([dup.status, (await json(dup)).code]).toEqual([409, 'DUPLICATE']);
     expect((await post(base, admin, '/api/master/dict-items', { dictType: 'Bad-Type', itemValue: 'x', itemLabel: 'x' })).status).toBe(400);
     expect((await post(base, admin, '/api/master/dict-items', { dictType: 'project_stage', itemValue: 'x', itemLabel: ' ' })).status).toBe(400);
     expect((await post(base, admin, '/api/master/dict-items', { dictType: 'project_stage', itemValue: 'x', itemLabel: 'x', status: 'inactive' })).status).toBe(400);
@@ -26,12 +26,12 @@ describe('T-7 字典项', () => {
     const a2 = await json(patch(admin, `/api/master/dict-items/${a.id}`, { expectedVersion: 1, itemLabel: '勘察设计', sortOrder: 30 }));
     expect(a2).toMatchObject({ itemLabel: '勘察设计', sortOrder: 30, version: 2 });
     const stale = await patch(admin, `/api/master/dict-items/${a.id}`, { expectedVersion: 1, itemLabel: 'x' });
-    expect([stale.status, (await stale.json()).code]).toEqual([409, 'VERSION_CONFLICT']);
+    expect([stale.status, (await json(stale)).code]).toEqual([409, 'VERSION_CONFLICT']);
     expect((await patch(admin, `/api/master/dict-items/${a.id}`, { expectedVersion: 2, itemValue: 'x' })).status).toBe(400);
     const off = await json(patch(admin, `/api/master/dict-items/${b.id}`, { expectedVersion: 1, status: 'inactive' }));
     expect(off.status).toBe('inactive');
     const again = await post(base, admin, '/api/master/dict-items', { dictType: 'project_stage', itemValue: 'build', itemLabel: '施工' });
-    expect((await again.json()).message).toContain('已停用');
+    expect((await json(again)).message).toContain('已停用');
 
     const stage = await json(get(base, admin, '/api/master/dict-items?dictType=project_stage'));
     expect(stage.items.map((i: { itemValue: string }) => i.itemValue)).toEqual(['build', 'design']);

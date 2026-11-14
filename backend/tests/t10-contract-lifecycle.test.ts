@@ -444,7 +444,7 @@ describe('T-10.2 八阶段状态机、单价合同与授权/时间链门禁', ()
       pricingMode: 'unit_price',
       unitPriceDesc: '人工 500 元/工日，最高限价 20 万元',
       estimatedCeilingAmount: '200000.00',
-      currency: '美元', exchangeRate: '7.00',
+      currency: '美元',
       exchangeRate: '7.200000',
       fundingSource: 'income_contract',
       sourceIncomeContractId: incomeContract.id,

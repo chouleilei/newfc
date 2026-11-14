@@ -53,7 +53,7 @@ describe('T-5 预测公式引擎(AC-F11)', () => {
   });
 
   it('跨表引用(含带空格的引号表名)、参数覆盖、一行区域输出', () => {
-    const extra = [{ name: '参数', cells: { B2: n('1.5') } }, { name: '收入 预测', cells: { A1: n('10'), B1: n('20'), C1: n('30') } }];
+    const extra: { name: string; cells: Record<string, CellInput> }[] = [{ name: '参数', cells: { B2: n('1.5') } }, { name: '收入 预测', cells: { A1: n('10'), B1: n('20'), C1: n('30') } }];
     const cells = { A1: f("='收入 预测'!A1*参数!B2"), B1: f("='收入 预测'!B1*参数!B2"), C1: f("=SUM('收入 预测'!A1:C1)") };
     const r = runWorkbook({ workbook: wb(cells, extra), overrides: {}, outputs: [{ key: 'row', ref: '预测!A1:C1' }], maxSteps: 10_000 });
     expect(r).toMatchObject({ ok: true, outputs: { row: ['15.000000', '30.000000', '60.000000'] } });
