@@ -286,10 +286,11 @@ describe('T-4 费用审核(AC-F22)', () => {
     const todos = async (s: Session) => Object.fromEntries((await ok(get(base, s, '/api/dashboard/todos'))).items.map((i: { key: string; count: number }) => [i.key, i.count]));
     // T-5 起业务复核角色另有风险复核与报告审批/发布待办
     expect(await todos(reviewer)).toEqual({
-      contract_review: 0, contract_change: 0, contract_payment_review: 0, expense_review: 1, risk_review: 0, report_approve: 0, report_publish: 0,
+      contract_review: 0, contract_change: 0, contract_settlement_review: 0, contract_payment_review: 0, contract_receipt_review: 0,
+      expense_review: 1, risk_review: 0, report_approve: 0, report_publish: 0,
       forecast_review: 0, feasibility_review: 0,
     });
-    expect(await todos(maker)).toEqual({ contract_payment_pay: 0, expense_supplement: 0 });
+    expect(await todos(maker)).toEqual({ contract_payment_pay: 0, contract_receipt_receive: 0, contract_distribution: 0, contract_guarantee_warranty: 0, expense_supplement: 0 });
     expect((await todos(outsider)).expense_review).toBe(0);
 
     // 复核分离:同时持有提交与复核权限的非管理员不能复核自己提交的单;管理员同人复核须填例外原因

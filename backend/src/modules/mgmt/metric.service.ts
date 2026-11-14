@@ -22,7 +22,7 @@ import {
 } from '../../contracts/mgmt';
 import { assertVersion, big, currentUserId, formatValue, money, nowIso, orgName, parseByUnit, scope } from './common';
 import { orgMembersOf } from './dimension.service';
-import { contractPaidInPeriod, contractPaymentTotals } from '../contracts/contract.service';
+import { contractPaidInPeriod, contractPaymentTotals, contractReceiptTotals, contractReceivedInPeriod } from '../contracts/contract.service';
 import { planExecutionRate } from '../plan-execution/plan.service';
 
 export interface MetricRow {
@@ -32,7 +32,7 @@ export interface MetricRow {
 
 const UNIT_OF: Record<MaCalculator, 'money' | 'ratio'> = {
   budget_amount: 'money', actual_amount: 'money', execution_rate: 'ratio', eas_balance: 'money', statement_item: 'money', allocated_cost: 'money',
-  contract_paid: 'money', contract_payment_rate: 'ratio', plan_execution_rate: 'ratio',
+  contract_paid: 'money', contract_payment_rate: 'ratio', contract_received: 'money', contract_receipt_rate: 'ratio', plan_execution_rate: 'ratio',
   risk_open_amount: 'money', investment_deviation_rate: 'ratio',
 };
 
@@ -247,6 +247,21 @@ export function runCalculator(db: DB, metric: MetricRow, orgId: number, period: 
       const r = ratioScaled(t.paid, t.current);
       if (r === null) return unavailable({ code: 'CONTRACT_MISSING', message: '组织范围内没有当前金额大于 0 的有效合同' });
       return { status: 'valid', valueCents: null, valueScaled: r, compareCents: null, reasons: [], evidence: { source: 'ct_contract', paid: money(t.paid), current: money(t.current), asOf: nowIso() } };
+    }
+    case 'contract_received': {
+      // 组织(含下级)期间内登记到账的人民币收入合同收款;作废合同不计。没有收款时为 0
+      const orgs = orgSubtreeNow(db, orgId);
+      const received = contractReceivedInPeriod(db, orgs, period);
+      const n = (db.prepare(`SELECT COUNT(*) AS n FROM ct_contract WHERE status <> 'voided' AND direction = 'income' AND currency = '人民币' AND org_id IN (${orgs.map(() => '?').join(',')})`).get(...orgs) as { n: number }).n;
+      if (!n) return unavailable({ code: 'CONTRACT_MISSING', message: '组织范围内没有有效人民币收入合同' });
+      return { status: 'valid', valueCents: received, valueScaled: null, compareCents: null, reasons: [], evidence: { source: 'ct_receipt', period, contractCount: n } };
+    }
+    case 'contract_receipt_rate': {
+      // 计算时点的有效人民币收入合同累计实收 / 当前金额
+      const t = contractReceiptTotals(db, orgSubtreeNow(db, orgId));
+      const r = ratioScaled(t.received, t.current);
+      if (r === null) return unavailable({ code: 'CONTRACT_MISSING', message: '组织范围内没有当前金额大于 0 的有效人民币收入合同' });
+      return { status: 'valid', valueCents: null, valueScaled: r, compareCents: null, reasons: [], evidence: { source: 'ct_contract', received: money(t.received), current: money(t.current), asOf: nowIso() } };
     }
     case 'plan_execution_rate': {
       // 同年取数:该年截至期间已激活的最新计划执行批次;年度累计实际 / 年度计划

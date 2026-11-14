@@ -1,5 +1,7 @@
+import { workingCalendar } from '../settings/business-settings';
 import type { DB } from '../../db/connection';
 import { currentAuth } from '../../core/request-context';
+import { addCalendarDays, todayUtcDate, workingDayCutoffBefore } from '../../core/workdays';
 import { currentOrgScope, scopeFilterSql } from '../security/scope';
 import type { Permission } from '../../contracts/permissions';
 
@@ -23,10 +25,28 @@ export function workbenchTodos(db: DB): { items: TodoItem[] } {
   if (can('contract:review')) {
     items.push({ key: 'contract_review', label: '待审核合同', count: countContracts('ct_review x', "x.status = 'submitted'"), path: '/contracts?todo=review' });
     items.push({ key: 'contract_change', label: '待复核合同变更', count: countContracts('ct_change x', "x.status = 'submitted'"), path: '/contracts?todo=change' });
+    items.push({ key: 'contract_settlement_review', label: '待复核结算单', count: countContracts('ct_settlement x', "x.status = 'submitted'"), path: '/contracts?todo=settlement' });
     items.push({ key: 'contract_payment_review', label: '待复核付款申请', count: countContracts('ct_payment x', "x.status = 'submitted'"), path: '/contracts?todo=payment' });
+    items.push({ key: 'contract_receipt_review', label: '待复核收款申请', count: countContracts('ct_receipt x', "x.status = 'submitted'"), path: '/contracts?todo=receipt' });
   }
   if (can('contract:write')) {
+    const today = todayUtcDate();
+    const distCutoff = workingDayCutoffBefore(today, 10, workingCalendar(db));
+    const guaranteeDeadline = addCalendarDays(today, 30)!;
     items.push({ key: 'contract_payment_pay', label: '已批准待支付', count: countContracts('ct_payment x', "x.status = 'approved'"), path: '/contracts?todo=pay' });
+    items.push({ key: 'contract_receipt_receive', label: '已批准待收款', count: countContracts('ct_receipt x', "x.status = 'approved'"), path: '/contracts?todo=receipt' });
+    items.push({
+      key: 'contract_distribution',
+      label: '签署超 10 工作日待分发',
+      count: (db.prepare(`SELECT COUNT(*) AS n FROM ct_contract WHERE status = 'active' AND sign_date IS NOT NULL AND sign_date <= ? AND distribution_status = 'pending' AND ${scopeFilterSql(scope, 'org_id').sql}`).get(distCutoff, ...scopeFilterSql(scope, 'org_id').params) as { n: number }).n,
+      path: '/contracts?todo=distribution',
+    });
+    items.push({
+      key: 'contract_guarantee_warranty',
+      label: '临期保函/待签证质保',
+      count: (db.prepare(`SELECT COUNT(*) AS n FROM ct_contract c WHERE c.status = 'active' AND ${scopeFilterSql(scope, 'c.org_id').sql} AND (EXISTS (SELECT 1 FROM ct_guarantee g WHERE g.contract_id = c.id AND g.status = 'active' AND g.expiry_date IS NOT NULL AND g.expiry_date <= ?) OR (c.has_warranty = 1 AND c.stage = 'warranty' AND NOT EXISTS (SELECT 1 FROM ct_warranty w WHERE w.contract_id = c.id AND w.inspection_conclusion = 'passed' AND w.visa_document_id IS NOT NULL) AND EXISTS (SELECT 1 FROM ct_warranty w2 WHERE w2.contract_id = c.id AND w2.end_date IS NOT NULL AND w2.end_date <= ?)))`).get(...scopeFilterSql(scope, 'c.org_id').params, guaranteeDeadline, today) as { n: number }).n,
+      path: '/contracts?todo=guarantee_warranty',
+    });
   }
   if (can('expense:review')) items.push({ key: 'expense_review', label: '待复核报销', count: countClaims('audited'), path: '/expense?status=audited' });
   if (can('expense:submit')) items.push({ key: 'expense_supplement', label: '退回补件报销', count: countClaims('supplement'), path: '/expense?status=supplement' });

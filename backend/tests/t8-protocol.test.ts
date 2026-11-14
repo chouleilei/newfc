@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 import { openDatabase, openReadonlyDatabase, type DB } from '../src/db/connection';
-import { applyMigrations, appliedMigrations } from '../src/db/migrations';
+import { applyMigrations, appliedMigrations, MIGRATIONS } from '../src/db/migrations';
 import { createBackup, restoreBackup, verifyBackupBundle } from '../src/modules/backup/backup.service';
 import { parseChatRequest } from '../src/assistant/schemas';
 import { createTestApp, authFetch, ensureAdmin } from './http-helpers';
@@ -78,7 +78,7 @@ describe('T-8.3 / AC-T8-06 V65→V66 历史规范化及恢复', () => {
     const original = openReadonlyDatabase(backupFile);
     expect(JSON.parse((original.prepare('SELECT response_json FROM ai_message WHERE id=?').get(id) as { response_json: string }).response_json)).toEqual(old);
     original.close();
-    expect(applyMigrations(fx.db).map((m) => m.version)).toEqual([66]);
+    expect(applyMigrations(fx.db).map((m) => m.version)).toEqual(MIGRATIONS.filter(m=>m.version>65).map(m=>m.version));
     const raw = (fx.db.prepare('SELECT response_json FROM ai_message WHERE id=?').get(id) as { response_json: string }).response_json;
     const result = JSON.parse(raw);
     expect(result.effectiveContext).toEqual({ historical: true, reusable: true, year: 2026, pageKey: 'analysis', orgScopeId: 4 });
@@ -88,7 +88,7 @@ describe('T-8.3 / AC-T8-06 V65→V66 历史规范化及恢复', () => {
     expect(applyMigrations(fx.db)).toEqual([]);
     expect((fx.db.prepare('SELECT response_json FROM ai_message WHERE id=?').get(id) as { response_json: string }).response_json).toBe(raw);
     const restored = await restoreBackup(fx.handle, fx.dbPath, backupFile, true);
-    expect(restored.originalVersion).toBe(65); expect(restored.finalVersion).toBe(66);
+    expect(restored.originalVersion).toBe(65); expect(restored.finalVersion).toBe(MIGRATIONS.at(-1)!.version);
     expect(JSON.parse((fx.db.prepare('SELECT response_json FROM ai_message WHERE id=?').get(id) as { response_json: string }).response_json)).toEqual(result);
   });
   it('不确定历史范围保留原始元数据并拒绝含糊追问', async () => {

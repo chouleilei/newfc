@@ -1,3 +1,5 @@
+import { CONTRACT_LEGAL_SQL } from './migrations-contract-legal';
+import { CONTRACT_LIFECYCLE_V68_SQL, CONTRACT_LIFECYCLE_V69_SQL, CONTRACT_LIFECYCLE_V70_SQL, CONTRACT_LIFECYCLE_V71_SQL, CONTRACT_LIFECYCLE_V72_SQL } from './migrations-contract-lifecycle';
 import { normalizeAssistantResponses } from './assistant-response-migration';
 import type { DB } from './connection';
 import { NEWFC_MIGRATIONS } from './migrations-newfc';
@@ -1385,6 +1387,12 @@ CREATE TABLE cleaning_reopen_session (
 // newfc 自有迁移(V39 起)按领域维护在 migrations-newfc.ts,保持只追加。
 MIGRATIONS.push(...NEWFC_MIGRATIONS);
 MIGRATIONS.push({ version: 66, name: 'assistant_single_context', sql: '', apply: normalizeAssistantResponses });
+MIGRATIONS.push({ version: 67, name: 'contract_legal_review_v1', sql: CONTRACT_LEGAL_SQL });
+MIGRATIONS.push({ version: 68, name: 'contract_lifecycle_foundation', rebuild: true, sql: CONTRACT_LIFECYCLE_V68_SQL });
+MIGRATIONS.push({ version: 69, name: 'contract_change_safeguard_dispute', rebuild: true, sql: CONTRACT_LIFECYCLE_V69_SQL });
+MIGRATIONS.push({ version: 70, name: 'contract_supervision_and_risk_rules', rebuild: true, sql: CONTRACT_LIFECYCLE_V70_SQL });
+MIGRATIONS.push({ version: 71, name: 'contract_mgmt_income_metrics', rebuild: true, sql: CONTRACT_LIFECYCLE_V71_SQL });
+MIGRATIONS.push({ version: 72, name: 'contract_lifecycle_review_controls', rebuild: true, sql: CONTRACT_LIFECYCLE_V72_SQL });
 
 /**
  * V34 一次性导入:AI_BASE_URL 已配置且 ai_channel 为空时,把 env 配置落成名为

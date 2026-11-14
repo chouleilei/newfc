@@ -8,7 +8,7 @@ export const DOMAIN_TOOL_LABELS: Record<string, string> = {
   authorization_scope: '我的权限范围',
   domain_batch_read: '指定来源批次', statement_trends: '财报趋势', mgmt_workspace: '管理会计页签', domain_workspace: '业务页签记录', feasibility_report_read: '可行性报告',
   eas_period_status: 'EAS 对账状态', statement_overview: '财务报表', mgmt_metric_snapshots: '管理会计指标', mgmt_alerts: '管理会计预警',
-  project_budget_summary: '项目预算', plan_execution_overview: '计划执行', contract_summary: '合同汇总', contract_detail: '合同详情', expense_audit_queue: '费用复核队列',
+  project_budget_summary: '项目预算', plan_execution_overview: '计划执行', contract_summary: '合同汇总', contract_detail: '合同详情', contract_legal_review: '合同法审', expense_audit_queue: '费用复核队列',
   feasibility_result: '可行性测算', investment_comparison: '投资控制', forecast_runs: '财务预测', risk_summary: '风险概况', report_list: '分析报告',
   cross_search: '跨域检索', project_profile: '项目全景', master_entities: '项目与供应商', expense_detail: '报销审核详情', policy_search: '制度条款',
   governance_issues: '数据治理', standard_report_read: '冻结标准报表', analysis_report_read: '分析报告详情', risk_detail: '风险与整改', forecast_result: '预测版本与运行',

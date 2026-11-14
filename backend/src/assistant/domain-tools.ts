@@ -1,8 +1,10 @@
+import { listLegalReviews } from '../modules/contracts/legal-review-run';
+import { listLegalPolicies, listLegalTemplates } from '../modules/contracts/legal-catalog.service';
 import { z } from 'zod';
 import { maAnalysisQuery } from '../contracts/mgmt';
 import { AppError } from '../core/errors';
 import type { DB } from '../db/connection';
-import { listContractsPage } from '../modules/contracts/contract.service';
+import { getContractDetail, listContractsPage } from '../modules/contracts/contract.service';
 import { listFeasProjects } from '../modules/investment/feasibility.service';
 import { listIcProjects } from '../modules/investment/control.service';
 import { contractListQuery } from '../contracts/project-contract';
@@ -45,16 +47,59 @@ function within(db: DB, root: number | undefined, org: number | null) {
 const permit = (permission: Parameters<typeof requirePermission>[1]) => { const auth = currentAuth(); if (auth) requirePermission(auth, permission); };
 
 export const DOMAIN_TOOL_DEFINITIONS = defineTools({
+  contract_legal_review: {
+    label:'读取合同法审结论',capabilities:['project_data','domain_support'],universal:false,
+    policy:{permission:'contract:read',scope:'global'},
+    schema:z.object({contractId:z.number().int().safe().positive()}).strict(),
+    execute:(db:DB,p:{contractId:number})=>{
+      const data=listLegalReviews(db,p.contractId);
+      const latest=data.runs[0];
+      const policyIds=new Set(latest?.policyRefs.map(p=>p.id)??[]);
+      return {contractId:p.contractId,latest:latest??null,activeJob:data.activeJob,
+        policies:listLegalPolicies(db).filter(p=>policyIds.has(p.id)),
+        template:listLegalTemplates(db).find(t=>t.id===latest?.templateId)??null,
+        notes:['仅返回已保存的法审，不能触发任务或正式批准；失效运行必须重审']};
+    },
+  },
+  contract_lifecycle_detail: {
+    label: '读取合同全生命周期详情',
+    capabilities: ['project_data', 'domain_support'],
+    universal: false,
+    policy: { permission: 'contract:read', scope: 'global' },
+    schema: z.object({ contractId: z.number().int().safe().positive() }).strict(),
+    execute: (db: DB, p: { contractId: number }) => {
+      const d = getContractDetail(db, p.contractId);
+      return redactDeep({
+        id: d.id, contractNo: d.contractNo, name: d.name, orgName: d.orgName,
+        direction: d.direction, pricingMode: d.pricingMode, unitPriceDesc: d.unitPriceDesc, currency: d.currency,
+        stage: d.stage, status: d.status, distributionStatus: d.distributionStatus, archiveStatus: d.archiveStatus,
+        originalAmount: d.originalAmount, approvedChange: d.approvedChange, currentAmount: d.currentAmount,
+        settledGrossAmount: d.settledGrossAmount, settledNetAmount: d.settledNetAmount,
+        paidAmount: d.paidAmount, receivedAmount: d.receivedAmount,
+        undertakerName: d.undertakerName, undertakerDept: d.undertakerDept,
+        blockers: d.blockers,
+        settlements: bounded(d.settlements ?? []),
+        receipts: bounded(d.receipts ?? []),
+        changes: bounded(d.changes),
+        guarantees: bounded(d.guarantees ?? []),
+        warranty: d.warranty ?? null,
+        disputes: bounded(d.disputes ?? []),
+        handovers: bounded(d.handovers ?? []),
+        evaluation: d.evaluation ?? null,
+        notes: ['只读合同全生命周期与监督报送事实；推进、结算、收付款、变更、担保、质保与评价操作请在页面显式确认'],
+      });
+    },
+  },
   domain_ledger: {
     label: "当前台账筛选结果",
     capabilities: ["domain_support"], universal: false,
     policy: (p: any) => ({ permission: ({ contracts: 'contract:read', expense: 'expense:read', forecast: 'forecast:read', risk: 'risk:read', feasibility: 'investment:read', investment: 'investment:read', reports: 'report:read' } as const)[p.kind as 'contracts'], scope: 'org_scope' as const }),
-    schema: z.object({ orgScopeId: z.number().int().safe().min(1).optional(), kind: z.enum(["contracts","expense","forecast","risk","feasibility","investment","reports"]), status: z.string().min(1).max(64).optional(), keyword: z.string().min(1).max(64).optional(), level: z.string().min(1).max(64).optional(), folder: z.string().min(1).max(64).optional(), reportKind: z.string().min(1).max(64).optional(), projectId: z.number().int().safe().min(1).optional(), todo: z.string().min(1).max(64).optional(), stage: z.string().min(1).max(64).optional() }).strict(),
+    schema: z.object({ orgScopeId: z.number().int().safe().min(1).optional(), kind: z.enum(["contracts","expense","forecast","risk","feasibility","investment","reports"]), status: z.string().min(1).max(64).optional(), keyword: z.string().min(1).max(64).optional(), level: z.string().min(1).max(64).optional(), folder: z.string().min(1).max(64).optional(), reportKind: z.string().min(1).max(64).optional(), projectId: z.number().int().safe().min(1).optional(), todo: z.string().min(1).max(64).optional(), stage: z.string().min(1).max(64).optional(), direction: z.enum(['expense', 'income']).optional(), pricingMode: z.enum(['lump_sum', 'unit_price']).optional(), archiveStatus: z.enum(['collecting', 'checked', 'transferred']).optional() }).strict(),
     execute: (db: DB, p: any) => {
     permit(({ contracts: 'contract:read', expense: 'expense:read', forecast: 'forecast:read', risk: 'risk:read', feasibility: 'investment:read', investment: 'investment:read', reports: 'report:read' } as const)[p.kind as 'contracts']);
     const q = { orgId: p.orgScopeId, status: p.status, keyword: p.keyword };
     let rows: any[], total: number | undefined;
-    if (p.kind === 'contracts') { const result = listContractsPage(db, { ...contractListQuery.parse({ ...q, projectId: p.projectId, todo: p.todo, stage: p.stage }), page: 1, pageSize: 30 }); rows = result.items; total = result.total; }
+    if (p.kind === 'contracts') { const result = listContractsPage(db, { ...contractListQuery.parse({ ...q, projectId: p.projectId, todo: p.todo, stage: p.stage, direction: p.direction, pricingMode: p.pricingMode, archiveStatus: p.archiveStatus }), page: 1, pageSize: 30 }); rows = result.items; total = result.total; }
     else if (p.kind === 'expense') { const result = listClaimsPage(db, { ...claimListQuery.parse(q), page: 1, pageSize: 30 }); rows = result.items.map(({ id, claimNo, orgName, amount, status, expenseType, occurredDate }) => ({ id, claimNo, orgName, amount, status, expenseType, occurredDate })); total = result.total; }
     else if (p.kind === 'forecast') rows = listForecastModels(db, { ...q, status: p.status, folder: p.folder }).items;
     else if (p.kind === 'feasibility') rows = listFeasProjects(db, { ...q, status: p.status }).items;
@@ -209,7 +254,7 @@ export const DOMAIN_TOOL_DEFINITIONS = defineTools({
     label: "冻结标准报表",
     capabilities: ["domain_support"], universal: false,
     policy: {"permission":"report:read","scope":"org_scope"},
-    schema: z.object({ orgScopeId: z.number().int().safe().min(1).optional(), period: z.string().max(200).regex(/^\d{4}(?:-(?:0[1-9]|1[0-2]))?$/).optional(), reportId: z.number().int().safe().min(1).optional(), reportType: z.enum(["budget_execution","statement_summary","eas_recon","contract_payment_ledger","risk_rectification_ledger"]).optional() }).strict(),
+    schema: z.object({ orgScopeId: z.number().int().safe().min(1).optional(), period: z.string().max(200).regex(/^\d{4}(?:-(?:0[1-9]|1[0-2]))?$/).optional(), reportId: z.number().int().safe().min(1).optional(), reportType: z.enum(STD_REPORT_TYPES).optional() }).strict(),
     execute: (db: DB, p: any) => {
     if (p.reportId) { const d = getReport(db, p.reportId); return { report: { id: d.id, title: d.title, period: d.period, orgName: d.orgName, status: d.status, generatedAt: d.generatedAt, contentSha256: d.contentSha256 }, summary: d.summary, sources: d.sources, columns: d.columns, ...bounded(d.rows) }; }
     return { ...bounded(listReports(db, { period: p.period, reportType: p.reportType }).filter((r) => within(db, p.orgScopeId, r.orgId))), notes: ['只读已生成的冻结报表；不会生成、复核或导出新报表'] };

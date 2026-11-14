@@ -36,6 +36,7 @@ const FEATURE_LABELS: Record<string, { label: string; desc: string }> = {
   cleaning_suggest: { label: '清洗建议', desc: '非标准 Excel 清洗的结构建议(可独立停用)' },
   mapping_candidates: { label: '映射候选', desc: '财务科目映射的候选推荐' },
   master_data_semantic: { label: '主数据语义', desc: '主数据健康体检的语义命名检查' },
+  contract_legal_review: { label: '合同智能法审', desc: '签约前条款风险分析与人工复核建议' },
   expense_audit: { label: '费用审核', desc: '报销单语义审核建议(只作待复核参考)' },
 };
 

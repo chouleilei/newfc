@@ -47,7 +47,7 @@ describe('台账服务端分页 AC-F09/F16/F22、AC-X04', () => {
     expect(empty).toMatchObject({ items: [], total: 0, page: 1 });
     expect(await json(get(base, viewer.session, `${url}?page=9007199254740991`))).toEqual(last);
     if (domain === 'contracts') {
-      expect((await json(get(base, viewer.session, `${url}?stage=archived`))).total).toBe(0);
+      expect((await json(get(base, viewer.session, `${url}?stage=closed`))).total).toBe(0);
       expect((await json(get(base, viewer.session, `${url}?todo=review`))).total).toBe(0);
     } else {
       expect((await json(get(base, viewer.session, `${url}?status=audited`))).total).toBe(0);

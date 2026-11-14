@@ -285,7 +285,7 @@ export function registerRouteGuard(app: Express, db: () => DB): void {
     if (!auth) return deny(401, 'UNAUTHORIZED', '未登录或会话已过期');
     const rule = matchRouteRule(req.method, req.path);
     if (!rule) return deny(403, 'ROUTE_NOT_AUTHORIZED', '该接口未登记访问权限,已拒绝');
-    if (rule.permission && !auth.permissions.has(rule.permission)) {
+    if (rule.permission && !(typeof rule.permission === 'string' ? auth.permissions.has(rule.permission) : rule.permission.some(p => auth.permissions.has(p)))) {
       return deny(403, 'FORBIDDEN', `当前账号没有此操作权限(${rule.permission})`);
     }
     try {

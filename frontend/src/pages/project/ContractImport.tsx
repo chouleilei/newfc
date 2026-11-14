@@ -18,6 +18,18 @@ import { RowErrors } from './shared';
 const ACTION = { create: { text: '新增', color: 'green' }, update: { text: '更新', color: 'blue' }, unchanged: { text: '无变化', color: 'default' } } as const;
 const FIELD_LABEL: Record<string, string> = {
   name: '名称', supplier: '供应商', paid: '已付', signDate: '签订日期', contractType: '合同类型', paymentCapRatio: '付款上限比例',
+  undertakerName: '承办人', undertakerDept: '承办部门', counterpartyNames: '相对方', summaryText: '主要内容',
+  status: '执行状态', stage: '阶段', payments: '实付明细', receipts: '实收明细', supplement: '补充协议', dispute: '合同纠纷',
+};
+const IMPORT_KIND_LABELS: Record<string, string> = {
+  standard_ledger: '标准合同台账',
+  monthly_ledger_wan: '公司月报合同台账(万元)',
+  supervision_expense_base: '纪巡财审 · 支出合同基本信息',
+  supervision_expense_exec: '纪巡财审 · 支出合同执行及实付',
+  supervision_expense_change: '纪巡财审 · 支出合同变更与纠纷',
+  supervision_income_base: '纪巡财审 · 收入合同基本信息',
+  supervision_income_exec: '纪巡财审 · 收入合同执行及实收',
+  supervision_income_change: '纪巡财审 · 收入合同变更与纠纷',
 };
 
 export default function ContractImport() {
@@ -58,6 +70,7 @@ export default function ContractImport() {
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
           <Descriptions size="small" bordered column={3}>
             <Descriptions.Item label="文件">{d.fileName}</Descriptions.Item>
+            <Descriptions.Item label="识别模板">{IMPORT_KIND_LABELS[d.importKind ?? 'standard_ledger'] ?? d.importKind}</Descriptions.Item>
             <Descriptions.Item label="状态">{d.status === 'confirmed' ? <Tag color="success">已确认 {d.confirmedAt ? shortTime(d.confirmedAt) : ''}</Tag> : <Tag color="warning">待确认</Tag>}</Descriptions.Item>
             <Descriptions.Item label="预览时间">{shortTime(d.createdAt)}</Descriptions.Item>
             <Descriptions.Item label="行数">{d.rowCount}</Descriptions.Item>
@@ -89,6 +102,7 @@ export default function ContractImport() {
               { title: '组织', dataIndex: 'orgName', width: 120, render: (v: string | null) => v ?? '—' },
               { title: '金额', dataIndex: 'amount', width: 130, align: 'right', render: (v: string | null) => (v == null ? '—' : <Money value={v} />) },
               { title: '已付', dataIndex: 'paid', width: 120, align: 'right', render: (v: string | null) => (v == null ? '—' : <Money value={v} />) },
+              { title: '摘要', dataIndex: 'detailSummary', width: 180, ellipsis: true, render: (v?: string) => v ?? '—' },
               {
                 title: '变化', key: 'changes', render: (_, r) => (
                   <Space size={[4, 2]} wrap>

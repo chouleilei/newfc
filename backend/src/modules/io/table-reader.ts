@@ -102,12 +102,12 @@ export function sheetTable(sheet: ReadSheet, locator?: HeaderLocator, maxRows = 
   return toTable(sheet.rows, maxRows, locator);
 }
 
-async function loadWorkbook(content: Buffer, maxRows: number): Promise<ExcelJS.Workbook> {
+async function loadWorkbook(content: Buffer, maxRows: number, maxWorksheets = 1): Promise<ExcelJS.Workbook> {
   if (!content.length) throw Errors.validation('上传文件为空');
-  await assertSafeXlsx(content, maxRows);
+  await assertSafeXlsx(content, maxRows, maxWorksheets);
   const wb = new ExcelJS.Workbook();
   try {
-    await wb.xlsx.load(content as unknown as ExcelJS.Buffer);
+    await wb.xlsx.load(content as unknown as ExcelJS.Buffer, { ignoreNodes: ['dataValidations'] });
   } catch {
     throw Errors.validation('不是有效的 xlsx 文件');
   }
@@ -126,8 +126,8 @@ function sheetMatrix(sheet: ExcelJS.Worksheet): MatrixRow[] {
 }
 
 /** 读取 xlsx 全部工作表为文本矩阵(含隐藏表,由调用方决定是否忽略并列出)。 */
-export async function readWorkbookSheets(content: Buffer, maxRows = MAX_IMPORT_ROWS): Promise<ReadSheet[]> {
-  const wb = await loadWorkbook(content, maxRows);
+export async function readWorkbookSheets(content: Buffer, maxRows = MAX_IMPORT_ROWS, maxWorksheets = 10): Promise<ReadSheet[]> {
+  const wb = await loadWorkbook(content, maxRows, maxWorksheets);
   return wb.worksheets.map((ws) => ({ name: ws.name.trim(), hidden: ws.state !== 'visible', rows: sheetMatrix(ws) }));
 }
 

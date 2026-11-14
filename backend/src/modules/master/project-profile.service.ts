@@ -73,29 +73,59 @@ function planSection(db: DB, projectId: number, scope: OrgScope): ProjectProfile
 function contractsSection(db: DB, projectId: number, scope: OrgScope): ProjectProfileContractsDto {
   const f = scopeFilterSql(scope, 'c.org_id');
   const rows = db.prepare(`SELECT c.id, c.contract_no, c.name, s.name AS supplier_name, o.name AS org_name, c.stage, c.status, c.sign_date,
-      c.original_cents + c.approved_change_cents AS current_cents, c.paid_cents
+      c.direction, c.pricing_mode, c.currency, c.original_cents + c.approved_change_cents AS current_cents, c.settled_net_cents, c.paid_cents, c.received_cents
     FROM ct_contract c JOIN org o ON o.id = c.org_id LEFT JOIN md_supplier s ON s.id = c.supplier_id
     WHERE c.project_id = ? AND ${f.sql} ORDER BY c.id DESC`).safeIntegers(true).all(projectId, ...f.params) as
-    { id: bigint; contract_no: string; name: string; supplier_name: string | null; org_name: string; stage: string; status: string; sign_date: string | null; current_cents: bigint; paid_cents: bigint }[];
+    { id: bigint; contract_no: string; name: string; supplier_name: string | null; org_name: string; stage: string; status: string; sign_date: string | null; direction: string; pricing_mode: string; currency: string; current_cents: bigint; settled_net_cents: bigint; paid_cents: bigint; received_cents: bigint }[];
   const docs = db.prepare('SELECT doc_type, COUNT(*) AS n FROM ct_document WHERE contract_id = ? GROUP BY doc_type');
   const live = rows.filter((r) => r.status !== 'voided');
-  const current = live.reduce((s, r) => s + r.current_cents, 0n);
-  const paid = live.reduce((s, r) => s + r.paid_cents, 0n);
+  const liveExp = live.filter((r) => r.direction === 'expense' && r.currency === '人民币');
+  const liveInc = live.filter((r) => r.direction === 'income' && r.currency === '人民币');
+  const foreignCurrencyCount = live.filter((r) => r.currency !== '人民币').length;
+  const current = liveExp.reduce((s, r) => s + r.current_cents, 0n);
+  const settled = liveExp.reduce((s, r) => s + r.settled_net_cents, 0n);
+  const paid = liveExp.reduce((s, r) => s + r.paid_cents, 0n);
+  const incomeCurrent = liveInc.reduce((s, r) => s + r.current_cents, 0n);
+  const incomeSettled = liveInc.reduce((s, r) => s + r.settled_net_cents, 0n);
+  const received = liveInc.reduce((s, r) => s + r.received_cents, 0n);
   const ids = rows.map((r) => Number(r.id));
+  const liveIds = live.map((r) => Number(r.id));
+  const liveIn = liveIds.map(() => '?').join(',');
+  const activeGuaranteeCount = liveIds.length === 0 ? 0 : (db.prepare(`SELECT COUNT(*) AS n FROM ct_guarantee WHERE contract_id IN (${liveIn}) AND status = 'active'`).get(...liveIds) as { n: number }).n;
+  const openChangeCount = liveIds.length === 0 ? 0 : (db.prepare(`SELECT COUNT(*) AS n FROM ct_change WHERE contract_id IN (${liveIn}) AND status IN ('draft','submitted')`).get(...liveIds) as { n: number }).n;
+  const openDisputeCount = liveIds.length === 0 ? 0 : (db.prepare(`SELECT COUNT(*) AS n FROM ct_dispute WHERE contract_id IN (${liveIn}) AND stage <> 'closed'`).get(...liveIds) as { n: number }).n;
   const payments = ids.length === 0 ? [] : db.prepare(`SELECT p.id, p.contract_id, c.contract_no, p.node_name, p.amount_cents, p.status, p.paid_date, p.voucher_no
     FROM ct_payment p JOIN ct_contract c ON c.id = p.contract_id WHERE p.contract_id IN (${ids.map(() => '?').join(',')})
     ORDER BY COALESCE(p.paid_date, p.submitted_at) DESC, p.id DESC LIMIT ${PAYMENT_LIMIT}`).safeIntegers(true).all(...ids) as
     { id: bigint; contract_id: bigint; contract_no: string; node_name: string; amount_cents: bigint; status: string; paid_date: string | null; voucher_no: string | null }[];
+  const receipts = ids.length === 0 ? [] : db.prepare(`SELECT r.id, r.contract_id, c.contract_no, r.node_name, r.amount_cents, r.status, r.received_date, r.voucher_no
+    FROM ct_receipt r JOIN ct_contract c ON c.id = r.contract_id WHERE r.contract_id IN (${ids.map(() => '?').join(',')})
+    ORDER BY COALESCE(r.received_date, r.submitted_at) DESC, r.id DESC LIMIT ${PAYMENT_LIMIT}`).safeIntegers(true).all(...ids) as
+    { id: bigint; contract_id: bigint; contract_no: string; node_name: string; amount_cents: bigint; status: string; received_date: string | null; voucher_no: string | null }[];
   return {
     count: rows.length, currentTotal: centsToDecimalString(current), paidTotal: centsToDecimalString(paid), paidRate: ratioString(paid, current),
+    expenseCount: rows.filter((r) => r.direction === 'expense').length,
+    settledTotal: centsToDecimalString(settled),
+    incomeCount: rows.filter((r) => r.direction === 'income').length,
+    incomeCurrentTotal: centsToDecimalString(incomeCurrent), receivedTotal: centsToDecimalString(received), receivedRate: ratioString(received, incomeCurrent),
+    incomeSettledTotal: centsToDecimalString(incomeSettled),
+    foreignCurrencyCount,
+    activeGuaranteeCount,
+    openChangeCount,
+    openDisputeCount,
     rows: rows.map((r) => ({
       id: Number(r.id), contractNo: r.contract_no, name: r.name, supplierName: r.supplier_name, orgName: r.org_name, stage: r.stage, status: r.status,
-      current: centsToDecimalString(r.current_cents), paid: centsToDecimalString(r.paid_cents), signDate: r.sign_date,
+      direction: r.direction, pricingMode: r.pricing_mode, currency: r.currency,
+      current: centsToDecimalString(r.current_cents), settled: centsToDecimalString(r.settled_net_cents), paid: centsToDecimalString(r.paid_cents), received: centsToDecimalString(r.received_cents), signDate: r.sign_date,
       documents: Object.fromEntries((docs.all(Number(r.id)) as { doc_type: string; n: number }[]).map((d) => [d.doc_type, d.n])),
     })),
     payments: payments.map((p) => ({
       id: Number(p.id), contractId: Number(p.contract_id), contractNo: p.contract_no, nodeName: p.node_name, amount: centsToDecimalString(p.amount_cents),
       status: p.status, paidDate: p.paid_date, voucherNo: p.voucher_no,
+    })),
+    receipts: receipts.map((r) => ({
+      id: Number(r.id), contractId: Number(r.contract_id), contractNo: r.contract_no, nodeName: r.node_name, amount: centsToDecimalString(r.amount_cents),
+      status: r.status, receivedDate: r.received_date, voucherNo: r.voucher_no,
     })),
   };
 }

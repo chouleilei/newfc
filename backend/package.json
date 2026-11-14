@@ -1,6 +1,6 @@
 {
   "name": "newfc-backend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "newfc 水利财务分析 - 后端",
   "private": true,
   "main": "dist/index.js",
@@ -30,7 +30,9 @@
     "import:newbd:dev": "ts-node src/modules/backup/newbd-import-cli.ts",
     "expense:policy:import": "node dist/modules/expense/policy-import-cli.js",
     "expense:policy:import:dev": "ts-node src/modules/expense/policy-import-cli.ts",
-    "resource:baseline": "node -r ts-node/register/transpile-only scripts/resource-baseline.ts"
+    "resource:baseline": "node -r ts-node/register/transpile-only scripts/resource-baseline.ts",
+    "contract:legal:seed": "node dist/modules/contracts/legal-seed-cli.js",
+    "contract:legal:seed:dev": "ts-node src/modules/contracts/legal-seed-cli.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
@@ -38,6 +40,7 @@
     "express": "^4.22.3",
     "jszip": "^3.10.1",
     "multer": "^2.4.0",
+    "saxes": "^6.0.0",
     "zod": "3.25.76",
     "zod-to-json-schema": "3.25.0"
   },

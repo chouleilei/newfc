@@ -1,24 +1,29 @@
 /**
- * 合同导入(AC-F04):预览 → 确认。规则见 specs/implementation.md T-4「合同导入」。
+ * 合同导入(AC-F04 / AC-CLM-11):预览 → 确认。
  *
- * - 预览落原件并记录 ct_import(逐行计划动作、逐行错误、计划哈希),不写合同。
- * - 已存在合同按规范化编号匹配:只更新名称、类型、签订日期,供应商仅在需求立项至合同起草阶段可更新;
- *   金额不一致记行错误(须走变更流程);导入累计已付记为 import_baseline 付款,已有正式付款时不能变更。
+ * - 支持 standard_ledger、公司万元月报及纪巡财审 6 类模板自动识别。
+ * - 预览落原件并记录 ct_import(import_kind、逐行计划动作、逐行错误、计划哈希),不写合同。
  * - 确认只能由预览人进行;按原件重算计划,与预览不一致返回 PREVIEW_STALE;有行错误拒绝;
  *   一个事务内完成全部写入,中途失败全部回滚、预览保持可重试;重复确认返回原结果。
  */
 import crypto from 'crypto';
+import path from 'path';
 import type { DB } from '../../db/connection';
 import { AppError, type RowError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalString, formatScaled, RATIO_SCALE } from '../../core/decimal';
 import { assertFullScope, currentOrgScope, notVisible, orgInScope, type OrgScope } from '../security/scope';
 import { storeFile, type ObjectStore } from '../files/object-store';
-import { readTable } from '../io/table-reader';
+import { readTable, readWorkbookSheets } from '../io/table-reader';
 import { amountCents, CellError, dateCell, findHeader, headerKey, headerUnit, ratioScaledCell } from '../io/cell-values';
 import { resolveEntity } from '../master/master.service';
-import type { ContractImportAction, ContractImportDto, ContractImportRowDto, ContractStage } from '../../contracts/project-contract';
+import type { ContractImportAction, ContractImportDto, ContractImportKind, ContractImportRowDto, ContractStage } from '../../contracts/project-contract';
 import { normalizeContractNo, recordEvent } from './contract.service';
+import {
+  deriveLegalCategory, deriveProcurementTarget, hasHeaderSet, maxSignDate, MIN_SIGN_DATE,
+  parseMonthlyLedgerSheet, parseSupervisionBaseSheet, parseSupervisionChangeSheet, parseSupervisionExecSheets,
+  type MonthlyPlanRow, type SupBasePlanRow, type SupChangePlanRow, type SupExecContractRow,
+} from './contract-import-templates';
 
 const nowIso = () => new Date().toISOString();
 const COLUMNS = {
@@ -40,22 +45,28 @@ const LABEL: Record<Col, string> = {
 };
 const REQUIRED: Col[] = ['contractNo', 'name', 'amount'];
 const EARLY: ContractStage[] = ['initiation', 'procurement', 'drafting'];
-const MIN_SIGN_DATE = '1990-01-01';
 
 interface PlanRow {
   row: number; contractNo: string; normalizedNo: string; name: string; contractType: string; orgId: number; projectId: number | null; supplierId: number | null;
   amount: bigint; paid: bigint; signDate: string | null; capRatio: bigint | null;
   action: ContractImportAction; contractId: number | null; contractVersion: number | null; changes: Record<string, [string | null, string | null]>;
 }
-interface ComputedPlan { rows: PlanRow[]; errors: RowError[]; rowCount: number; hash: string; display: ContractImportRowDto[] }
+type PlanPayload =
+  | { kind: 'standard_ledger'; rows: PlanRow[] }
+  | { kind: 'monthly_ledger_wan'; rows: MonthlyPlanRow[] }
+  | { kind: 'supervision_expense_base' | 'supervision_income_base'; rows: SupBasePlanRow[] }
+  | { kind: 'supervision_expense_exec' | 'supervision_income_exec'; rows: SupExecContractRow[] }
+  | { kind: 'supervision_expense_change' | 'supervision_income_change'; rows: SupChangePlanRow[] };
 
-function maxSignDate(): string {
-  const d = new Date();
-  d.setUTCFullYear(d.getUTCFullYear() + 1);
-  return d.toISOString().slice(0, 10);
+interface ComputedPlan { importKind: ContractImportKind; payload: PlanPayload; errors: RowError[]; rowCount: number; hash: string; display: ContractImportRowDto[] }
+
+function hashPlan(kind: ContractImportKind, rows: unknown[], errors: RowError[]): string {
+  const h = crypto.createHash('sha256');
+  if (kind !== 'standard_ledger') h.update(kind);
+  return h.update(JSON.stringify(rows, (_k, val) => (typeof val === 'bigint' ? val.toString() : val))).update(JSON.stringify(errors)).digest('hex');
 }
 
-async function computePlan(db: DB, scope: OrgScope, content: Buffer, fileName: string): Promise<ComputedPlan> {
+async function computeStandardPlan(db: DB, scope: OrgScope, content: Buffer, fileName: string): Promise<ComputedPlan> {
   const table = await readTable(content, fileName, undefined, {
     label: '合同台账表头(合同编号/合同名称/合同金额…)',
     isHeader: (cells) => { const keys = cells.map(headerKey); return REQUIRED.every((k) => COLUMNS[k].some((a) => keys.includes(a))); },
@@ -148,6 +159,7 @@ async function computePlan(db: DB, scope: OrgScope, content: Buffer, fileName: s
         const exCap = ex.payment_cap_ratio_scaled === null ? null : formatScaled(ex.payment_cap_ratio_scaled as bigint, RATIO_SCALE);
         if (capRatio !== null) diff('paymentCapRatio', exCap, formatScaled(capRatio, RATIO_SCALE));
         const exPaid = ex.paid_cents as bigint;
+        if (paid !== null && paid !== exPaid && (ex.currency !== '人民币' || ex.direction !== 'expense')) err('paid', '标准台账已付款仅支持人民币支出合同；其他币种/收入须用对应执行明细模板');
         if (paid !== null && paid !== exPaid) {
           const normal = db.prepare("SELECT COUNT(*) AS n FROM ct_payment WHERE contract_id = ? AND kind = 'normal' AND status <> 'rejected'").get(contractId) as { n: number };
           if (normal.n) err('paid', '已有正式付款记录,不能通过导入修改已付款金额');
@@ -170,21 +182,71 @@ async function computePlan(db: DB, scope: OrgScope, content: Buffer, fileName: s
     });
   }
   // 计划哈希:逐行动作 + 目标合同版本 + 写入值;库内合同变化或文件变化都会改变哈希
-  const hash = crypto.createHash('sha256').update(JSON.stringify(rows, (_k, val) => (typeof val === 'bigint' ? val.toString() : val))).update(JSON.stringify(errors)).digest('hex');
-  return { rows, errors, rowCount: table.rows.length, hash, display };
+  const hash = hashPlan('standard_ledger', rows, errors);
+  return { importKind: 'standard_ledger', payload: { kind: 'standard_ledger', rows }, errors, rowCount: table.rows.length, hash, display };
+}
+
+async function computePlan(db: DB, scope: OrgScope, content: Buffer, fileName: string, defaultOrgId?: number | null): Promise<ComputedPlan> {
+  if (path.extname(fileName).toLowerCase() !== '.xlsx') {
+    return computeStandardPlan(db, scope, content, fileName);
+  }
+  const sheets = await readWorkbookSheets(content);
+  const visible = sheets.filter((s) => !s.hidden);
+  const monthlySheet = visible.find((s) => s.name === '02_合同台账总表' || hasHeaderSet(s, ['合同编号', '合同名称', '初始签订合同金额']));
+  if (monthlySheet) {
+    const p = parseMonthlyLedgerSheet(db, scope, monthlySheet, defaultOrgId);
+    return { importKind: 'monthly_ledger_wan', payload: { kind: 'monthly_ledger_wan', rows: p.rows }, errors: p.errors, rowCount: p.rowCount, hash: hashPlan('monthly_ledger_wan', p.rows, p.errors), display: p.display };
+  }
+  const expBase = visible.find((s) => hasHeaderSet(s, ['合同编号', '合同名称', '计价方式', '合同币种', '资金来源']));
+  if (expBase) {
+    const p = parseSupervisionBaseSheet(db, scope, expBase, 'expense', defaultOrgId);
+    return { importKind: 'supervision_expense_base', payload: { kind: 'supervision_expense_base', rows: p.rows }, errors: p.errors, rowCount: p.rowCount, hash: hashPlan('supervision_expense_base', p.rows, p.errors), display: p.display };
+  }
+  const incBase = visible.find((s) => hasHeaderSet(s, ['合同编号', '合同名称', '计价方式', '合同币种']) && (hasHeaderSet(s, ['合同取得方式']) || hasHeaderSet(s, ['是否进行业主资信调查'])));
+  if (incBase) {
+    const p = parseSupervisionBaseSheet(db, scope, incBase, 'income', defaultOrgId);
+    return { importKind: 'supervision_income_base', payload: { kind: 'supervision_income_base', rows: p.rows }, errors: p.errors, rowCount: p.rowCount, hash: hashPlan('supervision_income_base', p.rows, p.errors), display: p.display };
+  }
+  const expExec = visible.find((s) => hasHeaderSet(s, ['合同编号', '合同名称', '合同执行状态']) && (hasHeaderSet(s, ['是否按照约定提交成果']) || hasHeaderSet(s, ['是否最终验收']) || s.name.includes('支出')));
+  if (expExec) {
+    const p = parseSupervisionExecSheets(db, scope, visible, 'expense');
+    return { importKind: 'supervision_expense_exec', payload: { kind: 'supervision_expense_exec', rows: p.rows }, errors: p.errors, rowCount: p.rowCount, hash: hashPlan('supervision_expense_exec', p.rows, p.errors), display: p.display };
+  }
+  const incExec = visible.find((s) => hasHeaderSet(s, ['合同编号', '合同名称', '合同执行状态']) && (hasHeaderSet(s, ['是否验收']) || s.name.includes('收入')));
+  if (incExec) {
+    const p = parseSupervisionExecSheets(db, scope, visible, 'income');
+    return { importKind: 'supervision_income_exec', payload: { kind: 'supervision_income_exec', rows: p.rows }, errors: p.errors, rowCount: p.rowCount, hash: hashPlan('supervision_income_exec', p.rows, p.errors), display: p.display };
+  }
+  const expChange = visible.find((s) => hasHeaderSet(s, ['原合同编号', '变动类型', '变更补充协议编号']) && (hasHeaderSet(s, ['变更决策方式']) || s.name.includes('支出')));
+  if (expChange) {
+    const p = parseSupervisionChangeSheet(db, scope, expChange, 'expense');
+    return { importKind: 'supervision_expense_change', payload: { kind: 'supervision_expense_change', rows: p.rows }, errors: p.errors, rowCount: p.rowCount, hash: hashPlan('supervision_expense_change', p.rows, p.errors), display: p.display };
+  }
+  const incChange = visible.find((s) => hasHeaderSet(s, ['原合同编号', '变动类型', '变更补充协议编号']));
+  if (incChange) {
+    const p = parseSupervisionChangeSheet(db, scope, incChange, 'income');
+    return { importKind: 'supervision_income_change', payload: { kind: 'supervision_income_change', rows: p.rows }, errors: p.errors, rowCount: p.rowCount, hash: hashPlan('supervision_income_change', p.rows, p.errors), display: p.display };
+  }
+  return computeStandardPlan(db, scope, content, fileName);
 }
 
 interface ImportRow {
-  id: number; file_object_id: number; file_sha256: string; file_name: string; row_count: number; error_count: number; plan_hash: string; plan_json: string;
+  id: number; import_kind: ContractImportKind; file_object_id: number; file_sha256: string; file_name: string; row_count: number; error_count: number; plan_hash: string; plan_json: string;
   errors_json: string; status: 'previewed' | 'confirmed'; result_json: string | null; created_by_user_id: number | null; created_at: string; confirmed_at: string | null;
 }
 
+function parsePlanJson(planJson: string): { rows: ContractImportRowDto[]; defaultOrgId?: number | null } {
+  const parsed = JSON.parse(planJson);
+  if (Array.isArray(parsed)) return { rows: parsed as ContractImportRowDto[] };
+  return { rows: (parsed.rows ?? []) as ContractImportRowDto[], defaultOrgId: parsed.defaultOrgId ?? null };
+}
+
 function importDto(r: ImportRow, extra: Partial<ContractImportDto> = {}): ContractImportDto {
-  const rows = JSON.parse(r.plan_json) as ContractImportRowDto[];
+  const { rows } = parsePlanJson(r.plan_json);
   const counts: Record<ContractImportAction, number> = { create: 0, update: 0, unchanged: 0 };
   for (const row of rows) if (row.action) counts[row.action]++;
   return {
-    id: r.id, fileName: r.file_name, fileSha256: r.file_sha256, status: r.status, rowCount: r.row_count, errorCount: r.error_count, errors: JSON.parse(r.errors_json),
+    id: r.id, importKind: r.import_kind, fileName: r.file_name, fileSha256: r.file_sha256, status: r.status, rowCount: r.row_count, errorCount: r.error_count, errors: JSON.parse(r.errors_json),
     rows, counts, planHash: r.plan_hash, createdAt: r.created_at, confirmedAt: r.confirmed_at, result: r.result_json ? JSON.parse(r.result_json) : null, ...extra,
   };
 }
@@ -197,11 +259,14 @@ function importRow(db: DB, id: number): ImportRow {
   return r;
 }
 
-export async function previewContractImport(db: DB, store: ObjectStore, content: Buffer, fileName: string): Promise<ContractImportDto> {
-  const plan = await computePlan(db, currentOrgScope(db), content, fileName);
+export async function previewContractImport(db: DB, store: ObjectStore, content: Buffer, fileName: string, defaultOrgId?: number | null): Promise<ContractImportDto> {
+  const scope = currentOrgScope(db);
+  if (defaultOrgId != null && !orgInScope(scope, defaultOrgId)) throw notVisible('组织');
+  const plan = await computePlan(db, scope, content, fileName, defaultOrgId);
   const file = storeFile(db, store, content, { originalName: fileName });
-  const id = Number(db.prepare(`INSERT INTO ct_import (file_object_id, file_sha256, file_name, row_count, error_count, plan_hash, plan_json, errors_json, created_by_user_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(file.id, file.sha256, fileName.slice(0, 255), plan.rowCount, plan.errors.length, plan.hash, JSON.stringify(plan.display),
+  const serializedPlan = defaultOrgId != null ? JSON.stringify({ defaultOrgId, rows: plan.display }) : JSON.stringify(plan.display);
+  const id = Number(db.prepare(`INSERT INTO ct_import (import_kind, file_object_id, file_sha256, file_name, row_count, error_count, plan_hash, plan_json, errors_json, created_by_user_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(plan.importKind, file.id, file.sha256, fileName.slice(0, 255), plan.rowCount, plan.errors.length, plan.hash, serializedPlan,
     JSON.stringify(plan.errors.slice(0, 500)), currentAuth()?.userId ?? null, nowIso()).lastInsertRowid);
   return importDto(importRow(db, id));
 }
@@ -220,16 +285,17 @@ export async function confirmContractImport(db: DB, store: ObjectStore, id: numb
   if (expectedPlanHash !== imp.plan_hash) throw new AppError('PREVIEW_STALE', '确认的预览与服务端记录不一致,请重新预览', 409);
   const f = db.prepare('SELECT sha256 FROM file_object WHERE id = ?').get(imp.file_object_id) as { sha256: string };
   const scope = currentOrgScope(db);
+  const { defaultOrgId } = parsePlanJson(imp.plan_json);
   // 长解析不在写事务里:先重算计划,事务内再核对哈希一致
-  const plan = await computePlan(db, scope, store.read(f.sha256), imp.file_name);
+  const plan = await computePlan(db, scope, store.read(f.sha256), imp.file_name, defaultOrgId);
   if (plan.errors.length) throw new AppError('IMPORT_INVALID', `重新校验发现 ${plan.errors.length} 项行错误,未写入任何数据`, 422, plan.errors.slice(0, 500));
   if (plan.hash !== imp.plan_hash) throw new AppError('PREVIEW_STALE', '预览后库内合同或主数据已变化,导入计划与预览不一致,请重新预览', 409);
-  assertFullScope(scope, plan.rows.map((r) => r.orgId), '合同导入');
+  assertFullScope(scope, plan.payload.rows.map((r) => r.orgId), '合同导入');
   db.transaction(() => {
     const fresh = db.prepare('SELECT status FROM ct_import WHERE id = ?').get(id) as { status: string };
     if (fresh.status === 'confirmed') return;
     // 事务内核对目标合同版本未变(计算计划与加写锁之间可能有并发写)
-    for (const r of plan.rows) {
+    for (const r of plan.payload.rows) {
       const ex = db.prepare('SELECT id, version FROM ct_contract WHERE normalized_no = ?').get(r.normalizedNo) as { id: number; version: number } | undefined;
       if ((ex?.id ?? null) !== r.contractId || (ex?.version ?? null) !== r.contractVersion) throw new AppError('PREVIEW_STALE', `合同 ${r.contractNo} 在预览后发生变化,请重新预览`, 409);
     }
@@ -237,33 +303,170 @@ export async function confirmContractImport(db: DB, store: ObjectStore, id: numb
     const userId = auth?.userId ?? null;
     const ids: number[] = [];
     let created = 0; let updated = 0; let unchanged = 0;
-    for (const r of plan.rows) {
-      if (r.action === 'create') {
-        const stage: ContractStage = r.signDate ? 'performance' : 'initiation';
-        const cid = Number(db.prepare(`INSERT INTO ct_contract (contract_no, normalized_no, name, contract_type, org_id, project_id, supplier_id, original_cents, paid_cents,
-          payment_cap_ratio_scaled, stage, sign_date, source, import_id, created_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, ?, ?, ?)`).run(
-          r.contractNo, r.normalizedNo, r.name, r.contractType, r.orgId, r.projectId, r.supplierId, r.amount, r.paid, r.capRatio, stage, r.signDate, id, userId, now, now).lastInsertRowid);
-        if (r.paid > 0n) insertBaseline(db, cid, r.paid, now, userId);
-        recordEvent(db, cid, 'import.create', { importId: id, row: r.row, amount: centsToDecimalString(r.amount), paid: centsToDecimalString(r.paid) }, { to: stage });
-        ids.push(cid); created++;
-      } else if (r.action === 'update') {
+    if (plan.payload.kind === 'standard_ledger') {
+      for (const r of plan.payload.rows) {
+        if (r.action === 'create') {
+          const stage: ContractStage = r.signDate ? 'performance' : 'initiation';
+          const cid = Number(db.prepare(`INSERT INTO ct_contract (contract_no, normalized_no, name, contract_type, org_id, project_id, supplier_id, original_cents, paid_cents,
+            payment_cap_ratio_scaled, stage, sign_date, source, import_id, created_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, ?, ?, ?)`).run(
+            r.contractNo, r.normalizedNo, r.name, r.contractType, r.orgId, r.projectId, r.supplierId, r.amount, r.paid, r.capRatio, stage, r.signDate, id, userId, now, now).lastInsertRowid);
+          if (r.paid > 0n) insertBaseline(db, cid, r.paid, now, userId);
+          recordEvent(db, cid, 'import.create', { importId: id, row: r.row, amount: centsToDecimalString(r.amount), paid: centsToDecimalString(r.paid) }, { to: stage });
+          ids.push(cid); created++;
+        } else if (r.action === 'update') {
+          const cid = r.contractId!;
+          const sets = ['name = ?'];
+          const params: unknown[] = [r.name];
+          if (r.changes.contractType) { sets.push('contract_type = ?'); params.push(r.contractType); }
+          if (r.changes.signDate) { sets.push('sign_date = ?'); params.push(r.signDate); }
+          if (r.changes.supplier) { sets.push('supplier_id = ?'); params.push(r.supplierId); }
+          if (r.changes.paymentCapRatio) { sets.push('payment_cap_ratio_scaled = ?'); params.push(r.capRatio); }
+          if (r.changes.paid) {
+            sets.push('paid_cents = ?'); params.push(r.paid);
+            const baseline = db.prepare("SELECT id FROM ct_payment WHERE contract_id = ? AND kind = 'import_baseline'").get(cid) as { id: number } | undefined;
+            if (baseline) db.prepare('UPDATE ct_payment SET amount_cents = ? WHERE id = ?').run(r.paid, baseline.id);
+            else insertBaseline(db, cid, r.paid, now, userId);
+          }
+          db.prepare(`UPDATE ct_contract SET ${sets.join(', ')}, version = version + 1, updated_at = ? WHERE id = ?`).run(...params, now, cid);
+          recordEvent(db, cid, 'import.update', { importId: id, row: r.row, changes: r.changes });
+          ids.push(cid); updated++;
+        } else unchanged++;
+      }
+    } else if (plan.payload.kind === 'monthly_ledger_wan') {
+      for (const r of plan.payload.rows) {
+        if (r.action === 'create') {
+          const cid = Number(db.prepare(`INSERT INTO ct_contract (
+            contract_no, normalized_no, name, contract_type, report_category, legal_category, party_role, procurement_target, procurement_method,
+            org_id, supplier_id, direction, pricing_mode, unit_price_desc, original_cents, sign_date, term_condition_text,
+            counterparty_names, undertaker_dept, undertaker_name, remark, stage, status, source, import_id, created_by_user_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, ?, ?, ?)`).run(
+            r.contractNo, r.normalizedNo, r.name, r.contractType, r.reportCategory, deriveLegalCategory(r.reportCategory),
+            r.direction === 'income' ? 'seller' : 'buyer', deriveProcurementTarget(r.reportCategory), r.procurementMethod,
+            r.orgId, r.supplierId, r.direction, r.pricingMode, r.unitPriceDesc, r.originalCents, r.signDate, r.termConditionText,
+            r.counterpartyNames, r.undertakerDept, r.undertakerName, r.remark, r.targetStage, r.targetStatus, id, userId, now, now,
+          ).lastInsertRowid);
+          recordEvent(db, cid, 'import.create', { importId: id, importKind: 'monthly_ledger_wan', row: r.row }, { to: r.targetStage });
+          ids.push(cid); created++;
+        } else if (r.action === 'update') {
+          const cid = r.contractId!;
+          db.prepare(`UPDATE ct_contract SET name = ?, sign_date = COALESCE(?, sign_date), undertaker_name = COALESCE(NULLIF(?, ''), undertaker_name),
+            undertaker_dept = COALESCE(NULLIF(?, ''), undertaker_dept), counterparty_names = COALESCE(NULLIF(?, ''), counterparty_names),
+            version = version + 1, updated_at = ? WHERE id = ?`).run(r.name, r.signDate, r.undertakerName, r.undertakerDept, r.counterpartyNames, now, cid);
+          recordEvent(db, cid, 'import.update', { importId: id, importKind: 'monthly_ledger_wan', row: r.row, changes: r.changes });
+          ids.push(cid); updated++;
+        } else unchanged++;
+      }
+    } else if (plan.payload.kind === 'supervision_expense_base' || plan.payload.kind === 'supervision_income_base') {
+      for (const r of plan.payload.rows) {
+        if (r.action === 'create') {
+          const stage: ContractStage = r.signDate ? 'performance' : 'initiation';
+          const cid = Number(db.prepare(`INSERT INTO ct_contract (
+            contract_no, normalized_no, name, contract_type, report_category, legal_category, party_role,
+            is_procurement, procurement_target, procurement_method, procurement_method_other,
+            org_id, supplier_id, direction, pricing_mode, unit_price_desc, currency, original_cents,
+            counterparty_names, summary_text, remark, funding_source, funding_source_detail, source_income_contract_id,
+            entrust_reason, is_triple_major, decision_method, decision_method_other, meeting_type, meeting_type_other,
+            final_approver_name, final_approver_title, is_gov_procurement, procurement_plan_text,
+            procurement_start_date, supplier_confirm_date, response_docs_complete, credit_checked,
+            undertaker_name, dept_reviewer_name, related_mgmt_depts, related_mgmt_reviewers, unit_approver_name, unit_approver_title,
+            acquisition_method, acquisition_method_other, tender_body_type, consortium_members,
+            sign_date, term_type, term_start_date, term_end_date, term_condition_text,
+            our_signatory_name, our_signatory_title, our_signatory_is_legal_rep, counterparty_signatory_is_legal_rep,
+            stage, status, source, import_id, created_by_user_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'import', ?, ?, ?, ?)`).run(
+            r.contractNo, r.normalizedNo, r.name, r.contractType, r.reportCategory, deriveLegalCategory(r.reportCategory),
+            r.direction === 'income' ? 'seller' : 'buyer',
+            r.direction === 'expense' ? 1 : 0, deriveProcurementTarget(r.reportCategory), r.procurementMethod, r.procurementMethodOther,
+            r.orgId, r.supplierId, r.direction, r.pricingMode, r.unitPriceDesc, r.currency, r.originalCents,
+            r.counterpartyNames, r.summaryText, r.remark, r.fundingSource, r.fundingSourceDetail, r.sourceIncomeContractId,
+            r.entrustReason, r.isTripleMajor ? 1 : 0, r.decisionMethod, r.decisionMethodOther, r.meetingType, r.meetingTypeOther,
+            r.finalApproverName, r.finalApproverTitle, r.isGovProcurement ? 1 : 0, r.procurementPlanText,
+            r.procurementStartDate, r.supplierConfirmDate, r.responseDocsComplete === null ? null : (r.responseDocsComplete ? 1 : 0),
+            r.creditChecked === null ? null : (r.creditChecked ? 1 : 0),
+            r.undertakerName, r.deptReviewerName, r.relatedMgmtDepts, r.relatedMgmtReviewers, r.unitApproverName, r.unitApproverTitle,
+            r.acquisitionMethod, r.acquisitionMethodOther, r.tenderBodyType, r.consortiumMembers,
+            r.signDate, r.termType, r.termStartDate, r.termEndDate, r.termConditionText,
+            r.ourSignatoryName, r.ourSignatoryTitle, r.ourSignatoryIsLegalRep === null ? null : (r.ourSignatoryIsLegalRep ? 1 : 0),
+            r.counterpartySignatoryIsLegalRep === null ? null : (r.counterpartySignatoryIsLegalRep ? 1 : 0),
+            stage, id, userId, now, now,
+          ).lastInsertRowid);
+          recordEvent(db, cid, 'import.create', { importId: id, importKind: plan.payload.kind, row: r.row }, { to: stage });
+          ids.push(cid); created++;
+        } else if (r.action === 'update') {
+          const cid = r.contractId!;
+          db.prepare(`UPDATE ct_contract SET name = ?, sign_date = COALESCE(?, sign_date),
+            summary_text = COALESCE(NULLIF(?, ''), summary_text), undertaker_name = COALESCE(NULLIF(?, ''), undertaker_name),
+            version = version + 1, updated_at = ? WHERE id = ?`).run(r.name, r.signDate, r.summaryText, r.undertakerName, now, cid);
+          recordEvent(db, cid, 'import.update', { importId: id, importKind: plan.payload.kind, row: r.row, changes: r.changes });
+          ids.push(cid); updated++;
+        } else unchanged++;
+      }
+    } else if (plan.payload.kind === 'supervision_expense_exec' || plan.payload.kind === 'supervision_income_exec') {
+      const isExpense = plan.payload.kind === 'supervision_expense_exec';
+      for (const r of plan.payload.rows) {
+        if (r.action === 'unchanged') { unchanged++; continue; }
         const cid = r.contractId!;
-        const sets = ['name = ?'];
-        const params: unknown[] = [r.name];
-        if (r.changes.contractType) { sets.push('contract_type = ?'); params.push(r.contractType); }
-        if (r.changes.signDate) { sets.push('sign_date = ?'); params.push(r.signDate); }
-        if (r.changes.supplier) { sets.push('supplier_id = ?'); params.push(r.supplierId); }
-        if (r.changes.paymentCapRatio) { sets.push('payment_cap_ratio_scaled = ?'); params.push(r.capRatio); }
-        if (r.changes.paid) {
-          sets.push('paid_cents = ?'); params.push(r.paid);
-          const baseline = db.prepare("SELECT id FROM ct_payment WHERE contract_id = ? AND kind = 'import_baseline'").get(cid) as { id: number } | undefined;
-          if (baseline) db.prepare('UPDATE ct_payment SET amount_cents = ? WHERE id = ?').run(r.paid, baseline.id);
-          else insertBaseline(db, cid, r.paid, now, userId);
+        const currency = (db.prepare('SELECT currency FROM ct_contract WHERE id = ?').get(cid) as { currency: string }).currency;
+        if (r.txns.some(t => t.currency !== currency)) throw new AppError('CONTRACT_CURRENCY_MISMATCH', '导入收付款币种与合同不一致', 409);
+        if (r.txns.length > 0) {
+          if (isExpense) {
+            db.prepare("DELETE FROM ct_payment WHERE contract_id = ? AND kind = 'import_baseline'").run(cid);
+            for (const t of r.txns) {
+              insertBaselineWithDate(db, cid, t.amountCents, `实付-${t.occurredDate}`, t.occurredDate, t.currency, t.approverName, t.approverTitle, now, userId);
+            }
+            const totalPaid = (db.prepare("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM ct_payment WHERE contract_id = ? AND status = 'paid'").safeIntegers(true).get(cid) as { s: bigint }).s;
+            db.prepare('UPDATE ct_contract SET paid_cents = ? WHERE id = ?').run(totalPaid, cid);
+          } else {
+            db.prepare("DELETE FROM ct_receipt WHERE contract_id = ? AND kind = 'import_baseline'").run(cid);
+            for (const t of r.txns) {
+              db.prepare(`INSERT INTO ct_receipt (contract_id, kind, node_name, currency, amount_cents, status, submitted_by_user_id, submitted_at, received_date, received_by_user_id, received_at)
+                VALUES (?, 'import_baseline', ?, ?, ?, 'received', ?, ?, ?, ?, ?)`).run(
+                cid, `实收-${t.occurredDate}`, t.currency, t.amountCents, userId, now, t.occurredDate, userId, now,
+              );
+            }
+            const totalRec = (db.prepare("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM ct_receipt WHERE contract_id = ? AND status = 'received'").safeIntegers(true).get(cid) as { s: bigint }).s;
+            db.prepare('UPDATE ct_contract SET received_cents = ? WHERE id = ?').run(totalRec, cid);
+          }
         }
-        db.prepare(`UPDATE ct_contract SET ${sets.join(', ')}, version = version + 1, updated_at = ? WHERE id = ?`).run(...params, now, cid);
-        recordEvent(db, cid, 'import.update', { importId: id, row: r.row, changes: r.changes });
+        db.prepare(`UPDATE ct_contract SET status = ?, stage = ?, deliverable_submitted = COALESCE(?, deliverable_submitted),
+          final_accepted = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
+          r.targetStatus, r.targetStage,
+          r.deliverableSubmitted === null ? null : (r.deliverableSubmitted ? 1 : 0),
+          r.finalAccepted ? 1 : 0, now, cid,
+        );
+        recordEvent(db, cid, 'import.exec', { importId: id, importKind: plan.payload.kind, txnCount: r.txns.length, targetStatus: r.targetStatus });
         ids.push(cid); updated++;
-      } else unchanged++;
+      }
+    } else if (plan.payload.kind === 'supervision_expense_change' || plan.payload.kind === 'supervision_income_change') {
+      const docCache = new Map<number, number>();
+      for (const r of plan.payload.rows) {
+        if (r.action === 'unchanged') { unchanged++; continue; }
+        const cid = r.contractId!;
+        let docId = docCache.get(cid);
+        if (!docId) {
+          docId = Number(db.prepare(`INSERT INTO ct_document (contract_id, doc_type, evidence_kind, file_object_id, name, uploaded_by_user_id, uploaded_at)
+            VALUES (?, 'change', 'change_agreement', ?, ?, ?, ?)`).run(cid, imp.file_object_id, `导入变更台账(${imp.file_name})`.slice(0, 200), userId, now).lastInsertRowid);
+          docCache.set(cid, docId);
+        }
+        db.prepare(`INSERT INTO ct_change (
+          contract_id, org_root_id, change_kind, delta_cents, change_matter, reason, evidence_document_id,
+          decision_method, meeting_type, final_approver_name, required_approval_tier, actual_approval_tier,
+          supplement_no, normalized_supplement_no, has_dispute, status, submitted_by_user_id, submitted_at, reviewed_by_user_id, reviewed_at
+        ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'undertaker_unit', 'undertaker_unit', ?, ?, ?, 'approved', ?, ?, ?, ?)`).run(
+          cid, r.orgId, r.changeKind, r.changeMatter, r.reason, docId,
+          r.decisionMethod, r.meetingType, r.finalApproverName,
+          r.supplementNo, r.normalizedSupplementNo, r.hasDispute ? 1 : 0, userId, now, userId, now,
+        );
+        if (r.changeKind === 'suspend') {
+          db.prepare("UPDATE ct_contract SET status = 'suspended', status_reason = ?, version = version + 1, updated_at = ? WHERE id = ?").run(r.reason, now, cid);
+        } else if (r.changeKind === 'terminate') {
+          db.prepare("UPDATE ct_contract SET status = 'terminated', status_reason = ?, version = version + 1, updated_at = ? WHERE id = ?").run(r.reason, now, cid);
+        } else {
+          db.prepare('UPDATE ct_contract SET version = version + 1, updated_at = ? WHERE id = ?').run(now, cid);
+        }
+        recordEvent(db, cid, 'import.change', { importId: id, importKind: plan.payload.kind, changeKind: r.changeKind, supplementNo: r.supplementNo, hasDispute: r.hasDispute });
+        ids.push(cid); updated++;
+      }
     }
     const result = { created, updated, unchanged, contractIds: ids };
     db.prepare("UPDATE ct_import SET status = 'confirmed', result_json = ?, confirmed_at = ? WHERE id = ? AND status = 'previewed'").run(JSON.stringify(result), now, id);
@@ -272,6 +475,15 @@ export async function confirmContractImport(db: DB, store: ObjectStore, id: numb
 }
 
 function insertBaseline(db: DB, contractId: number, amount: bigint, now: string, userId: number | null): void {
-  db.prepare(`INSERT INTO ct_payment (contract_id, kind, node_name, amount_cents, status, submitted_by_user_id, submitted_at, paid_date, paid_at)
-    VALUES (?, 'import_baseline', '导入累计已付', ?, 'paid', ?, ?, ?, ?)`).run(contractId, amount, userId, now, now.slice(0, 10), now);
+  insertBaselineWithDate(db, contractId, amount, '导入累计已付', now.slice(0, 10), '人民币', '', '', now, userId);
+}
+
+function insertBaselineWithDate(
+  db: DB, contractId: number, amount: bigint, nodeName: string, paidDate: string, currency: string,
+  approverName: string, approverTitle: string, now: string, userId: number | null,
+): void {
+  db.prepare(`INSERT INTO ct_payment (contract_id, kind, node_name, currency, amount_cents, approver_name, approver_title, status, submitted_by_user_id, submitted_at, paid_date, paid_at)
+    VALUES (?, 'import_baseline', ?, ?, ?, ?, ?, 'paid', ?, ?, ?, ?)`).run(
+    contractId, nodeName, currency, amount, approverName, approverTitle, userId, now, paidDate, now,
+  );
 }

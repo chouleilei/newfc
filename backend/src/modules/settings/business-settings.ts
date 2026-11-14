@@ -1,3 +1,4 @@
+import { validatePdfServiceUrl } from '../contracts/pdf-service-url';
 /**
  * 业务设置(AC-F23):类型化登记表 + app_setting 键值存储。
  *
@@ -10,7 +11,7 @@ import type { DB } from '../../db/connection';
 import { AppError, Errors } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { writeLog } from '../audit/log';
-import { parseScaled, RATIO_SCALE } from '../../core/decimal';
+import { parseDecimalToCents, parseScaled, RATIO_SCALE } from '../../core/decimal';
 
 /** ratio:0～1 的十进制字符串,最多 6 位小数(缩放 bigint 校验,不经浮点) */
 type SettingType = 'string' | 'int' | 'bool' | 'enum' | 'url' | 'secret' | 'ratio';
@@ -29,6 +30,10 @@ export interface SettingDef {
 }
 
 export const BUSINESS_SETTINGS: readonly SettingDef[] = [
+  { key: 'contract.legal_entity_org_ids', label: '二级法人组织节点ID', group: '合同', type: 'string', default: '', maxLength: 2000, description: '英文逗号分隔；名义签署为二级单位时取最近法人祖先，未配置从严归顶级法人' },
+  { key: 'contract.prior_year_net_assets', label: '法人年度净资产', group: '合同', type: 'string', default: '', maxLength: 12000, description: 'JSON数组，如 [{"orgId":1,"year":2025,"amount":"100000000.00"}]。付款按前一年净资产1%与500万元孰低核验；缺失时要求集体决策。' },
+  { key: 'calendar.holidays', label: '法定休息日', group: '日历', type: 'string', default: '', maxLength: 12000, description: '英文逗号分隔的 YYYY-MM-DD 日期，含法定节假日' },
+  { key: 'calendar.workdays', label: '调休工作日', group: '日历', type: 'string', default: '', maxLength: 12000, description: '英文逗号分隔的 YYYY-MM-DD 日期，优先于周末规则' },
   { key: 'report.company_name', label: '报表单位名称', group: '报表', type: 'string', default: '', maxLength: 100, description: '报表抬头与导出文件中的单位名称' },
   { key: 'report.preparer_title', label: '编制人落款', group: '报表', type: 'string', default: '', maxLength: 50 },
   { key: 'finance.fiscal_year_start_month', label: '会计年度起始月', group: '财务', type: 'int', default: 1, min: 1, max: 12 },
@@ -43,6 +48,10 @@ export const BUSINESS_SETTINGS: readonly SettingDef[] = [
   { key: 'investment.ic_threshold_attention', label: '投资偏差“关注”上限', group: '投资控制', type: 'ratio', default: '0.08', description: '超过正常上限且不超过该值为关注' },
   { key: 'investment.ic_threshold_warning', label: '投资偏差“预警”上限', group: '投资控制', type: 'ratio', default: '0.10', description: '超过关注上限且不超过该值为预警,再高为超限;三者须单调不减' },
   { key: 'forecast.timeout_seconds', label: '预测运行超时(秒)', group: '财务预测', type: 'int', default: 30, min: 5, max: 120, description: '单次预测重算的最长计算时间,超时记为失败' },
+  { key: 'integration.pdf_parser_base_url', label: 'PDF 解析服务地址', group: '集成', type: 'string', default: '', maxLength: 300, description: '独立 PDF 服务根地址；支持 HTTPS、本机与受控私网 HTTP' },
+  { key: 'integration.pdf_parser_api_key', label: 'PDF 解析服务密钥', group: '集成', type: 'secret', default: null, maxLength: 500 },
+  { key: 'integration.pdf_parser_timeout_seconds', label: 'PDF 解析超时（秒）', group: '集成', type: 'int', default: 60, min: 5, max: 300 },
+  { key: 'integration.pdf_fallback_ocr', label: 'PDF 解析不可用时回退 OCR', group: '集成', type: 'bool', default: true },
   { key: 'integration.ocr_provider', label: 'OCR 接口类型', group: '集成', type: 'enum', default: 'json_http', options: [{ value: 'json_http', label: 'JSON 同步接口' }, { value: 'tangdalei_http', label: '原有 OCR 服务（异步）' }] },
   { key: 'integration.ocr_base_url', label: 'OCR 服务地址', group: '集成', type: 'url', default: '', maxLength: 300, description: '原有 OCR 服务填写 https://ocr.tangdalei.com/api；JSON 接口填写完整调用地址' },
   { key: 'integration.ocr_api_key', label: 'OCR 服务密钥', group: '集成', type: 'secret', default: null, maxLength: 500, description: '仅用于 JSON 同步接口' },
@@ -50,6 +59,11 @@ export const BUSINESS_SETTINGS: readonly SettingDef[] = [
   { key: 'integration.ocr_password', label: 'OCR 登录密码', group: '集成', type: 'secret', default: null, maxLength: 500, description: '原有 OCR 服务的登录密码，留空不修改' },
   { key: 'integration.ocr_api_type', label: 'OCR 识别类型', group: '集成', type: 'string', default: '1', maxLength: 50, description: '原有 OCR 服务的识别类型，按服务约定填写' },
   { key: 'integration.ocr_timeout_seconds', label: '异步 OCR 超时（秒）', group: '集成', type: 'int', default: 120, min: 5, max: 300, description: '单附件登录、上传、轮询与下载的总时限' },
+  {
+    key: 'contract.change_or_mode', label: '合同变更分级比例与限额口径', group: '合同', type: 'enum', default: 'min',
+    options: [{ value: 'min', label: '孰低从严（默认）' }, { value: 'max', label: '孰高' }],
+    description: '附件 5 变更增加额“≤比例 或 ≤固定限额”的组合判定口径（CLM-DEC-01）',
+  },
 ];
 
 const DEFS = new Map(BUSINESS_SETTINGS.map((d) => [d.key, d]));
@@ -105,6 +119,22 @@ function validate(def: SettingDef, raw: unknown): string | number | boolean | nu
       const v = raw.trim();
       if (def.maxLength && v.length > def.maxLength) throw fail(`不能超过 ${def.maxLength} 个字符`);
       if (/[\u0000-\u001f]/.test(v)) throw fail('不能包含控制字符');
+      if (def.key === 'contract.legal_entity_org_ids' && v && !/^\d+(,\d+)*$/.test(v)) throw fail('须为英文逗号分隔的组织ID');
+      if (def.key === 'contract.prior_year_net_assets' && v) {
+        try {
+          const entries = JSON.parse(v) as { orgId: number; year: number; amount: string }[];
+          if (!Array.isArray(entries)) throw new Error();
+          const keys = new Set<string>();
+          for (const e of entries) {
+            if (!Number.isSafeInteger(e.orgId) || e.orgId < 1 || !Number.isInteger(e.year) || e.year < 2000 || e.year > 2100 || typeof e.amount !== 'string' || parseDecimalToCents(e.amount) <= 0n) throw new Error();
+            const k = `${e.orgId}:${e.year}`; if (keys.has(k)) throw new Error(); keys.add(k);
+          }
+        } catch { throw fail('须为无重复的法人组织、年度、正数金额JSON数组'); }
+      }
+      if (def.key.startsWith('calendar.') && v && v.split(',').some(d => !/^\d{4}-\d{2}-\d{2}$/.test(d) || !Number.isFinite(Date.parse(d)) || new Date(d).toISOString().slice(0, 10) !== d)) throw fail('须为有效日期列表');
+      if (def.key === 'integration.pdf_parser_base_url' && v) {
+        try { validatePdfServiceUrl(v); } catch (e) { throw fail(e instanceof Error ? e.message : '地址不合法'); }
+      }
       if (def.type === 'url' && v) {
         let u: URL;
         try { u = new URL(v); } catch { throw fail('地址格式不正确'); }
@@ -217,4 +247,9 @@ export function saveBusinessSettings(db: DB, input: unknown): PublicSetting[] {
   });
   tx();
   return listBusinessSettings(db);
+}
+
+/** 所有工作日门禁使用同一套可配置法定节假日/调休表。 */
+export function workingCalendar(db: DB) {
+  return { holidays: new Set(getSetting<string>(db, 'calendar.holidays').split(',').filter(Boolean)), workdays: new Set(getSetting<string>(db, 'calendar.workdays').split(',').filter(Boolean)) };
 }

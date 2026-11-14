@@ -1,3 +1,4 @@
+import { PAYMENT_APPROVAL, CHANGE_GOVERNANCE, seedNetAssets } from './contract-review-fixtures';
 import { describe, expect, it } from 'vitest';
 import { boot, get, json, post, upload } from './t3-helpers';
 import { createScopedUser, fetchAs } from './http-helpers';
@@ -13,6 +14,7 @@ const csv = (...rows: string[]) => Buffer.from(`﻿${[HEADER, ...rows].join('\n'
 
 async function setup() {
   const t = await boot('newfc-t4-ci-');
+    seedNetAssets(t.db);
   await createProject(t.base, t.admin, 'P-SH-01', '上海泵站改造', t.fx.orgIds.shanghai);
   await createSupplier(t.base, t.admin, 'S-001', '华东水利建设有限公司');
   const importer = createScopedUser(t.db, { username: 'ci-maker', roleCodes: ['data_maintainer'], allOrgs: true }).session;
@@ -45,7 +47,7 @@ describe('T-4 合同导入(AC-F04)', () => {
     expect(c1.payments).toEqual([expect.objectContaining({ kind: 'import_baseline', status: 'paid', amount: '30000.00' })]);
     expect(c1.events.map((e: { eventType: string }) => e.eventType)).toEqual(['import.create']);
     // 付款上限 80%:可付上限 80,000,已付 30,000 → 申请 50,000.01 被拒
-    const over = await post(base, importer, `/api/contracts/${id1}/payments`, { nodeName: '进度款', amount: '50000.01' });
+    const over = await post(base, importer, `/api/contracts/${id1}/payments`, { ...PAYMENT_APPROVAL, nodeName: '进度款', amount: '50000.01' });
     expect((await json(over)).code).toBe('CONTRACT_PAYMENT_EXCEEDS');
     // 已有付款的合同不能作废
     expect((await json(post(base, importer, `/api/contracts/${id1}/void`, { expectedVersion: c1.version, reason: 'x' }))).code).toBe('CONTRACT_STATE');
@@ -141,10 +143,10 @@ describe('T-4 合同导入(AC-F04)', () => {
     const both = createScopedUser(db, { username: 'ci-both', roleCodes: ['data_maintainer', 'business_reviewer'], allOrgs: true }).session;
     const imp = await json(upload(base, admin, '/api/contracts/imports', csv('HT-R,复核样本,,,1000,,2026-01-05,服务,上海公司,'), 'r.csv'));
     const [cid] = (await json(confirm(base, admin, imp.id, imp.planHash))).result.contractIds;
-    let c = await json(post(base, both, `/api/contracts/${cid}/payments`, { nodeName: '首付', amount: '100.00' }));
+    let c = await json(post(base, both, `/api/contracts/${cid}/payments`, { ...PAYMENT_APPROVAL, nodeName: '首付', amount: '100.00' }));
     const pid = c.payments[0].id;
     expect((await json(post(base, both, `/api/contracts/${cid}/payments/${pid}/decide`, { decision: 'approve' }))).code).toBe('SELF_REVIEW_FORBIDDEN');
-    c = await json(post(base, admin, `/api/contracts/${cid}/payments`, { nodeName: '二期', amount: '100.00' }));
+    c = await json(post(base, admin, `/api/contracts/${cid}/payments`, { ...PAYMENT_APPROVAL, nodeName: '二期', amount: '100.00' }));
     const own = c.payments[1].id;
     expect((await post(base, admin, `/api/contracts/${cid}/payments/${own}/decide`, { decision: 'approve' })).status).toBe(400);
     c = await json(post(base, admin, `/api/contracts/${cid}/payments/${own}/decide`, { decision: 'approve', exceptionReason: '单人值守' }));

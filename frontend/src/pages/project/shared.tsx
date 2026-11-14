@@ -23,18 +23,20 @@ export function RowErrors({ errors, title, max = 50 }: { errors: RowErrorDto[]; 
 }
 
 export const CONTRACT_STAGE_LABELS: Record<string, string> = {
-  initiation: '需求立项', procurement: '招采准备', drafting: '合同起草', approval: '审批签署', performance: '履约执行', settlement: '变更结算', archived: '归档关闭',
+  initiation: '需求立项', procurement: '招采准备', drafting: '合同起草', approval: '审批签署',
+  performance: '履约执行', settlement: '验收结算', warranty: '质保维护', closed: '履约完结', archived: '履约完结',
 };
-export const CONTRACT_STAGE_ORDER = ['initiation', 'procurement', 'drafting', 'approval', 'performance', 'settlement', 'archived'] as const;
+export const CONTRACT_STAGE_ORDER = ['initiation', 'procurement', 'drafting', 'approval', 'performance', 'settlement', 'warranty', 'closed'] as const;
 export const CONTRACT_STATUS = {
-  active: { text: '进行中', color: 'processing' }, closed: { text: '已关闭', color: 'success' },
+  active: { text: '进行中', color: 'processing' }, suspended: { text: '已中止', color: 'orange' }, closed: { text: '已完成', color: 'success' },
   terminated: { text: '已终止', color: 'warning' }, voided: { text: '已作废', color: 'default' },
 };
 export const CONTRACT_DOC_TYPE_LABELS: Record<string, string> = {
   procurement: '招采文件', contract_text: '合同正文', signed: '签署件', performance: '履约记录', acceptance: '验收文件', invoice: '发票',
-  change: '变更依据', settlement: '结算文件', other: '其他',
+  change: '变更依据', settlement: '结算文件', authorization: '签署授权书', qualification: '资信/资格审查',
+  guarantee: '保函/保险单', dispute: '纠纷/法律文书', other: '其他',
 };
 export const FLOW_STATUS = {
   submitted: { text: '待复核', color: 'warning' }, approved: { text: '已批准', color: 'success' },
-  rejected: { text: '已驳回', color: 'error' }, paid: { text: '已支付', color: 'blue' },
+  rejected: { text: '已驳回', color: 'error' }, paid: { text: '已支付', color: 'blue' }, received: { text: '已到账', color: 'blue' },
 };

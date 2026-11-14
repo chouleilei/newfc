@@ -2654,3 +2654,13 @@ body {
   background: var(--newfc-primary-bg) !important;
   box-shadow: inset 3px 0 0 var(--newfc-primary);
 }
+
+/* Contract review remains readable inside a narrow drawer. */
+.contract-detail-drawer .ant-drawer-title { overflow-wrap: anywhere; }
+.contract-detail-drawer .ant-descriptions-item-content { overflow-wrap: anywhere; }
+@media (max-width: 575px) {
+  .contract-detail-drawer .ant-drawer-header { flex-wrap: wrap; gap: 12px; padding: 16px 20px; }
+  .contract-detail-drawer .ant-drawer-header-title { align-items: flex-start; }
+  .contract-detail-drawer .ant-drawer-extra { margin-inline-start: 0; width: 100%; }
+  .contract-detail-drawer .ant-descriptions-item-label { width: 96px; white-space: nowrap; }
+}

@@ -60,6 +60,7 @@ export interface JobStepRow {
 
 /** 任务类型中文名(任务中心、助手展示);未登记的类型原样显示编码。 */
 export const JOB_KIND_LABELS: Record<string, string> = {
+  'contract.legal_review': '合同智能法审',
   'expense.audit': '费用审核',
   'investment.sensitivity': '敏感性分析',
   'forecast.recalc': '预测重算',
@@ -321,7 +322,7 @@ export function recoverInterruptedJobs(db: DB): number {
 export function purgeExpiredJobs(db: DB, retentionDays: number): number {
   if (!Number.isSafeInteger(retentionDays) || retentionDays < 1) throw new Error('retentionDays must be a positive integer');
   const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
-  const removed = db.prepare(`DELETE FROM app_job WHERE status IN ('succeeded','failed','cancelled','interrupted') AND finished_at IS NOT NULL AND finished_at < ?`).run(cutoff).changes;
+  const removed = db.prepare(`DELETE FROM app_job WHERE status IN ('succeeded','failed','cancelled','interrupted') AND finished_at IS NOT NULL AND finished_at < ? AND NOT EXISTS (SELECT 1 FROM ct_legal_run r WHERE r.job_id=app_job.id)`).run(cutoff).changes;
   if (removed > 0) writeLog(db, 'task.purge', 'app_job', '-', { removed, retentionDays });
   return removed;
 }

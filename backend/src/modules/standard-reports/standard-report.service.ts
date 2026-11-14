@@ -29,6 +29,7 @@ import {
   STD_REPORT_TYPE_LABELS, type StdCellValue, type StdColumnDto, type StdReportDto, type StdReportGenerate, type StdReportListItemDto, type StdReportReview,
   type StdReportType,
 } from '../../contracts/standard-reports';
+import { buildMonthlyLedger, centsToWanString, queryScopedContracts } from '../contracts/contract-export-monthly';
 
 const nowIso = () => new Date().toISOString();
 
@@ -150,23 +151,35 @@ function contractPaymentLedger(db: DB, input: Extract<StdReportGenerate, { repor
     params.push(input.orgId);
   }
   if (input.projectId) { where.push('c.project_id = ?'); params.push(input.projectId); }
-  const rows = db.prepare(`SELECT c.id, c.contract_no, c.name, c.stage, c.status, c.version, c.original_cents, c.approved_change_cents, c.paid_cents,
+  const rows = db.prepare(`SELECT c.id, c.contract_no, c.name, c.stage, c.status, c.version, c.direction, c.pricing_mode, c.currency,
+      c.original_cents, c.approved_change_cents, c.settled_net_cents, c.paid_cents, c.received_cents,
       o.name AS org_name, p.code AS project_code, p.name AS project_name, s.name AS supplier_name,
-      (SELECT COALESCE(SUM(amount_cents), 0) FROM ct_payment WHERE contract_id = c.id AND status = 'paid' AND substr(paid_date, 1, 7) = ?) AS period_paid
+      (SELECT COALESCE(SUM(amount_cents), 0) FROM ct_payment WHERE contract_id = c.id AND status = 'paid' AND substr(paid_date, 1, 7) = ?) AS period_paid,
+      (SELECT COALESCE(SUM(amount_cents), 0) FROM ct_receipt WHERE contract_id = c.id AND status = 'received' AND substr(received_date, 1, 7) = ?) AS period_received
     FROM ct_contract c JOIN org o ON o.id = c.org_id LEFT JOIN md_project p ON p.id = c.project_id LEFT JOIN md_supplier s ON s.id = c.supplier_id
-    WHERE ${where.join(' AND ')} ORDER BY c.contract_no`).safeIntegers(true).all(input.period, ...params) as {
+    WHERE ${where.join(' AND ')} ORDER BY c.contract_no`).safeIntegers(true).all(input.period, input.period, ...params) as {
     id: bigint; contract_no: string; name: string; stage: ContractStage; status: ContractStatus; version: bigint; original_cents: bigint; approved_change_cents: bigint;
-    paid_cents: bigint; org_name: string; project_code: string | null; project_name: string | null; supplier_name: string | null; period_paid: bigint;
+    direction: string; pricing_mode: string; currency: string; settled_net_cents: bigint; paid_cents: bigint; received_cents: bigint;
+    org_name: string; project_code: string | null; project_name: string | null; supplier_name: string | null; period_paid: bigint; period_received: bigint;
   }[];
   let totalCurrent = 0n; let totalPaid = 0n; let totalPeriod = 0n;
+  let totalIncCurrent = 0n; let totalReceived = 0n; let totalIncPeriod = 0n;
   const out = rows.map((r) => {
     const current = r.original_cents + r.approved_change_cents;
-    totalCurrent += current; totalPaid += r.paid_cents; totalPeriod += r.period_paid;
+    const isIncome = r.direction === 'income';
+    if (r.currency === '人民币') {
+      if (isIncome) { totalIncCurrent += current; totalReceived += r.received_cents; totalIncPeriod += r.period_received; }
+      else { totalCurrent += current; totalPaid += r.paid_cents; totalPeriod += r.period_paid; }
+    }
+    const settledOrPaid = isIncome ? r.received_cents : r.paid_cents;
     return {
       contractNo: r.contract_no, name: r.name, org: r.org_name, project: r.project_code ? `${r.project_code} ${r.project_name}` : '', supplier: r.supplier_name ?? '',
+      direction: isIncome ? '收入' : '支出', pricingMode: r.pricing_mode === 'unit_price' ? '单价' : '总价', currency: r.currency,
       stage: CONTRACT_STAGE_LABELS[r.stage], status: CONTRACT_STATUS_LABELS[r.status], original: centsToDecimalString(r.original_cents),
-      change: centsToDecimalString(r.approved_change_cents), current: centsToDecimalString(current), periodPaid: centsToDecimalString(r.period_paid),
-      paid: centsToDecimalString(r.paid_cents), unpaid: centsToDecimalString(current - r.paid_cents), rate: ratioString(r.paid_cents, current), version: Number(r.version),
+      change: centsToDecimalString(r.approved_change_cents), current: centsToDecimalString(current), settledNet: centsToDecimalString(r.settled_net_cents),
+      periodPaid: centsToDecimalString(r.period_paid), paid: centsToDecimalString(r.paid_cents),
+      periodReceived: centsToDecimalString(r.period_received), received: centsToDecimalString(r.received_cents),
+      unpaid: centsToDecimalString(current - settledOrPaid), rate: ratioString(settledOrPaid, current), version: Number(r.version),
     };
   });
   const scopeName = input.orgId ? orgName(db, input.orgId)! : '全组织';
@@ -175,18 +188,94 @@ function contractPaymentLedger(db: DB, input: Extract<StdReportGenerate, { repor
     params: { period: input.period, orgId: input.orgId ?? null, projectId: input.projectId ?? null },
     columns: [
       { key: 'contractNo', label: '合同编号', kind: 'text' }, { key: 'name', label: '合同名称', kind: 'text' }, { key: 'org', label: '组织', kind: 'text' },
+      { key: 'direction', label: '收支方向', kind: 'text' }, { key: 'pricingMode', label: '计价方式', kind: 'text' }, { key: 'currency', label: '币种', kind: 'text' },
       { key: 'project', label: '项目', kind: 'text' }, { key: 'supplier', label: '供应商', kind: 'text' }, { key: 'stage', label: '阶段', kind: 'text' },
       { key: 'status', label: '状态', kind: 'text' }, { key: 'original', label: '原始金额', kind: 'money' }, { key: 'change', label: '已批准变更', kind: 'money' },
-      { key: 'current', label: '当前金额', kind: 'money' }, { key: 'periodPaid', label: '本期已付', kind: 'money' }, { key: 'paid', label: '累计已付', kind: 'money' },
-      { key: 'unpaid', label: '未付', kind: 'money' }, { key: 'rate', label: '付款比例', kind: 'ratio' }, { key: 'version', label: '合同版本', kind: 'integer' },
+      { key: 'current', label: '当前金额', kind: 'money' }, { key: 'settledNet', label: '累计净结算', kind: 'money' },
+      { key: 'periodPaid', label: '本期已付', kind: 'money' }, { key: 'paid', label: '累计已付', kind: 'money' },
+      { key: 'periodReceived', label: '本期实收', kind: 'money' }, { key: 'received', label: '累计实收', kind: 'money' },
+      { key: 'unpaid', label: '未付/未收', kind: 'money' }, { key: 'rate', label: '付款/收款比例', kind: 'ratio' }, { key: 'version', label: '合同版本', kind: 'integer' },
     ],
     rows: out,
     summary: [
       { label: '合同数', value: String(out.length) }, { label: '当前金额合计', value: centsToDecimalString(totalCurrent) },
       { label: '本期已付合计', value: centsToDecimalString(totalPeriod) }, { label: '累计已付合计', value: centsToDecimalString(totalPaid) },
       { label: '整体付款比例', value: ratioString(totalPaid, totalCurrent) ?? '—' }, { label: '组织范围', value: scopeName },
+      ...(totalIncCurrent > 0n || totalReceived > 0n ? [
+        { label: '收入合同金额合计', value: centsToDecimalString(totalIncCurrent) },
+        { label: '本期实收合计', value: centsToDecimalString(totalIncPeriod) },
+        { label: '累计实收合计', value: centsToDecimalString(totalReceived) },
+      ] : []),
     ],
     sources: { contracts: rows.map((r) => ({ id: Number(r.id), version: Number(r.version) })), period: input.period },
+  };
+}
+
+function contractMonthlyPack(db: DB, input: Extract<StdReportGenerate, { reportType: 'contract_monthly_pack' }>): Frozen {
+  if (input.orgId) assertOrg(db, input.orgId);
+  else requireCurrentAllOrgs('全组织月度合同5表台账');
+  const year = input.period.slice(0, 4);
+  const { wb: monthlyWorkbook, contracts: rows } = buildMonthlyLedger(db, { orgId: input.orgId, period: input.period });
+  let newSignCount = 0; let closedCount = 0; let expTotalWan = 0n; let incTotalWan = 0n;
+  const out = rows.map((r) => {
+    const cur = r.original_cents + r.approved_change_cents;
+    if (r.sign_date?.startsWith(input.period)) newSignCount++;
+    if (['closed','terminated'].includes(r.status) && r.completed_date?.startsWith(input.period)) closedCount++;
+    if (r.currency === '人民币') {
+      if (r.direction === 'income') incTotalWan += cur;
+      else expTotalWan += cur;
+    }
+    return {
+      contractNo: r.contract_no,
+      name: r.name,
+      org: r.org_name,
+      direction: r.direction === 'income' ? '收入' : '支出', currency: r.currency,
+      pricingMode: r.pricing_mode === 'unit_price' ? '单价' : '总价',
+      originalWan: r.pricing_mode === 'unit_price' && r.original_cents === 0n ? '/' : centsToWanString(r.original_cents),
+      changeWan: centsToWanString(r.approved_change_cents, true),
+      settledWan: centsToWanString(r.settled_net_cents),
+      paidOrReceivedWan: centsToWanString(r.direction === 'income' ? r.received_cents : r.paid_cents),
+      stage: CONTRACT_STAGE_LABELS[r.stage],
+      status: CONTRACT_STATUS_LABELS[r.status],
+      signDate: r.sign_date ?? '',
+      version: r.version,
+    };
+  });
+  const scopeName = input.orgId ? orgName(db, input.orgId)! : '全组织';
+  return {
+    title: `${input.period} 月度合同5表台账 · ${scopeName}`,
+    orgId: input.orgId ?? null,
+    period: input.period,
+    params: { period: input.period, orgId: input.orgId ?? null, year },
+    columns: [
+      { key: 'contractNo', label: '合同编号', kind: 'text' },
+      { key: 'name', label: '合同名称', kind: 'text' },
+      { key: 'org', label: '组织', kind: 'text' },
+      { key: 'direction', label: '收支方向', kind: 'text' },
+      { key: 'currency', label: '币种', kind: 'text' },
+      { key: 'pricingMode', label: '计价方式', kind: 'text' },
+      { key: 'originalWan', label: '初始金额(万元)', kind: 'text' },
+      { key: 'changeWan', label: '累计变更(万元)', kind: 'text' },
+      { key: 'settledWan', label: '累计净结算(万元)', kind: 'text' },
+      { key: 'paidOrReceivedWan', label: '累计实付/实收(万元)', kind: 'text' },
+      { key: 'stage', label: '阶段', kind: 'text' },
+      { key: 'status', label: '状态', kind: 'text' },
+      { key: 'signDate', label: '签订日期', kind: 'text' },
+      { key: 'version', label: '合同版本', kind: 'integer' },
+    ],
+    rows: out,
+    summary: [
+      { label: '合同总数', value: String(out.length) },
+      { label: '本月新签', value: String(newSignCount) },
+      { label: '本月完结', value: String(closedCount) },
+      { label: '支出当前总额(人民币万元)', value: centsToWanString(expTotalWan) },
+      { label: '收入当前总额(人民币万元)', value: centsToWanString(incTotalWan) },
+      { label: '组织范围', value: scopeName },
+    ],
+    sources: { contracts: rows.map((r) => ({ id: r.id, version: r.version })), period: input.period, monthlySheets: monthlyWorkbook.worksheets.map(ws => {
+      const data = { name: ws.name, rows: ws.getSheetValues().slice(1).map(row => Array.isArray(row) ? row.slice(1).map(v => v ?? null) : []), merges: (ws.model.merges ?? []) };
+      return { ...data, sha256: crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex') };
+    }) },
   };
 }
 
@@ -260,7 +349,9 @@ function getRow(db: DB, id: number): ReportRow {
 export function generateReport(db: DB, input: StdReportGenerate): StdReportDto {
   // 取数在写事务之外;冻结内容一次性写入
   const f = input.reportType === 'budget_execution' ? budgetExecution(db, input) : input.reportType === 'statement_summary' ? statementSummary(db, input)
-    : input.reportType === 'eas_recon' ? easRecon(db, input) : input.reportType === 'contract_payment_ledger' ? contractPaymentLedger(db, input)
+    : input.reportType === 'eas_recon' ? easRecon(db, input)
+    : input.reportType === 'contract_payment_ledger' ? contractPaymentLedger(db, input)
+    : input.reportType === 'contract_monthly_pack' ? contractMonthlyPack(db, input)
     : riskRectificationLedger(db, input);
   const content = JSON.stringify({ columns: f.columns, rows: f.rows, summary: f.summary, sources: f.sources });
   const sha = crypto.createHash('sha256').update(content).digest('hex');
@@ -306,6 +397,13 @@ export function reviewReport(db: DB, id: number, input: StdReportReview): StdRep
 export async function exportReport(db: DB, id: number): Promise<{ fileName: string; buffer: Buffer }> {
   const r = getReport(db, id);
   const wb = new ExcelJS.Workbook();
+  if (r.reportType === 'contract_monthly_pack') {
+    const sheets = r.sources.monthlySheets as { name: string; rows: (string | number | null)[][]; merges: string[] }[] | undefined;
+    if (!sheets || sheets.length !== 5) throw new AppError('REPORT_SNAPSHOT_INCOMPLETE', '此历史报表未冻结完整五表，请重新生成并复核', 409);
+    for (const sheet of sheets) { const ws = wb.addWorksheet(sheet.name); ws.addRows(sheet.rows); for (const merge of sheet.merges) ws.mergeCells(merge); }
+    writeLog(db, 'report.standard.export', 'std_report', id, { contentSha256: r.contentSha256, sheetCount: sheets.length });
+    return { fileName: `${r.title.replace(/[\\/:*?"<>|]/g, '_')}.xlsx`, buffer: Buffer.from(await wb.xlsx.writeBuffer()) };
+  }
   const ws = wb.addWorksheet(STD_REPORT_TYPE_LABELS[r.reportType]);
   ws.addRow([r.title]).font = { bold: true, size: 14 };
   ws.addRow([`状态:${r.status === 'reviewed' ? '已复核' : '待复核'}`, `生成时间:${r.generatedAt}`, `内容摘要:${r.contentSha256.slice(0, 16)}`]);

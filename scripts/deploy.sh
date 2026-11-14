@@ -72,6 +72,10 @@ if ! (cd "$ROOT/backend" && NEWFC_DATA_DIR="$DATA_DIR" node dist.new/db/migrate-
   echo "迁移失败:运行产物未替换。请按 docs/operations-runbook.md 从迁移前备份恢复后再启动旧版本。" >&2
   exit 1
 fi
+if ! (cd "$ROOT/backend" && NEWFC_DATA_DIR="$DATA_DIR" node dist.new/modules/contracts/legal-seed-cli.js); then
+  echo "法审制度/范本种子导入失败，保持旧产物，请核查后重试" >&2
+  exit 1
+fi
 
 swap() {
   local dir="$1"

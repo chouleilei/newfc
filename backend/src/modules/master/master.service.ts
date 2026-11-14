@@ -11,7 +11,7 @@ import { AppError, Errors } from '../../core/errors';
 import { currentAuth, type AuthContext } from '../../core/request-context';
 import { writeLog } from '../audit/log';
 import { validateCustomExtra } from '../settings/custom-fields.service';
-import { assertOrgVisible, orgInScope, resolveOrgScope } from '../security/scope';
+import { assertOrgVisible, currentOrgScope, scopeFilterSql, orgInScope, resolveOrgScope } from '../security/scope';
 
 export type MasterEntityType = 'org' | 'account' | 'project' | 'supplier';
 const ENTITY_TYPES: readonly MasterEntityType[] = ['org', 'account', 'project', 'supplier'];
@@ -170,11 +170,19 @@ interface SupplierRow {
 export interface PublicSupplier {
   id: number; code: string | null; name: string; supplierType: string; creditCode: string; status: 'active' | 'inactive';
   extra: Record<string, unknown>; createdAt: string; updatedAt: string;
+  evaluations: { contractId: number; contractNo: string; qualityScore: number; scheduleScore: number; serviceScore: number; recommendation: string; comment: string; evaluatedAt: string }[];
 }
 
-const toSupplier = (r: SupplierRow): PublicSupplier => ({
+function supplierEvaluations(db: DB, id: number): PublicSupplier['evaluations'] {
+  if (currentAuth() && !currentAuth()!.permissions.has('contract:read')) return [];
+  const sc = scopeFilterSql(currentOrgScope(db), 'c.org_id');
+  return db.prepare(`SELECT e.contract_id AS contractId, c.contract_no AS contractNo, e.quality_score AS qualityScore, e.schedule_score AS scheduleScore, e.service_score AS serviceScore, e.recommendation, e.comment, e.evaluated_at AS evaluatedAt
+    FROM md_supplier_evaluation e JOIN ct_contract c ON c.id = e.contract_id WHERE e.supplier_id = ? AND ${sc.sql} ORDER BY e.evaluated_at DESC`).all(id, ...sc.params) as PublicSupplier['evaluations'];
+}
+
+const toSupplier = (db: DB, r: SupplierRow): PublicSupplier => ({
   id: r.id, code: r.code, name: r.name, supplierType: r.supplier_type, creditCode: r.credit_code, status: r.status,
-  extra: JSON.parse(r.extra_json), createdAt: r.created_at, updatedAt: r.updated_at,
+  extra: JSON.parse(r.extra_json), createdAt: r.created_at, updatedAt: r.updated_at, evaluations: supplierEvaluations(db, r.id),
 });
 
 function creditCode(value: unknown): string {
@@ -188,13 +196,13 @@ export function listSuppliers(db: DB, q: { status?: string; keyword?: string } =
   const params: unknown[] = [];
   if (q.status) { where.push('status = ?'); params.push(status(q.status)); }
   if (q.keyword) { where.push('(code LIKE ? OR name LIKE ? OR normalized_name LIKE ?)'); const k = `%${q.keyword.replace(/[%_]/g, '')}%`; params.push(k, k, `%${normalizeName(q.keyword)}%`); }
-  return (db.prepare(`SELECT * FROM md_supplier ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY name`).all(...params) as SupplierRow[]).map(toSupplier);
+  return (db.prepare(`SELECT * FROM md_supplier ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY name`).all(...params) as SupplierRow[]).map(r => toSupplier(db, r));
 }
 
 export function getSupplier(db: DB, id: number): PublicSupplier {
   const row = db.prepare('SELECT * FROM md_supplier WHERE id = ?').get(id) as SupplierRow | undefined;
   if (!row) throw Errors.notFound('供应商');
-  return toSupplier(row);
+  return toSupplier(db, row);
 }
 
 export function createSupplier(db: DB, input: Record<string, unknown>): PublicSupplier {

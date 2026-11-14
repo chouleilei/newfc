@@ -188,10 +188,11 @@ describe('阶段五:LLM 渠道管理', () => {
       expect(channels[0].keyPreview).toContain('****');
       expect(channels[0].keyPreview).not.toContain('sk-test-1234');
       const bindings = aiChannels.listBindings(db);
-      // V34 只绑定当时的 6 个功能;T-4 追加的 expense_audit 未绑定,按“任一启用渠道 → env”解析
-      expect(bindings.length).toBe(7);
-      expect(bindings.filter((b) => b.feature !== 'expense_audit').every((b) => b.primaryChannelId === channels[0].id)).toBe(true);
-      expect(bindings.find((b) => b.feature === 'expense_audit')?.primaryChannelId ?? null).toBeNull();
+      // V34 仍只绑定当时的 6 个功能；后续领域功能不改历史迁移，继续由当前渠道解析器回退。
+      const laterFeatures = ['expense_audit', 'contract_legal_review'];
+      expect(bindings.length).toBe(aiChannels.AI_FEATURES.length);
+      expect(bindings.filter((b) => !laterFeatures.includes(b.feature)).every((b) => b.primaryChannelId === channels[0].id)).toBe(true);
+      expect(bindings.filter((b) => laterFeatures.includes(b.feature)).every((b) => b.primaryChannelId === null)).toBe(true);
       db.close();
 
       // 未配置 env:表空

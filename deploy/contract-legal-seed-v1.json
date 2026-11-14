@@ -1,0 +1,2779 @@
+{
+  "policies": [
+    {
+      "code": "L-QJ03-04-2026",
+      "version": 1,
+      "title": "澧水公司合同管理办法",
+      "docNo": "湘澧制〔2026〕17号",
+      "effectiveFrom": "2026-06-25",
+      "sourceNote": "从本地受控制度原件及2025制度汇编摘录离线核对提取；不含项目历史参数",
+      "clauses": [
+        {
+          "clauseNo": "4.2.2",
+          "chapterTitle": "文本审查",
+          "clauseText": "4.2.2 负责组织一级和二级采购的合同文本审查、合同谈判等工作，审查合同签订依据的有效性、合同文本条款的完整性、合规性、准确性等；参加公司职能部门、中心承办的合同验收，参加公司所属单位承办的一级采购合同验收。",
+          "ruleTags": [
+            "elements"
+          ]
+        },
+        {
+          "clauseNo": "5.1",
+          "chapterTitle": "采购签订依据",
+          "clauseText": "5.1 采购合同（对外支付资金合同）以完成采购阶段的全部审批作为签订合同的依据。",
+          "ruleTags": [
+            "signing"
+          ]
+        },
+        {
+          "clauseNo": "5.2",
+          "chapterTitle": "非采购签订依据",
+          "clauseText": "5.2 非采购类合同以公司批准的相关文件或公司主要领导的批示作为签订合同的依据。",
+          "ruleTags": [
+            "signing"
+          ]
+        },
+        {
+          "clauseNo": "5.3",
+          "chapterTitle": "销售签订依据",
+          "clauseText": "5.3 产品销售服务合同（资金进项合同）以相对方的书面邀约作为签订合同的依据。",
+          "ruleTags": [
+            "signing"
+          ]
+        },
+        {
+          "clauseNo": "6.3",
+          "chapterTitle": "谈判与法审",
+          "clauseText": "6.3 合同谈判与审查会签程序。\n第一步：成立谈判小组。\n第二步：准备谈判大纲。谈判大纲由合同承办单位负责起草，谈判小组成员研究确定。\n第三步：协商谈判。谈判小组与合同相对方授权代表进行谈判。\n第四步：谈判结束后。谈判小组根据双方达成的一致意见形成谈判纪要，承办单位根据谈判纪要修改完善形成合同正式文本送审签订。原则上进行线上审签。其中，重要合同谈判应邀请法律顾问参加或对合同文本出具法律意见书。\n（1）以公司名义签订的合同、以二级单位名义签订的一级、二级采购合同的合同谈判与审签流程图详见《合同谈判、审批、会签流程图》（附件1）。\n（2）以二级单位名义签订的三级采购合同谈判与审签流程，按二级单位的合同管理制度及流程办理。",
+          "ruleTags": [
+            "important"
+          ]
+        },
+        {
+          "clauseNo": "7.1",
+          "chapterTitle": "审签权限",
+          "clauseText": "7.1 审签权限。\n7.1.1 以公司名义签订的合同，按《合同审批表》（附件2）完成审批，由公司法定代表人或其授权代表签署并加盖合同专用章（公章）。\n7.1.2 以二级单位名义签订的合同按承办单位的合同管理制度办理合同签署手续，由其法定代表人或主要负责人签署并加盖合同专用章（公章）。",
+          "ruleTags": [
+            "signing"
+          ]
+        },
+        {
+          "clauseNo": "7.2",
+          "chapterTitle": "合同编号",
+          "clauseText": "7.2 合同应按《合同编号说明》（附件3）进行合同编号。",
+          "ruleTags": [
+            "number"
+          ]
+        },
+        {
+          "clauseNo": "7.3",
+          "chapterTitle": "重要合同",
+          "clauseText": "7.3 公司及所属单位的股权投资、资产置换、资产委托管理、借贷、融资、对外担保（含抵押、质押、保证）及公司并购、重组、合资、合作等属于重要合同，重要合同签署前须通过“三重一大”审批。",
+          "ruleTags": [
+            "important"
+          ]
+        },
+        {
+          "clauseNo": "8.1",
+          "chapterTitle": "履行前置",
+          "clauseText": "8.1 在合同未签署或者未生效之前，不得实质履行。",
+          "ruleTags": [
+            "effective"
+          ]
+        },
+        {
+          "clauseNo": "10.4",
+          "chapterTitle": "解除及善后",
+          "clauseText": "10.4 应在合同中约定合同解除的相关情形或事由，包括双方协商一致、一方违约、情势变化、法院判决或仲裁机构裁决、合同相对方被列入涉案黑名单、法律规定的其他情形等，同时应约定合同解除后的相关善后事宜。",
+          "ruleTags": [
+            "termination"
+          ]
+        },
+        {
+          "clauseNo": "附件3",
+          "chapterTitle": "合同编号说明",
+          "clauseText": "附件3\n《合同编号说明》\n公司合同编号方式：XX－YY－序号（补X）/年份－流水号，其中：\n一、XX表示公司、长沙基地、总部或各单位名称拼音简写。如：澧水公司—LS，长沙基地—CJ，江垭电站—JD、皂市电站—ZD、关门岩电站—GD、青年电站—QD、索溪分公司—SX、彩石公司—CS、泽通公司—ZT、项目公司—XM、澧能公司—LN、机电公司—LJD、温泉—WQ、湘澧—XL、优能—YN、裕风—YF\n二、YY表示公司合同类别。\n1.建设工程类—JG；\n2.生产经营管理类—SG；\n3.审计类—SJ；\n4.财务类—CW；\n5.投资及合作经营—TH；\n6.销售服务类—XF；\n7.其他类—QT。\n三、序号为对应YY的同类合同顺序号，承接上年度编号；年份为合同签订年份，流水号指本年度所签全部合同顺序号，每年度从001开始。补X为该合同的第X份补充协议。\n四、建设项目合同编号按概算分类统计，如：项目－类别－序号/年份－流水号。\n五、统筹部门统筹办理计划下达至其他部门（单位）的合同时，应向被统筹部门（单位）取得合同编号。",
+          "ruleTags": [
+            "number"
+          ]
+        },
+        {
+          "clauseNo": "9",
+          "chapterTitle": "合同变更索赔",
+          "clauseText": "9  合同变更与索赔处理\n9.1 合同变更是指在合同成立后至未履行或未完全履行之前，各方经过协商一致，发生合同主体改变或是对合同内容进行修改、补充和删减。\n9.1.1 合同变更（含重大设计变更、新增项目等）应办理变更审批手续。\n（1）变更减少金额的由承办单位自行审批。\n（2）变更增加金额的按《合同变更/索赔审批权限》（附件5）办理变更结算审批手续，并根据需要签订补充合同或新的独立合同。其中变更金额与原合同金额之和超过计划金额的，应按《澧水公司综合计划管理规定》办理计划外项目审批手续，计划外审批通过则视同通过变更审批，否则不予变更。涉及合同金额增加的变更事项应及时向纪审部备案。\n（3）一级采购、二级采购合同因改制或重组等引起合同对方工商信息变更、商务条款发生实质性变化、合同付款方式发生改变的，经合同归口管理部门组织审查后，报承办单位分管领导审批；变更涉及质量标准、技术要求或技术方案变化的，由合同承办单位在变更实施前报技术方案归口管理部门审查，审查意见报技术方案归口管理部门、承办单位的分管（联系）副总经理审批，技术方案归口管理部门应在收到申请后的10日之内将审批意见反馈承办单位。具体流程图见《合同变更技术方案审批流程图》（附件6）。\n9.1.2 合同变更结算程序如下，具体流程图见《合同变更/索赔结算审批流程》（附件7）。\n第一步：合同承办单位在与合同相对方、监理方（如有）、设计方（如有）等协商的基础上提出合同变更申请。其中，应急或抢险项目可以先行实施，再按程序报批。\n相关变更资料主要包括变更方案、原因、依据、费用、设计变更图纸（如有）、工作联系单、会议纪要、往来函件、现场记录、签证资料、协商记录、影像证据资料及其他相关证明资料。\n变更合同金额估算值超过中标合同金额10%，技术方案归口管理部门要组织力量对履约情况进行全面审核，充分研究论证合同变更的必要性和合规性。\n第二步：承办单位自行审批的变更，应报相关技术方案归口管理部门和合同归口管理部门备案；对报公司审批的变更，由承办单位报合同归口管理部门审核，技术方案归口管理部门配合。\n第三步：合同承办单位根据经批准的变更处理意见，以补充协议或其他法律法规认可的形式完成变更手续。需要签订补充协议的按合同签订有关程序办理。\n生产经营管理合同变更仅适用于计划单列项目，总额包干项目可以项目间调剂，变更自行决定，但包干总额不得突破。\n9.1.3 未按规定程序办理审批手续的变更，不得作为结算的依据。\n9.1.4 与原合同范围无关的工作、与原合同相关的合同工作范围变更，具备独立委托另外一个承包商条件的、以单价模式计价的合同价格变更，具备独立委托另外一个承包商条件，且超出原合同签署依据批准范围的，不能采用合同变更，需按公司采购管理的有关规定重新选定相对方。\n9.2 合同索赔是指合同一方当事人（索赔方）因另一方当事人（理赔方）未能履行或未能完全履行合同约定的义务，或者由于其他非自身因素而受到经济损失或权利损害，通过合同规定的程序向对方提出经济或时间补偿要求的行为。\n9.2.1 承包人提出索赔：承包人提出索赔时，承办单位负责组织调查，限额以下的索赔，由承办单位自行审批，并报相关技术方案归口管理部门与合同归口管理部门备案；对限额及以上的索赔，由承办单位报合同归口管理部门审核，相关技术方案归口管理部门配合。审批权限及流程详见《合同变更/索赔审批权限》（附件5）、《合同变更/索赔结算审批流程》（附件7）。涉及公司支付金额增加的索赔事项应及时向纪审部备案。\n9.2.2 发包人索赔：因承包人原因造成公司利益受损时，承办单位应提出初步索赔方案报技术方案归口管理部门组织合同归口管理部门、结算中心、承办单位审查，10天内将审查结果反馈给承办单位。由承办单位组织对承包人进行索赔。",
+          "ruleTags": [
+            "change"
+          ]
+        }
+      ]
+    },
+    {
+      "code": "L-QJ02-04-2026",
+      "version": 1,
+      "title": "澧水公司采购管理办法",
+      "docNo": "湘澧制〔2026〕20号",
+      "effectiveFrom": "2026-06-30",
+      "sourceNote": "从本地受控制度原件及2025制度汇编摘录离线核对提取；不含项目历史参数",
+      "clauses": [
+        {
+          "clauseNo": "4.1.1",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "4.1.1 一级采购指经批准的项目计划、概算或预算金额达到施工类300万元及以上、货物类150万元及以上或服务类100万元及以上规模的采购。",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "4.1.2",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "4.1.2 二级采购指经批准的项目计划、概算或预算金额达到施工类100万元及以上且小于300万元、货物类50万元及以上且小于150万元或服务类30万元及以上且小于100万元的采购。",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "4.1.3",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "4.1.3 三级采购指经批准的项目计划、概算或预算金额达到施工类100万元以下、货物类50万元以下或服务类30万元以下的采购。",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "5.1.1",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "5.1.1 施工采购，指工程建设包括建筑物和构筑物的新建、改建、扩建及其装饰装修、拆除、修缮，设备的安装等采购。",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "5.1.2",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "5.1.2 货物采购，是指工程建设有关的设备、材料的采购，还包括生产经营性的原材料、燃料、运输工具、设备、工器具、办公、劳保、生活、备品备件及低值易耗品等采购。",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "5.1.3",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "5.1.3 服务采购，是指工程建设项目的勘察、设计、监理的采购，还包括宣传广告促销服务、咨询服务、科研服务、信息网络开发服务、金融保险服务、运输服务、维修与维护服务、管理服务及其他各类专业技术服务等采购。",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "6.1.3",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "6.1.3 审批公司年度采购计划、分标方案、一级采购方案；",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "6.2.1",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "6.2.1 总经理审批招标项目业主评委、定标委员会组成人选、谈判采购小组人选，审批二级采购的评审结果；",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "6.2.2",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "6.2.2 分管归口管理部门的副总经理负责审批一级采购文件、二级采购方案；",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "6.2.4",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "6.2.4 承办单位的分管（联系）副总经理负责审批承办单位承办的三级采购的评审结果。",
+          "ruleTags": [
+            "procurement"
+          ]
+        },
+        {
+          "clauseNo": "8.1.7",
+          "chapterTitle": "采购分级/审批/方式",
+          "clauseText": "8.1.7 针对采购目标内容单一、无后续服务（含三包）、额度在3万元（含）以内的货物、服务或小型维修维护项目，可以发票报账方式处理的采购方式。一般情况下，承办单位应进行市场比价，形成书面比价报告，作为报账依据。对于经常、重复发生的3万元以下的同类型项目采购，不适用本条款。",
+          "ruleTags": [
+            "procurement"
+          ]
+        }
+      ]
+    },
+    {
+      "code": "XLZ-2025-03",
+      "version": 1,
+      "title": "澧水公司法律事务工作管理办法",
+      "docNo": "湘澧制〔2025〕3号",
+      "effectiveFrom": "2025-04-06",
+      "sourceNote": "从本地受控制度原件及2025制度汇编摘录离线核对提取；不含项目历史参数",
+      "clauses": [
+        {
+          "clauseNo": "4.1",
+          "chapterTitle": "合同法律审查",
+          "clauseText": "4.1 公司重要经济合同包括但不限于资产租赁、资产重组、投资并购、股权转让、对外担保、长期合作及涉外经济活动的最终合同文本及招投标文件，由公司法律顾问参加审查或出具法律审查意见书，审查率应达到100%；采用范本的简易的施工、货物、服务合同、劳动合同及劳务派遣合同等采取样本审查。",
+          "ruleTags": [
+            "elements",
+            "important"
+          ]
+        },
+        {
+          "clauseNo": "4.2",
+          "chapterTitle": "合同法律审查",
+          "clauseText": "4.2 合同法律审查主要内容：\n\n（1）合同标的是否合法、有效；\n\n（2）合同所涉事项是否取得相关批准；\n\n（3）合同主体是否适格；\n\n（4）采购程序是否合法合规；\n\n（5）合同当事各方的权利义务是否明确、合法、合理；\n\n（6）违约责任的约定是否合法、可行；\n\n（7）争议的处理条款是否合法、可行；\n\n（8）合同条款是否完备；\n\n（9）合同文本是否规范。",
+          "ruleTags": [
+            "elements",
+            "important"
+          ]
+        },
+        {
+          "clauseNo": "4.3",
+          "chapterTitle": "合同法律审查",
+          "clauseText": "4.3 合同承办单位在提交法律审查申请时合同要素应完备无误、资料应完整，否则，法律审查人员可直接退回合同承办人员，由其完善后重新送审。",
+          "ruleTags": [
+            "elements",
+            "important"
+          ]
+        },
+        {
+          "clauseNo": "8.3",
+          "chapterTitle": "合同法律审查",
+          "clauseText": "8.3 法律事务归口管理部门应对法律顾问出具的法律审查意见进行复核，发现意见不符合实际情况，或可能损害公司合法利益时，应及时指出，予以纠正并纳入考核。\n\n8.4法律顾问每年向公司提供一份年度总结工作报告和咨询意见的汇编。作为合同支付的重要依据。",
+          "ruleTags": [
+            "elements",
+            "important"
+          ]
+        },
+        {
+          "clauseNo": "11.2",
+          "chapterTitle": "合同法律审查",
+          "clauseText": "11.2 本办法自颁布之日起施行，原《湖南澧水流域水利水电开发有限责任公司法律事务工作管理规定》（L-QJ04-04-2021）同时废止。\n\n附件1\n\n| 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 | 公司及所属单位诉讼（仲裁）案件情况统计表 填报单位： 填报日期: 年 月 日 |\n| 序号 | 诉讼类型 | 案由 | 相对方及其诉讼地位 | 程序阶段 | 受理机构 | 案号 | 涉诉单位 | 诉讼地位 | 受理时间 | 案情简介 | 法律文书形式 | 结案时间 | 诉讼金额 | 裁判结果 | 单位实际获得或支付的金额 | 备注（代理律所及承办律师） |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n|  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |\n\n注:1、填报范围为本单位及子公司下属单位的诉讼（仲裁）案件；\n\n2、诉讼类型、程序阶段、诉讼地位、裁判结果，从（电子表格）下拉框中选择；\n\n3、诉讼地位：是指在诉讼或仲裁中的主体角色，如原告、被告、第三人、申请人、被申请人等；\n\n4、案情简介：概括案件的基本情况，一般不超过200字，但应说明案件的主要内容；\n\n5、填报要求：各单位发生的案件，按受理时间先后填入本统计表；\n\n6、报送要求：收到裁判文书后，更新电子表格后实时报送，并附裁判文书。\n\n附件2\n\n法律咨询法律审查情况统计表\n\n填报单位：                                                  填报日期:  年  月  日\n\n| 序号 | 日期 | 咨询/审查内容 | 备注 |\n|  |  |  |  |\n|  |  |  |  |\n|  |  |  |  |\n|  |  |  |  |\n\n注:本表每季度第三个月下旬报送。\n\n附件3\n\n关于**诉讼（仲裁）纠纷的报告\n\n一、基本简介\n\n概括纠纷的基本情况，包括但不限于：时间、地点、当事人、纠纷起因、诉讼（仲裁）请求或主张诉求、案件经过等。\n\n二、法律分析\n\n归纳纠纷争议的焦点，并对其中涉及的主要事实和法律问题进行分析。\n\n三、已采取措施\n\n简单介绍目前已经采取的应对措施。\n\n四、下一步打算\n\n简单介绍下一步的工作打算。\n\n五、请求协调事宜\n\n简单介绍需要协调的事宜。\n\n联系人：XXX(联系方式)\n\n附件：（法律文书和证据资料）\n\n单位\n\nXX年XX月XX日\n\n附件4\n\n考评细则\n\n| 序号 | 考评内容 | 权重 | 考评标准 | 考评对象 | 考评人 |\n| 1 | 兼职法律工作人员 | 5 | 各单位未按要求明确兼职法律工作人员的，每空缺1个月扣1分。 | 各单位 | 企管部 |\n| 2 | 法律事务台账 | 10 | 未按要求建立台账的扣5分；台账未及时更新的每项次扣5分；台账信息未按要求报送的每次扣5分。 | 各单位 | 企管部 |\n| 3 | 联络渠道 | 5 | 未经同意，通过非指定渠道联络法律顾问传递咨询审查资料的，每次扣1分。 | 各单位 | 企管部 |\n| 4 | 制度法律审查率 | 10 | 一级制度每少审查一件扣1分；二级制度审查率低于80%扣3分。 | 责任部门（单位） | 企管部 |\n| 5 | 普法工作 | 20 | 普法落实率（参与率）低于90%的，每项次扣3分；未按要求报送落实（参与）情况的，每项次扣2分。 | 各部门（单位） | 企管部 |\n| 6 | 法律纠纷发生时采取措施 | 20 | 公司利益可能或正在收到损害，或者发生诉讼（仲裁）时，责任部门（单位）未按要求采取相应措施的，每次扣10分。 | 责任部门（单位） | 企管部 |\n| 7 | 法律纠纷报告 | 20 | 发生重大纠纷未按规定及时报告的每次扣10分，其他的每次扣5分。 | 责任部门（单位） | 企管部 |\n| 8 | 年度法律事务工作总结 | 10 | 未按要求报送本年度法律事务工作总结报告的，每次扣10分。 | 各单位 | 企管部 |\n| 9 | 普法规划和年度工作计划 | 20 | 未制订普法规划或年度工作计划的，每次扣10分 | 企管部 | 绩效办 |\n| 10 | 案件总结报告 | 30 | 结案后，未撰写案件总结并报告的，每次扣10分。 | 企管部 | 绩效办 |\n| 11 | 法律案件资料归档 | 50 | 结案后，未按规定整理移交案件资料的，每次扣10分。 | 企管部 | 绩效办 |\n\n说明：各单位的考核扣分按目标责任书“基础管理”项权重纳入其组织绩效考核结果；作为管理部门的考核扣分按目标责任书“职责履行”对应项权重纳入其考核结果，其他部门的按目标责任书“基础管理”对应项权重纳入其考核结果。",
+          "ruleTags": [
+            "elements",
+            "important"
+          ]
+        }
+      ]
+    }
+  ],
+  "templates": [
+    {
+      "code": "TPL-GOODS-2026",
+      "version": 1,
+      "name": "设备物资采购合同_清理稿",
+      "legalCategory": "goods_procurement",
+      "approvalStatus": "candidate",
+      "notes": "项目合同清理稿，尚未经主管部门核定；不得作为公司正式统一范本。技术服务范本仅供试验。",
+      "clauses": [
+        {
+          "clauseKey": "p1",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "合同编号：【按 L-QJ03-04-2026 附件 3 编制】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "按 L-QJ03-04-2026 附件 3 编制"
+          ]
+        },
+        {
+          "clauseKey": "p2",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "买方（甲方）：【签约主体全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签约主体全称"
+          ]
+        },
+        {
+          "clauseKey": "p3",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "卖方（乙方）：【相对方全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "相对方全称"
+          ]
+        },
+        {
+          "clauseKey": "p4",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "签订日期：【年】年【月】月【日】日",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "年",
+            "月",
+            "日"
+          ]
+        },
+        {
+          "clauseKey": "p5",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "fixed",
+          "standardText": "根据《中华人民共和国民法典》及其他适用法律法规，双方就设备物资采购事宜，在平等、自愿和诚实信用的基础上订立本合同，共同遵照执行。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p7",
+          "clauseNo": "第一条 合同依据与文件组成",
+          "title": "第一条 合同依据与文件组成",
+          "tier": "placeholder",
+          "standardText": "1. 本合同签订依据为【采购审批文件名称、编号及完成的审批程序】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "采购审批文件名称、编号及完成的审批程序"
+          ]
+        },
+        {
+          "clauseKey": "p8",
+          "clauseNo": "第一条 合同依据与文件组成",
+          "title": "第一条 合同依据与文件组成",
+          "tier": "fixed",
+          "standardText": "2. 合同文件包括本合同正文、附件、补充协议、中标或成交通知书、谈判纪要以及双方确认的其他文件。文件内容不一致时，按双方明确约定的解释顺序执行；补充协议须履行适用的审批程序。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p9",
+          "clauseNo": "第一条 合同依据与文件组成",
+          "title": "第一条 合同依据与文件组成",
+          "tier": "fixed",
+          "standardText": "3. 乙方已充分了解供货范围、交付地点、验收要求和现场条件，并确认其报价已包含完成合同义务所需的全部费用。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p11",
+          "clauseNo": "第二条 供货内容",
+          "title": "第二条 供货内容",
+          "tier": "placeholder",
+          "standardText": "1. 乙方负责【设备、材料、备品备件或软件名称】的供货、包装、运输、保险、装卸、【安装指导/安装调试】、检验试验、技术培训、资料移交及质保服务。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "设备、材料、备品备件或软件名称",
+            "安装指导/安装调试"
+          ]
+        },
+        {
+          "clauseKey": "p12",
+          "clauseNo": "第二条 供货内容",
+          "title": "第二条 供货内容",
+          "tier": "fixed",
+          "standardText": "2. 具体名称、品牌、型号、数量、单位、单价和技术要求见附件一《供货及价格明细》和附件二《技术规格书》。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p13",
+          "clauseNo": "第二条 供货内容",
+          "title": "第二条 供货内容",
+          "tier": "fixed",
+          "standardText": "3. 未经甲方书面同意，乙方不得更换已确认的品牌、型号、产地、材质或主要技术参数，也不得将合同主体义务转包或违法分包。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p15",
+          "clauseNo": "第三条 交付与风险转移",
+          "title": "第三条 交付与风险转移",
+          "tier": "placeholder",
+          "standardText": "1. 出厂验收时间：【填写】；到货时间：【填写】；交付地点：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p16",
+          "clauseNo": "第三条 交付与风险转移",
+          "title": "第三条 交付与风险转移",
+          "tier": "default_ref",
+          "standardText": "2. 乙方应在发货前【默认 3】个工作日通知甲方，并随货提供装箱单、合格证、检验报告、使用维护资料及合同要求的其他文件。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 3"
+          ]
+        },
+        {
+          "clauseKey": "p17",
+          "clauseNo": "第三条 交付与风险转移",
+          "title": "第三条 交付与风险转移",
+          "tier": "fixed",
+          "standardText": "3. 包装和运输应满足设备物资特性及国家、行业标准。货物毁损、灭失风险在按合同约定完成到货验收并办理交接后转移，法律另有规定或双方另有明确约定的除外。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p19",
+          "clauseNo": "第四条 合同价格",
+          "title": "第四条 合同价格",
+          "tier": "placeholder",
+          "standardText": "1. 本合同采用【总价包干/固定单价】方式，合同含税总价为人民币【大写金额】（¥【小写金额】元），适用增值税税率为【填写】%。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "总价包干/固定单价",
+            "大写金额",
+            "小写金额",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p20",
+          "clauseNo": "第四条 合同价格",
+          "title": "第四条 合同价格",
+          "tier": "placeholder",
+          "standardText": "2. 合同价格包括设备物资、备品备件、包装、运输、保险、装卸、检验试验、【安装调试】、培训、售后服务、利润、税金及履行合同所需的其他全部费用。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "安装调试"
+          ]
+        },
+        {
+          "clauseKey": "p21",
+          "clauseNo": "第四条 合同价格",
+          "title": "第四条 合同价格",
+          "tier": "fixed",
+          "standardText": "3. 价格调整或合同变更须符合公司合同管理制度并履行书面审批程序；未经批准的变更不作为结算依据。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p23",
+          "clauseNo": "第五条 支付与发票",
+          "title": "第五条 支付与发票",
+          "tier": "default_ref",
+          "standardText": "1. 到货款：设备物资到货并验收合格，乙方提交全额合法有效的【增值税专用/普通】发票及付款资料后，甲方在【默认 20】个工作日内支付至合同总价的【默认 95】%。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "增值税专用/普通",
+            "默认 20",
+            "默认 95"
+          ]
+        },
+        {
+          "clauseKey": "p24",
+          "clauseNo": "第五条 支付与发票",
+          "title": "第五条 支付与发票",
+          "tier": "default_ref",
+          "standardText": "2. 质保金：合同总价的【默认 5】%作为质量保证金。质保期满且无未解决质量问题，乙方提交付款申请及约定资料后，甲方在【默认 20】个工作日内支付剩余款项。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 5",
+            "默认 20"
+          ]
+        },
+        {
+          "clauseKey": "p25",
+          "clauseNo": "第五条 支付与发票",
+          "title": "第五条 支付与发票",
+          "tier": "placeholder",
+          "standardText": "3. 如约定预付款，预付款比例、支付条件、扣回方式及等额保函要求为：【无预付款/填写具体条款】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "无预付款/填写具体条款"
+          ]
+        },
+        {
+          "clauseKey": "p26",
+          "clauseNo": "第五条 支付与发票",
+          "title": "第五条 支付与发票",
+          "tier": "placeholder",
+          "standardText": "4. 甲方开票信息：单位名称【填写】；统一社会信用代码【填写】；地址及电话【填写】；开户行及账号【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p27",
+          "clauseNo": "第五条 支付与发票",
+          "title": "第五条 支付与发票",
+          "tier": "fixed",
+          "standardText": "5. 乙方收款账户应为其合法有效的对公账户。账户变更须提交加盖公章的书面通知及证明资料。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p29",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "甲方责任和义务",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p30",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "1. 按合同约定提供必要的交付现场条件和配合，组织到货、安装调试及验收工作。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p31",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "2. 按合同约定完成付款审批并支付合同款项。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p32",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "3. 及时向乙方提供履约所需且由甲方掌握的技术资料和接口条件。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p33",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "乙方责任和义务",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p34",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "1. 提供全新、完整、质量合格且来源合法的设备物资，保证不存在权利瑕疵，并符合合同、国家及行业标准。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p35",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "2. 按进度完成供货、检验试验、技术服务和资料移交，对其人员和分包单位（如经批准）的行为负责。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p36",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "3. 对甲方提供的技术资料及履约中知悉的非公开信息承担保密义务。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p37",
+          "clauseNo": "第六条 双方责任和义务",
+          "title": "第六条 双方责任和义务",
+          "tier": "fixed",
+          "standardText": "4. 产品存在缺陷或可能危及人身、财产安全时，立即通知甲方并负责维修、更换、召回及承担相应费用。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p39",
+          "clauseNo": "第七条 技术与质量要求",
+          "title": "第七条 技术与质量要求",
+          "tier": "fixed",
+          "standardText": "1. 设备物资应符合附件二所列技术规格、功能性能、接口、材质、制造工艺及检验试验要求。引用标准被新强制性标准替代的，适用法律规定及双方确认的有效标准。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p40",
+          "clauseNo": "第七条 技术与质量要求",
+          "title": "第七条 技术与质量要求",
+          "tier": "fixed",
+          "standardText": "2. 乙方应建立质量控制和可追溯记录，按合同要求接受甲方出厂见证或检验；甲方参加或未参加检验均不免除乙方质量责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p41",
+          "clauseNo": "第七条 技术与质量要求",
+          "title": "第七条 技术与质量要求",
+          "tier": "fixed",
+          "standardText": "3. 技术资料应真实、完整、清晰，满足安装、运行、维护及归档需要。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p43",
+          "clauseNo": "第八条 验收",
+          "title": "第八条 验收",
+          "tier": "placeholder",
+          "standardText": "1. 验收分为【出厂验收】、到货开箱验收、【安装调试验收】和最终验收，具体程序及判定标准见附件三《验收方案》。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "出厂验收",
+            "安装调试验收"
+          ]
+        },
+        {
+          "clauseKey": "p44",
+          "clauseNo": "第八条 验收",
+          "title": "第八条 验收",
+          "tier": "fixed",
+          "standardText": "2. 到货验收主要核对数量、包装、外观、型号和随货资料，不视为对隐蔽缺陷或最终性能的认可。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p45",
+          "clauseNo": "第八条 验收",
+          "title": "第八条 验收",
+          "tier": "fixed",
+          "standardText": "3. 验收不合格的，乙方应在甲方要求的期限内完成补足、维修、更换或重新调试，并承担由此产生的费用和延期责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p47",
+          "clauseNo": "第九条 质量保证与售后服务",
+          "title": "第九条 质量保证与售后服务",
+          "tier": "default_ref",
+          "standardText": "1. 质保期为【默认 3】年，自【最终验收合格/设备正式投运】之日起计算；修复或更换部分的质保期自重新验收合格之日起重新计算。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 3",
+            "最终验收合格/设备正式投运"
+          ]
+        },
+        {
+          "clauseKey": "p48",
+          "clauseNo": "第九条 质量保证与售后服务",
+          "title": "第九条 质量保证与售后服务",
+          "tier": "default_ref",
+          "standardText": "2. 质保期内发生质量问题，乙方应在接到通知后【默认 24】小时内响应；需现场处理的，在【默认 36】小时内到达现场，相关费用由责任方承担。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 24",
+            "默认 36"
+          ]
+        },
+        {
+          "clauseKey": "p49",
+          "clauseNo": "第九条 质量保证与售后服务",
+          "title": "第九条 质量保证与售后服务",
+          "tier": "fixed",
+          "standardText": "3. 乙方未及时处理或处理不符合要求时，甲方可委托第三方处理，合理费用可从质保金或其他应付款中扣除；不足部分由乙方补足。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p50",
+          "clauseNo": "第九条 质量保证与售后服务",
+          "title": "第九条 质量保证与售后服务",
+          "tier": "fixed",
+          "standardText": "4. 质保期满后，乙方仍应提供可持续的备件供应和有偿技术支持，具体条件由双方另行协商。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p52",
+          "clauseNo": "第十条 违约责任",
+          "title": "第十条 违约责任",
+          "tier": "default_ref",
+          "standardText": "1. 乙方逾期交付或完成整改的，每逾期一日按合同总价的【默认万分之五】支付违约金；违约金上限及甲方解除合同的权利为【填写】。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认万分之五",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p53",
+          "clauseNo": "第十条 违约责任",
+          "title": "第十条 违约责任",
+          "tier": "placeholder",
+          "standardText": "2. 甲方无正当理由逾期付款的，按【填写违约计算标准】承担违约责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写违约计算标准"
+          ]
+        },
+        {
+          "clauseKey": "p54",
+          "clauseNo": "第十条 违约责任",
+          "title": "第十条 违约责任",
+          "tier": "fixed",
+          "standardText": "3. 设备物资不符合质量、技术或权利保证要求的，乙方应负责维修、更换、退货并赔偿由此给甲方造成的实际损失。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p55",
+          "clauseNo": "第十条 违约责任",
+          "title": "第十条 违约责任",
+          "tier": "fixed",
+          "standardText": "4. 一方违反保密、知识产权、廉政或其他合同义务的，应依法及依约承担相应责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p57",
+          "clauseNo": "第十一条 合同中止、解除与终止",
+          "title": "第十一条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "1. 双方协商一致、一方严重违约、发生情势变化、人民法院判决或仲裁机构裁决、合同相对方被列入依法限制交易的涉案黑名单，以及法律规定或合同约定的其他情形发生时，可按法律及合同约定中止、解除或终止合同。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p58",
+          "clauseNo": "第十一条 合同中止、解除与终止",
+          "title": "第十一条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "2. 合同解除或终止后，双方应完成已交付设备物资、已履行工作及合格成果的核对和结算，办理资料、物品及现场移交，并继续履行保密、质量责任、违约责任和争议解决条款。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p59",
+          "clauseNo": "第十一条 合同中止、解除与终止",
+          "title": "第十一条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "3. 合同未签署或者未生效之前，任何一方不得依据本合同要求对方实质履行；依法实施的应急事项按公司适用制度另行办理。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p61",
+          "clauseNo": "第十二条 廉政条款",
+          "title": "第十二条 廉政条款",
+          "tier": "fixed",
+          "standardText": "1. 双方应遵守国家法律法规及公司廉政要求，不得给予、收受或变相给予、收受回扣、礼金、有价证券、宴请、旅游或其他不正当利益。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p62",
+          "clauseNo": "第十二条 廉政条款",
+          "title": "第十二条 廉政条款",
+          "tier": "placeholder",
+          "standardText": "2. 一方发现对方人员存在违反廉政要求的行为，有权向对方主管部门举报。甲方举报电话：【填写】；乙方举报电话：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p63",
+          "clauseNo": "第十二条 廉政条款",
+          "title": "第十二条 廉政条款",
+          "tier": "fixed",
+          "standardText": "3. 甲方工作人员的配偶、子女及其他特定关系人不得违反规定在乙方承揽与本合同有关的经济活动。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p65",
+          "clauseNo": "第十三条 争议解决",
+          "title": "第十三条 争议解决",
+          "tier": "placeholder",
+          "standardText": "履行合同发生争议，双方应先协商解决；协商不成的，选择以下第【填写】种方式解决（签署前删除未选方式）：",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p66",
+          "clauseNo": "第十三条 争议解决",
+          "title": "第十三条 争议解决",
+          "tier": "fixed",
+          "standardText": "（1）向甲方所在地有管辖权的人民法院提起诉讼；",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p67",
+          "clauseNo": "第十三条 争议解决",
+          "title": "第十三条 争议解决",
+          "tier": "placeholder",
+          "standardText": "（2）提交【填写依法设立且名称准确的仲裁委员会】仲裁。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写依法设立且名称准确的仲裁委员会"
+          ]
+        },
+        {
+          "clauseKey": "p69",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "1. 本合同自双方法定代表人或授权代表签字并加盖公章或合同专用章之日起生效；双方另附生效条件的，条件为【填写/无】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写/无"
+          ]
+        },
+        {
+          "clauseKey": "p70",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "fixed",
+          "standardText": "2. 未尽事宜由双方依法签订书面补充协议，并履行适用的审批程序。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p71",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "3. 本合同一式【填写】份，甲方执【填写】份，乙方执【填写】份，具有同等法律效力。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p72",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "fixed",
+          "standardText": "4. 本合同附件包括：附件一《供货及价格明细》、附件二《技术规格书》、附件三《验收方案》及双方确认的其他附件。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p73",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "fixed",
+          "standardText": "签署页",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p74",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "fixed",
+          "standardText": "以下无正文，为本合同签署页。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p75",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "甲方（盖章）：【签约主体全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签约主体全称"
+          ]
+        },
+        {
+          "clauseKey": "p76",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "乙方（盖章）：【相对方全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "相对方全称"
+          ]
+        },
+        {
+          "clauseKey": "p77",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "法定代表人或授权代表（签字）：【签署】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签署"
+          ]
+        },
+        {
+          "clauseKey": "p78",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "法定代表人或授权代表（签字）：【签署】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签署"
+          ]
+        },
+        {
+          "clauseKey": "p79",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "联系人及联系方式：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p80",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "联系人及联系方式：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p81",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "签订地点：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p82",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "签订日期：【年】年【月】月【日】日",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "年",
+            "月",
+            "日"
+          ]
+        },
+        {
+          "clauseKey": "p84",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "fixed",
+          "standardText": "附件一 供货及价格明细",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p85",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "1. 设备物资名称：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p86",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "2. 品牌、型号、产地及制造商：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p87",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "3. 数量、单位、含税单价、含税合价及税率：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p88",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "4. 随机备件、专用工具和技术资料：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p89",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "5. 价格合计与合同总价核对关系：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p90",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "fixed",
+          "standardText": "附件二 技术规格书",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p91",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "1. 使用环境及现场条件：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p92",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "2. 功能、性能、接口和兼容性要求：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p93",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "3. 材质、制造工艺及适用标准：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p94",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "4. 检验试验项目、方法和合格判据：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p95",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "5. 安装调试、培训、资料及售后要求：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p96",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "fixed",
+          "standardText": "附件三 验收方案",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p97",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "1. 验收阶段、参与部门及责任人：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p98",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "2. 验收条件、依据、抽样或测试方法：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p99",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "3. 验收记录、问题闭环及重新验收程序：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p100",
+          "clauseNo": "第十四条 其他",
+          "title": "第十四条 其他",
+          "tier": "placeholder",
+          "standardText": "4. 最终成果和归档资料清单：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        }
+      ]
+    },
+    {
+      "code": "TPL-SMALL-CONST-2026",
+      "version": 1,
+      "name": "小型维修改造施工合同_清理稿",
+      "legalCategory": "small_construction",
+      "approvalStatus": "candidate",
+      "notes": "项目合同清理稿，尚未经主管部门核定；不得作为公司正式统一范本。技术服务范本仅供试验。",
+      "clauses": [
+        {
+          "clauseKey": "p1",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "合同编号：【按 L-QJ03-04-2026 附件 3 编制】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "按 L-QJ03-04-2026 附件 3 编制"
+          ]
+        },
+        {
+          "clauseKey": "p2",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "发包方（甲方）：【签约主体全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签约主体全称"
+          ]
+        },
+        {
+          "clauseKey": "p3",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "承包方（乙方）：【相对方全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "相对方全称"
+          ]
+        },
+        {
+          "clauseKey": "p4",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "根据《中华人民共和国民法典》《中华人民共和国建筑法》《中华人民共和国安全生产法》及其他适用法律法规，双方就【项目名称】维修改造施工事宜订立本合同，共同遵照执行。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "项目名称"
+          ]
+        },
+        {
+          "clauseKey": "p6",
+          "clauseNo": "第一条 合同依据与工程内容",
+          "title": "第一条 合同依据与工程内容",
+          "tier": "placeholder",
+          "standardText": "1. 本合同签订依据为【采购及项目审批文件名称、编号】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "采购及项目审批文件名称、编号"
+          ]
+        },
+        {
+          "clauseKey": "p7",
+          "clauseNo": "第一条 合同依据与工程内容",
+          "title": "第一条 合同依据与工程内容",
+          "tier": "placeholder",
+          "standardText": "2. 工程名称：【填写】；工程地点：【填写】；承包范围：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p8",
+          "clauseNo": "第一条 合同依据与工程内容",
+          "title": "第一条 合同依据与工程内容",
+          "tier": "fixed",
+          "standardText": "3. 施工内容、工程量、技术标准、图纸和现场条件详见附件一《维修改造施工技术文件》。乙方已复核现场条件及承包范围。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p9",
+          "clauseNo": "第一条 合同依据与工程内容",
+          "title": "第一条 合同依据与工程内容",
+          "tier": "fixed",
+          "standardText": "4. 未经甲方书面同意，乙方不得转包或违法分包，不得擅自改变施工方案、主要材料和技术标准。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p11",
+          "clauseNo": "第二条 工期",
+          "title": "第二条 工期",
+          "tier": "placeholder",
+          "standardText": "1. 计划开工日期：【填写】；计划完工日期：【填写】；合同工期：【填写】日历天。实际开工以甲方书面通知及现场具备施工条件为准。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p12",
+          "clauseNo": "第二条 工期",
+          "title": "第二条 工期",
+          "tier": "fixed",
+          "standardText": "2. 因甲方原因、不可抗力或经批准的工程变更影响工期的，乙方应及时提交证明和工期调整申请，经甲方书面确认后调整。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p13",
+          "clauseNo": "第二条 工期",
+          "title": "第二条 工期",
+          "tier": "fixed",
+          "standardText": "3. 乙方应编制施工进度计划并及时报告偏差，不得以未经批准的停窝工记录直接主张费用或工期。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p15",
+          "clauseNo": "第三条 合同价格",
+          "title": "第三条 合同价格",
+          "tier": "placeholder",
+          "standardText": "1. 本合同采用【总价包干/固定单价】方式，合同含税总价为人民币【大写金额】（¥【小写金额】元），适用增值税税率为【按项目适用政策填写】%。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "总价包干/固定单价",
+            "大写金额",
+            "小写金额",
+            "按项目适用政策填写"
+          ]
+        },
+        {
+          "clauseKey": "p16",
+          "clauseNo": "第三条 合同价格",
+          "title": "第三条 合同价格",
+          "tier": "fixed",
+          "standardText": "2. 合同价格包括完成承包范围所需人工、材料、设备、运输、装卸、机械、措施、安全文明施工、保险、管理、利润、税金、成品保护、资料及质保等费用。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p17",
+          "clauseNo": "第三条 合同价格",
+          "title": "第三条 合同价格",
+          "tier": "fixed",
+          "standardText": "3. 工程变更、现场签证及新增项目必须按公司合同管理制度履行审批，未经批准的变更不作为结算依据。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p19",
+          "clauseNo": "第四条 付款方式与发票",
+          "title": "第四条 付款方式与发票",
+          "tier": "default_ref",
+          "standardText": "1. 项目完工并经验收合格，乙方提交完整完工及付款资料和合同总价全额合法有效的【增值税专用】发票后，甲方在【默认 20】个工作日内支付至合同总价的【默认 95】%。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "增值税专用",
+            "默认 20",
+            "默认 95"
+          ]
+        },
+        {
+          "clauseKey": "p20",
+          "clauseNo": "第四条 付款方式与发票",
+          "title": "第四条 付款方式与发票",
+          "tier": "default_ref",
+          "standardText": "2. 剩余【默认 5】%作为质量保证金。质保期满且无未解决质量问题，乙方提交申请及约定资料后，甲方在【默认 20】个工作日内支付。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 5",
+            "默认 20"
+          ]
+        },
+        {
+          "clauseKey": "p21",
+          "clauseNo": "第四条 付款方式与发票",
+          "title": "第四条 付款方式与发票",
+          "tier": "placeholder",
+          "standardText": "3. 如约定预付款、进度款或结算款，支付节点、比例、依据、保函和扣回方式为【无/填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "无/填写"
+          ]
+        },
+        {
+          "clauseKey": "p22",
+          "clauseNo": "第四条 付款方式与发票",
+          "title": "第四条 付款方式与发票",
+          "tier": "placeholder",
+          "standardText": "4. 甲方开票信息及乙方收款账户：【按签约主体和财务审核结果填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "按签约主体和财务审核结果填写"
+          ]
+        },
+        {
+          "clauseKey": "p24",
+          "clauseNo": "第五条 施工组织与安全",
+          "title": "第五条 施工组织与安全",
+          "tier": "fixed",
+          "standardText": "1. 乙方应在施工前提交施工组织方案，包括施工方法、进度、人员、质量、安全管理、应急和成品保护措施，经甲方确认后实施。甲方确认不免除乙方依法应承担的责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p25",
+          "clauseNo": "第五条 施工组织与安全",
+          "title": "第五条 施工组织与安全",
+          "tier": "fixed",
+          "standardText": "2. 乙方应遵守现场管理制度，配备符合要求的管理和作业人员，特种作业人员须持有效证件。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p26",
+          "clauseNo": "第五条 施工组织与安全",
+          "title": "第五条 施工组织与安全",
+          "tier": "fixed",
+          "standardText": "3. 双方另行签署附件二《安全管理协议》。发生事故或险情时，乙方应立即组织处置、保护现场并按规定报告。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p27",
+          "clauseNo": "第五条 施工组织与安全",
+          "title": "第五条 施工组织与安全",
+          "tier": "fixed",
+          "standardText": "4. 隐蔽工程须经检查验收后方可覆盖；乙方应提前通知甲方并保留完整检查记录和影像资料。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p29",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "甲方职责",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p30",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "1. 提供现场必要条件、已有资料及施工协调，告知现场已知安全风险。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p31",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "2. 按合同约定组织隐蔽工程、完工及其他阶段验收。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p32",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "3. 按合同约定完成结算和支付审批。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p33",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "乙方职责",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p34",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "1. 按合同、图纸、施工方案和适用标准组织施工，对施工质量、安全和进度负责。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p35",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "2. 做好现场人员、材料、机械、消防、环境保护及成品保护管理，及时清理施工垃圾。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p36",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "3. 对甲方提出的质量或安全问题及时整改，并承担因自身原因产生的返工和损失。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p37",
+          "clauseNo": "第六条 双方职责",
+          "title": "第六条 双方职责",
+          "tier": "fixed",
+          "standardText": "4. 对履约中知悉的甲方非公开信息承担保密义务。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p39",
+          "clauseNo": "第七条 验收与完工资料",
+          "title": "第七条 验收与完工资料",
+          "tier": "fixed",
+          "standardText": "1. 验收依据包括合同、技术文件、经批准的变更、适用国家及行业标准。验收程序和合格判据详见附件一。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p40",
+          "clauseNo": "第七条 验收与完工资料",
+          "title": "第七条 验收与完工资料",
+          "tier": "fixed",
+          "standardText": "2. 乙方申请完工验收前，应完成自检并提交完整完工资料。验收发现的问题应形成清单，整改完成后重新核验。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p41",
+          "clauseNo": "第七条 验收与完工资料",
+          "title": "第七条 验收与完工资料",
+          "tier": "fixed",
+          "standardText": "3. 完工资料包括工程质量文件、竣工图、施工报告、材料及试验证明、隐蔽验收、变更签证、往来文函、会议纪要、验收记录和双方约定的其他资料。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p42",
+          "clauseNo": "第七条 验收与完工资料",
+          "title": "第七条 验收与完工资料",
+          "tier": "default_ref",
+          "standardText": "4. 完工资料份数为纸质【默认 4】套及电子版【默认 1】套，具体载体和归档要求为【填写】。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 4",
+            "默认 1",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p44",
+          "clauseNo": "第八条 质量保证与售后服务",
+          "title": "第八条 质量保证与售后服务",
+          "tier": "default_ref",
+          "standardText": "1. 质保期为【默认 1】年，自完工验收合格之日起计算；法律法规对特定工程最低保修期限另有规定的，从其规定。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 1"
+          ]
+        },
+        {
+          "clauseKey": "p45",
+          "clauseNo": "第八条 质量保证与售后服务",
+          "title": "第八条 质量保证与售后服务",
+          "tier": "default_ref",
+          "standardText": "2. 质保期内出现质量问题，乙方应在接到通知后【默认 24】小时内响应，并在【默认 7】日内完成处理；紧急问题应立即处置。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 24",
+            "默认 7"
+          ]
+        },
+        {
+          "clauseKey": "p46",
+          "clauseNo": "第八条 质量保证与售后服务",
+          "title": "第八条 质量保证与售后服务",
+          "tier": "fixed",
+          "standardText": "3. 乙方未及时处理或处理不合格的，甲方可委托第三方处理，合理费用可从质保金或其他应付款中扣除；不足部分由乙方补足。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p48",
+          "clauseNo": "第九条 违约责任",
+          "title": "第九条 违约责任",
+          "tier": "default_ref",
+          "standardText": "1. 因乙方原因逾期完工或提交完工资料的，每逾期一日按合同总价的【默认万分之五】支付违约金；违约金上限为【填写】。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认万分之五",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p49",
+          "clauseNo": "第九条 违约责任",
+          "title": "第九条 违约责任",
+          "tier": "placeholder",
+          "standardText": "2. 甲方无正当理由逾期付款的，按【填写违约计算标准】承担违约责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写违约计算标准"
+          ]
+        },
+        {
+          "clauseKey": "p50",
+          "clauseNo": "第九条 违约责任",
+          "title": "第九条 违约责任",
+          "tier": "fixed",
+          "standardText": "3. 工程质量、安全、材料或施工资料不符合要求的，乙方应无条件整改、返工或更换，并承担由其原因造成的损失。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p51",
+          "clauseNo": "第九条 违约责任",
+          "title": "第九条 违约责任",
+          "tier": "fixed",
+          "standardText": "4. 一方擅自转包、违法分包或违反保密、廉政义务的，另一方可依法及依约追究责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p53",
+          "clauseNo": "第十条 合同中止、解除与终止",
+          "title": "第十条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "1. 双方协商一致、一方严重违约、发生情势变化、人民法院判决或仲裁机构裁决、合同相对方被列入依法限制交易的涉案黑名单，以及法律规定或合同约定的其他情形发生时，可按法律及合同约定中止、解除或终止合同。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p54",
+          "clauseNo": "第十条 合同中止、解除与终止",
+          "title": "第十条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "2. 合同中止或解除时，乙方应保护已完工程和现场，双方共同核对已完合格工程量、材料和设备，办理结算、现场及资料移交。保密、质量、违约及争议解决条款继续有效。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p55",
+          "clauseNo": "第十条 合同中止、解除与终止",
+          "title": "第十条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "3. 合同未签署或者未生效之前不得实质施工；依法实施的抢险救灾等应急事项按公司适用制度另行办理。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p57",
+          "clauseNo": "第十一条 廉政条款",
+          "title": "第十一条 廉政条款",
+          "tier": "fixed",
+          "standardText": "1. 双方不得给予、收受或变相给予、收受回扣、礼金、有价证券、宴请、旅游或其他不正当利益。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p58",
+          "clauseNo": "第十一条 廉政条款",
+          "title": "第十一条 廉政条款",
+          "tier": "fixed",
+          "standardText": "2. 甲方工作人员的配偶、子女及其他特定关系人不得违反规定在乙方承揽与本合同有关的工程、分包、劳务或材料供应活动。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p59",
+          "clauseNo": "第十一条 廉政条款",
+          "title": "第十一条 廉政条款",
+          "tier": "placeholder",
+          "standardText": "3. 甲方举报电话：【填写】；乙方举报电话：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p61",
+          "clauseNo": "第十二条 争议解决",
+          "title": "第十二条 争议解决",
+          "tier": "placeholder",
+          "standardText": "履行合同发生争议，双方应先协商解决；协商不成的，选择以下第【填写】种方式解决（签署前删除未选方式）：",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p62",
+          "clauseNo": "第十二条 争议解决",
+          "title": "第十二条 争议解决",
+          "tier": "fixed",
+          "standardText": "（1）向甲方所在地有管辖权的人民法院提起诉讼；",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p63",
+          "clauseNo": "第十二条 争议解决",
+          "title": "第十二条 争议解决",
+          "tier": "placeholder",
+          "standardText": "（2）提交【填写依法设立且名称准确的仲裁委员会】仲裁。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写依法设立且名称准确的仲裁委员会"
+          ]
+        },
+        {
+          "clauseKey": "p65",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "1. 本合同自双方法定代表人或授权代表签字并加盖公章或合同专用章之日起生效；另附生效条件的，条件为【填写/无】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写/无"
+          ]
+        },
+        {
+          "clauseKey": "p66",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "2. 未尽事宜由双方依法签订书面补充协议，并履行适用的审批程序。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p67",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "3. 本合同一式【填写】份，甲方执【填写】份，乙方执【填写】份，具有同等法律效力。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p68",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "4. 附件包括：附件一《维修改造施工技术文件》、附件二《安全管理协议》及双方确认的其他附件。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p69",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "签署页",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p70",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "以下无正文，为本合同签署页。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p71",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "甲方（盖章）：【签约主体全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签约主体全称"
+          ]
+        },
+        {
+          "clauseKey": "p72",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "乙方（盖章）：【相对方全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "相对方全称"
+          ]
+        },
+        {
+          "clauseKey": "p73",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "法定代表人或授权代表（签字）：【签署】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签署"
+          ]
+        },
+        {
+          "clauseKey": "p74",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "法定代表人或授权代表（签字）：【签署】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签署"
+          ]
+        },
+        {
+          "clauseKey": "p75",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "联系人及联系方式：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p76",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "联系人及联系方式：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p77",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "签订地点：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p78",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "签订日期：【年】年【月】月【日】日",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "年",
+            "月",
+            "日"
+          ]
+        },
+        {
+          "clauseKey": "p80",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "附件一 维修改造施工技术文件",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p81",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "一、工程概况及现场条件：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p82",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "二、承包范围、项目清单及工程量：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p83",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "三、施工图纸、材料设备、工艺和适用技术标准：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p84",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "四、施工组织、进度、质量和成品保护要求：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p85",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "五、安全技术措施及现场限制条件：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p86",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "六、隐蔽工程、阶段验收、完工验收及合格判据：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p87",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "七、图纸及附件目录：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p88",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "附件二 安全管理协议",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p89",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "一、发包人负责告知现场已知安全风险和组织必要协调，检查承包人安全管理落实情况，并对发现的问题提出整改要求。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p90",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "二、承包人依法承担施工安全主体责任，建立安全管理体系，落实人员教育、技术交底、特种作业、临时用电、动火、高处作业、消防和应急管理。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p91",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "三、承包人应遵守现场出入、作业许可和环境保护制度，对其人员及经批准的分包人员进行管理。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p92",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "四、发生事故或险情时，承包人应立即处置并按规定报告，双方配合调查、救援和整改；责任及费用按法律规定和合同约定承担。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p93",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "五、项目专项安全要求及双方安全联系人：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        }
+      ]
+    },
+    {
+      "code": "TPL-DAM-TECH-2026",
+      "version": 1,
+      "name": "大坝安全鉴定技术服务合同_清理稿",
+      "legalCategory": "tech_service",
+      "approvalStatus": "candidate",
+      "notes": "项目合同清理稿，尚未经主管部门核定；不得作为公司正式统一范本。技术服务范本仅供试验。",
+      "clauses": [
+        {
+          "clauseKey": "p1",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "合同编号：【按 L-QJ03-04-2026 附件 3 编制】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "按 L-QJ03-04-2026 附件 3 编制"
+          ]
+        },
+        {
+          "clauseKey": "p2",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "委托方（甲方）：【签约主体全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签约主体全称"
+          ]
+        },
+        {
+          "clauseKey": "p3",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "受托方（乙方）：【相对方全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "相对方全称"
+          ]
+        },
+        {
+          "clauseKey": "p4",
+          "clauseNo": "项目要素",
+          "title": "项目要素",
+          "tier": "placeholder",
+          "standardText": "根据《中华人民共和国民法典》及其他适用法律法规，甲方委托乙方承担【水利枢纽名称】大坝安全鉴定技术服务，双方订立本合同，共同遵照执行。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "水利枢纽名称"
+          ]
+        },
+        {
+          "clauseKey": "p6",
+          "clauseNo": "第一条 项目依据与服务目标",
+          "title": "第一条 项目依据与服务目标",
+          "tier": "placeholder",
+          "standardText": "1. 项目名称：【填写】；项目地点：【填写】；合同签订依据：【采购或批准文件名称、编号】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "采购或批准文件名称、编号"
+          ]
+        },
+        {
+          "clauseKey": "p7",
+          "clauseNo": "第一条 项目依据与服务目标",
+          "title": "第一条 项目依据与服务目标",
+          "tier": "fixed",
+          "standardText": "2. 乙方应按适用的水库大坝安全鉴定规定、技术标准及主管部门要求，完成资料分析、现场检查检测、安全评价、报告编制、技术审查配合及成果报批协助。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p8",
+          "clauseNo": "第一条 项目依据与服务目标",
+          "title": "第一条 项目依据与服务目标",
+          "tier": "fixed",
+          "standardText": "3. 服务目标是形成内容完整、依据充分、结论明确且满足约定审查要求的大坝安全鉴定成果。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p10",
+          "clauseNo": "第二条 工作内容",
+          "title": "第二条 工作内容",
+          "tier": "fixed",
+          "standardText": "1. 编制大坝安全鉴定工作大纲，完成基础资料收集、整理和缺口分析。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p11",
+          "clauseNo": "第二条 工作内容",
+          "title": "第二条 工作内容",
+          "tier": "fixed",
+          "standardText": "2. 开展现场安全检查和必要检测，形成检查、检测及监测资料分析成果。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p12",
+          "clauseNo": "第二条 工作内容",
+          "title": "第二条 工作内容",
+          "tier": "fixed",
+          "standardText": "3. 对工程质量、运行管理、防洪能力、渗流安全、结构安全、抗震安全、金属结构安全及大坝综合安全进行评价，具体范围以经确认的工作大纲为准。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p13",
+          "clauseNo": "第二条 工作内容",
+          "title": "第二条 工作内容",
+          "tier": "fixed",
+          "standardText": "4. 编制安全评价报告、安全鉴定报告书及约定的其他成果，协助组织技术审查、专家咨询和会议材料编制。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p14",
+          "clauseNo": "第二条 工作内容",
+          "title": "第二条 工作内容",
+          "tier": "placeholder",
+          "standardText": "5. 按审查意见修改成果，并配合甲方履行主管部门审定或备案程序；乙方是否承担取得审定意见的义务为【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p16",
+          "clauseNo": "第三条 服务期限与成果节点",
+          "title": "第三条 服务期限与成果节点",
+          "tier": "placeholder",
+          "standardText": "1. 服务期限：自【填写】至【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p17",
+          "clauseNo": "第三条 服务期限与成果节点",
+          "title": "第三条 服务期限与成果节点",
+          "tier": "placeholder",
+          "standardText": "2. 工作大纲提交时间：【填写】；现场检查及检测报告提交时间：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p18",
+          "clauseNo": "第三条 服务期限与成果节点",
+          "title": "第三条 服务期限与成果节点",
+          "tier": "placeholder",
+          "standardText": "3. 安全评价报告送审稿提交时间：【填写】；技术评审完成时间：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p19",
+          "clauseNo": "第三条 服务期限与成果节点",
+          "title": "第三条 服务期限与成果节点",
+          "tier": "placeholder",
+          "standardText": "4. 最终成果及审查配合完成时间：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p20",
+          "clauseNo": "第三条 服务期限与成果节点",
+          "title": "第三条 服务期限与成果节点",
+          "tier": "fixed",
+          "standardText": "5. 因资料缺失、现场条件或主管部门审查安排影响进度的，乙方应及时书面说明并提交调整依据，经甲方确认后调整相应节点。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p22",
+          "clauseNo": "第四条 质量要求",
+          "title": "第四条 质量要求",
+          "tier": "fixed",
+          "standardText": "1. 工作内容和深度应符合《水库大坝安全鉴定办法》、现行《水库大坝安全评价导则》及项目适用的其他标准。正式采用的标准编号、版本和替代关系由双方在技术附件中确认。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p23",
+          "clauseNo": "第四条 质量要求",
+          "title": "第四条 质量要求",
+          "tier": "fixed",
+          "standardText": "2. 乙方应保证基础数据、分析过程和成果结论真实、准确、可追溯，不得伪造、篡改或隐瞒影响安全评价的重要信息。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p24",
+          "clauseNo": "第四条 质量要求",
+          "title": "第四条 质量要求",
+          "tier": "fixed",
+          "standardText": "3. 成果应满足合同约定的技术评审要求。审查意见提出的问题由责任方按约定期限完成修改和复核。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p26",
+          "clauseNo": "第五条 合同价款及支付方式",
+          "title": "第五条 合同价款及支付方式",
+          "tier": "placeholder",
+          "standardText": "1. 本合同采用总价包干方式，含税总价为人民币【大写金额】（¥【小写金额】元），适用增值税税率为【填写】%。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "大写金额",
+            "小写金额",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p27",
+          "clauseNo": "第五条 合同价款及支付方式",
+          "title": "第五条 合同价款及支付方式",
+          "tier": "placeholder",
+          "standardText": "2. 合同价格包括完成服务所需人工、检测、差旅、专家咨询、会务、保险、管理、利润、税金及约定成果编制等费用；不包含事项为【填写/无】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写/无"
+          ]
+        },
+        {
+          "clauseKey": "p28",
+          "clauseNo": "第五条 合同价款及支付方式",
+          "title": "第五条 合同价款及支付方式",
+          "tier": "default_ref",
+          "standardText": "3. 第一期款：合同生效后【默认 14】日内，甲方支付合同总额的【默认 30】%；乙方须提供【等额银行保函/其他约定担保】及合法付款资料。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 14",
+            "默认 30",
+            "等额银行保函/其他约定担保"
+          ]
+        },
+        {
+          "clauseKey": "p29",
+          "clauseNo": "第五条 合同价款及支付方式",
+          "title": "第五条 合同价款及支付方式",
+          "tier": "default_ref",
+          "standardText": "4. 第二期款：乙方提交【安全评价报告送审稿及约定成果】后【默认 14】日内，甲方支付合同总额的【默认 50】%，累计支付至【默认 80】%。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "安全评价报告送审稿及约定成果",
+            "默认 14",
+            "默认 50",
+            "默认 80"
+          ]
+        },
+        {
+          "clauseKey": "p30",
+          "clauseNo": "第五条 合同价款及支付方式",
+          "title": "第五条 合同价款及支付方式",
+          "tier": "default_ref",
+          "standardText": "5. 尾款：【最终成果通过约定评审并完成报批协助】后【默认 14】日内，甲方支付剩余【默认 20】%。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "最终成果通过约定评审并完成报批协助",
+            "默认 14",
+            "默认 20"
+          ]
+        },
+        {
+          "clauseKey": "p31",
+          "clauseNo": "第五条 合同价款及支付方式",
+          "title": "第五条 合同价款及支付方式",
+          "tier": "placeholder",
+          "standardText": "6. 各期付款前，乙方应提供合法有效的【增值税专用】发票及对应成果、验收和审批资料。甲方开票信息和乙方收款账户为【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "增值税专用",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p33",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "甲方权利与义务",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p34",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "1. 及时、完整提供其掌握的工程资料、监测台账和相关记录，并保证所提供资料来源真实。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p35",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "2. 为现场查勘、询问和检测提供必要协调与安全条件，指定专业联系人。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p36",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "3. 按合同约定组织成果审查、验收和支付审批，并对需要甲方决策或整改的事项及时反馈。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p37",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "4. 对乙方明确要求保密的成果资料，在法律、监管和公司档案管理要求允许的范围内承担保密义务。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p38",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "乙方权利与义务",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p39",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "1. 配备具备相应专业能力的人员，按规范、工作大纲和进度完成服务，并对其成果质量负责。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p40",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "2. 及时书面报告资料缺口、现场重大缺陷或可能影响大坝安全和项目进度的重大事项，不得仅以提交最终报告代替风险告知。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p41",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "3. 按约定组织或配合专家咨询和技术审查，对审查意见逐项响应并修改成果。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p42",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "4. 对甲方资料及履约中知悉的非公开信息承担保密义务，未经甲方书面同意不得用于本合同以外目的。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p43",
+          "clauseNo": "第六条 双方权利与义务",
+          "title": "第六条 双方权利与义务",
+          "tier": "fixed",
+          "standardText": "5. 未经甲方书面同意，不得将合同主体服务转包或违法分包。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p45",
+          "clauseNo": "第七条 成果提交与验收",
+          "title": "第七条 成果提交与验收",
+          "tier": "fixed",
+          "standardText": "1. 成果包括但不限于工作大纲、现场安全检查报告、检测报告、监测资料分析成果、安全评价报告、安全鉴定报告书及审查意见响应材料，最终清单见附件一。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p46",
+          "clauseNo": "第七条 成果提交与验收",
+          "title": "第七条 成果提交与验收",
+          "tier": "placeholder",
+          "standardText": "2. 成果份数为纸质【填写】份、电子版【填写】份，文件格式和签署要求为【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p47",
+          "clauseNo": "第七条 成果提交与验收",
+          "title": "第七条 成果提交与验收",
+          "tier": "placeholder",
+          "standardText": "3. 甲方依据合同、工作大纲和适用技术标准组织验收。完成约定成果并通过【约定技术评审/主管部门审查】后，视为满足相应验收条件。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "约定技术评审/主管部门审查"
+          ]
+        },
+        {
+          "clauseKey": "p48",
+          "clauseNo": "第七条 成果提交与验收",
+          "title": "第七条 成果提交与验收",
+          "tier": "fixed",
+          "standardText": "4. 验收或审查不免除乙方对数据真实性、专业判断和成果质量依法应承担的责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p50",
+          "clauseNo": "第八条 违约责任",
+          "title": "第八条 违约责任",
+          "tier": "default_ref",
+          "standardText": "1. 乙方未按节点提交成果或完成整改的，甲方有权暂停支付相应款项；每逾期一日按【默认 1000】元支付违约金，累计不超过合同总价的【默认 5】%。",
+          "defaultValueNote": "原清理稿参考值，待主管部门核定",
+          "placeholderKeys": [
+            "默认 1000",
+            "默认 5"
+          ]
+        },
+        {
+          "clauseKey": "p51",
+          "clauseNo": "第八条 违约责任",
+          "title": "第八条 违约责任",
+          "tier": "fixed",
+          "standardText": "2. 乙方提交的数据、资料或成果不真实，或成果达不到合同要求的，应负责返工、补充检测和修改，并承担由其原因产生的费用及损失。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p52",
+          "clauseNo": "第八条 违约责任",
+          "title": "第八条 违约责任",
+          "tier": "fixed",
+          "standardText": "3. 未经甲方同意擅自减少工作内容、转包或违法分包的，甲方有权要求改正、扣减相应费用或依法解除合同。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p53",
+          "clauseNo": "第八条 违约责任",
+          "title": "第八条 违约责任",
+          "tier": "placeholder",
+          "standardText": "4. 甲方无正当理由逾期付款或未按约提供必要条件造成服务延误的，按【填写】承担相应责任。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p55",
+          "clauseNo": "第九条 合同中止、解除与终止",
+          "title": "第九条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "1. 双方协商一致、一方严重违约、发生情势变化、人民法院判决或仲裁机构裁决、合同相对方被列入依法限制交易的涉案黑名单，以及法律规定或合同约定的其他情形发生时，可按法律及合同约定中止、解除或终止合同。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p56",
+          "clauseNo": "第九条 合同中止、解除与终止",
+          "title": "第九条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "2. 合同解除或终止后，乙方应移交已完成成果、原始记录和甲方提供的资料，双方核对合格工作量并办理结算；保密、成果质量、违约及争议解决条款继续有效。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p57",
+          "clauseNo": "第九条 合同中止、解除与终止",
+          "title": "第九条 合同中止、解除与终止",
+          "tier": "fixed",
+          "standardText": "3. 合同未签署或者未生效之前不得实质履行；发现可能危及大坝安全的紧急情况时，乙方仍应及时告知甲方，应急处置按适用制度办理。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p59",
+          "clauseNo": "第十条 保密与成果使用",
+          "title": "第十条 保密与成果使用",
+          "tier": "fixed",
+          "standardText": "1. 双方对履约中知悉的非公开工程、运行、技术和商业信息承担保密义务，法律法规、主管部门或审计监督另有要求的除外。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p60",
+          "clauseNo": "第十条 保密与成果使用",
+          "title": "第十条 保密与成果使用",
+          "tier": "placeholder",
+          "standardText": "2. 甲方为本项目管理、审查、报批、整改和运行维护之目的使用合同成果；乙方保留其依法享有的署名等权利，具体知识产权及成果使用安排为【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p62",
+          "clauseNo": "第十一条 廉政条款",
+          "title": "第十一条 廉政条款",
+          "tier": "fixed",
+          "standardText": "1. 双方不得给予、收受或变相给予、收受回扣、礼金、有价证券、宴请、旅游或其他不正当利益。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p63",
+          "clauseNo": "第十一条 廉政条款",
+          "title": "第十一条 廉政条款",
+          "tier": "fixed",
+          "standardText": "2. 甲方工作人员的配偶、子女及其他特定关系人不得违反规定在乙方承揽与本合同有关的经济活动。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p64",
+          "clauseNo": "第十一条 廉政条款",
+          "title": "第十一条 廉政条款",
+          "tier": "placeholder",
+          "standardText": "3. 甲方举报电话：【填写】；乙方举报电话：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p66",
+          "clauseNo": "第十二条 争议解决",
+          "title": "第十二条 争议解决",
+          "tier": "placeholder",
+          "standardText": "履行合同发生争议，双方应先协商解决；协商不成的，选择以下第【填写】种方式解决（签署前删除未选方式）：",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p67",
+          "clauseNo": "第十二条 争议解决",
+          "title": "第十二条 争议解决",
+          "tier": "fixed",
+          "standardText": "（1）向甲方所在地有管辖权的人民法院提起诉讼；",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p68",
+          "clauseNo": "第十二条 争议解决",
+          "title": "第十二条 争议解决",
+          "tier": "placeholder",
+          "standardText": "（2）提交【填写依法设立且名称准确的仲裁委员会】仲裁。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写依法设立且名称准确的仲裁委员会"
+          ]
+        },
+        {
+          "clauseKey": "p70",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "1. 本合同自双方法定代表人或授权代表签字并加盖公章或合同专用章之日起生效；另附生效条件的，条件为【填写/无】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写/无"
+          ]
+        },
+        {
+          "clauseKey": "p71",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "2. 补充协议、工作大纲、技术附件及双方确认的审查意见响应文件为合同组成部分，涉及实质变更的须履行适用审批程序。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p72",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "3. 本合同一式【填写】份，甲方执【填写】份，乙方执【填写】份，具有同等法律效力。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写",
+            "填写",
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p73",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "签署页",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p74",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "以下无正文，为本合同签署页。",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p75",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "甲方（盖章）：【签约主体全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签约主体全称"
+          ]
+        },
+        {
+          "clauseKey": "p76",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "乙方（盖章）：【相对方全称】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "相对方全称"
+          ]
+        },
+        {
+          "clauseKey": "p77",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "法定代表人或授权代表（签字）：【签署】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签署"
+          ]
+        },
+        {
+          "clauseKey": "p78",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "法定代表人或授权代表（签字）：【签署】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "签署"
+          ]
+        },
+        {
+          "clauseKey": "p79",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "联系人及联系方式：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p80",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "联系人及联系方式：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p81",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "签订地点：【填写】",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p82",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "签订日期：【年】年【月】月【日】日",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "年",
+            "月",
+            "日"
+          ]
+        },
+        {
+          "clauseKey": "p84",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "fixed",
+          "standardText": "附件一 服务范围与成果清单",
+          "defaultValueNote": "",
+          "placeholderKeys": []
+        },
+        {
+          "clauseKey": "p85",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "1. 工程及大坝基本情况：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p86",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "2. 鉴定范围、专业项目及适用标准：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p87",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "3. 资料收集、现场检查、检测和监测分析要求：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p88",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "4. 各阶段成果名称、内容深度、格式和份数：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p89",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "5. 技术评审、专家咨询、修改复核及报批协助要求：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p90",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "6. 服务团队、现场安排和安全要求：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        },
+        {
+          "clauseKey": "p91",
+          "clauseNo": "第十三条 其他",
+          "title": "第十三条 其他",
+          "tier": "placeholder",
+          "standardText": "7. 验收程序、合格判据和归档资料：【填写】。",
+          "defaultValueNote": "",
+          "placeholderKeys": [
+            "填写"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -17,11 +17,21 @@ export interface ProjectProfilePlanDto {
 }
 export interface ProjectProfileContractsDto {
   count: number; currentTotal: MoneyString; paidTotal: MoneyString; paidRate: RatioString | null;
+  expenseCount?: number;
+  settledTotal?: MoneyString;
+  incomeCount?: number; incomeCurrentTotal?: MoneyString; receivedTotal?: MoneyString; receivedRate?: RatioString | null;
+  incomeSettledTotal?: MoneyString;
+  foreignCurrencyCount?: number;
+  activeGuaranteeCount?: number;
+  openChangeCount?: number;
+  openDisputeCount?: number;
   rows: {
     id: number; contractNo: string; name: string; supplierName: string | null; orgName: string; stage: string; status: string;
-    current: MoneyString; paid: MoneyString; signDate: string | null; documents: Record<string, number>;
+    direction?: string; pricingMode?: string; currency?: string;
+    current: MoneyString; settled?: MoneyString; paid: MoneyString; received?: MoneyString; signDate: string | null; documents: Record<string, number>;
   }[];
   payments: { id: number; contractId: number; contractNo: string; nodeName: string; amount: MoneyString; status: string; paidDate: string | null; voucherNo: string | null }[];
+  receipts?: { id: number; contractId: number; contractNo: string; nodeName: string; amount: MoneyString; status: string; receivedDate: string | null; voucherNo: string | null }[];
 }
 export interface ProjectProfileVouchersDto {
   projectCodes: string[]; lineCount: number; debitTotal: MoneyString; creditTotal: MoneyString;

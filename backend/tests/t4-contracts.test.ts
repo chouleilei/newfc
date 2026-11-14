@@ -1,3 +1,4 @@
+import { SIGNATORIES, PAYMENT_APPROVAL, CHANGE_GOVERNANCE, seedNetAssets } from './contract-review-fixtures';
 import { describe, expect, it } from 'vitest';
 import { boot, get, json, post, upload, type Session } from './t3-helpers';
 import { createScopedUser, fetchAs } from './http-helpers';
@@ -10,6 +11,7 @@ import { count, createProject, createSupplier } from './t4-helpers';
 
 async function setup() {
   const t = await boot('newfc-t4-ct-');
+    seedNetAssets(t.db);
   const projectId = await createProject(t.base, t.admin, 'P-SH-01', '上海泵站改造', t.fx.orgIds.shanghai);
   const supplierId = await createSupplier(t.base, t.admin, 'S-001', '华东水利建设有限公司');
   const maker = createScopedUser(t.db, { username: 'ct-maker', roleCodes: ['data_maintainer'], orgIds: [t.fx.orgIds.east] });
@@ -39,10 +41,10 @@ describe('T-4 合同生命周期(AC-F16)', () => {
     const doc = async (contractId: number, docType: string, name = `${docType}.pdf`) =>
       (await ok(upload(base, maker, `/api/contracts/${contractId}/documents`, Buffer.from(`${docType}-${Math.random()}`), name, { docType }), 201)).id as number;
 
-    let c = await ok(post(base, maker, '/api/contracts', { contractNo: 'ht-2026-001', name: '泵站改造施工合同', orgId: fx.orgIds.shanghai, originalAmount: '100000.00' }), 201);
+    let c = await ok(post(base, maker, '/api/contracts', { ...SIGNATORIES, contractNo: 'ht-2026-001', name: '泵站改造施工合同', orgId: fx.orgIds.shanghai, originalAmount: '100000.00' }), 201);
     expect(c).toMatchObject({ contractNo: 'ht-2026-001', stage: 'initiation', status: 'active', currentAmount: '100000.00', paidAmount: '0.00', paymentRate: '0.000000', nextStage: 'procurement' });
     expect(c.blockers.map((b: { code: string }) => b.code)).toEqual(['PROJECT_REQUIRED', 'TYPE_REQUIRED']);
-    await fail(post(base, maker, '/api/contracts', { contractNo: 'HT-2026-001 ', name: '重复', orgId: fx.orgIds.shanghai }), 409, 'CONTRACT_NO_EXISTS');
+    await fail(post(base, maker, '/api/contracts', { ...SIGNATORIES, contractNo: 'HT-2026-001 ', name: '重复', orgId: fx.orgIds.shanghai }), 409, 'CONTRACT_NO_EXISTS');
     const blocked = await fail(post(base, maker, `/api/contracts/${c.id}/advance`, { expectedVersion: c.version, toStage: 'procurement' }), 409, 'CONTRACT_STAGE_BLOCKED');
     expect(blocked.details.blockers).toHaveLength(2);
     await fail(post(base, maker, `/api/contracts/${c.id}/advance`, { expectedVersion: c.version, toStage: 'drafting' }), 409, 'CONTRACT_STAGE_BLOCKED');
@@ -83,13 +85,14 @@ describe('T-4 合同生命周期(AC-F16)', () => {
     expect(c.blockers).toEqual([]);
     // 审批签署前不能付款、变更
     const evidence = await doc(c.id, 'change', '变更签证.pdf');
-    await fail(post(base, maker, `/api/contracts/${c.id}/payments`, { nodeName: '预付款', amount: '1.00' }), 409, 'CONTRACT_STATE');
-    await fail(post(base, maker, `/api/contracts/${c.id}/changes`, { delta: '1.00', reason: 'x', evidenceDocumentId: evidence }), 409, 'CONTRACT_STATE');
+    const audit = await ok(upload(base, maker, `/api/contracts/${c.id}/documents`, Buffer.from('技术复核'), '技术复核.pdf', { docType: 'other', evidenceKind: 'tech_special_audit' }), 201);
+    await fail(post(base, maker, `/api/contracts/${c.id}/payments`, { ...PAYMENT_APPROVAL, nodeName: '预付款', amount: '1.00' }), 409, 'CONTRACT_STATE');
+    await fail(post(base, maker, `/api/contracts/${c.id}/changes`, { ...CHANGE_GOVERNANCE, delta: '1.00', reason: 'x', evidenceDocumentId: evidence }), 409, 'CONTRACT_STATE');
     c = await ok(get(base, maker, `/api/contracts/${c.id}`));
     c = await ok(post(base, maker, `/api/contracts/${c.id}/advance`, { expectedVersion: c.version, toStage: 'performance' }));
 
     // 变更 +20,000:复核后当前金额 120,000
-    c = await ok(post(base, maker, `/api/contracts/${c.id}/changes`, { delta: '20000.00', reason: '增加附属工程', evidenceDocumentId: evidence }), 201);
+    c = await ok(post(base, maker, `/api/contracts/${c.id}/changes`, { ...CHANGE_GOVERNANCE, techSpecialAuditDocId: audit.id, delta: '20000.00', reason: '增加附属工程', evidenceDocumentId: evidence }), 201);
     expect(c.currentAmount).toBe('100000.00');
     // 工作台待办下钻:todo 过滤与待办计数同口径
     const todoIds = async (todo: string) => (await ok(get(base, reviewer, `/api/contracts?todo=${todo}`))).map((x: { id: number }) => x.id);
@@ -101,7 +104,7 @@ describe('T-4 合同生命周期(AC-F16)', () => {
 
     // 付款 50,000 + 70,000;支付须附发票
     const pay = async (amount: string) => {
-      let d = await ok(post(base, maker, `/api/contracts/${c.id}/payments`, { nodeName: `节点${amount}`, amount }), 201);
+      let d = await ok(post(base, maker, `/api/contracts/${c.id}/payments`, { ...PAYMENT_APPROVAL, nodeName: `节点${amount}`, amount }), 201);
       const pid = d.payments.at(-1).id;
       d = await ok(post(base, reviewer, `/api/contracts/${c.id}/payments/${pid}/decide`, { decision: 'approve' }));
       return pid as number;
@@ -116,22 +119,26 @@ describe('T-4 合同生命周期(AC-F16)', () => {
     expect(await todoIds('pay')).toEqual([c.id]);
     expect(await todoIds('payment')).toEqual([]);
     // 已批准未付 70,000 + 已付 50,000 = 120,000:再申请 0.01 被拒
-    await fail(post(base, maker, `/api/contracts/${c.id}/payments`, { nodeName: '尾款', amount: '0.01' }), 409, 'CONTRACT_PAYMENT_EXCEEDS');
+    await fail(post(base, maker, `/api/contracts/${c.id}/payments`, { ...PAYMENT_APPROVAL, nodeName: '尾款', amount: '0.01' }), 409, 'CONTRACT_PAYMENT_EXCEEDS');
     c = await ok(post(base, maker, `/api/contracts/${c.id}/payments/${p2}/pay`, { paidDate: '2026-05-20', invoiceDocumentId: invoice }));
     expect(c).toMatchObject({ paidAmount: '120000.00', paymentRate: '1.000000' });
-    await fail(post(base, maker, `/api/contracts/${c.id}/payments`, { nodeName: '尾款', amount: '0.01' }), 409, 'CONTRACT_PAYMENT_EXCEEDS');
+    await fail(post(base, maker, `/api/contracts/${c.id}/payments`, { ...PAYMENT_APPROVAL, nodeName: '尾款', amount: '0.01' }), 409, 'CONTRACT_PAYMENT_EXCEEDS');
     // 变更 −80,000 将低于已付:提交即被拒
-    const below = await fail(post(base, maker, `/api/contracts/${c.id}/changes`, { delta: '-80000.00', reason: '核减', evidenceDocumentId: evidence }), 409, 'CONTRACT_AMOUNT_BELOW_PAID');
+    const below = await fail(post(base, maker, `/api/contracts/${c.id}/changes`, { ...CHANGE_GOVERNANCE, delta: '-80000.00', reason: '核减', evidenceDocumentId: evidence }), 409, 'CONTRACT_AMOUNT_BELOW_PAID');
     expect(below.details).toMatchObject({ currentAmount: '120000.00', paidAmount: '120000.00', afterChange: '40000.00' });
 
     // 变更结算 → 归档:需要验收文件
     c = await ok(get(base, maker, `/api/contracts/${c.id}`));
     c = await ok(post(base, maker, `/api/contracts/${c.id}/advance`, { expectedVersion: c.version, toStage: 'settlement' }));
-    expect(c.blockers.map((b: { code: string }) => b.code)).toEqual(['ACCEPTANCE_DOC']);
+    expect(c.blockers.map((b: { code: string }) => b.code)).toContain('ACCEPTANCE_DOC');
     await doc(c.id, 'acceptance');
     c = await ok(get(base, maker, `/api/contracts/${c.id}`));
-    c = await ok(post(base, maker, `/api/contracts/${c.id}/advance`, { expectedVersion: c.version, toStage: 'archived' }));
-    expect(c).toMatchObject({ stage: 'archived', status: 'closed', nextStage: null });
+    c = await ok(patch(base, maker, `/api/contracts/${c.id}`, { expectedVersion: c.version, finalAccepted: true }));
+    c = await ok(post(base, reviewer, `/api/contracts/${c.id}/archive-status`, { expectedVersion: c.version, archiveStatus: 'transferred' }));
+    c = await ok(post(base, maker, `/api/contracts/${c.id}/settlements`, { settlementKind: 'final', settlementDate: '2026-05-20', inContractAmount: '120000.00' }), 201);
+    c = await ok(post(base, reviewer, `/api/contracts/${c.id}/settlements/${c.settlements[0].id}/decide`, { decision: 'approve' }));
+    c = await ok(post(base, maker, `/api/contracts/${c.id}/advance`, { expectedVersion: c.version, toStage: 'closed' }));
+    expect(c).toMatchObject({ stage: 'closed', status: 'closed', nextStage: null });
     await fail(upload(base, maker, `/api/contracts/${c.id}/documents`, Buffer.from('late'), 'late.pdf', { docType: 'other' }), 409, 'CONTRACT_STATE');
     await fail(post(base, maker, `/api/contracts/${c.id}/terminate`, { expectedVersion: c.version, reason: 'x' }), 409, 'CONTRACT_STATE');
     // 重开需要 contract:review
@@ -143,18 +150,18 @@ describe('T-4 合同生命周期(AC-F16)', () => {
     const types = c.events.map((e: { eventType: string }) => e.eventType);
     expect(types).toEqual(expect.arrayContaining(['create', 'update', 'advance', 'document', 'review.submit', 'review.approve', 'change.submit', 'change.approve',
       'payment.submit', 'payment.approve', 'payment.pay', 'archive', 'reopen']));
-    expect(c.events.find((e: { eventType: string }) => e.eventType === 'archive')).toMatchObject({ fromStage: 'settlement', toStage: 'archived', actor: 'ct-maker' });
+    expect(c.events.find((e: { eventType: string }) => e.eventType === 'archive')).toMatchObject({ fromStage: 'settlement', toStage: 'closed', actor: 'ct-maker' });
     expect(count(db, 'operation_log', "action LIKE 'contract.%' AND entity_id = ?", String(c.id))).toBe(c.events.length);
     expect(() => db.prepare('DELETE FROM ct_event WHERE contract_id = ?').run(c.id)).toThrow(/只追加/);
     expect(() => db.prepare('UPDATE ct_document SET name = ? WHERE contract_id = ?').run('x', c.id)).toThrow(/不可修改/);
     // 管理员同人复核须写例外原因
-    const own = await ok(post(base, admin, '/api/contracts', { contractNo: 'HT-ADMIN', name: 'x', orgId: fx.orgIds.shanghai, projectId, contractType: '服务', originalAmount: '10.00' }), 201);
+    const own = await ok(post(base, admin, '/api/contracts', { ...SIGNATORIES, contractNo: 'HT-ADMIN', name: 'x', orgId: fx.orgIds.shanghai, projectId, contractType: '服务', originalAmount: '10.00' }), 201);
     expect(own.id).toBeGreaterThan(0);
   });
 
   it('作废/终止:须填原因;有付款不能作废;作废后拒绝写入且不可重开', async () => {
     const { base, fx, maker, reviewer } = await setup();
-    let c = await ok(post(base, maker, '/api/contracts', { contractNo: 'HT-V', name: '作废样本', orgId: fx.orgIds.shanghai, originalAmount: '10.00' }), 201);
+    let c = await ok(post(base, maker, '/api/contracts', { ...SIGNATORIES, contractNo: 'HT-V', name: '作废样本', orgId: fx.orgIds.shanghai, originalAmount: '10.00' }), 201);
     expect((await post(base, maker, `/api/contracts/${c.id}/void`, { expectedVersion: c.version })).status).toBe(400);
     c = await ok(post(base, maker, `/api/contracts/${c.id}/void`, { expectedVersion: c.version, reason: '重复登记' }));
     expect(c).toMatchObject({ status: 'voided', statusReason: '重复登记' });
@@ -162,24 +169,27 @@ describe('T-4 合同生命周期(AC-F16)', () => {
     await fail(upload(base, maker, `/api/contracts/${c.id}/documents`, Buffer.from('x'), 'x.pdf', { docType: 'other' }), 409, 'CONTRACT_STATE');
     await fail(post(base, maker, `/api/contracts/${c.id}/advance`, { expectedVersion: c.version, toStage: 'procurement' }), 409, 'CONTRACT_STATE');
     await fail(post(base, reviewer, `/api/contracts/${c.id}/reopen`, { expectedVersion: c.version, reason: 'x', targetStage: 'initiation' }), 409, 'CONTRACT_STATE');
-    const t = await ok(post(base, maker, '/api/contracts', { contractNo: 'HT-T', name: '终止样本', orgId: fx.orgIds.shanghai }), 201);
-    expect((await ok(post(base, maker, `/api/contracts/${t.id}/terminate`, { expectedVersion: t.version, reason: '项目取消' }))).status).toBe('terminated');
+    const t = await ok(post(base, maker, '/api/contracts', { ...SIGNATORIES, contractNo: 'HT-T', name: '终止样本', orgId: fx.orgIds.shanghai }), 201);
+    await fail(post(base, maker, `/api/contracts/${t.id}/terminate`, { expectedVersion: t.version, reason: '项目取消' }), 409, 'CONTRACT_CHANGE_TIER_MISMATCH');
+    const termination = await ok(upload(base, maker, `/api/contracts/${t.id}/documents`, Buffer.from('解除清算协议'), '解除.pdf', { docType: 'other', evidenceKind: 'termination_agreement' }), 201);
+    const latest = await ok(get(base, maker, `/api/contracts/${t.id}`));
+    expect((await ok(post(base, maker, `/api/contracts/${t.id}/terminate`, { expectedVersion: latest.version, reason: '项目取消', approvalTier: 'general_manager', terminationAgreementDocumentId: termination.id }))).status).toBe('terminated');
   });
 
   it('受限用户与审计:范围外合同 404、列表与汇总只含范围内;只读角色不能写', async () => {
     const { base, db, admin, fx } = await setup();
-    const sh = await ok(post(base, admin, '/api/contracts', { contractNo: 'HT-SH', name: '上海', orgId: fx.orgIds.shanghai, originalAmount: '100.00' }), 201);
-    const nj = await ok(post(base, admin, '/api/contracts', { contractNo: 'HT-NJ', name: '南京', orgId: fx.orgIds.nanjing, originalAmount: '300.00' }), 201);
+    const sh = await ok(post(base, admin, '/api/contracts', { ...SIGNATORIES, contractNo: 'HT-SH', name: '上海', orgId: fx.orgIds.shanghai, originalAmount: '100.00' }), 201);
+    const nj = await ok(post(base, admin, '/api/contracts', { ...SIGNATORIES, contractNo: 'HT-NJ', name: '南京', orgId: fx.orgIds.nanjing, originalAmount: '300.00' }), 201);
     const user = createScopedUser(db, { username: 'ct-sh', roleCodes: ['data_maintainer'], orgIds: [fx.orgIds.shanghai] }).session;
     expect((await ok(get(base, user, '/api/contracts'))).map((c: { contractNo: string }) => c.contractNo)).toEqual(['HT-SH']);
     expect((await get(base, user, `/api/contracts/${nj.id}`)).status).toBe(404);
     expect((await post(base, user, `/api/contracts/${nj.id}/void`, { expectedVersion: 1, reason: 'x' })).status).toBe(404);
     expect((await upload(base, user, `/api/contracts/${nj.id}/documents`, Buffer.from('x'), 'x.pdf', { docType: 'other' })).status).toBe(404);
-    expect((await post(base, user, '/api/contracts', { contractNo: 'HT-X', name: 'x', orgId: fx.orgIds.nanjing })).status).toBe(404);
+    expect((await post(base, user, '/api/contracts', { ...SIGNATORIES, contractNo: 'HT-X', name: 'x', orgId: fx.orgIds.nanjing })).status).toBe(404);
     expect(await ok(get(base, user, '/api/contracts/summary'))).toMatchObject({ count: 1, currentAmount: '100.00' });
     expect(await ok(get(base, admin, '/api/contracts/summary'))).toMatchObject({ count: 2, currentAmount: '400.00' });
     const viewer = createScopedUser(db, { username: 'ct-viewer', roleCodes: ['viewer'], orgIds: [fx.orgIds.shanghai] }).session;
     expect((await get(base, viewer, `/api/contracts/${sh.id}`)).status).toBe(200);
-    expect((await post(base, viewer, '/api/contracts', { contractNo: 'HT-Y', name: 'y', orgId: fx.orgIds.shanghai })).status).toBe(403);
+    expect((await post(base, viewer, '/api/contracts', { ...SIGNATORIES, contractNo: 'HT-Y', name: 'y', orgId: fx.orgIds.shanghai })).status).toBe(403);
   });
 });

@@ -1,7 +1,7 @@
 import { useAssistantDomainPage } from '../assistant/contextHooks';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Descriptions, Drawer, Form, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App as AntdApp, Button, Descriptions, Drawer, Form, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { can, download, errorText, getSession } from '../api/client';
 import { stdReportApi, type StdColumnDto, type StdReportDto, type StdReportGenerate, type StdReportListItemDto, type StdReportType } from '../api/financeData';
 import { QueryErrorResult } from '../components/QueryErrorResult';
@@ -13,7 +13,7 @@ import { compact, defaultOrgId, EXCEPTION_REASON_FIELD, lastPeriod, OrgSelect, P
 
 export const REPORT_TYPE_LABEL: Record<StdReportType, string> = {
   budget_execution: '经营预算执行表', statement_summary: '财务报表摘要', eas_recon: 'EAS 对账结果表', contract_payment_ledger: '合同付款台账',
-  risk_rectification_ledger: '风险整改台账',
+  risk_rectification_ledger: '风险整改台账', contract_monthly_pack: '月度合同5表台账',
 };
 const SCOPE_OPTIONS = [{ value: 'consolidated', label: '合并' }, { value: 'parent', label: '母公司' }, { value: 'subsidiary', label: '子公司' }];
 
@@ -47,8 +47,8 @@ function GenerateModal({ open, onClose, onDone }: { open: boolean; onClose: () =
       <Form form={form} layout="vertical" preserve={false} initialValues={{ reportType: 'budget_execution', year: new Date().getFullYear(), orgId: defaultOrgId(), period: lastPeriod(), scope: undefined }}>
         <Form.Item name="reportType" label="报表类型"><Select options={Object.entries(REPORT_TYPE_LABEL).map(([value, label]) => ({ value, label }))} /></Form.Item>
         {type === 'budget_execution' && <Form.Item name="year" label="年度" rules={[{ required: true }]}><InputNumber min={1900} max={9999} style={{ width: 140 }} /></Form.Item>}
-        <Form.Item name="orgId" label={type === 'budget_execution' || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger' ? `组织${allOrgs ? '(不选为全组织口径)' : ''}` : '组织'}
-          rules={(type === 'budget_execution' || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger') && allOrgs ? [] : [{ required: true, message: '请选择组织' }]}>
+        <Form.Item name="orgId" label={type === 'budget_execution' || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger' || type === 'contract_monthly_pack' ? `组织${allOrgs ? '(不选为全组织口径)' : ''}` : '组织'}
+          rules={(type === 'budget_execution' || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger' || type === 'contract_monthly_pack') && allOrgs ? [] : [{ required: true, message: '请选择组织' }]}>
           <OrgSelect onChange={(v) => form.setFieldValue('orgId', v)} width={320} />
         </Form.Item>
         {type !== 'budget_execution' && <Form.Item name="period" label="期间" rules={[{ required: true }]}><PeriodPicker onChange={(v) => form.setFieldValue('period', v)} allowClear={false} /></Form.Item>}
@@ -57,6 +57,7 @@ function GenerateModal({ open, onClose, onDone }: { open: boolean; onClose: () =
       <Typography.Text type="secondary">
         {type === 'budget_execution' ? '取该年当前采用预算与最新实际,复用执行分析口径。' : type === 'statement_summary' ? '取当前财报批次的语义指标与比率。'
           : type === 'risk_rectification_ledger' ? '冻结风险等级、状态、处理人、期限、逾期与最近动作(缺省不含已关闭与误报)。'
+          : type === 'contract_monthly_pack' ? '冻结当期合同5表月报核心台账快照(万元口径,不含作废合同)。'
           : type === 'contract_payment_ledger' ? '冻结合同阶段、当前金额、本期与累计已付、付款比例及合同版本(不含作废合同)。' : '取当前 EAS 对账集合的规则结果。'}
         缺少来源时不生成(REPORT_SOURCE_MISSING)。
       </Typography.Text>
@@ -96,7 +97,7 @@ function ReportDrawer({ id, onClose }: { id: number | null; onClose: () => void 
             <Descriptions.Item label="状态">{r.status === 'reviewed' ? <Tag color="success">已复核</Tag> : <Tag color="warning">待复核</Tag>}</Descriptions.Item>
             <Descriptions.Item label="内容指纹"><Typography.Text code copyable={{ text: r.contentSha256 }}>{r.contentSha256.slice(0, 12)}…</Typography.Text></Descriptions.Item>
             <Descriptions.Item label="来源" span={3}>
-              {Object.entries(r.sources).map(([k, v]) => <Tag key={k}>{k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}</Tag>)}
+              {Object.entries(r.sources).filter(([k]) => k !== 'monthlySheets').map(([k, v]) => <Tag key={k}>{k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}</Tag>)}
             </Descriptions.Item>
             {r.reviewedAt && (
               <Descriptions.Item label="复核" span={3}>
@@ -107,6 +108,11 @@ function ReportDrawer({ id, onClose }: { id: number | null; onClose: () => void 
           {r.summary.length > 0 && (
             <Space wrap>{r.summary.map((s) => <Tag key={s.label} style={{ padding: '4px 8px' }}>{s.label}:{s.value}</Tag>)}</Space>
           )}
+          {Array.isArray(r.sources.monthlySheets) && <Tabs items={(r.sources.monthlySheets as { name: string; rows: (string | number | null)[][]; sha256: string }[]).map(sheet => ({ key: sheet.name, label: sheet.name, children: <>
+            <Typography.Text type="secondary">冻结内容摘要：{sheet.sha256.slice(0, 16)}</Typography.Text>
+            <Table size="small" pagination={false} scroll={{ x: 'max-content', y: 500 }} rowKey={(_, i) => String(i)} dataSource={sheet.rows}
+              columns={Array.from({ length: Math.max(0, ...sheet.rows.map(row => row.length)) }, (_, i) => ({ title: String(i + 1), dataIndex: i, render: (v: unknown) => <span style={{ whiteSpace: 'pre-wrap' }}>{String(v ?? '')}</span> }))} />
+          </> }))} />}
           <Table
             size="small" rowKey={(_, i) => String(i)} dataSource={r.rows} pagination={false} scroll={{ x: 'max-content', y: 560 }}
             columns={r.columns.map((c) => ({

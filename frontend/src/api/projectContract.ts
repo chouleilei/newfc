@@ -1,3 +1,4 @@
+import type { LegalReviewsDto, PolicyDto as LegalPolicyDto, TemplateDto as LegalTemplateDto, EvidenceKind } from '@contracts/contract-legal-review';
 /**
  * T-4 项目预算、计划执行、合同与费用审核接口。
  * 类型取自后端共享契约(@contracts/*,仅 import type)。
@@ -10,6 +11,10 @@ import type {
   PlanBatchDto, PlanItemDto, PlanOverviewDto, PlanPreviewDto, PlanProjectProgressListDto, PlanSheetCode,
 } from '@contracts/plan-execution';
 import type {
+  ContractArchiveStatusRequest, ContractChangeFilingRequest, ContractChangeRequest, ContractDistributionRequest, ContractHandoverRequest,
+  ContractPaymentRequest, ContractReceiptCreateRequest, ContractReceiptReceiveRequest, ContractSettlementCreateRequest,
+  ContractDisputeCreateRequest, ContractDisputeUpdateRequest, ContractGuaranteeCreateRequest, ContractGuaranteeUpdateRequest, ContractWarrantyUpsertRequest,
+  ContractEvaluationRequest, SupervisionExportLogDto, SupervisionPortalResponseDto, SupervisionPreflightDto,
   ContractCreateRequest, ContractDetailDto, ContractDocType, ContractDocumentDto, ContractDto, ContractImportDto, ContractListQuery, ContractStage, ContractSummaryDto,
   DecisionRequest,
 } from '@contracts/project-contract';
@@ -59,6 +64,13 @@ export const planApi = {
 
 type Decision = Partial<DecisionRequest> & Pick<DecisionRequest, 'decision'>;
 export const contractApi = {
+  legalReviews:(id:number)=>api.get<LegalReviewsDto>(`/contracts/${id}/legal-reviews`),
+  runLegalReview:(id:number)=>api.post<{jobId:number;deduplicated:boolean}>(`/contracts/${id}/legal-reviews/run`,{}),
+  legalPolicies:()=>api.get<LegalPolicyDto[]>('/contracts/legal-catalog/policies'),
+  legalTemplates:()=>api.get<LegalTemplateDto[]>('/contracts/legal-catalog/templates'),
+  publishLegal:(kind:'policies'|'templates',body:unknown)=>api.post(`/contracts/legal-catalog/${kind}`,body),
+  changeLegal:(kind:'policies'|'templates',id:number,action:'retire'|'promote',reason:string)=>api.post(`/contracts/legal-catalog/${kind}/${id}/${action}`,{reason}),
+  legalSource:(kind:'policies'|'templates',id:number,file:File)=>api.post(`/contracts/legal-catalog/${kind}/${id}/source`,form(file,{})),
   list: (q: Partial<ContractListQuery>) => api.get<ContractDto[]>(`/contracts${qs({ ...q })}`),
   listPage: (q: ContractListQuery & PageQuery) => api.get<PageDto<ContractDto>>(`/contracts/page${qs({ ...q })}`),
   summary: (q: { orgId?: number; projectId?: number }) => api.get<ContractSummaryDto>(`/contracts/summary${qs(q)}`),
@@ -66,24 +78,53 @@ export const contractApi = {
   create: (body: Partial<ContractCreateRequest>) => api.post<ContractDetailDto>('/contracts', body),
   update: (id: number, body: Record<string, unknown> & { expectedVersion: number }) => api.patch<ContractDetailDto>(`/contracts/${id}`, body),
   advance: (id: number, expectedVersion: number, toStage: ContractStage) => api.post<ContractDetailDto>(`/contracts/${id}/advance`, { expectedVersion, toStage }),
-  terminate: (id: number, expectedVersion: number, reason: string) => api.post<ContractDetailDto>(`/contracts/${id}/terminate`, { expectedVersion, reason }),
+  terminate: (id: number, expectedVersion: number, reason: string, extra: Record<string, unknown> = {}) => api.post<ContractDetailDto>(`/contracts/${id}/terminate`, { expectedVersion, reason, ...extra }),
   void: (id: number, expectedVersion: number, reason: string) => api.post<ContractDetailDto>(`/contracts/${id}/void`, { expectedVersion, reason }),
   reopen: (id: number, expectedVersion: number, reason: string, targetStage: ContractStage) =>
     api.post<ContractDetailDto>(`/contracts/${id}/reopen`, { expectedVersion, reason, targetStage }),
-  uploadDocument: (id: number, file: File, docType: ContractDocType, name?: string) =>
-    api.post<ContractDocumentDto>(`/contracts/${id}/documents`, form(file, { docType, name })),
+  suspend: (id: number, expectedVersion: number, reason: string, guarantorConsentDocumentId?: number) =>
+    api.post<ContractDetailDto>(`/contracts/${id}/suspend`, { expectedVersion, reason, guarantorConsentDocumentId }),
+  resume: (id: number, expectedVersion: number, reason: string) =>
+    api.post<ContractDetailDto>(`/contracts/${id}/resume`, { expectedVersion, reason }),
+  updateDistribution: (id: number, body: ContractDistributionRequest) =>
+    api.post<ContractDetailDto>(`/contracts/${id}/distribution`, body),
+  updateArchiveStatus: (id: number, body: ContractArchiveStatusRequest) =>
+    api.post<ContractDetailDto>(`/contracts/${id}/archive-status`, body),
+  handoverUndertaker: (id: number, body: ContractHandoverRequest) =>
+    api.post<ContractDetailDto>(`/contracts/${id}/undertaker-handover`, body),
+  uploadDocument: (id: number, file: File, docType: ContractDocType, name?: string, evidenceKind?: EvidenceKind) =>
+    api.post<ContractDocumentDto>(`/contracts/${id}/documents`, form(file, { docType, name, evidenceKind })),
   submitReview: (id: number, documentId: number, note?: string) => api.post<ContractDetailDto>(`/contracts/${id}/reviews`, { documentId, note }),
   decideReview: (id: number, rid: number, body: Decision) => api.post<ContractDetailDto>(`/contracts/${id}/reviews/${rid}/decide`, body),
-  submitChange: (id: number, body: { delta: string; reason: string; evidenceDocumentId: number }) => api.post<ContractDetailDto>(`/contracts/${id}/changes`, body),
+  submitChange: (id: number, body: ContractChangeRequest) => api.post<ContractDetailDto>(`/contracts/${id}/changes`, body),
   decideChange: (id: number, cid: number, body: Decision) => api.post<ContractDetailDto>(`/contracts/${id}/changes/${cid}/decide`, body),
-  submitPayment: (id: number, body: { nodeName: string; amount: string; plannedDate?: string; evidenceDocumentId?: number }) =>
+  updateChangeFiling: (id: number, cid: number, body: ContractChangeFilingRequest) => api.patch<ContractDetailDto>(`/contracts/${id}/changes/${cid}/filing`, body),
+  submitSettlement: (id: number, body: Partial<ContractSettlementCreateRequest> & { settlementDate: string }) => api.post<ContractDetailDto>(`/contracts/${id}/settlements`, body),
+  decideSettlement: (id: number, sid: number, body: Decision) => api.post<ContractDetailDto>(`/contracts/${id}/settlements/${sid}/decide`, body),
+  submitPayment: (id: number, body: ContractPaymentRequest) =>
     api.post<ContractDetailDto>(`/contracts/${id}/payments`, body),
   decidePayment: (id: number, pid: number, body: Decision) => api.post<ContractDetailDto>(`/contracts/${id}/payments/${pid}/decide`, body),
   pay: (id: number, pid: number, body: { paidDate: string; voucherNo?: string; invoiceDocumentId: number }) =>
     api.post<ContractDetailDto>(`/contracts/${id}/payments/${pid}/pay`, body),
+  submitReceipt: (id: number, body: ContractReceiptCreateRequest) => api.post<ContractDetailDto>(`/contracts/${id}/receipts`, body),
+  decideReceipt: (id: number, rid: number, body: Decision) => api.post<ContractDetailDto>(`/contracts/${id}/receipts/${rid}/decide`, body),
+  receiveReceipt: (id: number, rid: number, body: ContractReceiptReceiveRequest) => api.post<ContractDetailDto>(`/contracts/${id}/receipts/${rid}/receive`, body),
+  createGuarantee: (id: number, body: ContractGuaranteeCreateRequest) => api.post<ContractDetailDto>(`/contracts/${id}/guarantees`, body),
+  updateGuarantee: (id: number, gid: number, body: ContractGuaranteeUpdateRequest) => api.patch<ContractDetailDto>(`/contracts/${id}/guarantees/${gid}`, body),
+  upsertWarranty: (id: number, body: ContractWarrantyUpsertRequest) => api.put<ContractDetailDto>(`/contracts/${id}/warranty`, body),
+  createDispute: (id: number, body: ContractDisputeCreateRequest) => api.post<ContractDetailDto>(`/contracts/${id}/disputes`, body),
+  updateDispute: (id: number, did: number, body: ContractDisputeUpdateRequest) => api.patch<ContractDetailDto>(`/contracts/${id}/disputes/${did}`, body),
   previewImport: (file: File) => api.post<ContractImportDto>('/contracts/imports', form(file, {})),
   getImport: (id: number) => api.get<ContractImportDto>(`/contracts/imports/${id}`),
   confirmImport: (id: number, planHash: string) => api.post<ContractImportDto>(`/contracts/imports/${id}/confirm`, { planHash }),
+  upsertEvaluation: (id: number, body: ContractEvaluationRequest) => api.put<ContractDetailDto>(`/contracts/${id}/evaluation`, body),
+  monthlyLedgerExportPath: (q: { period?: string; orgId?: number }) => `/contracts/exports/monthly-ledger${qs(q)}`,
+  preflightSupervision: (q: { period?: string; orgId?: number; scopeMode?: 'changed' | 'all_active' }) =>
+    api.get<SupervisionPreflightDto>(`/contracts/exports/supervision/preflight${qs(q)}`),
+  supervisionExportLogs: () => api.get<SupervisionExportLogDto[]>('/contracts/exports/logs'),
+  exportSupervisionPackage: (body: { period?: string; orgId?: number; scopeMode?: 'changed' | 'all_active' }) =>
+    api.post<Blob>('/contracts/exports/supervision/package', body),
+  supervisionPortalFull: (q?: { orgId?: number }) => api.get<SupervisionPortalResponseDto>(`/contracts/supervision-portal/full${qs(q ?? {})}`),
 };
 
 export const expenseApi = {

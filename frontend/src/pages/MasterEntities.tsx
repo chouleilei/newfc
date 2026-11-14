@@ -14,7 +14,7 @@ type Status = 'active' | 'inactive';
 type EntityType = 'org' | 'account' | 'project' | 'supplier';
 
 interface Project { id: number; code: string; name: string; projectType: string; orgId: number; orgName: string; status: Status; extra?: Record<string, unknown>; updatedAt: string }
-interface Supplier { id: number; code: string | null; name: string; supplierType: string; creditCode: string; status: Status; extra?: Record<string, unknown>; updatedAt: string }
+interface Supplier { evaluations?: { contractId: number; contractNo: string; qualityScore: number; scheduleScore: number; serviceScore: number; recommendation: string; comment: string; evaluatedAt: string }[]; id: number; code: string | null; name: string; supplierType: string; creditCode: string; status: Status; extra?: Record<string, unknown>; updatedAt: string }
 interface Mapping {
   id: number; sourceSystem: string; entityType: EntityType; matchKind: 'code' | 'name'; sourceKey: string; sourceLabel: string;
   targetId: number; targetCode: string; targetName: string; validFrom: string; validTo: string | null; note: string; active: boolean;
@@ -180,6 +180,11 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
       </Space>
       {custom.error && <QueryErrorResult title="扩展字段加载失败,请重试后编辑供应商" error={custom.error} refetch={custom.refetch} />}
       <Table<Supplier>
+        expandable={{ rowExpandable: r => !!r.evaluations?.length, expandedRowRender: r => <Table rowKey="contractId" size="small" pagination={false} dataSource={r.evaluations} columns={[
+          { title: '评价合同', dataIndex: 'contractNo' }, { title: '质量 / 交期 / 配合度', render: (_, e) => `${e.qualityScore} / ${e.scheduleScore} / ${e.serviceScore}` },
+          { title: '选商建议', dataIndex: 'recommendation', render: (v: string) => ({ preferred: '优选', normal: '正常', restricted: '限制', blacklisted: '禁用' }[v] ?? v) },
+          { title: '评价意见', dataIndex: 'comment' }, { title: '评价日期', dataIndex: 'evaluatedAt', render: (v: string) => shortTime(v) },
+        ]} /> }}
         rowKey="id" loading={list.isLoading} dataSource={list.data ?? []} pagination={{ pageSize: 20, showSizeChanger: false }}
         columns={[
           { title: '编码', dataIndex: 'code', width: 120, render: (v: string | null) => v ?? '—' },

@@ -5,7 +5,8 @@
     "rootDir": "..",
     "baseUrl": ".",
     "paths": {
-      "zod": ["./node_modules/zod"]
+      "zod": ["./node_modules/zod"],
+      "@contracts/*": ["./src/contracts/*"]
     }
   },
   "include": ["src/**/*", "tests/**/*", "scripts/**/*"],

@@ -35,7 +35,9 @@ describe('T-4 助手只读工具', () => {
     }
     expect(pageDefinition('assistant')!.capabilities).toContain('project_data');
     const names = toolDefinitions.map((d) => d.function.name);
-    expect(names.filter((n) => /contract|expense|plan_|project_budget/.test(n)).sort()).toEqual([...NEW_TOOLS, 'expense_detail'].sort());
+    expect(names.filter((n) => /contract|expense|plan_|project_budget/.test(n)).sort()).toEqual([...NEW_TOOLS, 'expense_detail', 'contract_legal_review', 'contract_lifecycle_detail'].sort());
+    expect(toolPolicy('contract_legal_review')?.scope).toBe('global');
+    expect(toolPolicy('contract_lifecycle_detail')?.scope).toBe('global');
   });
 
   it('受限用户只看到授权组织;范围外组织与合同 404;参数显式校验;无权限拒绝', async () => {

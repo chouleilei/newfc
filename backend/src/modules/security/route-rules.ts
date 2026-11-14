@@ -14,7 +14,7 @@ import type { Permission } from '../../contracts/permissions';
 export interface RouteRule {
   method: 'GET' | 'WRITE' | '*';
   pattern: RegExp;
-  permission: Permission | null;
+  permission: Permission | readonly Permission[] | null;
   allOrgs?: boolean;
 }
 
@@ -29,7 +29,7 @@ export function matchRouteRule(method: string, path: string): RouteRule | undefi
   return rules.find((r) => (r.method === '*' || (r.method === 'GET' ? isRead : !isRead)) && r.pattern.test(path));
 }
 
-const R = (method: RouteRule['method'], pattern: RegExp, permission: Permission | null, allOrgs = false): RouteRule =>
+const R = (method: RouteRule['method'], pattern: RegExp, permission: Permission | readonly Permission[] | null, allOrgs = false): RouteRule =>
   ({ method, pattern, permission, allOrgs });
 
 /** 经营预算与基础模块接口。路径不含 /api 前缀。 */

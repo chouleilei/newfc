@@ -985,7 +985,7 @@ const MAX_TOOL_CALLS_PER_ROUND = 8;
 export function alignDomainToolArguments(name: string, args: Record<string, unknown>, context: AssistantScope, view: Record<string, unknown> = {}): Record<string, unknown> {
   const fields: Record<string, Record<string, keyof AssistantScope>> = {
     feasibility_report_read: { reportId: 'feasReportId', projectId: 'feasProjectId', scenarioId: 'scenarioId' }, task_status: { jobId: 'jobId' }, statement_trends: { from: 'periodFrom', to: 'periodTo', scope: 'statementScope' },
-    contract_detail: { contractId: 'contractId' }, expense_detail: { claimId: 'claimId' }, project_profile: { projectId: 'projectId' },
+    contract_detail: { contractId: 'contractId' }, contract_lifecycle_detail: { contractId: 'contractId' }, contract_legal_review:{contractId:'contractId'}, expense_detail: { claimId: 'claimId' }, project_profile: { projectId: 'projectId' },
     feasibility_result: { projectId: 'feasProjectId', scenarioId: 'scenarioId' }, investment_comparison: { projectId: 'icProjectId', comparisonId: 'comparisonId' },
     forecast_runs: { modelId: 'modelId' }, forecast_result: { versionId: 'forecastVersionId', runId: 'forecastRunId' },
     risk_detail: { riskId: 'riskId' }, analysis_report_read: { reportId: 'reportId' }, standard_report_read: { reportId: 'standardReportId' },
@@ -993,7 +993,7 @@ export function alignDomainToolArguments(name: string, args: Record<string, unkn
     contract_summary: { projectId: 'projectId' }, project_budget_summary: { projectId: 'projectId' }, plan_execution_overview: { projectId: 'projectId', asOfPeriod: 'period' },
     statement_overview: { scope: 'statementScope' },
   };
-  const domainNames = new Set(['domain_ledger', 'mgmt_analysis', 'authorization_scope', 'domain_batch_read', 'statement_trends', 'mgmt_workspace', 'domain_workspace', 'feasibility_report_read', 'eas_period_status', 'statement_overview', 'mgmt_metric_snapshots', 'mgmt_alerts', 'project_budget_summary', 'plan_execution_overview', 'contract_summary', 'contract_detail', 'expense_audit_queue', 'expense_detail', 'policy_search', 'feasibility_result', 'investment_comparison', 'forecast_runs', 'forecast_result', 'risk_summary', 'risk_detail', 'report_list', 'analysis_report_read', 'standard_report_read', 'governance_issues', 'project_profile', 'master_entities', 'cross_search', 'task_status', 'configuration_overview']);
+  const domainNames = new Set(['domain_ledger', 'mgmt_analysis', 'authorization_scope', 'domain_batch_read', 'statement_trends', 'mgmt_workspace', 'domain_workspace', 'feasibility_report_read', 'eas_period_status', 'statement_overview', 'mgmt_metric_snapshots', 'mgmt_alerts', 'project_budget_summary', 'plan_execution_overview', 'contract_summary', 'contract_detail', 'contract_lifecycle_detail', 'contract_legal_review', 'expense_audit_queue', 'expense_detail', 'policy_search', 'feasibility_result', 'investment_comparison', 'forecast_runs', 'forecast_result', 'risk_summary', 'risk_detail', 'report_list', 'analysis_report_read', 'standard_report_read', 'governance_issues', 'project_profile', 'master_entities', 'cross_search', 'task_status', 'configuration_overview']);
   if (!domainNames.has(name)) return args;
   const out = { ...args };
   const bindView = (param: string, value: unknown) => {

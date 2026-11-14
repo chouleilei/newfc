@@ -63,18 +63,34 @@ function ContractsTab({ c }: { c: NonNullable<P['contracts']> }) {
     <Space direction="vertical" style={{ width: '100%' }}>
       <Row gutter={12}>
         <Col span={6}><Card size="small"><Statistic title="合同数" value={c.count} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="合同金额(元,不含作废)" valueRender={() => <Money value={c.currentTotal} />} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="已付(元)" valueRender={() => <Money value={c.paidTotal} />} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="支出合同额/已结(元)" valueRender={() => <><Money value={c.currentTotal} /> / <Money value={c.settledTotal ?? '0.00'} /></>} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="支出已付(元)" valueRender={() => <Money value={c.paidTotal} />} /></Card></Col>
         <Col span={6}><Card size="small"><Statistic title="付款比例" valueRender={() => <Ratio value={c.paidRate} />} /></Card></Col>
       </Row>
-      <Table size="small" rowKey="id" pagination={false} dataSource={c.rows} scroll={{ x: 1000 }} columns={[
+      {(c.incomeCount ?? 0) > 0 && (
+        <Row gutter={12}>
+          <Col span={6}><Card size="small"><Statistic title="收入合同数" value={c.incomeCount ?? 0} /></Card></Col>
+          <Col span={6}><Card size="small"><Statistic title="收入合同额/已结(元)" valueRender={() => <><Money value={c.incomeCurrentTotal ?? '0.00'} /> / <Money value={c.incomeSettledTotal ?? '0.00'} /></>} /></Card></Col>
+          <Col span={6}><Card size="small"><Statistic title="收入已收(元)" valueRender={() => <Money value={c.receivedTotal ?? '0.00'} />} /></Card></Col>
+          <Col span={6}><Card size="small"><Statistic title="收款比例" valueRender={() => <Ratio value={c.receivedRate ?? null} />} /></Card></Col>
+        </Row>
+      )}
+      <Space wrap>
+        <Tag color={(c.activeGuaranteeCount ?? 0) > 0 ? 'blue' : 'default'}>活跃保函 {c.activeGuaranteeCount ?? 0} 笔</Tag>
+        <Tag color={(c.openChangeCount ?? 0) > 0 ? 'gold' : 'default'}>未闭环变更 {c.openChangeCount ?? 0} 笔</Tag>
+        <Tag color={(c.openDisputeCount ?? 0) > 0 ? 'red' : 'default'}>未闭环纠纷 {c.openDisputeCount ?? 0} 宗</Tag>
+        {(c.foreignCurrencyCount ?? 0) > 0 && <Tag color="purple">外币合同 {c.foreignCurrencyCount} 份(未折算并入人民币合计)</Tag>}
+      </Space>
+      <Table size="small" rowKey="id" pagination={false} dataSource={c.rows} scroll={{ x: 1120 }} columns={[
         { title: '合同编号', dataIndex: 'contractNo', width: 140, render: (v: string, r) => <Link to={`/contracts?id=${r.id}`}>{v}</Link> },
+        { title: '方向', dataIndex: 'direction', width: 64, render: (v?: string) => (v === 'income' ? <Tag color="green">收入</Tag> : <Tag>支出</Tag>) },
         { title: '名称', dataIndex: 'name', ellipsis: true },
         { title: '供应商', dataIndex: 'supplierName', width: 150, ellipsis: true, render: (v: string | null) => v ?? '—' },
         { title: '阶段', dataIndex: 'stage', width: 90, render: (v: string) => CONTRACT_STAGE_LABELS[v] ?? v },
         { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => statusTag(CONTRACT_STATUS, v) },
         { title: '合同金额(元)', dataIndex: 'current', width: 130, align: 'right', render: (v: string) => <Money value={v} /> },
-        { title: '已付(元)', dataIndex: 'paid', width: 130, align: 'right', render: (v: string) => <Money value={v} /> },
+        { title: '累计净结算(元)', dataIndex: 'settled', width: 130, align: 'right', render: (v?: string) => <Money value={v ?? '0.00'} /> },
+        { title: '已付/已收(元)', dataIndex: 'paid', width: 130, align: 'right', render: (_: string, r) => <Money value={r.direction === 'income' ? (r.received ?? '0.00') : r.paid} /> },
         {
           title: '文档', dataIndex: 'documents', width: 200,
           render: (d: Record<string, number>) => (Object.keys(d).length ? Object.entries(d).map(([k, n]) => <Tag key={k}>{CONTRACT_DOC_TYPE_LABELS[k] ?? k} {n}</Tag>) : '—'),
