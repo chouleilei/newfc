@@ -199,7 +199,13 @@ function assertRolesExist(db: DB, roleIds: number[]): void {
 
 function assertOrgsExist(db: DB, orgIds: number[]): void {
   for (const id of orgIds) {
-    if (!db.prepare('SELECT 1 FROM org WHERE id = ?').get(id)) throw Errors.validation(`组织 ${id} 不存在`);
+    const org = db.prepare('SELECT id, code, status, org_kind FROM org WHERE id = ?').get(id) as
+      | { id: number; code: string; status: string; org_kind?: string }
+      | undefined;
+    if (!org) throw Errors.validation(`组织 ${id} 不存在`);
+    if (org.org_kind === 'closed_history') {
+      throw Errors.validation(`历史关停组织 ${org.code} 不可授予数据权限范围`);
+    }
   }
 }
 
@@ -575,6 +581,258 @@ export function revokeSession(db: DB, sessionId: string): void {
 export function userMustChangePassword(db: DB, userId: number): boolean {
   const row = db.prepare('SELECT must_change_password FROM app_user WHERE id = ?').get(userId) as { must_change_password: number } | undefined;
   return row?.must_change_password === 1;
+}
+
+/* ============ 批量用户与数据范围初始化（GAP-02） ============ */
+
+export interface UserBatchImportItemInput {
+  username?: unknown;
+  displayName?: unknown;
+  roleCodes?: unknown;
+  allOrgs?: unknown;
+  orgCodes?: unknown;
+  initialPassword?: unknown;
+}
+
+export interface UserBatchImportRowPreview {
+  row: number;
+  username: string;
+  displayName: string;
+  roleCodes: string[];
+  roleIds: number[];
+  allOrgs: boolean;
+  orgCodes: string[];
+  orgIds: number[];
+  hasPassword: boolean;
+  action: 'create' | 'update';
+  errors: string[];
+}
+
+export interface UserBatchImportResult {
+  mode: 'preview' | 'confirm';
+  rows: UserBatchImportRowPreview[];
+  errors: { row: number; field: string; message: string }[];
+  created: number;
+  updated: number;
+}
+
+function parseStringList(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return [...new Set(raw.map((v) => String(v ?? '').trim()).filter(Boolean))];
+  }
+  if (typeof raw === 'string') {
+    return [...new Set(raw.split(/[;,，；\s]+/).map((s) => s.trim()).filter(Boolean))];
+  }
+  return [];
+}
+
+function parseAllOrgsFlag(raw: unknown): boolean {
+  if (typeof raw === 'boolean') return raw;
+  if (raw === 1 || raw === '1' || raw === 'true' || raw === '是' || raw === 'yes') return true;
+  if (raw === 0 || raw === '0' || raw === 'false' || raw === '否' || raw === 'no' || raw === '' || raw === undefined || raw === null) return false;
+  throw new Error('allOrgs 仅支持布尔值或 是/否/1/0');
+}
+
+export function batchImportUsersWithScopes(
+  db: DB,
+  rawItems: unknown,
+  mode: 'preview' | 'confirm' = 'preview'
+): UserBatchImportResult {
+  if (mode !== 'preview' && mode !== 'confirm') {
+    throw Errors.validation('mode 只能是 preview 或 confirm');
+  }
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    throw Errors.validation('请提供非空的用户批量导入列表 items');
+  }
+  if (rawItems.length > 500) {
+    throw Errors.validation('单次批量初始化用户不能超过 500 条');
+  }
+
+  const roleRows = db.prepare('SELECT id, code FROM app_role').all() as { id: number; code: string }[];
+  const roleByCode = new Map(roleRows.map((r) => [r.code, r.id]));
+  const orgRows = db.prepare('SELECT id, code, status, org_kind FROM org').all() as {
+    id: number;
+    code: string;
+    status: string;
+    org_kind?: string;
+  }[];
+  const orgByCode = new Map(orgRows.map((o) => [o.code, o]));
+  const existingUsers = new Map(
+    (db.prepare('SELECT id, username FROM app_user').all() as { id: number; username: string }[]).map((u) => [u.username, u.id])
+  );
+
+  const seenUsernames = new Map<string, number>();
+  const rows: UserBatchImportRowPreview[] = [];
+  const errors: { row: number; field: string; message: string }[] = [];
+  const validatedPasswords = new Map<number, string>();
+
+  const pushErr = (rowNo: number, rowErrors: string[], field: string, message: string) => {
+    rowErrors.push(message);
+    errors.push({ row: rowNo, field, message });
+  };
+
+  rawItems.forEach((rawItem, idx) => {
+    const rowNo = idx + 1;
+    const item = (rawItem && typeof rawItem === 'object' ? rawItem : {}) as UserBatchImportItemInput;
+    const rowErrors: string[] = [];
+
+    let username = '';
+    try {
+      username = validUsername(item.username);
+      if (seenUsernames.has(username)) {
+        pushErr(rowNo, rowErrors, 'username', `批次内用户名 ${username} 与第 ${seenUsernames.get(username)} 行重复`);
+      } else {
+        seenUsernames.set(username, rowNo);
+      }
+    } catch (e) {
+      pushErr(rowNo, rowErrors, 'username', (e as Error).message);
+    }
+
+    const isExisting = username ? existingUsers.has(username) : false;
+    let displayName = username;
+    if (item.displayName !== undefined && item.displayName !== null && String(item.displayName).trim() !== '') {
+      try {
+        displayName = text(item.displayName, '显示名', 64);
+      } catch (e) {
+        pushErr(rowNo, rowErrors, 'displayName', (e as Error).message);
+      }
+    }
+
+    const roleCodes = parseStringList(item.roleCodes);
+    const roleIds: number[] = [];
+    if (roleCodes.length === 0) {
+      pushErr(rowNo, rowErrors, 'roleCodes', '至少需要指定 1 个角色编码');
+    } else {
+      for (const rc of roleCodes) {
+        const rid = roleByCode.get(rc);
+        if (!rid) pushErr(rowNo, rowErrors, 'roleCodes', `未知角色编码: ${rc}`);
+        else roleIds.push(rid);
+      }
+    }
+
+    let allOrgs = false;
+    try {
+      allOrgs = parseAllOrgsFlag(item.allOrgs);
+    } catch (e) {
+      pushErr(rowNo, rowErrors, 'allOrgs', (e as Error).message);
+    }
+
+    const orgCodes = parseStringList(item.orgCodes);
+    const orgIds: number[] = [];
+    if (!allOrgs) {
+      for (const oc of orgCodes) {
+        const org = orgByCode.get(oc);
+        if (!org) {
+          pushErr(rowNo, rowErrors, 'orgCodes', `未知组织编码: ${oc}`);
+        } else if (org.status !== 'active' || org.org_kind === 'closed_history') {
+          pushErr(rowNo, rowErrors, 'orgCodes', `停用历史组织不可授予写权限范围（${oc}）`);
+        } else {
+          orgIds.push(org.id);
+        }
+      }
+    }
+
+    const rawPw = typeof item.initialPassword === 'string' ? item.initialPassword : '';
+    if (!isExisting || rawPw.length > 0) {
+      try {
+        const pw = validatePasswordPolicy(rawPw, username || undefined);
+        validatedPasswords.set(rowNo, pw);
+      } catch (e) {
+        pushErr(rowNo, rowErrors, 'initialPassword', (e as Error).message);
+      }
+    }
+
+    rows.push({
+      row: rowNo,
+      username,
+      displayName,
+      roleCodes,
+      roleIds,
+      allOrgs,
+      orgCodes: allOrgs ? [] : orgCodes,
+      orgIds: allOrgs ? [] : orgIds,
+      hasPassword: validatedPasswords.has(rowNo),
+      action: isExisting ? 'update' : 'create',
+      errors: rowErrors,
+    });
+  });
+
+  if (mode === 'preview') {
+    return {
+      mode: 'preview',
+      rows,
+      errors,
+      created: rows.filter((r) => r.action === 'create' && r.errors.length === 0).length,
+      updated: rows.filter((r) => r.action === 'update' && r.errors.length === 0).length,
+    };
+  }
+
+  if (errors.length > 0) {
+    throw new AppError('VALIDATION_FAILED', `用户批量导入校验未通过（共 ${errors.length} 处错误）`, 400, errors);
+  }
+
+  // scrypt 口令哈希在 SQLite 写事务外预先计算，严守短写事务红线
+  const passwordHashes = new Map<number, string>();
+  for (const [rowNo, pw] of validatedPasswords.entries()) {
+    passwordHashes.set(rowNo, hashPassword(pw));
+  }
+
+  let created = 0;
+  let updated = 0;
+  db.transaction(() => {
+    const now = nowIso();
+    const insUser = db.prepare(`
+      INSERT INTO app_user (username, display_name, password_hash, status, all_orgs, must_change_password, created_at, updated_at)
+      VALUES (?, ?, ?, 'active', ?, 1, ?, ?)
+    `);
+    const updUser = db.prepare(`
+      UPDATE app_user SET display_name = ?, status = 'active', all_orgs = ?, updated_at = ? WHERE id = ?
+    `);
+    const updUserPw = db.prepare(`
+      UPDATE app_user SET display_name = ?, password_hash = ?, status = 'active', all_orgs = ?, must_change_password = 1, updated_at = ? WHERE id = ?
+    `);
+    const clearRoles = db.prepare('DELETE FROM app_user_role WHERE user_id = ?');
+    const insRole = db.prepare('INSERT INTO app_user_role (user_id, role_id) VALUES (?, ?)');
+    const clearScopes = db.prepare('DELETE FROM app_user_org_scope WHERE user_id = ?');
+    const insScope = db.prepare('INSERT INTO app_user_org_scope (user_id, org_id) VALUES (?, ?)');
+
+    for (const r of rows) {
+      const existing = db.prepare('SELECT id FROM app_user WHERE username = ?').get(r.username) as { id: number } | undefined;
+      let userId: number;
+      if (existing) {
+        userId = existing.id;
+        const pwHash = passwordHashes.get(r.row);
+        if (pwHash) {
+          updUserPw.run(r.displayName, pwHash, r.allOrgs ? 1 : 0, now, userId);
+          revokeUserSessions(db, userId);
+        } else {
+          updUser.run(r.displayName, r.allOrgs ? 1 : 0, now, userId);
+        }
+        updated++;
+      } else {
+        const pwHash = passwordHashes.get(r.row)!;
+        userId = Number(insUser.run(r.username, r.displayName, pwHash, r.allOrgs ? 1 : 0, now, now).lastInsertRowid);
+        created++;
+      }
+      clearRoles.run(userId);
+      for (const roleId of r.roleIds) insRole.run(userId, roleId);
+      clearScopes.run(userId);
+      if (!r.allOrgs) {
+        for (const orgId of r.orgIds) insScope.run(userId, orgId);
+      }
+    }
+
+    assertAdminRemains(db);
+    // 审计日志绝不记录明文或哈希口令
+    writeLog(db, 'security.user.batch_import', 'app_user', '-', {
+      total: rows.length,
+      created,
+      updated,
+      usernames: rows.map((r) => r.username),
+    });
+  })();
+
+  return { mode: 'confirm', rows, errors: [], created, updated };
 }
 
 export { ALL_PERMISSIONS };

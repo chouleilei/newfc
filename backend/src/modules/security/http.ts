@@ -333,6 +333,10 @@ export function registerSecurityRoutes(app: Express, db: () => DB, wrap: Wrap): 
 
   app.get('/api/security/permissions', wrap((_req, res) => res.json({ items: security.permissionCatalog() })));
   app.get('/api/security/users', wrap((_req, res) => res.json({ items: security.listUsers(db()) })));
+  app.post('/api/security/users/batch-import', wrap((req, res) => {
+    const body = (req.body ?? {}) as { mode?: 'preview' | 'confirm'; items?: unknown };
+    res.json(security.batchImportUsersWithScopes(db(), body.items, body.mode ?? 'preview'));
+  }));
   app.post('/api/security/users', wrap((req, res) => res.status(201).json(security.createUser(db(), req.body ?? {}))));
   app.get('/api/security/users/:id', wrap((req, res) => res.json(security.getUser(db(), idParam(req.params.id, '用户 ID')))));
   app.patch('/api/security/users/:id', wrap((req, res) =>

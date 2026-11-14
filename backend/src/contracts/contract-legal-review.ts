@@ -59,6 +59,8 @@ export const EVIDENCE_KINDS = [
   'out_of_plan_approval',
   'tech_special_audit',
   'funding_feasibility',
+  'boq_quantity_settlement',
+  'boq_price_settlement',
   'other',
 ] as const;
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];

@@ -55,7 +55,7 @@ import { registerAssistantRoutes } from './assistant/controller';
 import * as aiChannels from './modules/settings/ai-channels.service';
 import { setChannelResolver, setModelCallRecorder } from './assistant/model';
 import { purgeExpiredJobs, recoverInterruptedJobs } from './modules/jobs/job.service';
-import { getSetting, listBusinessSettings, saveBusinessSettings } from './modules/settings/business-settings';
+import { getSetting, listBusinessSettings, saveBusinessSettings, testPdfParserConnection } from './modules/settings/business-settings';
 import { registerMasterRoutes } from './modules/master/routes';
 import { registerEasRoutes } from './modules/eas/routes';
 import { registerGovernanceRoutes } from './modules/governance/routes';
@@ -294,6 +294,9 @@ export async function createApp(opts: ServerOptions) {
   registerSystemSettingsRoutes(app, db, wrap);
   app.get('/api/settings/business', wrap((_req, res) => res.json({ items: listBusinessSettings(db()) })));
   app.put('/api/settings/business', wrap((req, res) => res.json({ items: saveBusinessSettings(db(), req.body) })));
+  app.post('/api/settings/business/test-pdf-parser', wrap(async (req, res) => {
+    res.json(await testPdfParserConnection(db(), (req.body ?? {}) as { baseUrl?: unknown }));
+  }));
 
   /* ============ 恢复期间的请求门闸 ============ */
   // 恢复会关闭并替换数据库连接:中途到达的业务请求会拿到已关闭的连接,大面积 500。
@@ -443,8 +446,25 @@ export async function createApp(opts: ServerOptions) {
     res.json(org.getOrgTree(db(), scope && !scope.all ? (id) => orgInScope(scope, id) : undefined));
   }));
   app.post('/api/org', wrap((req, res) => {
-    const { parentId = null, code, name, sortOrder } = req.body ?? {};
-    res.status(201).json(org.createOrg(db(), { parentId, code, name, sortOrder }));
+    const {
+      parentId = null, code, name, sortOrder, status,
+      orgKind, creditCode, planIssuanceRootId, isPlanExcluded, contractPrefixCode, isDirectStation, reportFullName,
+    } = req.body ?? {};
+    res.status(201).json(org.createOrg(db(), {
+      parentId, code, name, sortOrder, status,
+      ...(orgKind !== undefined ? { orgKind } : {}),
+      ...(creditCode !== undefined ? { creditCode } : {}),
+      ...(planIssuanceRootId !== undefined ? { planIssuanceRootId } : {}),
+      ...(isPlanExcluded !== undefined ? { isPlanExcluded } : {}),
+      ...(contractPrefixCode !== undefined ? { contractPrefixCode } : {}),
+      ...(isDirectStation !== undefined ? { isDirectStation } : {}),
+      ...(reportFullName !== undefined ? { reportFullName } : {}),
+    }));
+  }));
+  app.post('/api/org/import', wrap((req, res) => {
+    const { mode = 'preview', rows } = (req.body ?? {}) as { mode?: 'preview' | 'confirm'; rows?: unknown };
+    if (mode !== 'preview' && mode !== 'confirm') throw Errors.validation('mode 只能是 preview 或 confirm');
+    res.json(mode === 'confirm' ? org.confirmOrgBatchImport(db(), rows) : org.previewOrgBatchImport(db(), rows));
   }));
   app.patch('/api/org/:id', wrap((req, res) => {
     res.json(org.updateOrg(db(), Number(req.params.id), req.body ?? {}));

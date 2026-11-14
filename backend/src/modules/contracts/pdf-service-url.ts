@@ -136,3 +136,83 @@ export async function pdfServiceJson(
     req.end(body);
   });
 }
+
+/** 轻量探活独立 PDF 解析服务 `/health` 端点（复用同一套 SSRF / DNS 绑定安全校验）。 */
+export async function probePdfServiceHealth(
+  value: string,
+  key: string | null,
+  timeoutMs = 5_000,
+): Promise<{ ok: boolean; status: number; latencyMs: number; message: string }> {
+  const started = Date.now();
+  let url: URL;
+  try {
+    url = validatePdfServiceUrl(value);
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: Date.now() - started,
+      message: err instanceof Error ? err.message : 'PDF 服务地址不合法',
+    };
+  }
+  const signal = AbortSignal.timeout(timeoutMs);
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  let addresses: { address: string }[];
+  try {
+    addresses = await Promise.race([
+      dns.lookup(hostname, { all: true }),
+      new Promise<never>((_, reject) =>
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+      ),
+    ]);
+    assertResolvedAddresses(url, addresses);
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: Date.now() - started,
+      message: err instanceof Error ? err.message : 'PDF 服务域名解析失败',
+    };
+  }
+  return new Promise((resolve) => {
+    const transport = url.protocol === 'https:' ? https : http;
+    const req = transport.request(
+      {
+        protocol: url.protocol,
+        hostname: addresses[0].address,
+        port: url.port || undefined,
+        path: `${url.pathname.replace(/\/$/, '')}/health`,
+        method: 'GET',
+        signal,
+        ...(url.protocol === 'https:' && !net.isIP(hostname) ? { servername: hostname } : {}),
+        headers: {
+          Host: url.host,
+          ...(key ? { Authorization: `Bearer ${key}` } : {}),
+        },
+      },
+      (res) => {
+        const status = res.statusCode ?? 0;
+        res.resume();
+        res.on('end', () => {
+          const latencyMs = Date.now() - started;
+          const ok = status >= 200 && status < 300;
+          resolve({
+            ok,
+            status,
+            latencyMs,
+            message: ok ? `PDF 解析服务连通正常（HTTP ${status}）` : `PDF 解析服务返回 HTTP ${status}`,
+          });
+        });
+      },
+    );
+    req.on('error', (err) => {
+      resolve({
+        ok: false,
+        status: 0,
+        latencyMs: Date.now() - started,
+        message: err.message || '连接 PDF 解析服务失败',
+      });
+    });
+    req.end();
+  });
+}

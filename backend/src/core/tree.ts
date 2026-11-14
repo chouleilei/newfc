@@ -3,6 +3,9 @@
  * 组织树与科目树共用。
  */
 
+export const ORG_KINDS = ['legal_entity', 'hq_dept', 'direct_unit', 'closed_history'] as const;
+export type OrgKind = (typeof ORG_KINDS)[number];
+
 export interface TreeNodeRow {
   id: number;
   parent_id: number | null;
@@ -13,6 +16,13 @@ export interface TreeNodeRow {
   quantity_agg?: string; // 数量型科目专用:上级汇总方式 sum=可加总 / none=不汇总
   budget_required?: number; // 预算/预测叶子科目是否要求每个适用叶子组织填报
   basis_required?: number; // 有预算值时是否必须填写测算依据
+  org_kind?: OrgKind; // 组织树专用:存续法人/本部部门/直属非法人/历史关停主体
+  credit_code?: string;
+  plan_issuance_root_id?: number | null;
+  is_plan_excluded?: number;
+  contract_prefix_code?: string;
+  is_direct_station?: number;
+  report_full_name?: string;
   sort_order: number;
   status: string;
 }
@@ -111,6 +121,13 @@ export interface TreeNodeDto {
   quantityAgg?: string; // 数量型科目:sum/none
   budgetRequired?: boolean;
   basisRequired?: boolean;
+  orgKind?: OrgKind;
+  creditCode?: string;
+  planIssuanceRootId?: number | null;
+  isPlanExcluded?: boolean;
+  contractPrefixCode?: string;
+  isDirectStation?: boolean;
+  reportFullName?: string;
   sortOrder: number;
   status: string;
   children: TreeNodeDto[];
@@ -121,6 +138,17 @@ export interface TreeNodeDto {
 export function buildTree(rows: TreeNodeRow[]): TreeNodeDto[] {
   const byId = new Map<number, TreeNodeDto>();
   for (const r of rows) {
+    const orgFields = r.org_kind !== undefined
+      ? {
+          orgKind: r.org_kind,
+          creditCode: r.credit_code ?? '',
+          planIssuanceRootId: r.plan_issuance_root_id ?? null,
+          isPlanExcluded: r.is_plan_excluded === 1,
+          contractPrefixCode: r.contract_prefix_code ?? '',
+          isDirectStation: r.is_direct_station === 1,
+          reportFullName: r.report_full_name ?? '',
+        }
+      : {};
     byId.set(r.id, {
       id: r.id,
       parentId: r.parent_id,
@@ -131,6 +159,7 @@ export function buildTree(rows: TreeNodeRow[]): TreeNodeDto[] {
       quantityAgg: r.quantity_agg,
       budgetRequired: r.budget_required === 1,
       basisRequired: r.basis_required === 1,
+      ...orgFields,
       sortOrder: r.sort_order,
       status: r.status,
       children: [],

@@ -32,7 +32,13 @@
     "expense:policy:import:dev": "ts-node src/modules/expense/policy-import-cli.ts",
     "resource:baseline": "node -r ts-node/register/transpile-only scripts/resource-baseline.ts",
     "contract:legal:seed": "node dist/modules/contracts/legal-seed-cli.js",
-    "contract:legal:seed:dev": "ts-node src/modules/contracts/legal-seed-cli.ts"
+    "contract:legal:seed:dev": "ts-node src/modules/contracts/legal-seed-cli.ts",
+    "org:seed": "node dist/modules/org/seed-org-cli.js",
+    "org:seed:dev": "ts-node src/modules/org/seed-org-cli.ts",
+    "master:seed:coldstart": "node dist/modules/master/seed-master-coldstart-cli.js",
+    "master:seed:coldstart:dev": "ts-node src/modules/master/seed-master-coldstart-cli.ts",
+    "settings:seed:business": "node dist/modules/settings/seed-business-settings-cli.js",
+    "settings:seed:business:dev": "ts-node src/modules/settings/seed-business-settings-cli.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

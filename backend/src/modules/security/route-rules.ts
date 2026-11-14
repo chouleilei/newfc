@@ -104,7 +104,7 @@ addRouteRules([
   R('*', /^\/(backup|migrations)(\/|$)/, 'system:backup', true),
   R('GET', /^\/settings\//, 'settings:read'),
   R('WRITE', /^\/settings\//, 'settings:manage'),
-  R('*', /^\/security\//, 'security:manage'),
+  R('*', /^\/security\//, 'security:manage', true),
 
   // AI 助手:受限用户可用。工具/动作/导出在 assistant/tool-policy.ts 按同一 AuthContext
   // 校验权限与组织范围;会话/操作/洞察按创建人隔离(assistant/ownership.ts)。

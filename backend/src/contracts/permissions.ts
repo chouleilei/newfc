@@ -46,6 +46,7 @@ export const PERMISSION_CATALOG = [
   { code: 'contract:read', label: '查看合同', group: '合同' },
   { code: 'contract:write', label: '维护合同/变更/付款', group: '合同' },
   { code: 'contract:import', label: '导入合同台账', group: '合同' },
+  { code: 'contract:migrate', label: '历史合同容缺清洗迁移', group: '合同' },
   { code: 'contract:review', label: '审核合同', group: '合同' },
   { code: 'expense:read', label: '查看费用报销', group: '费用审核' },
   { code: 'expense:submit', label: '登记报销单与附件', group: '费用审核' },

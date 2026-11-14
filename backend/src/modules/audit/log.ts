@@ -4,7 +4,7 @@ import { currentContext } from '../../core/request-context';
 /** 操作日志(方案四.12):组织/科目变更、版本操作、实际数、年度关闭、备份恢复等。 */
 
 export type LogAction =
-  | 'org.create' | 'org.update' | 'org.move' | 'org.deactivate' | 'org.activate' | 'org.delete'
+  | 'org.create' | 'org.update' | 'org.move' | 'org.deactivate' | 'org.activate' | 'org.delete' | 'org.batch_import'
   | 'account.create' | 'account.update' | 'account.move' | 'account.deactivate' | 'account.activate' | 'account.delete'
   | 'metric.create' | 'metric.update' | 'metric.delete'
   | 'sheet.create' | 'sheet.update' | 'sheet.delete'

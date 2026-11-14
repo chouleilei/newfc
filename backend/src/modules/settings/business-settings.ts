@@ -1,4 +1,4 @@
-import { validatePdfServiceUrl } from '../contracts/pdf-service-url';
+import { probePdfServiceHealth, validatePdfServiceUrl } from '../contracts/pdf-service-url';
 /**
  * 业务设置(AC-F23):类型化登记表 + app_setting 键值存储。
  *
@@ -12,6 +12,7 @@ import { AppError, Errors } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { writeLog } from '../audit/log';
 import { parseDecimalToCents, parseScaled, RATIO_SCALE } from '../../core/decimal';
+import { LEGAL_CATEGORIES } from '../../contracts/contract-legal-review';
 
 /** ratio:0～1 的十进制字符串,最多 6 位小数(缩放 bigint 校验,不经浮点) */
 type SettingType = 'string' | 'int' | 'bool' | 'enum' | 'url' | 'secret' | 'ratio';
@@ -63,6 +64,20 @@ export const BUSINESS_SETTINGS: readonly SettingDef[] = [
     key: 'contract.change_or_mode', label: '合同变更分级比例与限额口径', group: '合同', type: 'enum', default: 'min',
     options: [{ value: 'min', label: '孰低从严（默认）' }, { value: 'max', label: '孰高' }],
     description: '附件 5 变更增加额“≤比例 或 ≤固定限额”的组合判定口径（CLM-DEC-01）',
+  },
+  {
+    key: 'contract.countersign_due_days', label: '合同会签参考反馈天数', group: '合同', type: 'int', default: 0, min: 0, max: 60,
+    description: '默认 0 表示不设限办日；大于 0 时按发起日推算会签参考反馈日并纳入超期提醒',
+  },
+  {
+    key: 'contract.archive_transfer_sla_days', label: '合同档案移交时限预警阈值（日）', group: '合同', type: 'int', default: 0, min: 0, max: 365,
+    description: '默认 0 表示仅结案强检；大于 0 时对档案验收通过后超期未移交档案室的合同触发预警（CW-30）',
+  },
+  {
+    key: 'contract.legal_review_categories', label: '智能法审启用合同类别', group: '合同', type: 'string',
+    default: 'goods_procurement,small_construction,construction,tech_service,general_service,important_special',
+    maxLength: 500,
+    description: '英文逗号分隔的法审触发类别枚举，默认覆盖货物采购、小型施工、工程施工、技术服务、一般服务、重要特殊六大类别',
   },
 ];
 
@@ -120,6 +135,12 @@ function validate(def: SettingDef, raw: unknown): string | number | boolean | nu
       if (def.maxLength && v.length > def.maxLength) throw fail(`不能超过 ${def.maxLength} 个字符`);
       if (/[\u0000-\u001f]/.test(v)) throw fail('不能包含控制字符');
       if (def.key === 'contract.legal_entity_org_ids' && v && !/^\d+(,\d+)*$/.test(v)) throw fail('须为英文逗号分隔的组织ID');
+      if (def.key === 'contract.legal_review_categories' && v) {
+        const parts = v.split(',').map((s) => s.trim()).filter(Boolean);
+        if (parts.length === 0 || parts.some((p) => !(LEGAL_CATEGORIES as readonly string[]).includes(p))) {
+          throw fail(`须为英文逗号分隔的合法合同类别（${LEGAL_CATEGORIES.join('/')}）`);
+        }
+      }
       if (def.key === 'contract.prior_year_net_assets' && v) {
         try {
           const entries = JSON.parse(v) as { orgId: number; year: number; amount: string }[];
@@ -192,6 +213,14 @@ function crossCheck(db: DB, parsed: [SettingDef, string | number | boolean | nul
     const eff = IC_THRESHOLD_KEYS.map((k) => parseScaled(String(effective(k)), RATIO_SCALE));
     if (!(eff[0] <= eff[1] && eff[1] <= eff[2])) errors.push({ row: 0, field: 'investment.ic_threshold_attention', message: '投资偏差阈值须满足 正常 ≤ 关注 ≤ 预警' });
   }
+  if (next.has('calendar.holidays') || next.has('calendar.workdays')) {
+    const hol = new Set(String(effective('calendar.holidays') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    const work = String(effective('calendar.workdays') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const overlap = work.filter((d) => hol.has(d));
+    if (overlap.length > 0) {
+      errors.push({ row: 0, field: 'calendar.workdays', message: `同一日期不能同时配置为法定休息日与调休工作日: ${overlap.join(', ')}` });
+    }
+  }
   return errors;
 }
 
@@ -252,4 +281,68 @@ export function saveBusinessSettings(db: DB, input: unknown): PublicSetting[] {
 /** 所有工作日门禁使用同一套可配置法定节假日/调休表。 */
 export function workingCalendar(db: DB) {
   return { holidays: new Set(getSetting<string>(db, 'calendar.holidays').split(',').filter(Boolean)), workdays: new Set(getSetting<string>(db, 'calendar.workdays').split(',').filter(Boolean)) };
+}
+
+/** 探活 PDF 解析服务（可传未保存的待测 baseUrl，未传则使用库内已保存地址）。 */
+export async function testPdfParserConnection(
+  db: DB,
+  input?: { baseUrl?: unknown }
+): Promise<{ ok: boolean; status: number; latencyMs: number; message: string }> {
+  const candidate = typeof input?.baseUrl === 'string' && input.baseUrl.trim()
+    ? input.baseUrl.trim()
+    : (getSetting<string | null>(db, 'integration.pdf_parser_base_url') ?? '').trim();
+  if (!candidate) {
+    return { ok: false, status: 0, latencyMs: 0, message: '尚未配置 PDF 解析服务地址' };
+  }
+  const apiKey = getSetting<string | null>(db, 'integration.pdf_parser_api_key');
+  const timeoutSec = getSetting<number>(db, 'integration.pdf_parser_timeout_seconds');
+  return probePdfServiceHealth(candidate, apiKey, Math.min(Math.max(timeoutSec * 1000, 3_000), 10_000));
+}
+
+/**
+ * 幂等初始化或同步期初业务设置快照（GAP-03）：
+ * - 自动根据 org 表计算二级在运法人 ID 列表（org_kind='legal_entity' AND status='active' AND parent_id IS NOT NULL）；
+ * - 合并调用方显式提供的覆盖参数（不编造未提供的涉密净资产或密钥）；
+ * - 支持 preview | confirm 模式。
+ */
+export function importBusinessSettingsSnapshot(
+  db: DB,
+  overrides: Record<string, unknown> = {},
+  mode: 'preview' | 'confirm' = 'confirm'
+): { mode: 'preview' | 'confirm'; effectiveEntries: Record<string, unknown>; settings: PublicSetting[] } {
+  const secondaryLegalIds = (
+    db.prepare(
+      "SELECT id FROM org WHERE org_kind = 'legal_entity' AND status = 'active' AND parent_id IS NOT NULL ORDER BY id"
+    ).all() as { id: number }[]
+  ).map((r) => r.id);
+
+  const effectiveEntries: Record<string, unknown> = {};
+  if (secondaryLegalIds.length > 0 && overrides['contract.legal_entity_org_ids'] === undefined) {
+    effectiveEntries['contract.legal_entity_org_ids'] = secondaryLegalIds.join(',');
+  }
+  for (const [k, v] of Object.entries(overrides)) {
+    effectiveEntries[k] = v;
+  }
+
+  if (Object.keys(effectiveEntries).length === 0) {
+    return { mode, effectiveEntries, settings: listBusinessSettings(db) };
+  }
+
+  if (mode === 'preview') {
+    const unknown = Object.keys(effectiveEntries).filter((k) => !DEFS.has(k));
+    if (unknown.length) {
+      throw new AppError('UNKNOWN_SETTING', `不支持的设置项:${unknown.join(', ')}`, 400);
+    }
+    const parsed: [SettingDef, string | number | boolean | null][] = [];
+    for (const [k, raw] of Object.entries(effectiveEntries)) {
+      const def = DEFS.get(k)!;
+      parsed.push([def, validate(def, raw)]);
+    }
+    const errs = crossCheck(db, parsed);
+    if (errs.length) throw new AppError('VALIDATION_FAILED', '设置快照校验未通过', 400, errs);
+    return { mode: 'preview', effectiveEntries, settings: listBusinessSettings(db) };
+  }
+
+  const settings = saveBusinessSettings(db, effectiveEntries);
+  return { mode: 'confirm', effectiveEntries, settings };
 }

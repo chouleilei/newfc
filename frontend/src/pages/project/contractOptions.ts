@@ -46,6 +46,8 @@ export const EVIDENCE_LABELS: Record<EvidenceKind, string> = {
   out_of_plan_approval: '计划外项目审批凭据',
   tech_special_audit: '技术归口专项复核意见',
   funding_feasibility: '大额资金可行性论证',
+  boq_quantity_settlement: '工程量结算书',
+  boq_price_settlement: '工程价款结算书',
   other: '其他依据',
 };
 
