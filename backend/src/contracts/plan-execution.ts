@@ -4,9 +4,71 @@ import { year, type RowErrorDto } from './project-budget';
 
 /** AC-F15 计划执行与形象进度:请求 schema 与响应类型。 */
 
-export const PLAN_SHEETS = ['investment', 'purchase', 'maintenance'] as const;
+export const PLAN_SHEETS = [
+  'investment',
+  'investment_tech_renovation',
+  'investment_info',
+  'investment_other',
+  'purchase',
+  'pre_work',
+  'capacity_add',
+  'tech_renovation_exp',
+  'maintenance',
+  'safety_input',
+  'five_expenses',
+  'mgmt_fee',
+  'mfg_fee',
+  'annual_kpi',
+  'profit_budget',
+  'responsibility_kpi',
+] as const;
 export type PlanSheetCode = (typeof PLAN_SHEETS)[number];
-export const PLAN_SHEET_LABELS: Record<PlanSheetCode, string> = { investment: '固定资产投资计划', purchase: '固定资产购置计划', maintenance: '运行维护费' };
+export const PLAN_SHEET_LABELS: Record<PlanSheetCode, string> = {
+  investment: '固定资产投资计划',
+  investment_tech_renovation: '资本化更新改造',
+  investment_info: '信息化投资',
+  investment_other: '其他投资',
+  purchase: '固定资产购置计划',
+  pre_work: '前期工作费',
+  capacity_add: '新增生产能力',
+  tech_renovation_exp: '费用化更新改造',
+  maintenance: '运行维护费',
+  safety_input: '安全生产投入',
+  five_expenses: '五项费用',
+  mgmt_fee: '管理类费用',
+  mfg_fee: '制造费用',
+  annual_kpi: '主要指标',
+  profit_budget: '利润预算明细',
+  responsibility_kpi: '经营目标责任指标',
+};
+
+export type PlanSheetDomain = 'investment_purchase' | 'operation_expense' | 'kpi_budget';
+export const PLAN_SHEET_DOMAIN_LABELS: Record<PlanSheetDomain, string> = {
+  investment_purchase: '投资与购置',
+  operation_expense: '运维与费用',
+  kpi_budget: '指标与预算',
+};
+export const PLAN_SHEET_DOMAINS: Record<PlanSheetDomain, readonly PlanSheetCode[]> = {
+  investment_purchase: [
+    'investment',
+    'investment_tech_renovation',
+    'investment_info',
+    'investment_other',
+    'purchase',
+    'pre_work',
+    'capacity_add',
+  ],
+  operation_expense: [
+    'tech_renovation_exp',
+    'maintenance',
+    'safety_input',
+    'five_expenses',
+    'mgmt_fee',
+    'mfg_fee',
+  ],
+  kpi_budget: ['annual_kpi', 'profit_budget', 'responsibility_kpi'],
+};
+
 export const PLAN_MEASURES = ['annual_plan', 'annual_actual_ytd', 'cumulative', 'total', 'snapshot'] as const;
 export type PlanMeasure = (typeof PLAN_MEASURES)[number];
 export const PLAN_MEASURE_LABELS: Record<PlanMeasure, string> = {
@@ -36,18 +98,38 @@ export interface PlanFactDto {
   sourceCell: string;
 }
 
+export interface PlanWarningDto {
+  code: 'MISSING_PROJECT_CODE' | 'STALE_YEAR_HEADER' | 'PLACEHOLDER_SHEET_SKIPPED' | 'ZERO_PLACEHOLDER_ROW';
+  sheet: string;
+  row: number;
+  message: string;
+  headerYearRaw?: string;
+}
+
+export type PlanItemType = 'detail' | 'category' | 'subtotal' | 'leaf' | 'section_header' | 'cross_ref_summary';
+
 export interface PlanItemDto {
   id: number;
   sheetCode: PlanSheetCode;
   rowNo: number;
   seqNo: string;
   itemName: string;
-  itemType: 'detail' | 'category' | 'subtotal';
+  itemType: PlanItemType;
   path: string;
   projectId: number | null;
   projectCode: string | null;
   orgId: number | null;
   orgName: string | null;
+  undertakeOrgId?: number | null;
+  undertakeOrgName?: string | null;
+  stableItemUid?: string;
+  costNature?: string;
+  fundingChannel?: string;
+  submittedAmount?: MoneyString | null;
+  approvedAmount?: MoneyString | null;
+  approvedBudget?: MoneyString | null;
+  paidCumulative?: MoneyString | null;
+  warnings?: PlanWarningDto[];
   facts: PlanFactDto[];
 }
 
@@ -56,6 +138,7 @@ export interface PlanSheetSummaryDto { code: PlanSheetCode; name: string; source
 export interface PlanPreviewDto {
   valid: boolean;
   errors: RowErrorDto[];
+  warnings?: PlanWarningDto[];
   sheets: PlanSheetSummaryDto[];
   ignoredSheets: string[];
   itemCount: number;
@@ -117,10 +200,11 @@ export interface PlanOverviewDto {
 export interface PlanProjectProgressDto {
   itemId: number;
   rowNo: number;
-  projectId: number;
+  projectId: number | null;
   projectCode: string;
   projectName: string;
   orgName: string;
+  undertakeOrgName?: string | null;
   approvedBudget: MoneyString | null;
   totalInvestment: MoneyString | null;
   completedCumulative: MoneyString | null;

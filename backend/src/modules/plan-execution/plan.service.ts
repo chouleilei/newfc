@@ -8,75 +8,321 @@
  *   形象进度只来自形象进度列。
  * - 组织范围:明细行 org_id;分类/小计行只对全组织用户可见。写操作要求批次涉及的全部组织在范围内。
  */
+import crypto from 'crypto';
+import ExcelJS from 'exceljs';
 import { planExtraAliases } from '../settings/import-aliases.service';
 import type { DB } from '../../db/connection';
-import { AppError, type RowError } from '../../core/errors';
+import { AppError, Errors, type RowError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalOrNull, centsToDecimalString, ratioScaled, ratioString } from '../../core/decimal';
 import { writeLog } from '../audit/log';
 import { assertFullScope, currentOrgScope, notVisible, orgInScope, scopeFilterSql, type OrgScope } from '../security/scope';
 import { storeFile, type ObjectStore } from '../files/object-store';
-import { readWorkbookSheets } from '../io/table-reader';
-import { normalizeName, resolveEntity } from '../master/master.service';
+import { MAX_IMPORT_ROWS, MAX_WORKBOOK_SHEETS } from '../io/import-limits';
+import { parseCsv, readWorkbookSheets, type ReadSheet } from '../io/table-reader';
+import { isOle2Buffer } from '../io/xls-reader';
+import { compactOrgName, normalizeName, resolveEntity } from '../master/master.service';
 import {
-  PLAN_SHEET_LABELS, PLAN_SHEETS, type PeriodValueDto, type PlanBatchDto, type PlanFactDto, type PlanItemDto, type PlanOverviewDto, type PlanPreviewDto,
+  PLAN_SHEET_LABELS, PLAN_SHEETS, type PeriodValueDto, type PlanBatchDto, type PlanFactDto, type PlanItemDto, type PlanItemType, type PlanOverviewDto, type PlanPreviewDto,
   type PlanProjectProgressDto, type PlanProjectProgressListDto, type PlanQuery, type PlanRowStatus, type PlanSheetCode, type PlanSheetOverviewDto,
-  type PlanSheetSummaryDto, type PlanUploadForm,
+  type PlanSheetSummaryDto, type PlanUploadForm, type PlanWarningDto,
 } from '../../contracts/plan-execution';
-import { factValueText, fieldLabel, parsePlanWorkbook, type ParsedPlanItem, type ParsedPlanSheet } from './plan.parse';
+import { factValueText, fieldLabel, PLAN_FIELDS, parsePlanWorkbook, type ParsedPlanItem, type ParsedPlanSheet } from './plan.parse';
 
 const nowIso = () => new Date().toISOString();
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const XLS_TYPE = 'application/vnd.ms-excel';
+const CSV_TYPE = 'text/csv; charset=utf-8';
 const conflict = (code: string, message: string, details?: unknown) => new AppError(code, message, 409, undefined, details);
 const ONE = 1_000_000n;
 const SLOW = 300_000n;
 
 /* ================= 解析 + 主数据归属 ================= */
 
-interface ResolvedItem extends ParsedPlanItem { projectId: number | null; orgId: number | null; itemKey: string }
-interface ResolvedPlan { sheets: (ParsedPlanSheet & { items: ResolvedItem[] })[]; ignoredSheets: string[]; errors: RowError[] }
+interface ResolvedItem extends ParsedPlanItem {
+  projectId: number | null;
+  orgId: number | null;
+  undertakeOrgId: number | null;
+  itemKey: string;
+  stableItemUid: string;
+}
+interface ResolvedPlan {
+  sheets: (ParsedPlanSheet & { items: ResolvedItem[] })[];
+  ignoredSheets: string[];
+  errors: RowError[];
+  warnings: PlanWarningDto[];
+}
 
-async function parseAndResolve(db: DB, scope: OrgScope, content: Buffer, form: PlanUploadForm): Promise<ResolvedPlan> {
-  const parsed = parsePlanWorkbook(await readWorkbookSheets(content), form.year, planExtraAliases(db));
+async function readPlanInputSheets(content: Buffer, fileName = 'plan.xlsx'): Promise<{ sheets: ReadSheet[]; isLegacyXls: boolean }> {
+  if (!content.length) throw Errors.validation('上传文件为空');
+  if (isOle2Buffer(content)) {
+    return { sheets: await readWorkbookSheets(content, MAX_IMPORT_ROWS, MAX_WORKBOOK_SHEETS), isLegacyXls: true };
+  }
+  if (fileName.toLowerCase().endsWith('.csv') || (content[0] !== 0x50 && content[1] !== 0x4b)) {
+    // 仅当确实是合法 UTF-8 CSV 文本且非 ZIP (.xlsx) 时按单表 CSV 读取
+    if (!(content[0] === 0x50 && content[1] === 0x4b)) {
+      let text: string;
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(content);
+      } catch {
+        throw Errors.validation('不是有效的 .xlsx/.xls/.csv 文件');
+      }
+      const rows = parseCsv(text.replace(/^\uFEFF/, ''))
+        .map((cells, idx) => ({ rowNo: idx + 1, cells }))
+        .filter((r) => r.cells.some((c) => c.trim() !== ''));
+      const baseName = fileName.replace(/\.[^.]+$/, '') || '固定资产投资计划';
+      return { sheets: [{ name: baseName, hidden: false, rows }], isLegacyXls: false };
+    }
+  }
+  return { sheets: await readWorkbookSheets(content, MAX_IMPORT_ROWS, MAX_WORKBOOK_SHEETS), isLegacyXls: false };
+}
+
+function resolveOrgFlexible(
+  db: DB,
+  rawText: string,
+  asOf: string,
+  allOrgs: { id: number; parent_id: number | null; code: string; name: string; report_full_name: string; status: string }[],
+  rootOrgId: number | null,
+): ReturnType<typeof resolveEntity> {
+  const direct = resolveEntity(db, 'org', { name: rawText, sourceSystem: 'plan', asOf });
+  if (direct.targetId !== null || direct.matchedBy === 'ambiguous') return direct;
+  const globalDirect = resolveEntity(db, 'org', { name: rawText, asOf });
+  if (globalDirect.targetId !== null || globalDirect.matchedBy === 'ambiguous') return globalDirect;
+
+  // 按 report_full_name 末级简称精确匹配（如 ".../示例直属水电站"）
+  const trimmed = rawText.trim();
+  const byReportLeaf = allOrgs.filter((o) => {
+    if (o.status !== 'active' || !o.report_full_name) return false;
+    const leaf = o.report_full_name.split('/').pop()?.trim() ?? '';
+    return leaf === trimmed;
+  });
+  if (byReportLeaf.length === 1) {
+    return {
+      input: { name: rawText },
+      matchedBy: 'normalized_name',
+      targetId: byReportLeaf[0].id,
+      targetCode: byReportLeaf[0].code,
+      targetName: byReportLeaf[0].name,
+      confidence: '0.95',
+      candidates: [],
+    };
+  }
+
+  const cleaned = rawText
+    .replace(/（[^）]*）|\([^)]*\)/g, '')
+    .replace(/(风电场|水电站|电站|项目部|本部|总部)$/g, '')
+    .trim();
+  if (cleaned && cleaned !== rawText) {
+    const retry = resolveEntity(db, 'org', { name: cleaned, asOf });
+    if (retry.targetId !== null) return retry;
+  }
+
+  const norm = compactOrgName(rawText);
+  if (rootOrgId !== null && /^(公司总部|集团总部|集团本部|公司本部|总部|本部|长沙基地|不可预见费|公司|集团)$/.test(rawText.replace(/\s+/g, ''))) {
+    const root = allOrgs.find((o) => o.id === rootOrgId)!;
+    return {
+      input: { name: rawText },
+      matchedBy: 'normalized_name',
+      targetId: root.id,
+      targetCode: root.code,
+      targetName: root.name,
+      confidence: '0.9',
+      candidates: [],
+    };
+  }
+  const activeHits = norm.length >= 2
+    ? allOrgs.filter((o) => o.status === 'active' && (compactOrgName(o.name).includes(norm) || norm.includes(compactOrgName(o.name))) && compactOrgName(o.name).length >= 2)
+    : [];
+  if (activeHits.length === 1) {
+    return {
+      input: { name: rawText },
+      matchedBy: 'normalized_name',
+      targetId: activeHits[0].id,
+      targetCode: activeHits[0].code,
+      targetName: activeHits[0].name,
+      confidence: '0.85',
+      candidates: [],
+    };
+  }
+  // 若候选集仅由同一纵向控股链的母公司与唯一实体运营叶子组成，收敛至该运营叶子
+  if (activeHits.length === 2) {
+    const hitIds = new Set(activeHits.map((h) => h.id));
+    const leafOnly = activeHits.filter((h) => !activeHits.some((other) => other.parent_id === h.id));
+    if (leafOnly.length === 1 && leafOnly[0].parent_id !== null && hitIds.has(leafOnly[0].parent_id)) {
+      return {
+        input: { name: rawText },
+        matchedBy: 'normalized_name',
+        targetId: leafOnly[0].id,
+        targetCode: leafOnly[0].code,
+        targetName: leafOnly[0].name,
+        confidence: '0.8',
+        candidates: [],
+      };
+    }
+  }
+  return direct;
+}
+
+export function buildDeterministicPlanItemKey(params: {
+  year: number;
+  sheetCode: PlanSheetCode;
+  orgCode: string;
+  undertakeOrgCode: string;
+  path: string;
+  itemName: string;
+  occurrence?: number;
+}): string {
+  const base = `${params.year}:${params.sheetCode}:${params.orgCode}:${params.undertakeOrgCode}:${params.path}:${normalizeName(params.itemName)}`;
+  const payload = params.occurrence && params.occurrence > 1 ? `${base}:#${params.occurrence}` : base;
+  return crypto.createHash('sha256').update(payload).digest('hex');
+}
+
+async function parseAndResolve(db: DB, scope: OrgScope, content: Buffer, form: PlanUploadForm, fileName = 'plan.xlsx'): Promise<ResolvedPlan> {
+  const { sheets: rawSheets, isLegacyXls } = await readPlanInputSheets(content, fileName);
+  const parsed = parsePlanWorkbook(rawSheets, form.year, planExtraAliases(db), { isLegacyXls });
   const errors = [...parsed.errors];
+  const warnings = [...parsed.warnings];
   const projects = new Map((db.prepare('SELECT id, code, name, org_id, status FROM md_project').all() as { id: number; code: string; name: string; org_id: number; status: string }[]).map((p) => [p.code, p]));
+  const allOrgs = db.prepare('SELECT id, parent_id, code, name, report_full_name, status FROM org ORDER BY sort_order, id').all() as {
+    id: number; parent_id: number | null; code: string; name: string; report_full_name: string; status: string;
+  }[];
+  const orgCodeById = new Map(allOrgs.map((o) => [o.id, o.code]));
+  const rootOrg = allOrgs.find((o) => o.parent_id === null && o.status === 'active') ?? allOrgs.find((o) => o.status === 'active') ?? null;
+
+  // 同年度历史修订批次继承 stable_item_uid
+  const priorUidByKey = new Map<string, string>();
+  const priorRows = db.prepare(`
+    SELECT i.item_key, i.stable_item_uid
+    FROM plan_item i
+    JOIN plan_batch b ON b.id = i.batch_id
+    WHERE b.year = ? AND i.stable_item_uid <> ''
+    ORDER BY b.id DESC
+  `).all(form.year) as { item_key: string; stable_item_uid: string }[];
+  for (const pr of priorRows) {
+    if (!priorUidByKey.has(pr.item_key)) priorUidByKey.set(pr.item_key, pr.stable_item_uid);
+  }
+
   const asOf = `${form.actualPeriod}-28T00:00:00.000Z`;
   const sheets = parsed.sheets.map((sheet) => {
     const label = PLAN_SHEET_LABELS[sheet.code];
-    const keys = new Map<string, number>();
+    const projectKeys = new Map<string, number>();
+    const uncodedOccurrences = new Map<string, number>();
+
     const items: ResolvedItem[] = sheet.items.map((item) => {
       const err = (field: string, message: string) => errors.push({ row: item.rowNo, field: `${label}·${field}`, message });
       let projectId: number | null = null;
       let orgId: number | null = null;
+      let undertakeOrgId: number | null = null;
+
       if (item.projectCode) {
         const p = projects.get(item.projectCode);
         if (!p || !orgInScope(scope, p.org_id)) err('项目编码', `项目编码 ${item.projectCode} 不存在或无权访问`);
         else if (p.status !== 'active') err('项目编码', `项目 ${item.projectCode} 已停用`);
         else { projectId = p.id; orgId = p.org_id; }
       }
+
       if (item.orgText && item.itemType === 'detail') {
-        const r = resolveEntity(db, 'org', { name: item.orgText, sourceSystem: 'plan', asOf });
-        const visible = r.targetId !== null && orgInScope(scope, r.targetId);
-        if (!visible) {
+        const parts = item.orgText.split(/[、/，,;；\r\n]+/).map((s) => s.trim()).filter(Boolean);
+        const resolvedIds: number[] = [];
+        let firstFailure: ReturnType<typeof resolveEntity> | null = null;
+        for (const part of parts) {
+          const r = resolveOrgFlexible(db, part, asOf, allOrgs, rootOrg?.id ?? null);
+          if (r.targetId !== null && orgInScope(scope, r.targetId)) {
+            if (!resolvedIds.includes(r.targetId)) resolvedIds.push(r.targetId);
+          } else if (!firstFailure) {
+            firstFailure = r;
+          }
+        }
+        if (resolvedIds.length === 0) {
+          const r = firstFailure ?? resolveEntity(db, 'org', { name: item.orgText, sourceSystem: 'plan', asOf });
           const candidates = r.candidates.filter((c) => orgInScope(scope, c.id)).map((c) => c.name);
           err('承办单位', r.matchedBy === 'ambiguous' && candidates.length
             ? `承办单位“${item.orgText}”对应多个组织:${candidates.join('、')},请在主数据映射(来源 plan)中指定`
             : `承办单位“${item.orgText}”未匹配到组织,请在主数据映射(来源 plan)中补充`);
-        } else if (orgId !== null && r.targetId !== orgId) {
+        } else if (orgId !== null && resolvedIds[0] !== orgId) {
           err('承办单位', `承办单位“${item.orgText}”与项目归属组织不一致`);
-        } else orgId = r.targetId;
+        } else {
+          orgId = resolvedIds[0];
+          undertakeOrgId = resolvedIds.length > 1 ? resolvedIds[resolvedIds.length - 1] : resolvedIds[0];
+        }
       }
-      const itemKey = item.itemType !== 'detail' ? `${item.itemType}:${item.rowNo}`
-        : projectId !== null ? `p:${projectId}:${sheet.code === 'investment' ? '' : normalizeName(item.itemName)}` : `o:${orgId}:${normalizeName(item.itemName)}`;
-      if (item.itemType === 'detail' && orgId !== null) {
-        if (keys.has(itemKey)) err('名称', `与第 ${keys.get(itemKey)} 行重复(同一${sheet.code === 'investment' ? '项目' : '组织与名称'})`);
-        else keys.set(itemKey, item.rowNo);
+
+      // 若明细行未显式填列承办单位，按分部节头或集团汇总默认归属推导
+      if (item.itemType === 'detail' && orgId === null && !item.orgText) {
+        if (item.sectionOrgHint) {
+          const hintRes = resolveOrgFlexible(db, item.sectionOrgHint, asOf, allOrgs, rootOrg?.id ?? null);
+          if (hintRes.targetId !== null && orgInScope(scope, hintRes.targetId)) {
+            orgId = hintRes.targetId;
+            undertakeOrgId = hintRes.targetId;
+          }
+        }
+        if (orgId === null && rootOrg && orgInScope(scope, rootOrg.id)) {
+          if (
+            sheet.code === 'annual_kpi' ||
+            sheet.code === 'capacity_add' ||
+            sheet.code === 'profit_budget' ||
+            sheet.code === 'responsibility_kpi' ||
+            item.sectionOrgHint !== ''
+          ) {
+            orgId = rootOrg.id;
+            undertakeOrgId = rootOrg.id;
+          }
+        }
       }
-      return { ...item, projectId, orgId, itemKey };
+
+      // 若节头为归口主体（如公司总部）而行内填列了跨单位实际承办法人，保留归口+承办双视角
+      if (item.itemType === 'detail' && orgId !== null && item.sectionOrgHint) {
+        const secRes = resolveOrgFlexible(db, item.sectionOrgHint, asOf, allOrgs, rootOrg?.id ?? null);
+        if (secRes.targetId !== null && orgInScope(scope, secRes.targetId) && secRes.targetId !== orgId) {
+          if (undertakeOrgId === null || undertakeOrgId === orgId) {
+            undertakeOrgId = orgId;
+          }
+          // 仅当分部节头是明确的一级单元（如公司总部、直属电站）且非泛称分类时将 orgId 置为归口单元
+          if (/^(公司总部|集团总部|集团本部)/.test(item.sectionOrgHint.replace(/\s+/g, ''))) {
+            orgId = secRes.targetId;
+          }
+        }
+      }
+      if (undertakeOrgId === null && orgId !== null) {
+        undertakeOrgId = orgId;
+      }
+
+      let itemKey: string;
+      if (item.itemType !== 'detail') {
+        itemKey = `${item.itemType}:${sheet.code}:${item.rowNo}`;
+      } else if (projectId !== null) {
+        itemKey = `p:${projectId}:${sheet.code === 'investment' ? '' : normalizeName(item.itemName)}`;
+        if (projectKeys.has(itemKey)) {
+          err('名称', `与第 ${projectKeys.get(itemKey)} 行重复(同一${sheet.code === 'investment' ? '项目' : '组织与名称'})`);
+        } else {
+          projectKeys.set(itemKey, item.rowNo);
+        }
+      } else {
+        const orgCode = orgId !== null ? (orgCodeById.get(orgId) ?? String(orgId)) : 'UNASSIGNED';
+        const undertakeCode = undertakeOrgId !== null ? (orgCodeById.get(undertakeOrgId) ?? String(undertakeOrgId)) : orgCode;
+        const sig = `${form.year}:${sheet.code}:${orgCode}:${undertakeCode}:${item.path}:${normalizeName(item.itemName)}`;
+        const occ = (uncodedOccurrences.get(sig) ?? 0) + 1;
+        uncodedOccurrences.set(sig, occ);
+        itemKey = buildDeterministicPlanItemKey({
+          year: form.year,
+          sheetCode: sheet.code,
+          orgCode,
+          undertakeOrgCode: undertakeCode,
+          path: item.path,
+          itemName: item.itemName,
+          occurrence: occ,
+        });
+      }
+
+      const stableItemUid = item.itemType === 'detail'
+        ? (priorUidByKey.get(itemKey) ?? `PUID-${itemKey.slice(0, 24)}`)
+        : '';
+
+      return { ...item, projectId, orgId, undertakeOrgId, itemKey, stableItemUid };
     });
     return { ...sheet, items };
   });
-  return { sheets, ignoredSheets: parsed.ignoredSheets, errors };
+  return { sheets, ignoredSheets: parsed.ignoredSheets, errors, warnings };
 }
 
 const orgNameOf = (db: DB) => {
@@ -95,16 +341,30 @@ function sheetSummaries(plan: ResolvedPlan): PlanSheetSummaryDto[] {
   }));
 }
 
-export async function previewPlan(db: DB, content: Buffer, form: PlanUploadForm): Promise<PlanPreviewDto> {
-  const plan = await parseAndResolve(db, currentOrgScope(db), content, form);
+export async function previewPlan(db: DB, content: Buffer, form: PlanUploadForm, fileName = 'plan.xlsx'): Promise<PlanPreviewDto> {
+  const plan = await parseAndResolve(db, currentOrgScope(db), content, form, fileName);
   const orgName = orgNameOf(db);
   const items = plan.sheets.flatMap((s) => s.items);
   return {
-    valid: plan.errors.length === 0, errors: plan.errors.slice(0, 500), sheets: sheetSummaries(plan), ignoredSheets: plan.ignoredSheets,
+    valid: plan.errors.length === 0,
+    errors: plan.errors.slice(0, 500),
+    warnings: plan.warnings.slice(0, 500),
+    sheets: sheetSummaries(plan),
+    ignoredSheets: plan.ignoredSheets,
     itemCount: items.length, factCount: items.reduce((n, i) => n + i.facts.length, 0),
     previewItems: items.slice(0, 60).map((i, index) => ({
       id: -(index + 1), sheetCode: i.sheetCode, rowNo: i.rowNo, seqNo: i.seqNo, itemName: i.itemName, itemType: i.itemType, path: i.path,
       projectId: i.projectId, projectCode: i.projectCode || null, orgId: i.orgId, orgName: orgName(i.orgId),
+      undertakeOrgId: i.undertakeOrgId,
+      undertakeOrgName: orgName(i.undertakeOrgId),
+      stableItemUid: i.stableItemUid || undefined,
+      costNature: i.costNature || undefined,
+      fundingChannel: i.fundingChannel || undefined,
+      submittedAmount: centsToDecimalOrNull(i.submittedCents),
+      approvedAmount: centsToDecimalOrNull(i.approvedCents),
+      approvedBudget: centsToDecimalOrNull(i.facts.find((f) => f.fieldKey === 'approved_budget')?.amount ?? null),
+      paidCumulative: centsToDecimalOrNull(i.facts.find((f) => f.fieldKey === 'paid_cumulative')?.amount ?? null),
+      warnings: i.warnings,
       facts: i.facts.map((f) => ({ fieldKey: f.fieldKey, fieldName: fieldLabel(i.sheetCode, f.fieldKey), measure: f.measure, valueType: f.valueType, value: factValueText(f), sourceCell: f.sourceCell })),
     })),
   };
@@ -112,15 +372,20 @@ export async function previewPlan(db: DB, content: Buffer, form: PlanUploadForm)
 
 export async function importPlan(db: DB, store: ObjectStore, content: Buffer, fileName: string, form: PlanUploadForm): Promise<PlanBatchDto> {
   const scope = currentOrgScope(db);
-  const plan = await parseAndResolve(db, scope, content, form);
+  const plan = await parseAndResolve(db, scope, content, form, fileName);
   if (plan.errors.length) throw new AppError('IMPORT_INVALID', `计划执行校验未通过(${plan.errors.length} 项错误),未写入任何数据`, 422, plan.errors.slice(0, 500));
   const items = plan.sheets.flatMap((s) => s.items);
-  assertFullScope(scope, items.filter((i) => i.orgId !== null).map((i) => i.orgId!), '计划执行批次');
+  assertFullScope(
+    scope,
+    items.flatMap((i) => [i.orgId, i.undertakeOrgId].filter((id): id is number => id !== null)),
+    '计划执行批次'
+  );
   // 分类/小计行不归属组织,只有全组织用户能导入含这类行的批次(否则会写入自己看不到的汇总行)
   if (!scope.all && items.some((i) => i.itemType !== 'detail')) {
     throw new AppError('SCOPE_RESTRICTED', '计划执行批次含分类/合计行,只能由全组织用户导入', 403);
   }
-  const file = storeFile(db, store, content, { originalName: fileName, contentType: XLSX_TYPE });
+  const contentType = isOle2Buffer(content) ? XLS_TYPE : fileName.toLowerCase().endsWith('.csv') ? CSV_TYPE : XLSX_TYPE;
+  const file = storeFile(db, store, content, { originalName: fileName, contentType });
   const auth = currentAuth();
   const result = db.transaction((): { id: number; replayed: boolean } => {
     const existing = db.prepare('SELECT id FROM plan_batch WHERE year = ? AND actual_period = ? AND file_sha256 = ?').get(form.year, form.actualPeriod, file.sha256) as { id: number } | undefined;
@@ -130,12 +395,35 @@ export async function importPlan(db: DB, store: ObjectStore, content: Buffer, fi
       sheets_json, ignored_sheets_json, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       form.year, form.actualPeriod, file.id, file.sha256, fileName.slice(0, 255), plan.sheets[0]?.unit ?? 'wan', items.length, factCount,
       JSON.stringify(sheetSummaries(plan)), JSON.stringify(plan.ignoredSheets), auth?.userId ?? null, nowIso()).lastInsertRowid);
-    const insItem = db.prepare(`INSERT INTO plan_item (batch_id, sheet_code, row_no, seq_no, item_name, item_type, path, item_key, project_id, org_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const insItem = db.prepare(`INSERT INTO plan_item (
+      batch_id, sheet_code, row_no, seq_no, item_name, item_type, path, item_key, project_id, org_id,
+      stable_item_uid, undertake_org_id, cost_nature, funding_channel, submitted_cents, exact_calc_cents, approved_cents, warnings_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const insFact = db.prepare(`INSERT INTO plan_fact (batch_id, item_id, field_key, measure, value_type, amount_cents, scaled_value, text_value, source_cell)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     for (const i of items) {
-      const itemId = Number(insItem.run(batchId, i.sheetCode, i.rowNo, i.seqNo, i.itemName, i.itemType, i.path, i.itemKey, i.projectId, i.orgId).lastInsertRowid);
+      const itemId = Number(
+        insItem.run(
+          batchId,
+          i.sheetCode,
+          i.rowNo,
+          i.seqNo,
+          i.itemName,
+          i.itemType,
+          i.path,
+          i.itemKey,
+          i.projectId,
+          i.orgId,
+          i.stableItemUid,
+          i.undertakeOrgId,
+          i.costNature,
+          i.fundingChannel,
+          i.submittedCents,
+          i.approvedCents,
+          i.approvedCents,
+          JSON.stringify(i.warnings)
+        ).lastInsertRowid
+      );
       for (const f of i.facts) insFact.run(batchId, itemId, f.fieldKey, f.measure, f.valueType, f.amount, f.scaled, f.text, f.sourceCell);
     }
     writeLog(db, 'plan.import', 'plan_batch', batchId, { year: form.year, actualPeriod: form.actualPeriod, fileSha256: file.sha256, items: items.length, facts: factCount });
@@ -245,7 +533,25 @@ export function voidPlan(db: DB, id: number, reason: string): PlanBatchDto {
 
 /* ================= 行与事实 ================= */
 
-interface ItemRow { id: number; sheet_code: PlanSheetCode; row_no: number; seq_no: string; item_name: string; item_type: PlanItemDto['itemType']; path: string; item_key: string; project_id: number | null; org_id: number | null }
+interface ItemRow {
+  id: number;
+  sheet_code: PlanSheetCode;
+  row_no: number;
+  seq_no: string;
+  item_name: string;
+  item_type: PlanItemType;
+  path: string;
+  item_key: string;
+  project_id: number | null;
+  org_id: number | null;
+  stable_item_uid: string;
+  undertake_org_id: number | null;
+  cost_nature: string;
+  funding_channel: string;
+  submitted_cents: bigint | null;
+  approved_cents: bigint | null;
+  warnings_json: string;
+}
 interface FactRow { item_id: number; field_key: string; measure: PlanFactDto['measure']; value_type: PlanFactDto['valueType']; amount_cents: bigint | null; scaled_value: bigint | null; text_value: string | null; source_cell: string }
 
 function loadItems(db: DB, scope: OrgScope, batchId: number, opts: { sheet?: PlanSheetCode; detailOnly?: boolean; orgId?: number; projectId?: number } = {}) {
@@ -253,13 +559,32 @@ function loadItems(db: DB, scope: OrgScope, batchId: number, opts: { sheet?: Pla
   const where = ['batch_id = ?', scope.all ? '1=1' : sc.sql];
   const params: unknown[] = [batchId, ...(scope.all ? [] : sc.params)];
   if (opts.sheet) { where.push('sheet_code = ?'); params.push(opts.sheet); }
-  if (opts.detailOnly) where.push("item_type = 'detail'");
+  if (opts.detailOnly) where.push("item_type IN ('detail','leaf')");
   if (opts.orgId) {
     where.push('org_id IN (WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT o.id FROM org o JOIN sub ON o.parent_id = sub.id) SELECT id FROM sub)');
     params.push(opts.orgId);
   }
   if (opts.projectId) { where.push('project_id = ?'); params.push(opts.projectId); }
-  const items = db.prepare(`SELECT * FROM plan_item WHERE ${where.join(' AND ')} ORDER BY sheet_code, row_no`).all(...params) as ItemRow[];
+  const rawItems = db.prepare(`SELECT * FROM plan_item WHERE ${where.join(' AND ')} ORDER BY sheet_code, row_no`).safeIntegers(true).all(...params) as Record<string, unknown>[];
+  const items: ItemRow[] = rawItems.map((r) => ({
+    id: Number(r.id),
+    sheet_code: r.sheet_code as PlanSheetCode,
+    row_no: Number(r.row_no),
+    seq_no: String(r.seq_no ?? ''),
+    item_name: String(r.item_name ?? ''),
+    item_type: r.item_type as PlanItemType,
+    path: String(r.path ?? ''),
+    item_key: String(r.item_key ?? ''),
+    project_id: r.project_id == null ? null : Number(r.project_id),
+    org_id: r.org_id == null ? null : Number(r.org_id),
+    stable_item_uid: String(r.stable_item_uid ?? ''),
+    undertake_org_id: r.undertake_org_id == null ? null : Number(r.undertake_org_id),
+    cost_nature: String(r.cost_nature ?? ''),
+    funding_channel: String(r.funding_channel ?? ''),
+    submitted_cents: r.submitted_cents == null ? null : BigInt(r.submitted_cents as bigint | number),
+    approved_cents: r.approved_cents == null ? null : BigInt(r.approved_cents as bigint | number),
+    warnings_json: String(r.warnings_json ?? '[]'),
+  }));
   const facts = db.prepare('SELECT item_id, field_key, measure, value_type, amount_cents, scaled_value, text_value, source_cell FROM plan_fact WHERE batch_id = ?')
     .safeIntegers(true).all(batchId) as (Omit<FactRow, 'item_id'> & { item_id: bigint })[];
   const byItem = new Map<number, Map<string, FactRow>>();
@@ -279,6 +604,16 @@ export function planItems(db: DB, batchId: number, sheet?: PlanSheetCode): PlanI
   return loadItems(db, scope, batchId, { sheet }).map(({ item: i, facts }) => ({
     id: i.id, sheetCode: i.sheet_code, rowNo: i.row_no, seqNo: i.seq_no, itemName: i.item_name, itemType: i.item_type, path: i.path,
     projectId: i.project_id, projectCode: i.project_id ? codes.get(i.project_id) ?? null : null, orgId: i.org_id, orgName: orgName(i.org_id),
+    undertakeOrgId: i.undertake_org_id,
+    undertakeOrgName: orgName(i.undertake_org_id),
+    stableItemUid: i.stable_item_uid || undefined,
+    costNature: i.cost_nature || undefined,
+    fundingChannel: i.funding_channel || undefined,
+    submittedAmount: centsToDecimalOrNull(i.submitted_cents),
+    approvedAmount: centsToDecimalOrNull(i.approved_cents),
+    approvedBudget: centsToDecimalOrNull(amount(facts, 'approved_budget')),
+    paidCumulative: centsToDecimalOrNull(amount(facts, 'paid_cumulative')),
+    warnings: JSON.parse(i.warnings_json) as PlanWarningDto[],
     facts: [...facts.values()].map((f) => ({
       fieldKey: f.field_key, fieldName: fieldLabel(i.sheet_code, f.field_key), measure: f.measure, valueType: f.value_type,
       value: factValueText({ valueType: f.value_type, amount: f.amount_cents, scaled: f.scaled_value, text: f.text_value }), sourceCell: f.source_cell,
@@ -381,10 +716,12 @@ export function planProjectProgress(db: DB, q: PlanQuery): PlanProjectProgressLi
     const plan = amount(facts, 'annual_plan'); const actual = amount(facts, 'annual_actual');
     const completed = amount(facts, 'completed_investment'); const total = amount(facts, 'total_investment');
     const rate = plan === null || actual === null ? null : ratioScaled(actual, plan);
-    const p = projects.get(item.project_id!);
+    const p = item.project_id ? projects.get(item.project_id) : undefined;
     const prevRow = prev.get(item.item_key);
     return {
-      itemId: item.id, rowNo: item.row_no, projectId: item.project_id!, projectCode: p?.code ?? '', projectName: p?.name ?? item.item_name, orgName: orgName(item.org_id) ?? '',
+      itemId: item.id, rowNo: item.row_no, projectId: item.project_id, projectCode: p?.code ?? '', projectName: p?.name ?? item.item_name,
+      orgName: orgName(item.org_id) ?? '',
+      undertakeOrgName: orgName(item.undertake_org_id),
       approvedBudget: centsToDecimalOrNull(amount(facts, 'approved_budget')), totalInvestment: centsToDecimalOrNull(total),
       completedCumulative: centsToDecimalOrNull(completed), cumulativeRate: completed === null || total === null ? null : ratioString(completed, total),
       annualPlan: centsToDecimalOrNull(plan), annualActualYtd: centsToDecimalOrNull(actual), annualRate: plan === null || actual === null ? null : ratioString(actual, plan),
@@ -412,4 +749,69 @@ export function planExecutionRate(db: DB, orgId: number | null, period: string):
   const both = sumBoth(rows, 'annual_plan', 'annual_actual');
   if (!both.n) return { rate: null, batchId: batch.id, note: '没有同时具备年度计划与年度累计实际的明细行', annualPlanCents: null, annualActualCents: null, rowCount: 0 };
   return { rate: ratioString(both.b, both.a), batchId: batch.id, note: null, annualPlanCents: both.a, annualActualCents: both.b, rowCount: both.n };
+}
+
+/* ================= 标准 16 表空模板下载与批次导出 (.xlsx) ================= */
+
+export async function buildPlanTemplateWorkbook(year = new Date().getFullYear()): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  for (const code of PLAN_SHEETS) {
+    const label = PLAN_SHEET_LABELS[code];
+    const ws = wb.addWorksheet(label);
+    ws.addRow([`${year}年${label}`]);
+    ws.addRow(['单位:万元']);
+    const headers = ['序号', '项目编码', '项目名称', '承办单位', ...PLAN_FIELDS[code].map((f) => f.label)];
+    const hRow = ws.addRow(headers);
+    hRow.font = { bold: true };
+  }
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
+
+export async function exportPlanBatchWorkbook(db: DB, batchId: number): Promise<{ fileName: string; content: Buffer }> {
+  const scope = currentOrgScope(db);
+  const batch = visibleBatchRow(db, scope, batchId);
+  const allItems = planItems(db, batchId);
+  const wb = new ExcelJS.Workbook();
+  const bySheet = new Map<PlanSheetCode, PlanItemDto[]>();
+  for (const it of allItems) {
+    const list = bySheet.get(it.sheetCode) ?? [];
+    list.push(it);
+    bySheet.set(it.sheetCode, list);
+  }
+  if (bySheet.size === 0) {
+    const ws = wb.addWorksheet('无可见数据');
+    ws.addRow(['当前权限范围内无可导出计划行']);
+  } else {
+    for (const code of PLAN_SHEETS) {
+      const rows = bySheet.get(code);
+      if (!rows?.length) continue;
+      const label = PLAN_SHEET_LABELS[code];
+      const ws = wb.addWorksheet(label.slice(0, 31));
+      const fieldDefs = PLAN_FIELDS[code];
+      const headerRow = ws.addRow([
+        '序号', '项目编码', '项目名称', '行类型', '分部路径', '归口单位', '实际承办单位',
+        ...fieldDefs.map((f) => `${f.label}${f.type === 'amount' ? '(元)' : ''}`),
+      ]);
+      headerRow.font = { bold: true };
+      for (const r of rows) {
+        const factMap = new Map(r.facts.map((f) => [f.fieldKey, f.value]));
+        ws.addRow([
+          r.seqNo,
+          r.projectCode ?? '',
+          r.itemName,
+          r.itemType,
+          r.path,
+          r.orgName ?? '',
+          r.undertakeOrgName ?? '',
+          ...fieldDefs.map((f) => factMap.get(f.key) ?? ''),
+        ]);
+      }
+    }
+  }
+  const buf = await wb.xlsx.writeBuffer();
+  return {
+    fileName: `综合计划执行_${batch.actual_period}_批次${batch.id}.xlsx`,
+    content: Buffer.from(buf),
+  };
 }

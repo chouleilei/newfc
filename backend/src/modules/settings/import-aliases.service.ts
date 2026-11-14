@@ -11,10 +11,11 @@ import { writeLog } from '../audit/log';
 import { headerKey } from '../io/cell-values';
 import { EAS_FIELD_CATALOG } from '../eas/eas.parse';
 import { PLAN_FIELDS, PLAN_ID_COLUMNS, type PlanExtraAliases } from '../plan-execution/plan.parse';
-import { PLAN_SHEETS, PLAN_SHEET_LABELS, type PlanSheetCode } from '../../contracts/plan-execution';
+import { PLAN_SHEET_LABELS, type PlanSheetCode } from '../../contracts/plan-execution';
 import type { EasDataType } from '../../contracts/eas';
 import type { ImportAliasCreate, ImportAliasDataType, ImportAliasDto, ImportAliasUpdate, ImportTargetCatalogDto } from '../../contracts/system-settings';
 
+const ALIAS_PLAN_SHEETS = ['investment', 'purchase', 'maintenance'] as const satisfies readonly PlanSheetCode[];
 const PLAN_ID_LABELS: Record<keyof typeof PLAN_ID_COLUMNS, string> = { seq: '序号', projectCode: '项目编码', name: '名称', orgName: '承办单位' };
 const EAS_LABELS: Record<EasDataType, string> = { voucher: 'EAS 凭证', balance: 'EAS 科目余额', auxiliary: 'EAS 辅助余额' };
 
@@ -23,7 +24,7 @@ function catalog(): ImportTargetCatalogDto[] {
     dataType: `eas_${t}` as ImportAliasDataType, label: EAS_LABELS[t],
     fields: EAS_FIELD_CATALOG[t].map((f) => ({ key: f.key, label: f.label, required: f.required, builtinAliases: [...new Set(f.aliases)] })),
   }));
-  const plan = PLAN_SHEETS.map((sheet) => ({
+  const plan = ALIAS_PLAN_SHEETS.map((sheet) => ({
     dataType: `plan_${sheet}` as ImportAliasDataType, label: `计划执行·${PLAN_SHEET_LABELS[sheet]}`,
     fields: [
       ...(Object.keys(PLAN_ID_COLUMNS) as (keyof typeof PLAN_ID_COLUMNS)[]).map((k) => ({
@@ -112,5 +113,5 @@ export function easExtraAliases(db: DB, dataType: EasDataType): Record<string, s
 
 /** 计划执行解析用:表 → 字段 key → 追加别名。 */
 export function planExtraAliases(db: DB): PlanExtraAliases {
-  return Object.fromEntries(PLAN_SHEETS.map((s: PlanSheetCode) => [s, activeAliases(db, `plan_${s}`)]));
+  return Object.fromEntries(ALIAS_PLAN_SHEETS.map((s) => [s, activeAliases(db, `plan_${s}`)]));
 }

@@ -9,8 +9,9 @@
 import path from 'path';
 import ExcelJS from 'exceljs';
 import { Errors } from '../../core/errors';
-import { MAX_IMPORT_ROWS } from './import-limits';
+import { MAX_IMPORT_ROWS, MAX_WORKBOOK_SHEETS } from './import-limits';
 import { assertSafeXlsx } from './xlsx-guard';
+import { isOle2Buffer, readXlsWorkbookSheets } from './xls-reader';
 
 export interface TableRow { rowNo: number; values: Record<string, string> }
 export interface ReadTable { headers: string[]; rows: TableRow[]; headerRowNo?: number }
@@ -68,29 +69,53 @@ function normalizeHeader(value: string): string {
 export interface MatrixRow { rowNo: number; cells: string[] }
 export interface ReadSheet { name: string; hidden: boolean; rows: MatrixRow[] }
 /** 表头定位:缺省取第一个非空行;给出 isHeader 时在前 within 行内找第一行满足条件的行(模板常有标题/单位行)。 */
-export interface HeaderLocator { isHeader: (cells: string[]) => boolean; within?: number; label?: string }
+export interface HeaderLocator {
+  isHeader: (cells: string[]) => boolean;
+  within?: number;
+  label?: string;
+  allowDuplicateHeaders?: boolean;
+}
 
 function toTable(matrix: MatrixRow[], maxRows: number, locator?: HeaderLocator): ReadTable {
   const headerIndex = locator
     ? matrix.slice(0, locator.within ?? 20).findIndex((r) => locator.isHeader(r.cells.map(normalizeHeader)))
     : matrix.findIndex((r) => r.cells.some((c) => c.trim() !== ''));
   if (headerIndex < 0) throw Errors.validation(locator ? `前 ${locator.within ?? 20} 行内未找到${locator.label ?? '表头'}` : '文件没有表头');
-  const headers = matrix[headerIndex].cells.map(normalizeHeader);
-  const seen = new Set<string>();
-  for (const h of headers) {
+  const rawHeaders = matrix[headerIndex].cells.map(normalizeHeader);
+  const seenCounts = new Map<string, number>();
+  const headers: string[] = [];
+  for (const h of rawHeaders) {
     if (!h) continue;
-    if (seen.has(h)) throw Errors.validation(`表头“${h}”重复`);
-    seen.add(h);
+    const prev = seenCounts.get(h) ?? 0;
+    if (prev > 0) {
+      if (!locator?.allowDuplicateHeaders) throw Errors.validation(`表头“${h}”重复`);
+      seenCounts.set(h, prev + 1);
+      headers.push(`${h}#${prev + 1}`);
+    } else {
+      seenCounts.set(h, 1);
+      headers.push(h);
+    }
   }
   const rows: TableRow[] = [];
+  const colHeaders: string[] = [];
+  const colSeen = new Map<string, number>();
+  for (const h of rawHeaders) {
+    if (!h) {
+      colHeaders.push('');
+      continue;
+    }
+    const prev = colSeen.get(h) ?? 0;
+    colSeen.set(h, prev + 1);
+    colHeaders.push(prev > 0 ? `${h}#${prev + 1}` : h);
+  }
   for (const r of matrix.slice(headerIndex + 1)) {
     if (!r.cells.some((c) => c.trim() !== '')) continue;
     if (rows.length >= maxRows) throw Errors.validation(`数据行超过安全上限 ${maxRows} 行(不含表头)`);
     const values: Record<string, string> = {};
-    headers.forEach((h, i) => { if (h) values[h] = (r.cells[i] ?? '').trim(); });
+    colHeaders.forEach((h, i) => { if (h) values[h] = (r.cells[i] ?? '').trim(); });
     rows.push({ rowNo: r.rowNo, values });
   }
-  return { headers: headers.filter(Boolean), rows, headerRowNo: matrix[headerIndex].rowNo };
+  return { headers, rows, headerRowNo: matrix[headerIndex].rowNo };
 }
 
 export function normalizeHeaderText(value: string): string {
@@ -126,7 +151,11 @@ function sheetMatrix(sheet: ExcelJS.Worksheet): MatrixRow[] {
 }
 
 /** 读取 xlsx 全部工作表为文本矩阵(含隐藏表,由调用方决定是否忽略并列出)。 */
-export async function readWorkbookSheets(content: Buffer, maxRows = MAX_IMPORT_ROWS, maxWorksheets = 10): Promise<ReadSheet[]> {
+export async function readWorkbookSheets(content: Buffer, maxRows = MAX_IMPORT_ROWS, maxWorksheets = MAX_WORKBOOK_SHEETS): Promise<ReadSheet[]> {
+  if (!content.length) throw Errors.validation('上传文件为空');
+  if (isOle2Buffer(content)) {
+    return readXlsWorkbookSheets(content, maxRows, maxWorksheets);
+  }
   const wb = await loadWorkbook(content, maxRows, maxWorksheets);
   return wb.worksheets.map((ws) => ({ name: ws.name.trim(), hidden: ws.state !== 'visible', rows: sheetMatrix(ws) }));
 }
@@ -151,5 +180,11 @@ export async function readTable(content: Buffer, fileName: string, maxRows = MAX
     if (!sheet) throw Errors.validation('工作簿没有工作表');
     return toTable(sheetMatrix(sheet), maxRows, locator);
   }
-  throw Errors.validation('仅支持 .csv 或 .xlsx 文件');
+  if (ext === '.xls') {
+    const sheets = readXlsWorkbookSheets(content, maxRows, MAX_WORKBOOK_SHEETS);
+    const sheet = sheets[0];
+    if (!sheet) throw Errors.validation('工作簿没有工作表');
+    return toTable(sheet.rows, maxRows, { ...locator, isHeader: locator?.isHeader ?? ((cells) => cells.some((c) => c !== '')), allowDuplicateHeaders: locator?.allowDuplicateHeaders ?? true });
+  }
+  throw Errors.validation('仅支持 .csv、.xlsx 或 .xls 文件');
 }

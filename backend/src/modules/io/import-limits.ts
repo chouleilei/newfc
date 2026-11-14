@@ -9,6 +9,8 @@ export const MAX_IMPORT_ROWS = boundedInteger(process.env.NEWFC_MAX_IMPORT_ROWS,
 export const MAX_IMPORT_ERRORS = boundedInteger(process.env.NEWFC_MAX_IMPORT_ERRORS, 200, 20, 2_000);
 export const MAX_UPLOAD_BYTES = boundedInteger(process.env.NEWFC_MAX_UPLOAD_BYTES, 10 * 1024 * 1024, 1024, 100 * 1024 * 1024);
 export const MAX_CLEANING_SHEETS = 20;
+export const MAX_WORKBOOK_SHEETS = 40;
+export const MAX_LEGACY_SHEETS = 100;
 export const MAX_CLEANING_COLUMNS = 100;
 export const CLEANING_AI_ENABLED = process.env.NEWFC_CLEANING_AI !== '0';
 export const CLEANING_UPLOAD_TTL_MS = boundedInteger(

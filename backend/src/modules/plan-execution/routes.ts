@@ -11,7 +11,8 @@ import { year as yearSchema } from '../../contracts/project-budget';
 import { PLAN_SHEETS, planActivateRequest, planQuery, planUploadForm, planVoidRequest, type PlanSheetCode } from '../../contracts/plan-execution';
 import { formFields, queryFields } from '../project-budget/routes';
 import {
-  activatePlan, getPlanBatch, importPlan, listPlanBatches, planItems, planOriginal, planOverview, planProjectProgress, previewPlan, voidPlan,
+  activatePlan, buildPlanTemplateWorkbook, exportPlanBatchWorkbook, getPlanBatch, importPlan, listPlanBatches,
+  planItems, planOriginal, planOverview, planProjectProgress, previewPlan, voidPlan,
 } from './plan.service';
 
 addRouteRules([
@@ -23,15 +24,21 @@ const id = (v: unknown) => parseInput(idSchema, v);
 
 /** AC-F15 计划执行与形象进度。 */
 export function registerPlanRoutes(app: Express, db: () => DB, wrap: Wrap, store: () => ObjectStore): void {
-  const upload = memoryUpload(['.xlsx']);
+  const upload = memoryUpload(['.csv', '.xlsx', '.xls']);
   app.post('/api/plan/preview', upload.single('file'), wrap(async (req, res) => {
-    if (!req.file) throw Errors.validation('请上传计划执行 .xlsx');
-    res.json(await previewPlan(db(), req.file.buffer, parseInput(planUploadForm, formFields(req))));
+    if (!req.file) throw Errors.validation('请上传计划文件（.csv / .xlsx / .xls）');
+    res.json(await previewPlan(db(), req.file.buffer, parseInput(planUploadForm, formFields(req)), uploadName(req.file.originalname)));
   }));
   app.post('/api/plan/import', upload.single('file'), wrap(async (req, res) => {
-    if (!req.file) throw Errors.validation('请上传计划执行 .xlsx');
+    if (!req.file) throw Errors.validation('请上传计划文件（.csv / .xlsx / .xls）');
     const batch = await importPlan(db(), store(), req.file.buffer, uploadName(req.file.originalname), parseInput(planUploadForm, formFields(req)));
     res.status(batch.replayed ? 200 : 201).json(batch);
+  }));
+  app.get('/api/plan/template', wrap(async (req, res) => {
+    const q = queryFields(req);
+    const yr = q.year ? parseInput(yearSchema, q.year) : new Date().getFullYear();
+    const buf = await buildPlanTemplateWorkbook(yr);
+    sendAttachment(res, `综合计划标准模板_${yr}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buf);
   }));
   app.get('/api/plan/batches', wrap((req, res) => {
     const q = queryFields(req);
@@ -47,6 +54,10 @@ export function registerPlanRoutes(app: Express, db: () => DB, wrap: Wrap, store
   app.get('/api/plan/batches/:id/original', wrap((req, res) => {
     const f = planOriginal(db(), store(), id(req.params.id));
     sendAttachment(res, f.fileName, f.contentType, f.content);
+  }));
+  app.get('/api/plan/batches/:id/export', wrap(async (req, res) => {
+    const out = await exportPlanBatchWorkbook(db(), id(req.params.id));
+    sendAttachment(res, out.fileName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', out.content);
   }));
   app.post('/api/plan/batches/:id/activate', wrap((req, res) => {
     res.json(activatePlan(db(), id(req.params.id), parseInput(planActivateRequest, req.body).expectedCurrentBatchId));
