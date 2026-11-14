@@ -256,7 +256,7 @@ describe('T-9 合同智能法审闭环', () => {
       ? { verdict: 'pass', templateId: candidate.id }
       : { verdict: 'manual_review', templateId: null });
   });
-  it.each(['tech_service', 'general_service', 'income_sales'])('非默认类别已有法审后返回启用状态，并允许无正式复核时纠错：%s', async (category) => {
+  it.each(['income_sales', 'other'])('非默认类别已有法审后返回启用状态，并允许无正式复核时纠错：%s', async (category) => {
     const t = await setup(category);
     let c = await ok(get(t.base, t.maker.session, `/api/contracts/${t.c.id}`));
     expect(c.legalReviewEnabled).toBe(false);

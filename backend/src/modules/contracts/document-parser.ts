@@ -1,11 +1,23 @@
+import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import JSZip from 'jszip';
 import { SaxesParser } from 'saxes';
+import * as XLSX from 'xlsx';
 import { z } from 'zod';
 import type { DB } from '../../db/connection';
 import type { LegalFinding } from '../../contracts/contract-legal-review';
 import { getSetting } from '../settings/business-settings';
 import { recognizeAttachment } from '../expense/ocr-client';
 import { pdfServiceJson } from './pdf-service-url';
+
+const execFileAsync = promisify(execFile);
+export const OLE2_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+export const MAX_DOC_CONVERT_BYTES = 20 * 1024 * 1024;
+export const DOC_CONVERT_TIMEOUT_MS = 20_000;
+
 export interface Paragraph {
   index: number;
   heading: string;
@@ -18,7 +30,7 @@ export interface Paragraph {
 export interface ParsedDocument {
   text: string;
   paragraphs: Paragraph[];
-  channel: 'docx_native' | 'pdf_external_api' | 'ocr_fallback' | 'failed';
+  channel: 'docx_native' | 'doc_converted' | 'pdf_external_api' | 'ocr_fallback' | 'failed';
   status: 'ok' | 'degraded' | 'unavailable' | 'failed';
   findings: LegalFinding[];
   stats: Record<string, number | boolean | string>;
@@ -40,6 +52,12 @@ export const parserFinding = (code: string, message: string): LegalFinding => ({
 export const legacyDoc = (name: string, b: Buffer) =>
   /\.doc$/i.test(name) ||
   b.subarray(0, 4).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0]));
+
+export function isValidLegacyDocUpload(content: Buffer): boolean {
+  if (content.length > MAX_DOC_CONVERT_BYTES) return false;
+  if (content.length >= 4 && content.readUInt32LE(0) === 0x04034b50) return true;
+  return content.length >= 512 && content.subarray(0, 8).equals(OLE2_MAGIC);
+}
 const empty = (
   code: string,
   message: string,
@@ -272,26 +290,120 @@ const pdfResponse = z.object({
     .max(1000),
   isScanned: z.boolean().optional(),
 });
+export async function parseLegacyDoc(content: Buffer): Promise<ParsedDocument> {
+  if (content.length > MAX_DOC_CONVERT_BYTES) {
+    return empty('DOC_SIZE_EXCEEDED', '老版 DOC 文档超过 20MB 安全转换上限，已自动转人工复核', 'failed');
+  }
+  // WPS/Word 常见将 OOXML 正文直接命名为 .doc
+  if (content.length >= 4 && content.readUInt32LE(0) === 0x04034b50) {
+    const parsed = await parseDocx(content);
+    return parsed.channel === 'docx_native' ? { ...parsed, channel: 'doc_converted' } : parsed;
+  }
+  if (content.length < 512 || !content.subarray(0, 8).equals(OLE2_MAGIC)) {
+    return empty('LEGACY_DOC_UNSUPPORTED', '旧版 DOC 文件头损坏或非标准 OLE2 格式，请另存为 DOCX 或 PDF');
+  }
+
+  // 先在内存检查 OLE2 WordDocument FIB 加密位，避免加密文档进入外部转换器挂起
+  try {
+    const cfb = XLSX.CFB.read(content, { type: 'buffer' });
+    const wordEntry = XLSX.CFB.find(cfb, '/WordDocument') ?? XLSX.CFB.find(cfb, 'WordDocument');
+    if (!wordEntry || !wordEntry.content || wordEntry.content.length < 0x20) {
+      return empty('DOC_ENCRYPTED_OR_INVALID', '老版 DOC 缺少有效 WordDocument 流，已自动转人工复核', 'failed');
+    }
+    const wordBuf = Buffer.from(wordEntry.content as Uint8Array);
+    const fibFlags = wordBuf.readUInt16LE(0x0a);
+    if ((fibFlags & 0x0100) !== 0) {
+      return empty('DOC_ENCRYPTED_OR_INVALID', '老版 DOC 文档已加密，无法提取正文，已自动转人工复核', 'failed');
+    }
+  } catch {
+    return empty('DOC_ENCRYPTED_OR_INVALID', '老版 DOC 容器结构损坏，已自动转人工复核', 'failed');
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'newfc-doc-conv-'));
+  try {
+    const inPath = path.join(tmpDir, 'input.doc');
+    const outDir = path.join(tmpDir, 'out');
+    const profileDir = path.join(tmpDir, 'profile');
+    fs.mkdirSync(outDir, { mode: 0o700 });
+    fs.mkdirSync(profileDir, { mode: 0o700 });
+    fs.writeFileSync(inPath, content, { mode: 0o400 });
+
+    await execFileAsync(
+      'soffice',
+      [
+        '--headless',
+        '--norestore',
+        '--nologo',
+        '--nodefault',
+        '--nofirststartwizard',
+        `-env:UserInstallation=file://${profileDir}`,
+        '--convert-to',
+        'docx',
+        '--outdir',
+        outDir,
+        inPath,
+      ],
+      {
+        timeout: DOC_CONVERT_TIMEOUT_MS,
+        maxBuffer: 4 * 1024 * 1024,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: tmpDir,
+          LANG: 'C.UTF-8',
+        },
+      },
+    );
+
+    const outDocxPath = path.join(outDir, 'input.docx');
+    if (!fs.existsSync(outDocxPath)) {
+      return empty('DOC_ENCRYPTED_OR_INVALID', '老版 DOC 未能转码为有效正文，已自动转人工复核', 'failed');
+    }
+    const stat = fs.statSync(outDocxPath);
+    if (stat.size <= 0 || stat.size > 32 * 1024 * 1024) {
+      return empty('DOC_SIZE_EXCEEDED', '老版 DOC 转码产物超出安全上限，已自动转人工复核', 'failed');
+    }
+    const docxBuf = fs.readFileSync(outDocxPath);
+    const parsed = await parseDocx(docxBuf);
+    if (parsed.channel === 'docx_native') {
+      return {
+        ...parsed,
+        channel: 'doc_converted',
+        stats: { ...parsed.stats, convertedFrom: 'doc' },
+      };
+    }
+    return {
+      ...parsed,
+      channel: 'failed',
+    };
+  } catch {
+    return empty('DOC_ENCRYPTED_OR_INVALID', '老版 DOC 转码超时或解析异常，已自动转人工复核', 'failed');
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true });
+    } catch {
+      // ignore cleanup error
+    }
+  }
+}
+
 export async function parseContractDocument(
   db: DB,
   content: Buffer,
   name: string,
   sha: string,
 ): Promise<ParsedDocument> {
-  if (legacyDoc(name, content))
-    return empty(
-      'LEGACY_DOC_UNSUPPORTED',
-      '旧版 DOC 不支持智能法审，请另存为 DOCX 或 PDF',
-    );
+  const isDoc = legacyDoc(name, content);
   const docx = /\.docx$/i.test(name),
     pdf = /\.pdf$/i.test(name),
     image = /\.(png|jpe?g|tiff?|bmp|webp)$/i.test(name);
   const base = getSetting<string>(db, 'integration.pdf_parser_base_url');
-  const kind = docx
-    ? 'docx_native'
-    : pdf && base
-      ? 'pdf_external_api'
-      : 'ocr_fallback';
+  const kind = isDoc
+    ? 'doc_converted'
+    : docx
+      ? 'docx_native'
+      : pdf && base
+        ? 'pdf_external_api'
+        : 'ocr_fallback';
   const cache = db
     .prepare(
       'SELECT * FROM ct_doc_parse_cache WHERE file_sha256=? AND parser_kind=? AND parser_version=?',
@@ -299,7 +411,8 @@ export async function parseContractDocument(
     .get(sha, kind, '3') as any;
   if (cache) return JSON.parse(cache.stats_json) as ParsedDocument;
   let result: ParsedDocument;
-  if (docx) result = await parseDocx(content);
+  if (isDoc) result = await parseLegacyDoc(content);
+  else if (docx) result = await parseDocx(content);
   else if (pdf && base) {
     try {
       const form = new FormData();

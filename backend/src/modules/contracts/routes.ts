@@ -22,7 +22,8 @@ import {
   contractDisputeCreateRequest, contractDisputeUpdateRequest, contractGuaranteeCreateRequest, contractGuaranteeUpdateRequest, contractWarrantyUpsertRequest,
   contractEvaluationRequest,
   contractPrefixMapCreateRequest, contractPrefixMapPatchRequest, CONTRACT_IMPORT_KINDS, PREFIX_ENTITY_STATUSES, SUPERVISION_EXPORT_PURPOSES,
-  type ContractImportKind, type PrefixEntityStatus, type SupervisionExportPurpose,
+  CHANGE_KINDS,
+  type ChangeKind, type ContractImportKind, type PrefixEntityStatus, type SupervisionExportPurpose,
 } from '../../contracts/project-contract';
 import { formFields, queryFields } from '../project-budget/routes';
 import { requirePermission } from '../security/scope';
@@ -32,10 +33,10 @@ import {
   updateContract, voidContract,
   handoverUndertaker, resumeContract, suspendContract, updateContractArchiveStatus, updateContractDistribution,
 } from './contract.service';
-import { decideContractChange, submitContractChange, updateContractChangeFiling } from './contract-change.service';
+import { decideContractChange, previewContractChangeTier, submitContractChange, updateContractChangeFiling } from './contract-change.service';
 import {
   decideContractPayment, decideContractReceipt, decideContractSettlement, listContractReceipts, listContractSettlements,
-  payContractPayment, receiveContractReceipt, submitContractPayment, submitContractReceipt, submitContractSettlement,
+  payContractPayment, previewContractPaymentTier, receiveContractReceipt, submitContractPayment, submitContractReceipt, submitContractSettlement,
 } from './contract-settlement.service';
 import {
   createContractDispute, createContractGuarantee, getContractWarranty, listContractDisputes, listContractGuarantees,
@@ -230,6 +231,25 @@ export function registerContractRoutes(app: Express, db: () => DB, wrap: Wrap, s
   }));
   app.post('/api/contracts', wrap((req, res) => { res.status(201).json(createContract(db(), parseInput(contractCreateRequest, req.body))); }));
   app.get('/api/contracts/:id', wrap((req, res) => { res.json(getContractDetail(db(), id(req.params.id))); }));
+  app.get('/api/contracts/:id/payment-tier-preview', wrap((req, res) => {
+    const q = queryFields(req);
+    res.json(previewContractPaymentTier(db(), id(req.params.id), {
+      amount: q.amount,
+      plannedDate: q.plannedDate,
+    }));
+  }));
+  app.get('/api/contracts/:id/change-tier-preview', wrap((req, res) => {
+    const q = queryFields(req);
+    const changeKind = q.changeKind && (CHANGE_KINDS as readonly string[]).includes(q.changeKind)
+      ? (q.changeKind as ChangeKind)
+      : undefined;
+    res.json(previewContractChangeTier(db(), id(req.params.id), {
+      delta: q.delta,
+      changeKind,
+      involvesBizOrEntityChange: q.involvesBizOrEntityChange === '1' || q.involvesBizOrEntityChange === 'true',
+      involvesTechChange: q.involvesTechChange === '1' || q.involvesTechChange === 'true',
+    }));
+  }));
   app.patch('/api/contracts/:id', wrap((req, res) => { res.json(updateContract(db(), id(req.params.id), parseInput(contractUpdateRequest, req.body))); }));
   app.post('/api/contracts/:id/advance', wrap((req, res) => {
     const b = parseInput(contractAdvanceRequest, req.body);

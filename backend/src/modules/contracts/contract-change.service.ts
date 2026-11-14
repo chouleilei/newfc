@@ -4,12 +4,12 @@ import type { DB } from '../../db/connection';
 import type { ProcurementTier } from '../../contracts/contract-legal-review';
 import { AppError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
-import { centsToDecimalString, parseDecimalToCents } from '../../core/decimal';
+import { centsToDecimalString, parseDecimalToCents, ratioString } from '../../core/decimal';
 import { assertDistinctReviewer } from '../security/review';
 import { notVisible } from '../security/scope';
 import { getSetting } from '../settings/business-settings';
 import type {
-  ChangeApprovalTier, ChangeKind, ContractChangeFilingRequest, ContractChangeRequest, ContractDetailDto, DecisionRequest,
+  ChangeApprovalTier, ChangeKind, ChangeTierPreviewDto, ContractChangeFilingRequest, ContractChangeRequest, ContractDetailDto, DecisionRequest,
 } from '../../contracts/project-contract';
 import { procurementTier } from './legal-context';
 import { sumPayments, sumReceipts } from './contract-settlement.service';
@@ -375,4 +375,51 @@ export function updateContractChangeFiling(db: DB, id: number, changeId: number,
     recordEvent(db, id, 'change.filing', { changeId, ...input });
   }).immediate();
   return getContractDetail(db, id);
+}
+export function previewContractChangeTier(
+  db: DB,
+  contractId: number,
+  opts: {
+    delta?: string;
+    changeKind?: ChangeKind;
+    involvesBizOrEntityChange?: boolean;
+    involvesTechChange?: boolean;
+  } = {},
+): ChangeTierPreviewDto {
+  const c = visibleContract(db, contractId);
+  const deltaCents = opts.delta ? parseDecimalToCents(opts.delta, { label: '变更金额' }) : 0n;
+  const orMode: 'min' | 'max' = getSetting(db, 'contract.change_or_mode') === 'max' ? 'max' : 'min';
+  const priorPos = (
+    db
+      .prepare("SELECT COALESCE(SUM(CASE WHEN delta_cents > 0 THEN delta_cents ELSE 0 END), 0) AS s FROM ct_change WHERE contract_id = ? AND status = 'approved'")
+      .safeIntegers(true)
+      .get(contractId) as { s: bigint }
+  ).s;
+  const originalCents = BigInt(c.original_cents);
+  const estCents = c.estimated_ceiling_cents === null ? null : BigInt(c.estimated_ceiling_cents);
+  const tierAmt = c.pricing_mode === 'unit_price' && originalCents === 0n && estCents !== null ? estCents : originalCents;
+  const procTier = procurementTier(!!c.is_procurement, c.procurement_target, tierAmt, c.procurement_method);
+  const computed = computeChangeApprovalTier({
+    originalCents,
+    estimatedCeilingCents: estCents,
+    priorApprovedPositiveCents: priorPos,
+    deltaCents,
+    changeKind: opts.changeKind ?? 'change',
+    procurementTier: procTier,
+    involvesBizOrEntityChange: !!opts.involvesBizOrEntityChange,
+    involvesTechChange: !!opts.involvesTechChange,
+    orMode,
+  });
+  const baseCents = originalCents > 0n ? originalCents : (estCents ?? 0n);
+  const deltaRatio = baseCents > 0n ? ratioString(deltaCents < 0n ? -deltaCents : deltaCents, baseCents) : null;
+  const notes: string[] = [CHANGE_TIER_LABEL[computed.tier]];
+  if (computed.requireTechSpecialAudit) notes.push('须经技术归口部门专门论证审查');
+  if (computed.requireDisciplineFiling) notes.push('批准后须报企管部与纪检审计部备案');
+  return {
+    requiredTier: computed.tier,
+    requiredTierLabel: CHANGE_TIER_LABEL[computed.tier],
+    orMode,
+    deltaRatio,
+    reason: notes.join('；'),
+  };
 }

@@ -3,16 +3,26 @@ import { currentAuth, type AuthContext } from '../../core/request-context';
 import { assertOrgVisible } from '../security/scope';
 import type { DB } from '../../db/connection';
 import { LEGAL_PRE_REVIEW_EVIDENCE_KINDS, procurementTier } from '../../contracts/contract-legal-review';
+import { getSetting } from '../settings/business-settings';
 import {
   visibleContract,
   type ContractRow,
 } from './contract.service';
 export { procurementTier } from '../../contracts/contract-legal-review';
+
+const DEFAULT_LEGAL_REVIEW_CATEGORIES =
+  'goods_procurement,small_construction,construction,tech_service,general_service,important_special';
+
 export function legalEnabled(db: DB, c: ContractRow): boolean {
+  const configuredRaw = getSetting<string>(db, 'contract.legal_review_categories') || DEFAULT_LEGAL_REVIEW_CATEGORIES;
+  const enabledCategories = new Set(
+    configuredRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
   return (
-    ['goods_procurement', 'small_construction', 'important_special'].includes(
-      c.legal_category,
-    ) ||
+    enabledCategories.has(c.legal_category) ||
     !!Number(c.is_important) ||
     !!db
       .prepare('SELECT 1 FROM ct_legal_run WHERE contract_id=? LIMIT 1')

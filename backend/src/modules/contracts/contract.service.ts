@@ -7,7 +7,8 @@ import { assertGuarantorConsent, CHANGE_TIER_RANK } from './contract-change.serv
 import { getContractEvaluation, getContractWarranty, listContractDisputes, listContractGuarantees } from './contract-safeguard.service';
 import { legalSnapshot, legalEnabled, legalSigningDateConflict, procurementTier } from './legal-context';
 import { legalRunCurrent, assertLegalDecision } from './legal-review-gate';
-import { legacyDoc } from './document-parser';
+import { isValidLegacyDocUpload, legacyDoc } from './document-parser';
+import { listContractSettlements } from './contract-settlement.service';
 import type { EvidenceKind, LegalMetadata } from '../../contracts/contract-legal-review';
 /**
  * 合同生命周期(AC-F16)。规则见 specs/implementation.md T-4「合同生命周期」。
@@ -504,22 +505,7 @@ export function getContractDetail(db: DB, id: number): ContractDetailDto {
     plannedDate: (r.planned_date as string | null) ?? null, evidenceDocumentId: num(r.evidence_document_id), status: r.status as ContractPaymentDto['status'],
     paidDate: (r.paid_date as string | null) ?? null, voucherNo: (r.voucher_no as string | null) ?? null, invoiceDocumentId: num(r.invoice_document_id),
   }));
-  const settlements = (db.prepare('SELECT * FROM ct_settlement WHERE contract_id = ? ORDER BY period_no').safeIntegers(true).all(id) as Record<string, unknown>[])
-    .map((r): ContractSettlementDto => ({
-      ...reviewPart(db, { ...(r as unknown as ReviewCols), reviewed_by_user_id: num(r.reviewed_by_user_id), submitted_by_user_id: num(r.submitted_by_user_id), self_review: Number(r.self_review) }),
-      id: Number(r.id), periodNo: Number(r.period_no), settlementKind: r.settlement_kind as ContractSettlementDto['settlementKind'],
-      settlementDate: String(r.settlement_date),
-      inContractAmount: centsToDecimalString(r.in_contract_cents as bigint),
-      changeClaimAmount: centsToDecimalString(r.change_claim_cents as bigint),
-      otherAddAmount: centsToDecimalString(r.other_add_cents as bigint),
-      grossPayableAmount: centsToDecimalString(r.gross_payable_cents as bigint),
-      deductPrepaymentAmount: centsToDecimalString(r.deduct_prepayment_cents as bigint),
-      deductRetentionAmount: centsToDecimalString(r.deduct_retention_cents as bigint),
-      deductPenaltyAmount: centsToDecimalString(r.deduct_penalty_cents as bigint),
-      totalDeductAmount: centsToDecimalString(r.total_deduct_cents as bigint),
-      netPayableAmount: centsToDecimalString(r.net_payable_cents as bigint),
-      note: String(r.note ?? ''), evidenceDocumentId: num(r.evidence_document_id), status: r.status as ContractSettlementDto['status'],
-    }));
+  const settlements = listContractSettlements(db, id);
   const receipts = (db.prepare('SELECT * FROM ct_receipt WHERE contract_id = ? ORDER BY id').safeIntegers(true).all(id) as Record<string, unknown>[])
     .map((r): ContractReceiptDto => ({
       ...reviewPart(db, { ...(r as unknown as ReviewCols), reviewed_by_user_id: num(r.reviewed_by_user_id), submitted_by_user_id: num(r.submitted_by_user_id), self_review: Number(r.self_review) }),
@@ -1178,7 +1164,9 @@ export function handoverUndertaker(db: DB, id: number, input: ContractHandoverRe
 export function addContractDocument(db: DB, store: ObjectStore, id: number, content: Buffer, fileName: string, docType: ContractDocType, name?: string, evidenceKind?: EvidenceKind, changeId?: number): ContractDocumentDto {
   const c = visibleContract(db, id);
   if (c.status !== 'suspended') assertActive(c, '上传文档');
-  if(docType==='contract_text'&&legalEnabled(db,c)&&legacyDoc(fileName,content)) throw new AppError('VALIDATION_FAILED','请将合同另存为 .docx 或导出 .pdf 后上传',400);
+  if (docType === 'contract_text' && legalEnabled(db, c) && legacyDoc(fileName, content) && !isValidLegacyDocUpload(content)) {
+    throw new AppError('VALIDATION_FAILED', '损坏或超限的 .doc 文件，请上传有效老版 Word 文档或另存为 .docx / 导出 .pdf 后上传', 400);
+  }
   if (docType === 'contract_text' && !legalEnabled(db,c) && db.prepare("SELECT 1 FROM ct_review WHERE contract_id = ? AND status = 'submitted'").get(id)) {
     throw conflict('CONTRACT_STATE', '合同审核进行中,不能替换合同正文;请等待审核结论后再上传');
   }

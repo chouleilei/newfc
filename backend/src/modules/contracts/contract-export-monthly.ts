@@ -16,6 +16,7 @@ import type {
   SupervisionPortalResponseDto,
 } from '../../contracts/project-contract';
 import type { LegalMetadata } from '../../contracts/contract-legal-review';
+import { tryRmbCents } from './contract-funding';
 import { procurementTier } from './legal-context';
 import { CATEGORY_TO_LABEL, PROCUREMENT_TO_LABEL } from './supervision-template-spec';
 
@@ -27,6 +28,7 @@ export interface ExportContractRow {
   org_name: string; org_report_full_name: string; project_name: string | null; supplier_name: string | null;
   direction: ContractDirection; pricing_mode: ContractPricingMode; unit_price_desc: string;
   estimated_ceiling_cents: bigint | null; currency: string; report_category: ContractReportCategory;
+  exchange_rate_scaled: bigint | null;
   summary_text: string; remark: string;
   is_procurement: number; procurement_target: LegalMetadata['procurementTarget'];
   procurement_method: LegalMetadata['procurementMethod']; procurement_method_other: string;
@@ -58,6 +60,60 @@ export interface ExportContractRow {
   currency_struct_status: 'single' | 'structured_multi' | 'partial_unstructured';
   duplicate_conflict_group: string;
   missing_fields_json: string;
+}
+
+export interface MonthlyStatsCurrencyRow {
+  currency: string;
+  newSignedCount: number;
+  newSignedWan: string;
+  closedCount: number;
+  closedWan: string;
+  changeCount: number;
+  changeDeltaWan: string;
+  settlementCount: number;
+  settlementNetWan: string;
+}
+
+interface ProcurementRecordRow {
+  id: number;
+  tender_agency: string;
+  announcement_date: string | null;
+  prequal_sale_start: string | null;
+  prequal_sale_end: string | null;
+  doc_sale_start_date: string | null;
+  clarification_site_date: string | null;
+  bid_open_date: string | null;
+  eval_report_submit_date: string | null;
+  eval_report_receive_date: string | null;
+  candidate_publicity_start: string | null;
+  candidate_publicity_end: string | null;
+  award_notice_date: string | null;
+  candidate_ranking_json: string;
+  protest_flag: number;
+  protest_detail: string;
+}
+
+function formatCandidateRanking(jsonText: string): string {
+  if (!jsonText) return '';
+  try {
+    const parsed = JSON.parse(jsonText);
+    if (!Array.isArray(parsed) || parsed.length === 0) return '';
+    return parsed
+      .map((item, idx) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const r = item as { rank?: number | string; name?: string; supplierName?: string };
+          const label = r.name ?? r.supplierName ?? '';
+          const rk = r.rank ?? idx + 1;
+          return label ? `第${rk}名:${label}` : '';
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('；');
+  } catch {
+    return jsonText;
+  }
 }
 
 /** 整数分精确转万元十进制字符串（1 万元 = 1,000,000 分），无浮点误差。 */
@@ -120,6 +176,7 @@ export function queryScopedContracts(
     plan_item_id: r.plan_item_id == null ? null : Number(r.plan_item_id),
     plan_item_name: r.plan_item_name == null ? null : String(r.plan_item_name),
     procurement_record_id: r.procurement_record_id == null ? null : Number(r.procurement_record_id),
+    exchange_rate_scaled: r.exchange_rate_scaled == null ? null : BigInt(r.exchange_rate_scaled as bigint),
     is_procurement: Number(r.is_procurement ?? 1),
     is_triple_major: Number(r.is_triple_major ?? 0),
     is_gov_procurement: Number(r.is_gov_procurement ?? 0),
@@ -226,9 +283,9 @@ export function buildMonthlyLedger(db: DB, opts: { period?: string; orgId?: numb
   const wb = new ExcelJS.Workbook();
   const s1 = wb.addWorksheet('01_月度统计表');
   s1.addRow([`${year}年${month}月度统计（金额单位：万本币）`]);
-  s1.mergeCells('A1:N1');
-  s1.addRow(['序号', '本月新签', '', '', '本月执行完毕', '', '', '本月变更', '', '', '', '本月结算', '', '']);
-  s1.mergeCells('A2:A3'); s1.mergeCells('B2:D2'); s1.mergeCells('E2:G2'); s1.mergeCells('H2:K2'); s1.mergeCells('L2:N2');
+  s1.mergeCells('A1:R1');
+  s1.addRow(['序号', '本月新签', '', '', '本月执行完毕', '', '', '本月变更', '', '', '', '本月结算', '', '', '币种标示', '', '', '']);
+  s1.mergeCells('A2:A3'); s1.mergeCells('B2:D2'); s1.mergeCells('E2:G2'); s1.mergeCells('H2:K2'); s1.mergeCells('L2:N2'); s1.mergeCells('O2:R2');
   s1.getRow(3).values = ['序号', '合同编号', '合同名称', '金额', '合同编号', '合同名称', '实际金额', '合同编号', '合同名称', '变更金额', '变更比例', '合同编号', '合同名称', '结算金额', '新签币种', '完结币种', '变更币种', '结算币种'];
   const newSigned = contracts.filter((c) => c.sign_date?.startsWith(period));
   const closedMonth = contracts.filter((c) => ['closed','terminated'].includes(c.status) && c.completed_date?.startsWith(period));
@@ -248,11 +305,47 @@ export function buildMonthlyLedger(db: DB, opts: { period?: string; orgId?: numb
       stc?.contract_no ?? '', stc?.name ?? '', st ? centsToWanString(st.net_payable_cents) : '', a?.currency ?? '', b?.currency ?? '', chc?.currency ?? '', stc?.currency ?? '',
     ]);
   }
+  const statCurrencies = new Set<string>(['人民币']);
+  for (const x of newSigned) statCurrencies.add(x.currency);
+  for (const x of closedMonth) statCurrencies.add(x.currency);
+  for (const ch of chgMonth) { const x = cById.get(Number(ch.contract_id)); if (x) statCurrencies.add(x.currency); }
+  for (const st of stlMonth) { const x = cById.get(Number(st.contract_id)); if (x) statCurrencies.add(x.currency); }
+  const monthlyStats: MonthlyStatsCurrencyRow[] = [];
+  for (const cur of statCurrencies) {
+    const nsCur = newSigned.filter((x) => x.currency === cur);
+    const clCur = closedMonth.filter((x) => x.currency === cur);
+    const chCur = chgMonth.filter((ch) => (cById.get(Number(ch.contract_id))?.currency ?? '人民币') === cur);
+    const stCur = stlMonth.filter((st) => (cById.get(Number(st.contract_id))?.currency ?? '人民币') === cur);
+    const nsSum = nsCur.reduce((s, x) => s + x.original_cents, 0n);
+    const clSum = clCur.reduce((s, x) => s + x.original_cents + x.approved_change_cents, 0n);
+    const chSum = chCur.reduce((s, x) => s + x.delta_cents, 0n);
+    const stSum = stCur.reduce((s, x) => s + x.net_payable_cents, 0n);
+    const rowSummary: MonthlyStatsCurrencyRow = {
+      currency: cur,
+      newSignedCount: nsCur.length,
+      newSignedWan: centsToWanString(nsSum),
+      closedCount: clCur.length,
+      closedWan: centsToWanString(clSum),
+      changeCount: chCur.length,
+      changeDeltaWan: centsToWanString(chSum, true),
+      settlementCount: stCur.length,
+      settlementNetWan: centsToWanString(stSum),
+    };
+    monthlyStats.push(rowSummary);
+    s1.addRow([
+      `小计(${cur})`,
+      `${nsCur.length}份`, '', rowSummary.newSignedWan,
+      `${clCur.length}份`, '', rowSummary.closedWan,
+      `${chCur.length}次`, '', rowSummary.changeDeltaWan, '',
+      `${stCur.length}笔`, '', rowSummary.settlementNetWan,
+      cur, cur, cur, cur,
+    ]);
+  }
 
   const s2 = wb.addWorksheet('02_合同台账总表');
   s2.addRow([]);
   s2.addRow(['合同台账（总表）']);
-  s2.mergeCells('A2:T2');
+  s2.mergeCells('A2:U2');
   s2.addRow([
     '序号', '类别', '合同编号', '合同名称', '年度计划项目名称', '初始签订合同金额 (万元)', '支出/收入', '签订日期', '工期',
     '对方单位名称（全称）', '采购方式', '承办部门(简称)', '承办人', '合同变更（详见变更表）', '累计变更金额(万元)',
@@ -268,7 +361,7 @@ export function buildMonthlyLedger(db: DB, opts: { period?: string; orgId?: numb
     if (c.status === 'suspended') noteParts.push('已中止');
     if (c.status === 'terminated') noteParts.push('已解除清算');
     s2.addRow([
-      idx + 1, CATEGORY_TO_LABEL[c.report_category] ?? c.contract_type, c.contract_no, c.name, c.project_name ?? '', initAmt,
+      idx + 1, CATEGORY_TO_LABEL[c.report_category] ?? c.contract_type, c.contract_no, c.name, c.plan_item_name ?? c.project_name ?? '', initAmt,
       c.direction === 'income' ? '收入' : '支出', c.sign_date ?? '',
       c.term_type === 'fixed' && c.term_start_date && c.term_end_date ? `${c.term_start_date}~${c.term_end_date}` : (c.term_condition_text || ''),
       c.counterparty_names || c.supplier_name || '', c.procurement_method ? (PROCUREMENT_TO_LABEL[c.procurement_method] ?? '') : '',
@@ -306,11 +399,30 @@ export function buildMonthlyLedger(db: DB, opts: { period?: string; orgId?: numb
   });
 
   const s4 = wb.addWorksheet('04_变更动态分表');
-  s4.addRow(['合同台账（变更分表）']); s4.mergeCells('A1:U1');
-  s4.addRow(['序号', '合同编号', '合同名称', '变更金额(+/-)', '', '', '变更次数', '', '', '第1次', '', '', '第2次', '', '', '第3次', '', '', '第N次', '', '']);
-  s4.mergeCells('A2:A3'); s4.mergeCells('B2:B3'); s4.mergeCells('C2:C3');
-  s4.mergeCells('D2:F2'); s4.mergeCells('G2:I2'); s4.mergeCells('J2:L2'); s4.mergeCells('M2:O2'); s4.mergeCells('P2:R2'); s4.mergeCells('S2:U2');
-  s4.getRow(3).values = ['序号', '合同编号', '合同名称', '累计', '往年', '本年', '累计', '往年', '本年', '金额', '日期', '原因', '金额', '日期', '原因', '金额', '日期', '原因', '金额', '日期', '原因', '币种（金额单位：万本币）'];
+  const maxChanges = Math.max(4, ...contracts.map((c) => (changesByCid.get(c.id) ?? []).length));
+  const s4TotalCols = 9 + maxChanges * 3 + 1;
+  s4.addRow(['合同台账（变更分表）']);
+  s4.mergeCells(1, 1, 1, s4TotalCols);
+  const s4Row2: string[] = ['序号', '合同编号', '合同名称', '变更金额(+/-)', '', '', '变更次数', '', ''];
+  const s4Row3: string[] = ['序号', '合同编号', '合同名称', '累计', '往年', '本年', '累计', '往年', '本年'];
+  for (let i = 0; i < maxChanges; i++) {
+    s4Row2.push(`第${i + 1}次`, '', '');
+    s4Row3.push('金额', '日期', '原因');
+  }
+  s4Row2.push('币种（金额单位：万本币）');
+  s4Row3.push('币种（金额单位：万本币）');
+  s4.addRow(s4Row2);
+  s4.addRow(s4Row3);
+  s4.mergeCells(2, 1, 3, 1);
+  s4.mergeCells(2, 2, 3, 2);
+  s4.mergeCells(2, 3, 3, 3);
+  s4.mergeCells(2, 4, 2, 6);
+  s4.mergeCells(2, 7, 2, 9);
+  for (let i = 0; i < maxChanges; i++) {
+    const startCol = 10 + i * 3;
+    s4.mergeCells(2, startCol, 2, startCol + 2);
+  }
+  s4.mergeCells(2, s4TotalCols, 3, s4TotalCols);
   let chgSeq = 0;
   for (const c of contracts) {
     const list = changesByCid.get(c.id) ?? [];
@@ -323,8 +435,8 @@ export function buildMonthlyLedger(db: DB, opts: { period?: string; orgId?: numb
       else if (cy === year) { curAmt += ch.delta_cents; curCnt++; }
     }
     const slots: string[] = [];
-    for (let i = 0; i < 4; i++) {
-      const item = i < 3 ? list[i] : (list.length > 3 ? list[list.length - 1] : undefined);
+    for (let i = 0; i < maxChanges; i++) {
+      const item = list[i];
       slots.push(item ? centsToWanString(item.delta_cents, true) : '', item ? item.chg_at.slice(0, 10) : '', item ? (item.change_matter || item.reason) : '');
     }
     s4.addRow([
@@ -335,26 +447,57 @@ export function buildMonthlyLedger(db: DB, opts: { period?: string; orgId?: numb
   }
 
   const s5 = wb.addWorksheet('05_招标项目清查表');
-  s5.addRow(['《招标项目清查表》']); s5.mergeCells('A1:U1');
+  s5.addRow(['《招标项目清查表》']); s5.mergeCells('A1:V1');
   s5.addRow([
     '序号', '合同名称', '合同编号', '中标单位', '公示的其他单位及其排名', '代理机构', '招标公告发布日期',
     '资格预审文件出售时间段', '开始出售招标文件日期', '澄清与现场查看日期', '投标截止日期/开标',
     '提交评标报告日期', '收到评标报告日期', '公示中标候选人时间段', '中标通知书发出时间', '合同签订日期',
     '有无质疑、澄清、投诉、举报等情形', '归档资料是否齐备', '资料是否集中归档', '是否存在违规情况', '备注', '币种',
   ]);
+  const procIds = [...new Set(contracts.map((c) => c.procurement_record_id).filter((id): id is number => id !== null))];
+  const procById = new Map<number, ProcurementRecordRow>();
+  if (procIds.length > 0) {
+    const inProcIds = `(${procIds.map(() => '?').join(',')})`;
+    const procRows = db.prepare(`SELECT * FROM ct_procurement_record WHERE id IN ${inProcIds}`).all(...procIds) as ProcurementRecordRow[];
+    for (const pr of procRows) procById.set(Number(pr.id), pr);
+  }
   let bidSeq = 0;
   for (const c of contracts) {
     if (c.procurement_method !== 'public_tender' && c.procurement_method !== 'invited_tender') continue;
     bidSeq++;
+    const pr = c.procurement_record_id !== null ? procById.get(c.procurement_record_id) : undefined;
+    const prequalPeriod = pr?.prequal_sale_start
+      ? (pr.prequal_sale_end ? `${pr.prequal_sale_start}~${pr.prequal_sale_end}` : pr.prequal_sale_start)
+      : '';
+    const pubPeriod = pr?.candidate_publicity_start
+      ? (pr.candidate_publicity_end ? `${pr.candidate_publicity_start}~${pr.candidate_publicity_end}` : pr.candidate_publicity_start)
+      : '';
+    const protestCol = !pr
+      ? '待补录'
+      : Number(pr.protest_flag) === 1
+        ? (pr.protest_detail?.trim() ? `有：${pr.protest_detail.trim()}` : '有')
+        : '无';
     s5.addRow([
-      bidSeq, c.name, c.contract_no, c.counterparty_names || c.supplier_name || '', '', '',
-      c.procurement_start_date ?? '', '', '', '', '', '', '', '', c.supplier_confirm_date ?? '', c.sign_date ?? '',
-      '无', c.archive_status === 'checked' || c.archive_status === 'transferred' ? '是' : '否',
+      bidSeq, c.name, c.contract_no, c.counterparty_names || c.supplier_name || '',
+      pr ? formatCandidateRanking(pr.candidate_ranking_json) : '',
+      pr?.tender_agency ?? '',
+      pr?.announcement_date ?? c.procurement_start_date ?? '',
+      prequalPeriod,
+      pr?.doc_sale_start_date ?? '',
+      pr?.clarification_site_date ?? '',
+      pr?.bid_open_date ?? '',
+      pr?.eval_report_submit_date ?? '',
+      pr?.eval_report_receive_date ?? '',
+      pubPeriod,
+      pr?.award_notice_date ?? c.supplier_confirm_date ?? '',
+      c.sign_date ?? '',
+      protestCol,
+      c.archive_status === 'checked' || c.archive_status === 'transferred' ? '是' : '否',
       c.archive_status === 'transferred' ? '是' : '否', (risksByCid.get(c.id)?.length ?? 0) > 0 ? '待核查' : '否', c.remark, c.currency,
     ]);
   }
 
-  return { wb, contracts, period };
+  return { wb, contracts, period, monthlyStats };
 }
 
 export async function exportMonthlyLedgerXlsx(db: DB, opts: { period?: string; orgId?: number } = {}): Promise<{ fileName: string; contentType: string; content: Buffer }> {
@@ -398,6 +541,8 @@ export function getSupervisionPortal(
 
   let expenseCount = 0; let incomeCount = 0;
   let totalSigned = 0n; let totalSettled = 0n; let totalPaid = 0n; let totalReceived = 0n; let totalChange = 0n;
+  let totalSignedKnownFxRmb = 0n; let missingFxContractCount = 0;
+  const byCurMap = new Map<string, { count: number; signed: bigint; settled: bigint; paid: bigint; received: bigint }>();
   let conCount = 0; let conAmt = 0n; let conSettled = 0n; let conPaid = 0n;
   let tier1Count = 0; let tier2Count = 0; let tier3Count = 0; let directCount = 0; let inquiryCount = 0; let procTotal = 0;
 
@@ -414,9 +559,21 @@ export function getSupervisionPortal(
       if (c.procurement_method === 'direct' || c.procurement_method === 'direct_reimburse') directCount++;
       if (c.procurement_method === 'inquiry') inquiryCount++;
     }
+    const curBucket = byCurMap.get(c.currency) ?? { count: 0, signed: 0n, settled: 0n, paid: 0n, received: 0n };
+    curBucket.count++;
+    curBucket.signed += current;
+    curBucket.settled += c.settled_net_cents;
+    curBucket.paid += c.paid_cents;
+    curBucket.received += c.received_cents;
+    byCurMap.set(c.currency, curBucket);
     if (c.currency === '人民币') {
       totalSigned += current; totalSettled += c.settled_net_cents; totalPaid += c.paid_cents; totalReceived += c.received_cents; totalChange += c.approved_change_cents;
+      totalSignedKnownFxRmb += current;
       if (c.report_category === 'engineering') { conCount++; conAmt += current; conSettled += c.settled_net_cents; conPaid += c.paid_cents; }
+    } else {
+      const rmbEq = tryRmbCents(c, current);
+      if (rmbEq !== null) totalSignedKnownFxRmb += rmbEq;
+      else missingFxContractCount++;
     }
   }
 
@@ -455,6 +612,16 @@ export function getSupervisionPortal(
         inquiryCount, inquiryRatio: procTotal > 0 ? ratioString(BigInt(inquiryCount), BigInt(procTotal)) : null,
       },
       riskStats: { totalAlerts: riskCounts.total ?? 0, rectifiedClosedAlerts: riskCounts.closed_cnt ?? 0 },
+      byCurrency: [...byCurMap.entries()].map(([currency, b]) => ({
+        currency,
+        contractCount: b.count,
+        signedAmount: centsToDecimalString(b.signed),
+        settledAmount: centsToDecimalString(b.settled),
+        paidAmount: centsToDecimalString(b.paid),
+        receivedAmount: centsToDecimalString(b.received),
+      })),
+      totalSignedWithKnownFxRmb: centsToDecimalString(totalSignedKnownFxRmb),
+      missingFxContractCount,
     },
     items,
   };

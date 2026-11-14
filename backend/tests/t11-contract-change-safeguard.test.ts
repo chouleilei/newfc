@@ -1,4 +1,4 @@
-import { SIGNATORIES, PAYMENT_APPROVAL, CHANGE_GOVERNANCE, seedNetAssets } from './contract-review-fixtures';
+import { SIGNATORIES, PAYMENT_APPROVAL, CHANGE_GOVERNANCE, seedCurrentLegalRun, seedNetAssets } from './contract-review-fixtures';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -135,6 +135,7 @@ describe('T-11.2 附件 5 变更分级引擎与中止/解除四位一体', () =>
     const txtId = await doc(c.id, 'contract_text', '正文.docx');
     c = await ok(get(t.base, maker, `/api/contracts/${c.id}`));
     c = await ok(post(t.base, maker, `/api/contracts/${c.id}/advance`, { expectedVersion: c.version, toStage: 'approval' }));
+    seedCurrentLegalRun(t.db, c.id);
     c = await ok(post(t.base, maker, `/api/contracts/${c.id}/reviews`, { documentId: txtId }), 201);
     c = await ok(post(t.base, reviewer, `/api/contracts/${c.id}/reviews/${c.reviews[0].id}/decide`, { decision: 'approve' }));
     await doc(c.id, 'signed', '盖章.pdf');

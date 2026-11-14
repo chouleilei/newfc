@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { DB } from '../../db/connection';
 import type { AuthContext } from '../../core/request-context';
 import { currentAuth } from '../../core/request-context';
@@ -267,6 +268,22 @@ export function changeLegalCatalog(
     writeLog(db, `contract.legal.${kind}.${action}`, table, id, { reason });
   }).immediate();
 }
+function ensureCatalogSourceFileName(originalName: string, contentType: string, content: Buffer): string {
+  const trimmed = (originalName || 'source').trim();
+  if (path.extname(trimmed)) return trimmed;
+  const ct = (contentType || '').toLowerCase();
+  if (ct.includes('pdf') || content.subarray(0, 4).equals(Buffer.from('%PDF'))) {
+    return `${trimmed}.pdf`;
+  }
+  if (
+    ct === 'application/msword' ||
+    (content.length >= 8 && content.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])))
+  ) {
+    return `${trimmed}.doc`;
+  }
+  return `${trimmed}.docx`;
+}
+
 export function legalCatalogSource(
   db: DB,
   store: ObjectStore,
@@ -284,11 +301,12 @@ export function legalCatalogSource(
     )
     .get(id) as any;
   if (!f) throw Errors.notFound('原件');
+  const content = store.read(f.sha256);
   writeLog(db, 'contract.legal.source.download', table, id, {});
   return {
-    fileName: f.original_name,
+    fileName: ensureCatalogSourceFileName(f.original_name, f.content_type, content),
     contentType: f.content_type,
-    content: store.read(f.sha256),
+    content,
   };
 }
 export function attachLegalSource(

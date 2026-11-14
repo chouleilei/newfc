@@ -328,8 +328,7 @@ async function runReview(
     findings,
     parsed.status,
     semantic.status,
-    template?.approvalStatus === 'official' &&
-      snap.c.legal_category !== 'tech_service',
+    template?.approvalStatus === 'official',
     complete,
   );
   const order = { high: 0, medium: 1, low: 2, info: 3 };

@@ -1,5 +1,5 @@
 import { assertWarrantyReleased, legalEntityOrgId, requireEvidence } from './contract-controls';
-import { assertContractFunding, rmbCents } from './contract-funding';
+import { assertContractFunding, rmbCents, tryRmbCents } from './contract-funding';
 import { getSetting } from '../settings/business-settings';
 import type { DB } from '../../db/connection';
 import { AppError } from '../../core/errors';
@@ -10,6 +10,7 @@ import { notVisible } from '../security/scope';
 import type {
   ContractDetailDto, ContractPaymentApprovalTier, ContractPaymentType, ContractReceiptCreateRequest,
   ContractReceiptDto, ContractReceiptReceiveRequest, ContractSettlementCreateRequest, ContractSettlementDto, DecisionRequest,
+  PaymentTierPreviewDto,
 } from '../../contracts/project-contract';
 import {
   assertActive, bump, contractDoc, currentCents, getContractDetail, recordEvent, visibleContract, type ContractRow,
@@ -154,6 +155,65 @@ export interface PaymentSubmitInput {
   feasibilityDocId?: number | null;
 }
 
+function evaluatePaymentTier(
+  db: DB,
+  c: ContractRow,
+  rmbAmount: bigint | null,
+  plannedDate?: string | null,
+): {
+  minTier: ContractPaymentApprovalTier;
+  large: boolean;
+  netAssetFound: boolean;
+  onePercentCents: bigint | null;
+  entity: number;
+  priorYear: number;
+} {
+  const assets = JSON.parse(getSetting<string>(db, 'contract.prior_year_net_assets') || '[]') as {
+    orgId: number;
+    year: number;
+    amount: string;
+  }[];
+  const entity = legalEntityOrgId(db, c.org_id, c.signing_entity_level);
+  const priorYear = Number((plannedDate || new Date().toISOString()).slice(0, 4)) - 1;
+  const asset = assets.find((a) => a.orgId === entity && a.year === priorYear);
+  const netAssetCents = asset ? parseDecimalToCents(asset.amount) : null;
+  const onePercentCents = netAssetCents !== null ? netAssetCents / 100n : null;
+  const large =
+    rmbAmount === null ||
+    rmbAmount >= FIVE_HUNDRED_WAN_CENTS ||
+    netAssetCents === null ||
+    rmbAmount * 100n >= netAssetCents;
+  const minTier: ContractPaymentApprovalTier = large
+    ? 'collective_decision'
+    : c.signing_entity_level === 'company'
+      ? rmbAmount > FIFTY_WAN_CENTS
+        ? 'general_manager'
+        : 'finance_vp'
+      : 'secondary_unit_head';
+  return { minTier, large, netAssetFound: netAssetCents !== null, onePercentCents, entity, priorYear };
+}
+
+export function previewContractPaymentTier(
+  db: DB,
+  contractId: number,
+  opts: { amount?: string; plannedDate?: string } = {},
+): PaymentTierPreviewDto {
+  const c = visibleContract(db, contractId);
+  const rawAmount = opts.amount ? parseDecimalToCents(opts.amount, { label: '付款金额' }) : 0n;
+  const rmbAmount = tryRmbCents(c, rawAmount < 0n ? 0n : rawAmount);
+  const info = evaluatePaymentTier(db, c, rmbAmount, opts.plannedDate ?? null);
+  return {
+    requiredTier: info.minTier,
+    requiredTierLabel: TIER_LABEL[info.minTier],
+    netAssetFound: info.netAssetFound,
+    onePercentAmount: info.onePercentCents === null ? null : centsToDecimalString(info.onePercentCents),
+    ceilingAmount: centsToDecimalString(FIVE_HUNDRED_WAN_CENTS),
+    rmbAmount: rmbAmount === null ? null : centsToDecimalString(rmbAmount),
+    legalEntityOrgId: info.entity,
+    priorYear: info.priorYear,
+  };
+}
+
 function assertPaymentApprovalTier(db: DB, c: ContractRow, amount: bigint, input: PaymentSubmitInput): void {
   const tier = input.approvalTier ?? null;
   const approverName = (input.approverName ?? '').trim();
@@ -161,14 +221,8 @@ function assertPaymentApprovalTier(db: DB, c: ContractRow, amount: bigint, input
   const fallback = input.evidenceDocumentId && db.prepare("SELECT id FROM ct_document WHERE id = ? AND contract_id = ? AND evidence_kind = 'payment_approval_form'").get(input.evidenceDocumentId, c.id) as { id: number } | undefined;
   const approvalDoc = input.approvalDocId ?? (fallback ? fallback.id : null);
   const rmbAmount = rmbCents(c, amount);
-  const assets = JSON.parse(getSetting<string>(db, 'contract.prior_year_net_assets') || '[]') as { orgId: number; year: number; amount: string }[];
-  const entity = legalEntityOrgId(db, c.org_id, c.signing_entity_level);
-  const priorYear = Number((input.plannedDate || new Date().toISOString()).slice(0, 4)) - 1;
-  const asset = assets.find(a => a.orgId === entity && a.year === priorYear);
-  const large = rmbAmount >= FIVE_HUNDRED_WAN_CENTS || !asset || rmbAmount * 100n >= parseDecimalToCents(asset.amount);
-  const minTier: ContractPaymentApprovalTier = large ? 'collective_decision' : c.signing_entity_level === 'company'
-    ? rmbAmount > FIFTY_WAN_CENTS ? 'general_manager' : 'finance_vp' : 'secondary_unit_head';
-  if (!tier || TIER_RANK[tier] < TIER_RANK[minTier]) throw conflict('CONTRACT_APPROVAL_TIER_REQUIRED', `${!asset ? '未配置上年净资产，按集体决策从严核验；' : ''}本笔付款要求「${TIER_LABEL[minTier]}」`, { requiredTier: minTier, actualTier: tier });
+  const { minTier, large, netAssetFound } = evaluatePaymentTier(db, c, rmbAmount, input.plannedDate ?? null);
+  if (!tier || TIER_RANK[tier] < TIER_RANK[minTier]) throw conflict('CONTRACT_APPROVAL_TIER_REQUIRED', `${!netAssetFound ? '未配置上年净资产，按集体决策从严核验；' : ''}本笔付款要求「${TIER_LABEL[minTier]}」`, { requiredTier: minTier, actualTier: tier });
   if (input.approvalDocId) requireEvidence(db, c.id, input.approvalDocId, ['payment_approval_form']);
   if (!approverName || !approverTitle) throw conflict('CONTRACT_APPROVER_REQUIRED', '须填写最高审批人姓名及身份/职务');
   if ((large || minTier === 'general_manager') && !approvalDoc) throw conflict('EVIDENCE_REQUIRED', '须选择对应付款签批单或集体决策会议文件');
@@ -221,8 +275,45 @@ function mapSettlementRow(db: DB, r: Record<string, unknown>): ContractSettlemen
 
 export function listContractSettlements(db: DB, id: number): ContractSettlementDto[] {
   visibleContract(db, id);
-  return (db.prepare('SELECT * FROM ct_settlement WHERE contract_id = ? ORDER BY period_no').safeIntegers(true).all(id) as Record<string, unknown>[])
-    .map((r) => mapSettlementRow(db, r));
+  const rows = db.prepare('SELECT * FROM ct_settlement WHERE contract_id = ? ORDER BY period_no ASC, id ASC').safeIntegers(true).all(id) as Record<string, unknown>[];
+  let runGross = 0n;
+  let runDeduct = 0n;
+  let runNet = 0n;
+  const ytdByYear = new Map<string, { gross: bigint; deduct: bigint; net: bigint }>();
+  return rows.map((r) => {
+    const curGross = r.gross_payable_cents as bigint;
+    const curDeduct = r.total_deduct_cents as bigint;
+    const curNet = r.net_payable_cents as bigint;
+    const yr = String(r.settlement_date).slice(0, 4);
+    const ytdPrev = ytdByYear.get(yr) ?? { gross: 0n, deduct: 0n, net: 0n };
+    const priorGross = runGross;
+    const priorDeduct = runDeduct;
+    const priorNet = runNet;
+    const ytdGross = ytdPrev.gross + curGross;
+    const ytdDeduct = ytdPrev.deduct + curDeduct;
+    const ytdNet = ytdPrev.net + curNet;
+    const cumGross = priorGross + curGross;
+    const cumDeduct = priorDeduct + curDeduct;
+    const cumNet = priorNet + curNet;
+    if (r.status !== 'rejected') {
+      runGross = cumGross;
+      runDeduct = cumDeduct;
+      runNet = cumNet;
+      ytdByYear.set(yr, { gross: ytdGross, deduct: ytdDeduct, net: ytdNet });
+    }
+    return {
+      ...mapSettlementRow(db, r),
+      priorGrossAmount: centsToDecimalString(priorGross),
+      priorTotalDeductAmount: centsToDecimalString(priorDeduct),
+      priorNetPayableAmount: centsToDecimalString(priorNet),
+      ytdGrossAmount: centsToDecimalString(ytdGross),
+      ytdTotalDeductAmount: centsToDecimalString(ytdDeduct),
+      ytdNetPayableAmount: centsToDecimalString(ytdNet),
+      cumulativeGrossAmount: centsToDecimalString(cumGross),
+      cumulativeTotalDeductAmount: centsToDecimalString(cumDeduct),
+      cumulativeNetPayableAmount: centsToDecimalString(cumNet),
+    };
+  });
 }
 
 function assertSettlementAllowed(db: DB, c: ContractRow, changeClaim: bigint, net: bigint, excludeSettlementId?: number, gross = net): void {
@@ -258,15 +349,24 @@ export function submitContractSettlement(db: DB, id: number, input: ContractSett
   const deductPrepayment = parseDecimalToCents(input.deductPrepaymentAmount, { label: '扣回预付款' });
   const deductRetention = parseDecimalToCents(input.deductRetentionAmount, { label: '扣留质保金' });
   const deductPenalty = parseDecimalToCents(input.deductPenaltyAmount, { label: '违约及考核扣款' });
-  if (inContract < 0n || otherAdd < 0n || deductPrepayment < 0n || deductRetention < 0n || deductPenalty < 0n) {
-    throw new AppError('VALIDATION_FAILED', '结算分项与扣款项金额不能为负', 400);
+  if (inContract < 0n || otherAdd < 0n) {
+    throw new AppError('VALIDATION_FAILED', '合同内应结与其他应结金额不能为负', 400);
   }
   const gross = inContract + changeClaim + otherAdd;
   const totalDeduct = deductPrepayment + deductRetention + deductPenalty;
   const net = gross - totalDeduct;
   if (gross < 0n) throw new AppError('VALIDATION_FAILED', '本期应结小计不能为负', 400);
   if (net < 0n) throw new AppError('VALIDATION_FAILED', '本期净应付/应收额不能为负', 400);
-  if (gross === 0n && totalDeduct === 0n) throw new AppError('VALIDATION_FAILED', '结算金额不能全为 0', 400);
+  if (
+    inContract === 0n &&
+    changeClaim === 0n &&
+    otherAdd === 0n &&
+    deductPrepayment === 0n &&
+    deductRetention === 0n &&
+    deductPenalty === 0n
+  ) {
+    throw new AppError('VALIDATION_FAILED', '结算金额不能全为 0', 400);
+  }
 
   db.transaction(() => {
     const c = visibleContract(db, id);

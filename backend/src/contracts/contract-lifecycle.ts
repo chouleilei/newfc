@@ -783,6 +783,16 @@ export interface SupervisionPortalResponseDto {
       totalAlerts: number;
       rectifiedClosedAlerts: number;
     };
+    byCurrency?: {
+      currency: string;
+      contractCount: number;
+      signedAmount: MoneyString;
+      settledAmount: MoneyString;
+      paidAmount: MoneyString;
+      receivedAmount: MoneyString;
+    }[];
+    totalSignedWithKnownFxRmb?: MoneyString;
+    missingFxContractCount?: number;
   };
   items: SupervisionPortalItemDto[];
 }

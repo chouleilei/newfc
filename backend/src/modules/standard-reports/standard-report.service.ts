@@ -30,6 +30,7 @@ import {
   type StdReportType,
 } from '../../contracts/standard-reports';
 import { buildMonthlyLedger, centsToWanString, queryScopedContracts } from '../contracts/contract-export-monthly';
+import { tryRmbCents } from '../contracts/contract-funding';
 
 const nowIso = () => new Date().toISOString();
 
@@ -151,25 +152,42 @@ function contractPaymentLedger(db: DB, input: Extract<StdReportGenerate, { repor
     params.push(input.orgId);
   }
   if (input.projectId) { where.push('c.project_id = ?'); params.push(input.projectId); }
-  const rows = db.prepare(`SELECT c.id, c.contract_no, c.name, c.stage, c.status, c.version, c.direction, c.pricing_mode, c.currency,
-      c.original_cents, c.approved_change_cents, c.settled_net_cents, c.paid_cents, c.received_cents,
+  const rows = db.prepare(`SELECT c.id, c.contract_no, c.name, c.stage, c.status, c.version, c.original_cents, c.approved_change_cents,
+      c.direction, c.pricing_mode, c.currency, c.exchange_rate_scaled, c.currency_struct_status,
+      c.settled_net_cents, c.paid_cents, c.received_cents,
       o.name AS org_name, p.code AS project_code, p.name AS project_name, s.name AS supplier_name,
-      (SELECT COALESCE(SUM(amount_cents), 0) FROM ct_payment WHERE contract_id = c.id AND status = 'paid' AND substr(paid_date, 1, 7) = ?) AS period_paid,
-      (SELECT COALESCE(SUM(amount_cents), 0) FROM ct_receipt WHERE contract_id = c.id AND status = 'received' AND substr(received_date, 1, 7) = ?) AS period_received
-    FROM ct_contract c JOIN org o ON o.id = c.org_id LEFT JOIN md_project p ON p.id = c.project_id LEFT JOIN md_supplier s ON s.id = c.supplier_id
+      COALESCE((SELECT SUM(amount_cents) FROM ct_payment cp WHERE cp.contract_id = c.id AND cp.status = 'paid' AND substr(cp.paid_date, 1, 7) = ?), 0) AS period_paid,
+      COALESCE((SELECT SUM(amount_cents) FROM ct_receipt cr WHERE cr.contract_id = c.id AND cr.status = 'received' AND substr(cr.received_date, 1, 7) = ?), 0) AS period_received
+    FROM ct_contract c
+    JOIN org o ON o.id = c.org_id
+    LEFT JOIN md_project p ON p.id = c.project_id
+    LEFT JOIN md_supplier s ON s.id = c.supplier_id
     WHERE ${where.join(' AND ')} ORDER BY c.contract_no`).safeIntegers(true).all(input.period, input.period, ...params) as {
     id: bigint; contract_no: string; name: string; stage: ContractStage; status: ContractStatus; version: bigint; original_cents: bigint; approved_change_cents: bigint;
-    direction: string; pricing_mode: string; currency: string; settled_net_cents: bigint; paid_cents: bigint; received_cents: bigint;
+    direction: string; pricing_mode: string; currency: string; exchange_rate_scaled: bigint | null;
+    currency_struct_status: 'single' | 'structured_multi' | 'partial_unstructured';
+    settled_net_cents: bigint; paid_cents: bigint; received_cents: bigint;
     org_name: string; project_code: string | null; project_name: string | null; supplier_name: string | null; period_paid: bigint; period_received: bigint;
   }[];
   let totalCurrent = 0n; let totalPaid = 0n; let totalPeriod = 0n;
   let totalIncCurrent = 0n; let totalReceived = 0n; let totalIncPeriod = 0n;
+  let knownFxRmbCurrent = 0n; let missingFxCount = 0;
+  const fxBuckets = new Map<string, { count: number; current: bigint; paidOrReceived: bigint }>();
   const out = rows.map((r) => {
     const current = r.original_cents + r.approved_change_cents;
     const isIncome = r.direction === 'income';
     if (r.currency === '人民币') {
       if (isIncome) { totalIncCurrent += current; totalReceived += r.received_cents; totalIncPeriod += r.period_received; }
-      else { totalCurrent += current; totalPaid += r.paid_cents; totalPeriod += r.period_paid; }
+      else { totalCurrent += current; totalPaid += r.paid_cents; totalPeriod += r.period_paid; knownFxRmbCurrent += current; }
+    } else {
+      const b = fxBuckets.get(r.currency) ?? { count: 0, current: 0n, paidOrReceived: 0n };
+      b.count++;
+      b.current += current;
+      b.paidOrReceived += isIncome ? r.received_cents : r.paid_cents;
+      fxBuckets.set(r.currency, b);
+      const eq = tryRmbCents(r, current);
+      if (eq !== null && !isIncome) knownFxRmbCurrent += eq;
+      else if (eq === null) missingFxCount++;
     }
     const settledOrPaid = isIncome ? r.received_cents : r.paid_cents;
     return {
@@ -206,8 +224,26 @@ function contractPaymentLedger(db: DB, input: Extract<StdReportGenerate, { repor
         { label: '本期实收合计', value: centsToDecimalString(totalIncPeriod) },
         { label: '累计实收合计', value: centsToDecimalString(totalReceived) },
       ] : []),
+      ...[...fxBuckets.entries()].map(([cur, b]) => ({
+        label: `${cur}原币合同合计(${b.count}份)`,
+        value: `${centsToDecimalString(b.current)}（已结付/收 ${centsToDecimalString(b.paidOrReceived)}）`,
+      })),
+      ...(fxBuckets.size > 0 ? [
+        { label: '支出含已知汇率折算合计(人民币)', value: centsToDecimalString(knownFxRmbCurrent) },
+        { label: '缺参考汇率外币合同数', value: String(missingFxCount) },
+      ] : []),
     ],
-    sources: { contracts: rows.map((r) => ({ id: Number(r.id), version: Number(r.version) })), period: input.period },
+    sources: {
+      contracts: rows.map((r) => ({ id: Number(r.id), version: Number(r.version) })),
+      period: input.period,
+      foreignCurrencyBreakdown: [...fxBuckets.entries()].map(([currency, b]) => ({
+        currency,
+        count: b.count,
+        currentAmount: centsToDecimalString(b.current),
+        paidOrReceivedAmount: centsToDecimalString(b.paidOrReceived),
+      })),
+      missingFxCount,
+    },
   };
 }
 
@@ -215,8 +251,10 @@ function contractMonthlyPack(db: DB, input: Extract<StdReportGenerate, { reportT
   if (input.orgId) assertOrg(db, input.orgId);
   else requireCurrentAllOrgs('全组织月度合同5表台账');
   const year = input.period.slice(0, 4);
-  const { wb: monthlyWorkbook, contracts: rows } = buildMonthlyLedger(db, { orgId: input.orgId, period: input.period });
+  const { wb: monthlyWorkbook, contracts: rows, monthlyStats } = buildMonthlyLedger(db, { orgId: input.orgId, period: input.period });
   let newSignCount = 0; let closedCount = 0; let expTotalWan = 0n; let incTotalWan = 0n;
+  const fxWanBuckets = new Map<string, { count: number; currentCents: bigint }>();
+  let missingFxCount = 0;
   const out = rows.map((r) => {
     const cur = r.original_cents + r.approved_change_cents;
     if (r.sign_date?.startsWith(input.period)) newSignCount++;
@@ -224,6 +262,12 @@ function contractMonthlyPack(db: DB, input: Extract<StdReportGenerate, { reportT
     if (r.currency === '人民币') {
       if (r.direction === 'income') incTotalWan += cur;
       else expTotalWan += cur;
+    } else {
+      const b = fxWanBuckets.get(r.currency) ?? { count: 0, currentCents: 0n };
+      b.count++;
+      b.currentCents += cur;
+      fxWanBuckets.set(r.currency, b);
+      if (tryRmbCents(r, cur) === null) missingFxCount++;
     }
     return {
       contractNo: r.contract_no,
@@ -242,6 +286,7 @@ function contractMonthlyPack(db: DB, input: Extract<StdReportGenerate, { reportT
     };
   });
   const scopeName = input.orgId ? orgName(db, input.orgId)! : '全组织';
+  const rmbMonthlyStat = monthlyStats.find((s) => s.currency === '人民币');
   return {
     title: `${input.period} 月度合同5表台账 · ${scopeName}`,
     orgId: input.orgId ?? null,
@@ -267,15 +312,29 @@ function contractMonthlyPack(db: DB, input: Extract<StdReportGenerate, { reportT
     summary: [
       { label: '合同总数', value: String(out.length) },
       { label: '本月新签', value: String(newSignCount) },
+      { label: '本月新签额(人民币万元)', value: rmbMonthlyStat?.newSignedWan ?? '0.00' },
       { label: '本月完结', value: String(closedCount) },
+      { label: '本月完结额(人民币万元)', value: rmbMonthlyStat?.closedWan ?? '0.00' },
+      { label: '本月变更(次 / 人民币万元)', value: `${rmbMonthlyStat?.changeCount ?? 0} / ${rmbMonthlyStat?.changeDeltaWan ?? '0.00'}` },
+      { label: '本月结算(笔 / 人民币万元)', value: `${rmbMonthlyStat?.settlementCount ?? 0} / ${rmbMonthlyStat?.settlementNetWan ?? '0.00'}` },
       { label: '支出当前总额(人民币万元)', value: centsToWanString(expTotalWan) },
       { label: '收入当前总额(人民币万元)', value: centsToWanString(incTotalWan) },
+      ...[...fxWanBuckets.entries()].map(([cur, b]) => ({
+        label: `${cur}合同原币总额(${b.count}份,万本币)`,
+        value: centsToWanString(b.currentCents),
+      })),
+      ...(missingFxCount > 0 ? [{ label: '缺参考汇率外币合同数', value: String(missingFxCount) }] : []),
       { label: '组织范围', value: scopeName },
     ],
-    sources: { contracts: rows.map((r) => ({ id: r.id, version: r.version })), period: input.period, monthlySheets: monthlyWorkbook.worksheets.map(ws => {
+    sources: {
+      contracts: rows.map((r) => ({ id: r.id, version: r.version })),
+      period: input.period,
+      monthlyStats,
+      monthlySheets: monthlyWorkbook.worksheets.map(ws => {
       const data = { name: ws.name, rows: ws.getSheetValues().slice(1).map(row => Array.isArray(row) ? row.slice(1).map(v => v ?? null) : []), merges: (ws.model.merges ?? []) };
       return { ...data, sha256: crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex') };
-    }) },
+    }),
+    },
   };
 }
 
