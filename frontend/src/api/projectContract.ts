@@ -60,6 +60,8 @@ export const planApi = {
   void: (id: number, reason: string) => api.post<PlanBatchDto>(`/plan/batches/${id}/void`, { reason }),
   overview: (q: PlanQueryFields) => api.get<PlanOverviewDto>(`/plan/overview${qs({ ...q })}`),
   projects: (q: PlanQueryFields) => api.get<PlanProjectProgressListDto>(`/plan/projects${qs({ ...q })}`),
+  templatePath: (year?: number) => `/plan/template${qs({ year })}`,
+  exportBatchPath: (id: number) => `/plan/batches/${id}/export`,
 };
 
 type Decision = Partial<DecisionRequest> & Pick<DecisionRequest, 'decision'>;

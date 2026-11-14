@@ -27,3 +27,15 @@ export const promptSupplementApi = {
   list: () => api.get<{ items: PromptSupplementDto[] }>('/settings/ai-prompt-supplements'),
   save: (taskKey: string, body: { content: string; expectedVersion: number }) => api.put<PromptSupplementDto>(`/settings/ai-prompt-supplements/${taskKey}`, body),
 };
+
+export interface PdfParserProbeResult {
+  ok: boolean;
+  status: number;
+  latencyMs: number;
+  message: string;
+}
+
+export const businessSettingsApi = {
+  testPdfParser: (baseUrl?: string) =>
+    api.post<PdfParserProbeResult>('/settings/business/test-pdf-parser', baseUrl !== undefined ? { baseUrl } : {}),
+};

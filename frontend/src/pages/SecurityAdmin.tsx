@@ -1,10 +1,11 @@
 import { useAssistantDomainPage } from '../assistant/contextHooks';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Card, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, TreeSelect, Typography } from 'antd';
-import { api, errorText, getSession } from '../api/client';
+import { Alert, App as AntdApp, Button, Card, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tabs, Tag, TreeSelect, Typography, Upload } from 'antd';
+import { api, can, errorText, getSession } from '../api/client';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
+import { downloadCsvTemplate, parseCsvOrJsonRecords } from '../utils/simpleCsvJson';
 import { usePrompt } from './financeData/shared';
 
 interface UserItem {
@@ -30,7 +31,56 @@ interface RoleItem {
 }
 
 interface PermissionItem { code: string; label: string; group: string }
-interface OrgTreeNode { id: number; code: string; name: string; children?: OrgTreeNode[] }
+interface OrgTreeNode {
+  id: number;
+  code: string;
+  name: string;
+  status?: string;
+  orgKind?: string;
+  children?: OrgTreeNode[];
+}
+
+interface UserBatchPreviewRow {
+  row: number;
+  username: string;
+  displayName: string;
+  roleCodes: string[];
+  roleIds: number[];
+  allOrgs: boolean;
+  orgCodes: string[];
+  orgIds: number[];
+  hasPassword: boolean;
+  action: 'create' | 'update';
+  errors: string[];
+}
+
+interface UserBatchImportResult {
+  mode: 'preview' | 'confirm';
+  rows: UserBatchPreviewRow[];
+  errors: { row: number; field: string; message: string }[];
+  created: number;
+  updated: number;
+}
+
+const USER_CSV_HEADERS: Record<string, string> = {
+  用户名: 'username',
+  账号: 'username',
+  显示名: 'displayName',
+  姓名: 'displayName',
+  角色编码: 'roleCodes',
+  角色: 'roleCodes',
+  全部组织: 'allOrgs',
+  授权组织编码: 'orgCodes',
+  授权组织: 'orgCodes',
+  初始口令: 'initialPassword',
+  初始密码: 'initialPassword',
+};
+
+const USER_CSV_TEMPLATE = [
+  'username,displayName,roleCodes,allOrgs,orgCodes,initialPassword',
+  'hq_reviewer,集团业务复核岗,business_reviewer,是,,InitPass#2026A',
+  'sub01_editor,下属单位经办岗,unit_editor,否,ORG_SUB01,InitPass#2026B',
+].join('\n');
 
 interface UserForm {
   username?: string;
@@ -88,8 +138,33 @@ function SessionsModal({ user, onClose }: { user: UserItem | null; onClose: () =
   );
 }
 
-function toTreeData(nodes: OrgTreeNode[]): { value: number; title: string; children?: ReturnType<typeof toTreeData> }[] {
-  return nodes.map((n) => ({ value: n.id, title: `${n.name}(${n.code})`, children: n.children?.length ? toTreeData(n.children) : undefined }));
+interface OrgTreeOption {
+  value: number;
+  title: ReactNode;
+  searchLabel: string;
+  disabled?: boolean;
+  children?: OrgTreeOption[];
+}
+
+function toTreeData(nodes: OrgTreeNode[]): OrgTreeOption[] {
+  return nodes.map((n) => {
+    const isClosed = n.status === 'inactive' || n.orgKind === 'closed_history';
+    const labelText = `${n.name}(${n.code})`;
+    return {
+      value: n.id,
+      searchLabel: labelText,
+      disabled: isClosed,
+      title: isClosed ? (
+        <Space size={4}>
+          <span>{labelText}</span>
+          <Tag>历史停用</Tag>
+        </Space>
+      ) : (
+        labelText
+      ),
+      children: n.children?.length ? toTreeData(n.children) : undefined,
+    };
+  });
 }
 
 /**
@@ -102,9 +177,14 @@ export default function SecurityAdmin() {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const me = getSession()?.user;
+  const canManageSecurity = can('security:manage');
   const [editingUser, setEditingUser] = useState<UserItem | 'new' | null>(null);
   const [editingRole, setEditingRole] = useState<RoleItem | 'new' | null>(null);
   const [sessionsOf, setSessionsOf] = useState<UserItem | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchRawText, setBatchRawText] = useState('');
+  const [batchItems, setBatchItems] = useState<Record<string, unknown>[]>([]);
+  const [batchPreview, setBatchPreview] = useState<UserBatchImportResult | null>(null);
   const [prompt, promptHolder] = usePrompt();
   const [userForm] = Form.useForm<UserForm>();
   const [roleForm] = Form.useForm<RoleForm>();
@@ -162,6 +242,40 @@ export default function SecurityAdmin() {
     onError: (e) => message.error(errorText(e)),
   });
 
+  const previewBatchUsers = useMutation({
+    mutationFn: (items: Record<string, unknown>[]) =>
+      api.post<UserBatchImportResult>('/security/users/batch-import', { mode: 'preview', items }),
+    onSuccess: (res) => {
+      setBatchPreview(res);
+      if (res.errors.length === 0) message.success(`预览通过：待新增 ${res.created} 个、更新 ${res.updated} 个账号`);
+      else message.warning(`预览发现 ${res.errors.length} 处校验错误`);
+    },
+    onError: (e) => message.error(errorText(e)),
+  });
+
+  const confirmBatchUsers = useMutation({
+    mutationFn: () => api.post<UserBatchImportResult>('/security/users/batch-import', { mode: 'confirm', items: batchItems }),
+    onSuccess: (res) => {
+      message.success(`批量导入成功：新增 ${res.created} 个、更新 ${res.updated} 个账号`);
+      setBatchOpen(false);
+      setBatchRawText('');
+      setBatchItems([]);
+      setBatchPreview(null);
+      invalidate();
+    },
+    onError: (e) => message.error(errorText(e)),
+  });
+
+  const handleParseBatchUsers = (raw: string) => {
+    try {
+      const parsed = parseCsvOrJsonRecords(raw, USER_CSV_HEADERS);
+      setBatchItems(parsed);
+      previewBatchUsers.mutate(parsed);
+    } catch (e) {
+      message.error(errorText(e));
+    }
+  };
+
   const copyRole = async (r: RoleItem) => {
     const v = await prompt({
       title: `复制角色 ${r.name}`, description: '新角色带出原角色的全部权限,不带用户;复制后可再调整权限。',
@@ -200,8 +314,13 @@ export default function SecurityAdmin() {
             label: '用户',
             children: (
               <>
-                <Space style={{ marginBottom: 12 }}>
+                <Space wrap style={{ marginBottom: 12 }}>
                   <Button type="primary" icon={<i className="ri-user-add-line" aria-hidden />} onClick={() => openUser('new')}>新建用户</Button>
+                  {canManageSecurity && (
+                    <Button onClick={() => { setBatchOpen(true); setBatchPreview(null); }}>
+                      批量初始化用户与数据范围
+                    </Button>
+                  )}
                   <Typography.Text type="secondary">新建或重置口令后,用户首次登录须自行修改口令。</Typography.Text>
                 </Space>
                 <Table<UserItem>
@@ -331,11 +450,117 @@ export default function SecurityAdmin() {
                 treeData={toTreeData(orgTree.data?.tree ?? [])}
                 placeholder="选择组织"
                 showSearch
-                treeNodeFilterProp="title"
+                treeNodeFilterProp="searchLabel"
               />
             </Form.Item>
           )}
         </Form>
+      </Modal>
+
+      <Modal
+        title="批量初始化用户与数据范围（预览 → 确认）"
+        open={batchOpen}
+        onCancel={() => { setBatchOpen(false); setBatchRawText(''); setBatchItems([]); setBatchPreview(null); }}
+        width={940}
+        okText="确认批量导入"
+        confirmLoading={confirmBatchUsers.isPending}
+        okButtonProps={{
+          disabled:
+            !batchPreview ||
+            batchPreview.errors.length > 0 ||
+            batchPreview.rows.length === 0 ||
+            previewBatchUsers.isPending,
+        }}
+        onOk={() => confirmBatchUsers.mutate()}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <Alert
+            type="info"
+            showIcon
+            message="密码将按服务端哈希策略存储，不在前端或日志保留明文，账号首次登录须修改密码。"
+          />
+          <Space wrap>
+            <Upload
+              accept=".csv,.json"
+              showUploadList={false}
+              beforeUpload={(file) => {
+                void file.text().then((txt) => {
+                  setBatchRawText(txt);
+                  handleParseBatchUsers(txt);
+                });
+                return false;
+              }}
+            >
+              <Button>选择 CSV / JSON 文件</Button>
+            </Upload>
+            <Button onClick={() => downloadCsvTemplate('users-scope-template.csv', USER_CSV_TEMPLATE)}>
+              下载 CSV 模板
+            </Button>
+            <Button
+              type="primary"
+              ghost
+              loading={previewBatchUsers.isPending}
+              disabled={!batchRawText.trim()}
+              onClick={() => handleParseBatchUsers(batchRawText)}
+            >
+              解析并预览
+            </Button>
+          </Space>
+          <Input.TextArea
+            rows={4}
+            value={batchRawText}
+            onChange={(e) => { setBatchRawText(e.target.value); setBatchPreview(null); }}
+            placeholder="粘贴 CSV（username,displayName,roleCodes,allOrgs,orgCodes,initialPassword）或 JSON 数组"
+          />
+          {batchPreview && (
+            <>
+              <Alert
+                type={batchPreview.errors.length > 0 ? 'error' : 'success'}
+                showIcon
+                message={
+                  batchPreview.errors.length > 0
+                    ? `发现 ${batchPreview.errors.length} 处校验错误（如停用历史组织不可授予写权限范围），请修正后重试`
+                    : `预览通过：共 ${batchPreview.rows.length} 行（新增 ${batchPreview.created}，更新 ${batchPreview.updated}）`
+                }
+              />
+              <Table<UserBatchPreviewRow>
+                rowKey={(r) => `${r.row}-${r.username}`}
+                size="small"
+                pagination={{ pageSize: 8 }}
+                dataSource={batchPreview.rows}
+                columns={[
+                  { title: '行号', dataIndex: 'row', width: 56 },
+                  { title: '用户名', dataIndex: 'username', width: 130 },
+                  { title: '显示名', dataIndex: 'displayName', width: 130 },
+                  {
+                    title: '角色编码',
+                    dataIndex: 'roleCodes',
+                    width: 150,
+                    render: (codes: string[]) => codes.map((c) => <Tag key={c}>{c}</Tag>),
+                  },
+                  {
+                    title: '数据范围',
+                    width: 180,
+                    render: (_: unknown, r) =>
+                      r.allOrgs ? <Tag color="blue">全部组织</Tag> : r.orgCodes.map((oc) => <Tag key={oc}>{oc}</Tag>),
+                  },
+                  {
+                    title: '动作',
+                    dataIndex: 'action',
+                    width: 75,
+                    render: (v: 'create' | 'update') => <Tag color={v === 'create' ? 'green' : 'blue'}>{v === 'create' ? '新增' : '更新'}</Tag>,
+                  },
+                  {
+                    title: '校验结果',
+                    dataIndex: 'errors',
+                    render: (errs: string[]) =>
+                      errs.length > 0 ? <Typography.Text type="danger">{errs.join('；')}</Typography.Text> : <Tag color="success">通过</Tag>,
+                  },
+                ]}
+              />
+            </>
+          )}
+        </Space>
       </Modal>
 
       <Modal

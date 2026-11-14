@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Space, Button, Modal, Form, Input, InputNumber, Select, Popconfirm, App, Tag, Empty, Typography, List, TreeSelect, Result } from 'antd';
-import { api, errorText } from '../api/client';
+import {
+  Alert, Card, Checkbox, Space, Button, Modal, Form, Input, InputNumber, Select,
+  Popconfirm, App, Table, Tag, Empty, Typography, List, TreeSelect, Result, Upload,
+} from 'antd';
+import { Link } from 'react-router-dom';
+import { api, can, errorText, getSession } from '../api/client';
+import { downloadCsvTemplate, parseCsvOrJsonRecords } from '../utils/simpleCsvJson';
 
 /** 统一错误文本实现在 api/client;这里保留再导出,避免所有管理页变更导入路径。 */
 export { errorText };
@@ -11,6 +16,27 @@ import { useAssistantDraft, useAssistantPageContext } from '../assistant/context
 
 /** 组织/科目管理共用页面骨架(方案五) */
 
+export type OrgKind = 'legal_entity' | 'hq_dept' | 'direct_unit' | 'closed_history';
+
+export const ORG_KIND_LABELS: Record<OrgKind, string> = {
+  legal_entity: '存续法人',
+  hq_dept: '本部部门',
+  direct_unit: '直属非法人',
+  closed_history: '历史关停主体',
+};
+
+const ORG_KIND_COLORS: Record<OrgKind, string> = {
+  legal_entity: 'green',
+  hq_dept: 'geekblue',
+  direct_unit: 'gold',
+  closed_history: 'default',
+};
+
+export interface ExternalBlockedPatterns {
+  prefixes: string[];
+  names: string[];
+}
+
 export interface TreeNodeDto {
   id: number;
   parentId: number | null;
@@ -19,6 +45,13 @@ export interface TreeNodeDto {
   type?: string;
   unit?: string;
   quantityAgg?: string;
+  orgKind?: OrgKind;
+  creditCode?: string;
+  planIssuanceRootId?: number | null;
+  isPlanExcluded?: boolean;
+  contractPrefixCode?: string;
+  isDirectStation?: boolean;
+  reportFullName?: string;
   sortOrder: number;
   status: string;
   children: TreeNodeDto[];
@@ -32,18 +65,125 @@ export interface TreeRow {
   code: string;
   name: string;
   type?: string;
+  org_kind?: OrgKind;
+  credit_code?: string;
+  plan_issuance_root_id?: number | null;
+  is_plan_excluded?: number;
+  contract_prefix_code?: string;
+  is_direct_station?: number;
+  report_full_name?: string;
   sort_order: number;
   status: string;
   updated_at: string;
 }
 
 interface NodeFormValues {
-  code: string;
+  code?: string;
   name: string;
   type?: string;
   unit?: string;
   quantityAgg?: 'sum' | 'none';
   sortOrder?: number;
+  orgKind?: OrgKind;
+  creditCode?: string;
+  reportFullName?: string;
+  planIssuanceRootId?: number | null;
+  contractPrefixCode?: string;
+  isPlanExcluded?: boolean;
+  isDirectStation?: boolean;
+}
+
+interface OrgImportPreviewRow {
+  row: number;
+  code: string;
+  parentCode: string | null;
+  name: string;
+  orgKind: OrgKind;
+  creditCode: string;
+  planIssuanceRootCode: string | null;
+  contractPrefixCode: string;
+  isPlanExcluded: boolean;
+  isDirectStation: boolean;
+  reportFullName: string;
+  status: 'active' | 'inactive';
+  sortOrder: number;
+  action: 'create' | 'update';
+  errors: string[];
+}
+
+interface OrgBatchImportResult {
+  mode: 'preview' | 'confirm';
+  previewRows: OrgImportPreviewRow[];
+  errors: { row: number; field: string; message: string }[];
+  created: number;
+  updated: number;
+}
+
+const ORG_CSV_HEADERS: Record<string, string> = {
+  编码: 'code',
+  父编码: 'parentCode',
+  上级编码: 'parentCode',
+  名称: 'name',
+  组织名称: 'name',
+  主体分类: 'orgKind',
+  统一社会信用代码: 'creditCode',
+  信用代码: 'creditCode',
+  归口主单位: 'planIssuanceRootCode',
+  计划归口主单位: 'planIssuanceRootCode',
+  合同前缀: 'contractPrefixCode',
+  合同前缀简码: 'contractPrefixCode',
+  不单列计划: 'isPlanExcluded',
+  直属电站: 'isDirectStation',
+  报表全称: 'reportFullName',
+  状态: 'status',
+  排序: 'sortOrder',
+};
+
+const ORG_CSV_TEMPLATE = [
+  'code,parentCode,name,orgKind,creditCode,planIssuanceRootCode,contractPrefixCode,isPlanExcluded,isDirectStation,reportFullName,status,sortOrder',
+  'ORG_HQ,,集团本部,legal_entity,91000000000000000X,,HQ,false,false,示范集团有限责任公司,active,1',
+  'ORG_DEPT_FIN,ORG_HQ,财务部,hq_dept,,ORG_HQ,HQ,true,false,示范集团财务部,active,10',
+  'ORG_STATION_A,ORG_HQ,示范直属水电站,direct_unit,,ORG_HQ,STA,false,true,示范集团直属水电站,active,20',
+].join('\n');
+
+export function matchExternalOrgBlock(
+  patterns: ExternalBlockedPatterns,
+  candidate: { code?: string; name?: string; contractPrefixCode?: string },
+  existingOrgCodes?: ReadonlySet<string>,
+): string | null {
+  const codeUpper = (candidate.code ?? '').trim().toUpperCase();
+  const prefixUpper = (candidate.contractPrefixCode ?? '').trim().toUpperCase();
+  const nameNorm = (candidate.name ?? '').normalize('NFKC').trim();
+  for (const p of patterns.prefixes) {
+    const pu = p.trim().toUpperCase();
+    if (!pu || existingOrgCodes?.has(pu)) continue;
+    if (codeUpper && codeUpper === pu) return `编码 ${codeUpper} 命中外部相对方前缀 ${pu}`;
+    if (prefixUpper && prefixUpper === pu) return `合同前缀 ${prefixUpper} 命中外部相对方前缀 ${pu}`;
+  }
+  for (const blockedName of patterns.names) {
+    const bn = blockedName.normalize('NFKC').trim();
+    if (bn && nameNorm && (nameNorm === bn || nameNorm.includes(bn))) {
+      return `名称“${nameNorm}”命中外部非并表主体清单（${bn}）`;
+    }
+  }
+  return null;
+}
+
+function normalizeOrgFormPayload(v: NodeFormValues, includeCode: boolean): Record<string, unknown> {
+  const orgKind: OrgKind = v.orgKind ?? 'legal_entity';
+  const payload: Record<string, unknown> = {
+    ...(includeCode && v.code !== undefined ? { code: v.code.trim() } : {}),
+    name: v.name.trim(),
+    sortOrder: v.sortOrder ?? 0,
+    orgKind,
+    creditCode: (v.creditCode ?? '').trim().toUpperCase(),
+    reportFullName: (v.reportFullName ?? '').trim(),
+    planIssuanceRootId: v.planIssuanceRootId ?? null,
+    contractPrefixCode: (v.contractPrefixCode ?? '').trim().toUpperCase(),
+    isPlanExcluded: Boolean(v.isPlanExcluded),
+    isDirectStation: orgKind === 'direct_unit' ? Boolean(v.isDirectStation) : false,
+  };
+  return payload;
 }
 
 export function TreeManage({
@@ -58,14 +198,27 @@ export function TreeManage({
   void renamePath;
   const qc = useQueryClient();
   const { message, modal } = App.useApp();
+  const canWrite = kind !== 'org' || (can('master:write') && !!getSession()?.user.allOrgs);
   const [rows, setRows] = useState<TreeRow[]>([]);
+  const [externalPatterns, setExternalPatterns] = useState<ExternalBlockedPatterns>({ prefixes: [], names: [] });
   const [statusTarget, setStatusTarget] = useState<TreeNodeDto | null>(null);
   const [nodes, setNodes] = useState<TreeNodeDto[] | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editPropsTarget, setEditPropsTarget] = useState<TreeNodeDto | null>(null);
   const [parent, setParent] = useState<TreeNodeDto | null>(null);
   const [form] = Form.useForm<NodeFormValues>();
+  const [editPropsForm] = Form.useForm<NodeFormValues>();
   const [checkResult, setCheckResult] = useState<{ ok: boolean; problems: string[] } | null>(null);
+  void checkResult;
   const [keyword, setKeyword] = useState('');
+  const [externalGuideMsg, setExternalGuideMsg] = useState<string | null>(null);
+
+  // 批量导入组织弹窗状态（GAP-02）
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchRawText, setBatchRawText] = useState('');
+  const [batchParsedRows, setBatchParsedRows] = useState<Record<string, unknown>[]>([]);
+  const [batchPreview, setBatchPreview] = useState<OrgBatchImportResult | null>(null);
+
   /* 财务助手页面登记(§7.2 org)：当前树与搜索关键字。 */
   useAssistantPageContext({ pageKey: kind === 'org' ? 'org' : 'account', ready: nodes != null, notReadyReason: '正在读取树数据', readyState: 'loading', scope: {}, view: { search: keyword.trim() || undefined } });
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -81,26 +234,70 @@ export function TreeManage({
     return { id: node.id, updatedAt, operation };
   };
   useAssistantDraft(modalOpen, `${kind}:new:${parent?.id ?? 'root'}`, () => ({ kind: formKind, base: { clientKey: `new-${kind}`, operation: 'create' }, changes: { parentId: parent?.id ?? null, ...form.getFieldsValue(true) } }));
+  useAssistantDraft(
+    editPropsTarget != null,
+    `${kind}:props:${editPropsTarget?.id}`,
+    () => editPropsTarget
+      ? ({
+          kind: formKind,
+          base: baseFor(editPropsTarget, 'update'),
+          changes: changedFields(editPropsForm.getFieldsValue(true), {
+            name: editPropsTarget.name,
+            sortOrder: editPropsTarget.sortOrder,
+            orgKind: editPropsTarget.orgKind ?? 'legal_entity',
+            creditCode: editPropsTarget.creditCode ?? '',
+            reportFullName: editPropsTarget.reportFullName ?? '',
+            planIssuanceRootId: editPropsTarget.planIssuanceRootId ?? null,
+            contractPrefixCode: editPropsTarget.contractPrefixCode ?? '',
+            isPlanExcluded: Boolean(editPropsTarget.isPlanExcluded),
+            isDirectStation: Boolean(editPropsTarget.isDirectStation),
+          }),
+        })
+      : null,
+  );
   useAssistantDraft(renameTarget != null, `${kind}:rename:${renameTarget?.id}`, () => renameTarget ? ({ kind: formKind, base: baseFor(renameTarget, 'update'), changes: changedFields(renameForm.getFieldsValue(true), { name: renameTarget.name }) }) : null);
   useAssistantDraft(moveTarget != null, `${kind}:move:${moveTarget?.id}`, () => moveTarget ? ({ kind: formKind, base: baseFor(moveTarget, 'move'), changes: { parentId: moveParentId } }) : null);
   useAssistantDraft(statusTarget != null, `${kind}:status:${statusTarget?.id}`, () => statusTarget ? ({ kind: formKind, base: baseFor(statusTarget, 'status'), changes: { status: statusTarget.status === 'active' ? 'inactive' : 'active' } }) : null);
 
   const load = async () => {
-    try { setLoadError(null); const data = await api.get<{ tree: TreeNodeDto[]; rows: TreeRow[] }>(`/${kind}/tree`); setNodes(data.tree); setRows(data.rows); }
+    try {
+      setLoadError(null);
+      const data = await api.get<{ tree: TreeNodeDto[]; rows: TreeRow[]; externalBlockedPatterns?: ExternalBlockedPatterns }>(`/${kind}/tree`);
+      setNodes(data.tree);
+      setRows(data.rows);
+      if (data.externalBlockedPatterns) {
+        setExternalPatterns(data.externalBlockedPatterns);
+      }
+    }
     catch (e) { setLoadError(e); setNodes(null); }
   };
   useEffect(() => { void load(); }, [kind]);
 
-  const invalidate = () => { void load(); qc.invalidateQueries({ queryKey: ['tree', kind] }); };
+  const invalidate = () => {
+    void load();
+    void qc.invalidateQueries({ queryKey: ['tree', kind] });
+    if (kind === 'org') void qc.invalidateQueries({ queryKey: ['org-tree'] });
+  };
+
+  const existingOrgCodes = useMemo(
+    () => new Set(rows.map((r) => r.code.trim().toUpperCase())),
+    [rows],
+  );
 
   const create = useMutation({
-    mutationFn: (v: NodeFormValues) => api.post(`/${kind}`, { parentId: parent?.id ?? null, ...v }),
-    onSuccess: () => { message.success('创建成功'); setModalOpen(false); invalidate(); },
+    mutationFn: (v: NodeFormValues) =>
+      api.post(
+        `/${kind}`,
+        kind === 'org'
+          ? { parentId: parent?.id ?? null, ...normalizeOrgFormPayload(v, true) }
+          : { parentId: parent?.id ?? null, ...v },
+      ),
+    onSuccess: () => { message.success('创建成功'); setModalOpen(false); setExternalGuideMsg(null); invalidate(); },
     onError: (e) => message.error(errorText(e)),
   });
 
   const update = useMutation({
-    mutationFn: ({ id, ...v }: { id: number; name?: string; sortOrder?: number }) => api.patch(`/${kind}/${id}`, v),
+    mutationFn: ({ id, ...v }: { id: number } & Record<string, unknown>) => api.patch(`/${kind}/${id}`, v),
     onSuccess: () => { message.success('已保存'); invalidate(); },
     onError: (e) => message.error(errorText(e)),
   });
@@ -123,14 +320,161 @@ export function TreeManage({
     onError: (e) => message.error(errorText(e)),
   });
 
+  const previewBatch = useMutation({
+    mutationFn: (parsed: Record<string, unknown>[]) =>
+      api.post<OrgBatchImportResult>('/org/import', { mode: 'preview', rows: parsed }),
+    onSuccess: (res) => {
+      setBatchPreview(res);
+      if (res.errors.length === 0) message.success(`预览通过：待新增 ${res.created} 条、更新 ${res.updated} 条`);
+      else message.warning(`预览发现 ${res.errors.length} 处错误，请修正后再提交`);
+    },
+    onError: (e) => message.error(errorText(e)),
+  });
+
+  const confirmBatch = useMutation({
+    mutationFn: () => api.post<OrgBatchImportResult>('/org/import', { mode: 'confirm', rows: batchParsedRows }),
+    onSuccess: (res) => {
+      message.success(`批量导入完成：新增 ${res.created} 条，更新 ${res.updated} 条`);
+      setBatchOpen(false);
+      setBatchRawText('');
+      setBatchParsedRows([]);
+      setBatchPreview(null);
+      invalidate();
+    },
+    onError: (e) => message.error(errorText(e)),
+  });
+
   const flatNodes: TreeNodeDto[] = [];
   const flatten = (list: TreeNodeDto[]) => { for (const n of list) { flatNodes.push(n); flatten(n.children); } };
   if (nodes) flatten(nodes);
+
+  const legalEntityOptions = useMemo(
+    () =>
+      flatNodes
+        .filter((n) => (n.orgKind ?? 'legal_entity') === 'legal_entity')
+        .map((n) => ({ value: n.id, title: `${n.name} (${n.code})` })),
+    [nodes],
+  );
+
   /* 关键字过滤:编码/名称/路径命中即显示(路径命中可保留上下文) */
   const kw = keyword.trim().toLowerCase();
   const visibleNodes = kw
     ? flatNodes.filter((n) => n.code.toLowerCase().includes(kw) || n.name.toLowerCase().includes(kw) || n.path.toLowerCase().includes(kw))
     : flatNodes;
+
+  const validateAndCheckExternal = (
+    f: typeof form,
+    isCreate: boolean,
+    onValid: (v: NodeFormValues) => void,
+  ) => {
+    void f.validateFields().then((v) => {
+      if (kind === 'org') {
+        const reason = matchExternalOrgBlock(
+          externalPatterns,
+          {
+            code: isCreate ? v.code : undefined,
+            name: v.name,
+            contractPrefixCode: v.contractPrefixCode,
+          },
+          isCreate ? undefined : existingOrgCodes,
+        );
+        if (reason) {
+          const msg = `外部合作方/非并表参考主体严禁录入组织树（${reason}），请前往主数据「供应商」页签维护`;
+          setExternalGuideMsg(msg);
+          f.setFields([{ name: 'name', errors: [msg] }]);
+          return;
+        }
+      }
+      setExternalGuideMsg(null);
+      onValid(v);
+    });
+  };
+
+  const renderOrgExtraFields = (activeForm: typeof form) => (
+    <>
+      {externalGuideMsg && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={externalGuideMsg}
+          description={<Link to="/master-entities?tab=suppliers">前往「主数据 → 供应商」维护外部相对方</Link>}
+        />
+      )}
+      <Form.Item name="orgKind" label="主体分类" initialValue="legal_entity" rules={[{ required: true, message: '请选择主体分类' }]}>
+        <Select
+          options={(Object.keys(ORG_KIND_LABELS) as OrgKind[]).map((k) => ({ value: k, label: ORG_KIND_LABELS[k] }))}
+          onChange={(val: OrgKind) => {
+            if (val !== 'direct_unit') activeForm.setFieldValue('isDirectStation', false);
+          }}
+        />
+      </Form.Item>
+      <Form.Item
+        name="creditCode"
+        label="统一社会信用代码"
+        rules={[{ pattern: /^([0-9A-Za-z]{18})?$/, message: '须为空或 18 位统一社会信用代码' }]}
+      >
+        <Input maxLength={18} placeholder="可选，18位统一社会信用代码" />
+      </Form.Item>
+      <Form.Item name="reportFullName" label="报表与公文全称">
+        <Input maxLength={120} placeholder="用于监管报送与标准公文的单位全称" />
+      </Form.Item>
+      <Form.Item name="planIssuanceRootId" label="计划归口一级主体" extra="留空代表自身即一级综合计划下达单元">
+        <TreeSelect
+          allowClear
+          showSearch
+          treeData={legalEntityOptions}
+          treeNodeFilterProp="title"
+          placeholder="可选，选择归口存续法人"
+        />
+      </Form.Item>
+      <Form.Item
+        name="contractPrefixCode"
+        label="合同前缀简码"
+        rules={[{ pattern: /^([A-Za-z0-9][A-Za-z0-9_-]{0,23})?$/, message: '仅允许字母、数字、下划线或连字符（最长24位）' }]}
+      >
+        <Input maxLength={24} placeholder="规范大写字母简码（沿用母公司规则的子法人填母公司简码）" />
+      </Form.Item>
+      <Form.Item name="isPlanExcluded" valuePropName="checked" initialValue={false}>
+        <Checkbox>不生成独立年度综合计划下达通知，仅参与集团合并</Checkbox>
+      </Form.Item>
+      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.orgKind !== cur.orgKind}>
+        {({ getFieldValue }) => (
+          <Form.Item name="isDirectStation" valuePropName="checked" initialValue={false}>
+            <Checkbox disabled={getFieldValue('orgKind') !== 'direct_unit'}>
+              直属水电站政策标志（仅直属水电站勾选；一般直属分支机构不勾选）
+            </Checkbox>
+          </Form.Item>
+        )}
+      </Form.Item>
+    </>
+  );
+
+  const openEditProps = (n: TreeNodeDto) => {
+    setExternalGuideMsg(null);
+    setEditPropsTarget(n);
+    editPropsForm.setFieldsValue({
+      name: n.name,
+      sortOrder: n.sortOrder,
+      orgKind: n.orgKind ?? 'legal_entity',
+      creditCode: n.creditCode ?? '',
+      reportFullName: n.reportFullName ?? '',
+      planIssuanceRootId: n.planIssuanceRootId ?? null,
+      contractPrefixCode: n.contractPrefixCode ?? '',
+      isPlanExcluded: Boolean(n.isPlanExcluded),
+      isDirectStation: Boolean(n.isDirectStation),
+    });
+  };
+
+  const handleParseBatch = (raw: string) => {
+    try {
+      const parsed = parseCsvOrJsonRecords(raw, ORG_CSV_HEADERS);
+      setBatchParsedRows(parsed);
+      previewBatch.mutate(parsed);
+    } catch (e) {
+      message.error(errorText(e));
+    }
+  };
 
   return (
     /* 无壳 + 无标题:调用方传的 title(如「组织管理」)与侧栏菜单项同名,顶栏已显示一遍 */
@@ -179,9 +523,31 @@ export function TreeManage({
               if (target) setKeyword(target.code);
             } : undefined}
           />
-          <Button type="primary" icon={<i className="ri-add-line" aria-hidden />} onClick={() => { setParent(null); form.resetFields(); setModalOpen(true); }}>
-            新增根节点
-          </Button>
+          {kind === 'org' && canWrite && (
+            <>
+              <Button onClick={() => downloadCsvTemplate('org-import-template.csv', ORG_CSV_TEMPLATE)}>
+                下载 CSV 模板
+              </Button>
+              <Button onClick={() => { setBatchOpen(true); setBatchPreview(null); }}>
+                批量导入组织
+              </Button>
+            </>
+          )}
+          {canWrite && (
+            <Button
+              type="primary"
+              icon={<i className="ri-add-line" aria-hidden />}
+              onClick={() => {
+                setParent(null);
+                setExternalGuideMsg(null);
+                form.resetFields();
+                if (kind === 'org') form.setFieldsValue({ orgKind: 'legal_entity', isPlanExcluded: false, isDirectStation: false, sortOrder: 0 });
+                setModalOpen(true);
+              }}
+            >
+              新增根节点
+            </Button>
+          )}
         </Space>
       }
     >
@@ -201,7 +567,10 @@ export function TreeManage({
             const depth = n.path.split(' / ').length - 1;
             return (
               <List.Item
-                actions={[
+                actions={canWrite ? [
+                  ...(kind === 'org'
+                    ? [<Button key="edit-props" size="small" onClick={() => openEditProps(n)}>编辑属性</Button>]
+                    : []),
                   <Button key="rename" size="small" onClick={() => {
                     renameForm.setFieldsValue({ name: n.name }); setRenameTarget(n);
                   }}>改名</Button>,
@@ -213,19 +582,27 @@ export function TreeManage({
                   </Button>,
                   <Button key="add" size="small" onClick={() => {
                     setParent(n);
+                    setExternalGuideMsg(null);
                     form.resetFields();
                     if (kind === 'account') form.setFieldValue('type', n.type);
                     if (kind === 'account' && n.type === 'quantity') form.setFieldValue('unit', n.unit);
+                    if (kind === 'org') form.setFieldsValue({ orgKind: 'legal_entity', isPlanExcluded: false, isDirectStation: false, sortOrder: 0 });
                     setModalOpen(true);
                   }}>新增下级</Button>,
                   <Popconfirm key="del" title="确定删除?被业务数据引用的节点不可删除" onConfirm={() => remove.mutate(n.id)}>
                     <Button size="small" danger>删除</Button>
                   </Popconfirm>,
-                ]}
+                ] : []}
               >
-                <Space size={8} style={{ marginLeft: depth * 28 }}>
+                <Space size={8} wrap style={{ marginLeft: depth * 28 }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{n.code}</span>
                   <span>{n.name}</span>
+                  {kind === 'org' && n.orgKind && (
+                    <Tag color={ORG_KIND_COLORS[n.orgKind]}>{ORG_KIND_LABELS[n.orgKind]}</Tag>
+                  )}
+                  {kind === 'org' && n.isDirectStation && <Tag color="cyan">直属电站</Tag>}
+                  {kind === 'org' && n.isPlanExcluded && <Tag>不单列计划</Tag>}
+                  {kind === 'org' && n.contractPrefixCode && <Tag color="blue">{n.contractPrefixCode}</Tag>}
                   {n.type && <Tag color={n.type === 'income' ? 'green' : n.type === 'cost' ? 'orange' : n.type === 'expense' ? 'red' : 'purple'}>{n.type === 'income' ? '收入' : n.type === 'cost' ? '成本' : n.type === 'expense' ? '费用' : '数量'}</Tag>}
                   {n.type === 'quantity' && n.unit && <Tag color="purple">{n.unit}</Tag>}
                   {n.status === 'inactive' ? <Tag>已停用</Tag> : null}
@@ -241,9 +618,10 @@ export function TreeManage({
       <Modal mask={false}
         title={`新增${kind === 'org' ? '组织' : '科目'}${parent ? ` — 上级:${parent.code} ${parent.name}` : '(根节点)'}`}
         open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        onOk={() => form.validateFields().then((v) => create.mutate(v))}
+        onCancel={() => { setModalOpen(false); setExternalGuideMsg(null); }}
+        onOk={() => validateAndCheckExternal(form, true, (v) => create.mutate(v))}
         confirmLoading={create.isPending}
+        width={kind === 'org' ? 600 : 520}
       >
         {modalOpen && <ConfigFormAssistant kind={formKind} form={form} />}
         <Form form={form} layout="vertical">
@@ -253,6 +631,7 @@ export function TreeManage({
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
+          {kind === 'org' && renderOrgExtraFields(form)}
           {kind === 'account' && (
             <Form.Item noStyle shouldUpdate={(prev, cur) => prev.type !== cur.type}>
               {({ getFieldValue }) => (
@@ -296,6 +675,136 @@ export function TreeManage({
           </Form.Item>
         </Form>
       </Modal>
+      {kind === 'org' && (
+        <Modal
+          mask={false}
+          title={`编辑组织属性: ${editPropsTarget?.code ?? ''}`}
+          open={!!editPropsTarget}
+          onCancel={() => { setEditPropsTarget(null); setExternalGuideMsg(null); }}
+          confirmLoading={update.isPending}
+          width={600}
+          onOk={() =>
+            validateAndCheckExternal(editPropsForm, false, (v) => {
+              if (!editPropsTarget) return;
+              update.mutate(
+                { id: editPropsTarget.id, ...normalizeOrgFormPayload(v, false) },
+                { onSuccess: () => { setEditPropsTarget(null); setExternalGuideMsg(null); } },
+              );
+            })
+          }
+        >
+          {editPropsTarget && <ConfigFormAssistant kind={formKind} form={editPropsForm} />}
+          <Form form={editPropsForm} layout="vertical">
+            <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            {renderOrgExtraFields(editPropsForm)}
+            <Form.Item name="sortOrder" label="同级排序">
+              <InputNumber style={{ width: '100%' }} />
+            </Form.Item>
+          </Form>
+        </Modal>
+      )}
+      {kind === 'org' && (
+        <Modal
+          title="批量导入组织树（预览 → 确认）"
+          open={batchOpen}
+          onCancel={() => setBatchOpen(false)}
+          width={920}
+          okText="确认提交"
+          confirmLoading={confirmBatch.isPending}
+          okButtonProps={{
+            disabled:
+              !batchPreview ||
+              batchPreview.errors.length > 0 ||
+              batchPreview.previewRows.length === 0 ||
+              previewBatch.isPending,
+          }}
+          onOk={() => confirmBatch.mutate()}
+        >
+          <Space direction="vertical" style={{ width: '100%' }} size={12}>
+            <Space wrap>
+              <Upload
+                accept=".csv,.json"
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  void file.text().then((txt) => {
+                    setBatchRawText(txt);
+                    handleParseBatch(txt);
+                  });
+                  return false;
+                }}
+              >
+                <Button>选择 CSV / JSON 文件</Button>
+              </Upload>
+              <Button onClick={() => downloadCsvTemplate('org-import-template.csv', ORG_CSV_TEMPLATE)}>
+                下载 CSV 模板
+              </Button>
+              <Button
+                type="primary"
+                ghost
+                loading={previewBatch.isPending}
+                disabled={!batchRawText.trim()}
+                onClick={() => handleParseBatch(batchRawText)}
+              >
+                解析并预览
+              </Button>
+            </Space>
+            <Input.TextArea
+              rows={4}
+              value={batchRawText}
+              onChange={(e) => { setBatchRawText(e.target.value); setBatchPreview(null); }}
+              placeholder="支持直接粘贴 CSV（含表头 code,parentCode,name,orgKind,...）或 JSON 数组"
+            />
+            {batchPreview && (
+              <>
+                <Alert
+                  type={batchPreview.errors.length > 0 ? 'error' : 'success'}
+                  showIcon
+                  message={
+                    batchPreview.errors.length > 0
+                      ? `校验发现 ${batchPreview.errors.length} 处阻断错误，请修正后再提交`
+                      : `校验通过：共 ${batchPreview.previewRows.length} 行（新增 ${batchPreview.created}，更新 ${batchPreview.updated}）`
+                  }
+                />
+                <Table<OrgImportPreviewRow>
+                  rowKey={(r) => `${r.row}-${r.code}`}
+                  size="small"
+                  pagination={{ pageSize: 8 }}
+                  dataSource={batchPreview.previewRows}
+                  columns={[
+                    { title: '行号', dataIndex: 'row', width: 56 },
+                    { title: '编码', dataIndex: 'code', width: 110 },
+                    { title: '父编码', dataIndex: 'parentCode', width: 110, render: (v: string | null) => v || '—' },
+                    { title: '名称', dataIndex: 'name', width: 150 },
+                    { title: '主体分类', dataIndex: 'orgKind', width: 110, render: (v: OrgKind) => ORG_KIND_LABELS[v] ?? v },
+                    { title: '归口主单位', dataIndex: 'planIssuanceRootCode', width: 110, render: (v: string | null) => v || '自身' },
+                    { title: '合同前缀', dataIndex: 'contractPrefixCode', width: 90, render: (v: string) => v || '—' },
+                    {
+                      title: '动作',
+                      dataIndex: 'action',
+                      width: 75,
+                      render: (v: 'create' | 'update') => <Tag color={v === 'create' ? 'green' : 'blue'}>{v === 'create' ? '新增' : '更新'}</Tag>,
+                    },
+                    {
+                      title: '状态',
+                      dataIndex: 'status',
+                      width: 75,
+                      render: (v: string) => <Tag color={v === 'active' ? 'success' : 'default'}>{v}</Tag>,
+                    },
+                    {
+                      title: '校验提示',
+                      dataIndex: 'errors',
+                      render: (errs: string[]) =>
+                        errs.length > 0 ? <Typography.Text type="danger">{errs.join('；')}</Typography.Text> : <Tag color="success">通过</Tag>,
+                    },
+                  ]}
+                />
+              </>
+            )}
+          </Space>
+        </Modal>
+      )}
       <Modal mask={false} title={`修改名称: ${renameTarget?.code ?? ''}`} open={!!renameTarget} onCancel={() => setRenameTarget(null)} confirmLoading={update.isPending} onOk={() => renameForm.validateFields().then(v => { if (renameTarget && v.name !== renameTarget.name) update.mutate({ id: renameTarget.id, name: v.name }, { onSuccess: () => setRenameTarget(null) }); })}>
         {renameTarget && <ConfigFormAssistant kind={formKind} form={renameForm} />}
         <Form form={renameForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item></Form>

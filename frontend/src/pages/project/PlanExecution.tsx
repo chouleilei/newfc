@@ -1,11 +1,24 @@
 import { useBatchDeepLink } from '../../hooks/useBatchDeepLink';
 import { useAssistantDomainPage } from '../../assistant/contextHooks';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Card, Col, Drawer, Form, InputNumber, Modal, Row, Segmented, Space, Table, Tag, Tooltip, Typography, Upload } from 'antd';
+import {
+  Alert, App as AntdApp, Button, Card, Col, Collapse, Drawer, Form, Input, InputNumber,
+  Modal, Row, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload,
+} from 'antd';
+import { Link } from 'react-router-dom';
 import { can, download, errorText } from '../../api/client';
 import {
-  planApi, type PeriodValueDto, type PlanBatchDto, type PlanItemDto, type PlanPreviewDto, type PlanProjectProgressDto, type PlanSheetCode, type PlanSheetOverviewDto,
+  planApi,
+  type PeriodValueDto,
+  type PlanBatchDto,
+  type PlanItemDto,
+  type PlanPreviewDto,
+  type PlanProjectProgressDto,
+  type PlanRowStatus,
+  type PlanSheetCode,
+  type PlanSheetDomain,
+  type PlanSheetOverviewDto,
 } from '../../api/projectContract';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
@@ -18,7 +31,58 @@ import { BATCH_STATUS, RowErrors } from './shared';
  * 缺年度实际列时不可计算(不用开工累计兜底),形象进度缺失为空(不用投资完成比例冒充)。
  */
 
-const SHEET_LABEL: Record<PlanSheetCode, string> = { investment: '固定资产投资计划', purchase: '固定资产购置计划', maintenance: '运行维护费' };
+export const SHEET_LABEL: Record<PlanSheetCode, string> = {
+  investment: '固定资产投资计划',
+  investment_tech_renovation: '资本化更新改造',
+  investment_info: '信息化投资',
+  investment_other: '其他投资',
+  purchase: '固定资产购置计划',
+  pre_work: '前期工作费',
+  capacity_add: '新增生产能力',
+  tech_renovation_exp: '费用化更新改造',
+  maintenance: '运行维护费',
+  safety_input: '安全生产投入',
+  five_expenses: '五项费用',
+  mgmt_fee: '管理类费用',
+  mfg_fee: '制造费用',
+  annual_kpi: '主要指标',
+  profit_budget: '利润预算明细',
+  responsibility_kpi: '经营目标责任指标',
+};
+
+export const SHEET_DOMAIN_LABELS: Record<PlanSheetDomain, string> = {
+  investment_purchase: '投资与购置',
+  operation_expense: '运维与费用',
+  kpi_budget: '指标与预算',
+};
+
+export const SHEET_DOMAINS: Record<PlanSheetDomain, readonly PlanSheetCode[]> = {
+  investment_purchase: [
+    'investment',
+    'investment_tech_renovation',
+    'investment_info',
+    'investment_other',
+    'purchase',
+    'pre_work',
+    'capacity_add',
+  ],
+  operation_expense: [
+    'tech_renovation_exp',
+    'maintenance',
+    'safety_input',
+    'five_expenses',
+    'mgmt_fee',
+    'mfg_fee',
+  ],
+  kpi_budget: ['annual_kpi', 'profit_budget', 'responsibility_kpi'],
+};
+
+function domainOfSheet(code: PlanSheetCode): PlanSheetDomain {
+  if ((SHEET_DOMAINS.operation_expense as readonly string[]).includes(code)) return 'operation_expense';
+  if ((SHEET_DOMAINS.kpi_budget as readonly string[]).includes(code)) return 'kpi_budget';
+  return 'investment_purchase';
+}
+
 const ROW_STATUS = {
   not_computable: { text: '不可计算', color: 'default' }, over_plan: { text: '超计划', color: 'error' }, slow: { text: '偏慢', color: 'warning' }, normal: { text: '正常', color: 'success' },
 };
@@ -64,7 +128,7 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   const run = useMutation({
     mutationFn: async (mode: 'preview' | 'import') => {
       const v = await form.validateFields();
-      if (!file) throw new Error('请选择 .xlsx 文件');
+      if (!file) throw new Error('请选择计划文件（.csv / .xlsx / .xls）');
       return mode === 'preview' ? { mode, r: await planApi.preview(file, v) } : { mode, r: await planApi.importFile(file, v) };
     },
     onSuccess: ({ mode, r }) => {
@@ -72,12 +136,15 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
       const b = r as PlanBatchDto;
       message.success(b.replayed ? `相同文件已导入过,返回批次 #${b.id}` : `已导入批次 #${b.id},激活后生效`);
       void qc.invalidateQueries({ queryKey: ['plan-batches'] });
+      void qc.invalidateQueries({ queryKey: ['plan-overview'] });
+      void qc.invalidateQueries({ queryKey: ['plan-projects'] });
       close();
     },
     onError: (e) => message.error(errorText(e)),
   });
+  const warnings = preview?.warnings ?? [];
   return (
-    <Modal open={open} title="导入计划执行" width={860} onCancel={close} destroyOnClose
+    <Modal open={open} title="导入综合计划与执行（支持 16 表 .xls / .xlsx）" width={920} onCancel={close} destroyOnClose
       footer={<Space>
         <Button onClick={close}>取消</Button>
         <Button onClick={() => run.mutate('preview')} loading={run.isPending}>预览</Button>
@@ -87,13 +154,44 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
         <Form.Item name="year" label="计划年度" rules={[{ required: true }]}><InputNumber min={2000} max={2100} style={{ width: 100 }} /></Form.Item>
         <Form.Item name="actualPeriod" label="实际期间" rules={[{ required: true }]}><PeriodPicker onChange={(v) => form.setFieldValue('actualPeriod', v)} allowClear={false} /></Form.Item>
       </Form>
-      <Upload.Dragger accept=".xlsx" maxCount={1} style={{ marginTop: 12 }} beforeUpload={(f) => { setFile(f); setPreview(null); return false; }} onRemove={() => { setFile(null); setPreview(null); }}>
-        <p>点击或拖入计划执行 .xlsx(固定资产投资计划、固定资产购置计划、运行维护费三张表)</p>
+      <Upload.Dragger accept=".csv,.xlsx,.xls" maxCount={1} style={{ marginTop: 12 }} beforeUpload={(f) => { setFile(f); setPreview(null); return false; }} onRemove={() => { setFile(null); setPreview(null); }}>
+        <p>点击或拖入综合计划与执行文件（支持 16 表 .xls / .xlsx / .csv）</p>
       </Upload.Dragger>
       {preview && (
         <Space direction="vertical" style={{ width: '100%', marginTop: 12 }}>
           {preview.valid ? <Alert type="success" showIcon message={`校验通过:${preview.itemCount} 行、${preview.factCount} 个取数`} />
             : <RowErrors errors={preview.errors} title="校验未通过,修正后重新预览(不写库)" />}
+          {warnings.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message={`非阻断校验提示（共 ${warnings.length} 条，不影响确认导入）`}
+              description={
+                <Collapse
+                  ghost
+                  size="small"
+                  items={[
+                    {
+                      key: 'w',
+                      label: '展开查看无项目编码确定性 item_key 与表头年份提示明细',
+                      children: (
+                        <ul style={{ margin: 0, paddingLeft: 18 }}>
+                          {warnings.slice(0, 30).map((w, idx) => (
+                            <li key={idx}>
+                              <Tag>{w.code}</Tag>
+                              [{w.sheet} 第{w.row}行] {w.message}
+                              {w.headerYearRaw ? `（源表头:${w.headerYearRaw}）` : ''}
+                            </li>
+                          ))}
+                          {warnings.length > 30 && <li>…其余 {warnings.length - 30} 条提示已折叠</li>}
+                        </ul>
+                      ),
+                    },
+                  ]}
+                />
+              }
+            />
+          )}
           {preview.ignoredSheets.length > 0 && <Alert type="info" showIcon message={`已忽略的工作表:${preview.ignoredSheets.join('、')}`} />}
           <Table rowKey="code" size="small" pagination={false} dataSource={preview.sheets}
             columns={[
@@ -108,19 +206,108 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 }
 
 function ItemsDrawer({ batch, onClose }: { batch: PlanBatchDto | null; onClose: () => void }) {
+  const [domain, setDomain] = useState<PlanSheetDomain>('investment_purchase');
   const [sheet, setSheet] = useState<PlanSheetCode>('investment');
+  const sheetCountMap = useMemo(
+    () => new Map((batch?.sheets ?? []).map((s) => [s.code, s.itemCount])),
+    [batch],
+  );
+
+  useEffect(() => {
+    if (!batch) return;
+    const firstNonEmpty = batch.sheets.find((s) => s.itemCount > 0)?.code ?? 'investment';
+    setSheet(firstNonEmpty);
+    setDomain(domainOfSheet(firstNonEmpty));
+  }, [batch?.id]);
+
   const q = useQuery({ queryKey: ['plan-items', batch?.id, sheet], queryFn: () => planApi.items(batch!.id, sheet), enabled: !!batch });
+  const domainSheets = SHEET_DOMAINS[domain];
+
   return (
-    <Drawer open={!!batch} onClose={onClose} width={1100} destroyOnClose title={batch ? `计划批次 #${batch.id} · ${batch.year} 年 · 实际 ${batch.actualPeriod}` : ''}>
-      <Segmented value={sheet} onChange={(v) => setSheet(v as PlanSheetCode)} options={Object.entries(SHEET_LABEL).map(([value, label]) => ({ value, label }))} style={{ marginBottom: 12 }} />
+    <Drawer
+      open={!!batch}
+      onClose={onClose}
+      width={1220}
+      destroyOnClose
+      title={batch ? `计划批次 #${batch.id} · ${batch.year} 年 · 实际 ${batch.actualPeriod}` : ''}
+      extra={batch && can('plan:read') && (
+        <Button size="small" onClick={() => void download(planApi.exportBatchPath(batch.id), `综合计划执行_${batch.year}_${batch.actualPeriod}.xlsx`)}>
+          导出本批次 (.xlsx)
+        </Button>
+      )}
+    >
+      <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }} size={8}>
+        <Segmented<PlanSheetDomain>
+          value={domain}
+          onChange={(nextDomain) => {
+            setDomain(nextDomain);
+            const candidates = SHEET_DOMAINS[nextDomain];
+            const preferred = candidates.find((c) => (sheetCountMap.get(c) ?? 0) > 0) ?? candidates[0];
+            setSheet(preferred);
+          }}
+          options={(Object.keys(SHEET_DOMAIN_LABELS) as PlanSheetDomain[]).map((d) => ({
+            value: d,
+            label: `${SHEET_DOMAIN_LABELS[d]} (${SHEET_DOMAINS[d].reduce((acc, c) => acc + (sheetCountMap.get(c) ?? 0), 0)})`,
+          }))}
+        />
+        <Tabs
+          size="small"
+          activeKey={sheet}
+          onChange={(k) => setSheet(k as PlanSheetCode)}
+          items={domainSheets.map((code) => {
+            const cnt = sheetCountMap.get(code) ?? 0;
+            return {
+              key: code,
+              label: (
+                <Space size={4}>
+                  <span>{SHEET_LABEL[code]}</span>
+                  <Tag color={cnt > 0 ? 'blue' : 'default'}>{cnt}</Tag>
+                </Space>
+              ),
+            };
+          })}
+        />
+      </Space>
       {q.error ? <QueryErrorResult title="行加载失败" error={q.error} refetch={q.refetch} /> : (
         <Table<PlanItemDto> rowKey="id" size="small" loading={q.isLoading} dataSource={q.data ?? []} pagination={{ pageSize: 50 }}
+          locale={{ emptyText: `当前工作表「${SHEET_LABEL[sheet]}」在本批次无数据行` }}
           columns={[
             { title: '行', dataIndex: 'rowNo', width: 60 },
             { title: '序号', dataIndex: 'seqNo', width: 70 },
-            { title: '名称', dataIndex: 'itemName', render: (v: string, r) => (r.itemType === 'detail' ? v : <Typography.Text strong>{v}</Typography.Text>) },
+            {
+              title: '名称',
+              dataIndex: 'itemName',
+              render: (v: string, r) => {
+                const node = r.itemType === 'detail' || r.itemType === 'leaf' ? v : <Typography.Text strong>{v}</Typography.Text>;
+                return r.projectId != null ? <Link to={`/projects/${r.projectId}`}>{node}</Link> : node;
+              },
+            },
             { title: '项目', dataIndex: 'projectCode', width: 110, render: (v: string | null) => v ?? '' },
             { title: '组织', dataIndex: 'orgName', width: 120, render: (v: string | null) => v ?? '' },
+            {
+              title: '实际承办单位',
+              key: 'undertake',
+              width: 150,
+              render: (_, r) => {
+                if (!r.undertakeOrgName) return '—';
+                return r.orgName && r.undertakeOrgName !== r.orgName
+                  ? <Tag color="geekblue">跨单位承办:{r.undertakeOrgName}</Tag>
+                  : r.undertakeOrgName;
+              },
+            },
+            {
+              title: '资金/性质',
+              key: 'tags',
+              width: 140,
+              render: (_, r) => (
+                <Space size={4} wrap>
+                  {r.fundingChannel && <Tag color="cyan">{r.fundingChannel}</Tag>}
+                  {r.costNature && <Tag>{r.costNature}</Tag>}
+                </Space>
+              ),
+            },
+            { title: '批复概算', dataIndex: 'approvedBudget', width: 120, align: 'right', render: (v?: string | null) => money(v ?? null) },
+            { title: '累计已付款', dataIndex: 'paidCumulative', width: 120, align: 'right', render: (v?: string | null) => money(v ?? null) },
             {
               title: '取数', key: 'facts', render: (_, r) => (
                 <Space size={[4, 2]} wrap>
@@ -145,10 +332,14 @@ export default function PlanExecution() {
   const [year, setYear] = useState<number>(Number(lastPeriod().slice(0, 4)));
   const [asOfPeriod, setAsOf] = useState<string | undefined>();
   const [orgId, setOrgId] = useState<number | undefined>(defaultOrgId());
+  const [statusFilter, setStatusFilter] = useState<PlanRowStatus | undefined>();
+  const [keyword, setKeyword] = useState('');
+  const [sheetFilter, setSheetFilter] = useState<PlanSheetCode | undefined>();
   const [importing, setImporting] = useState(false);
   const [viewing, setViewing] = useState<PlanBatchDto | null>(null);
   const linkedBatch = useBatchDeepLink('plan', planApi.batch, (batch) => { setViewing(batch); setYear(batch.year); });
   const writable = can('plan:write');
+  const readable = can('plan:read');
   const period = asOfPeriod?.startsWith(`${year}-`) ? asOfPeriod : undefined;
   const overview = useQuery({ queryKey: ['plan-overview', year, period, orgId], queryFn: () => planApi.overview({ year, asOfPeriod: period, orgId }) });
   const projects = useQuery({ queryKey: ['plan-projects', year, period, orgId], queryFn: () => planApi.projects({ year, asOfPeriod: period, orgId }) });
@@ -165,6 +356,24 @@ export default function PlanExecution() {
     onError: (e) => message.error(errorText(e)),
   });
   const o = overview.data;
+  const visibleOverviewSheets = useMemo(
+    () => (o?.sheets ?? []).filter((s) => !sheetFilter || s.code === sheetFilter),
+    [o?.sheets, sheetFilter],
+  );
+  const filteredProgressRows = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    return (projects.data?.rows ?? []).filter((r) => {
+      if (statusFilter && r.status !== statusFilter) return false;
+      if (!kw) return true;
+      return (
+        r.projectName.toLowerCase().includes(kw) ||
+        r.projectCode.toLowerCase().includes(kw) ||
+        r.orgName.toLowerCase().includes(kw) ||
+        (r.undertakeOrgName ?? '').toLowerCase().includes(kw)
+      );
+    });
+  }, [projects.data?.rows, statusFilter, keyword]);
+
   return (
     <div>
       {linkedBatch.error && <QueryErrorResult title="来源批次加载失败" error={linkedBatch.error} refetch={linkedBatch.refetch} />}
@@ -173,6 +382,39 @@ export default function PlanExecution() {
         <InputNumber aria-label="计划年度" min={2000} max={2100} value={year} onChange={(v) => v && setYear(v)} style={{ width: 100 }} />
         <PeriodPicker value={period} onChange={setAsOf} placeholder="截至期间(缺省最新)" />
         <OrgSelect value={orgId} onChange={setOrgId} />
+        <Select<PlanSheetCode>
+          allowClear
+          placeholder="全部工作表(16表)"
+          style={{ width: 170 }}
+          value={sheetFilter}
+          onChange={setSheetFilter}
+          options={(Object.entries(SHEET_LABEL) as [PlanSheetCode, string][]).map(([value, label]) => ({ value, label }))}
+        />
+        <Select<PlanRowStatus>
+          allowClear
+          placeholder="执行状态"
+          style={{ width: 120 }}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={(Object.entries(ROW_STATUS) as [PlanRowStatus, { text: string }][]).map(([value, meta]) => ({ value, label: meta.text }))}
+        />
+        <Input.Search
+          allowClear
+          placeholder="项目名称/编码/承办单位"
+          style={{ width: 200 }}
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+        />
+        {readable && (
+          <Button onClick={() => void download(planApi.templatePath(year), `综合计划标准模板_${year}.xlsx`)}>
+            下载标准空模板 (.xlsx)
+          </Button>
+        )}
+        {readable && o?.batch && (
+          <Button onClick={() => void download(planApi.exportBatchPath(o.batch!.id), `综合计划执行_${o.batch!.year}_${o.batch!.actualPeriod}.xlsx`)}>
+            导出当前执行表 (.xlsx)
+          </Button>
+        )}
         {writable && <Button type="primary" onClick={() => setImporting(true)}>导入计划执行</Button>}
       </Space>
       {overview.error ? <QueryErrorResult title="计划执行加载失败" error={overview.error} refetch={overview.refetch} /> : o && (
@@ -182,7 +424,7 @@ export default function PlanExecution() {
             <>
               <Typography.Text type="secondary">当前批次 #{o.batch.id} · 实际期间 {o.asOfPeriod} · 单位 元</Typography.Text>
               <Row gutter={[12, 12]} style={{ margin: '8px 0 12px' }}>
-                {o.sheets.map((s) => <Col key={s.code} xs={24} lg={8}><SheetCard s={s} /></Col>)}
+                {visibleOverviewSheets.map((s) => <Col key={s.code} xs={24} lg={8}><SheetCard s={s} /></Col>)}
               </Row>
             </>
           )}
@@ -190,10 +432,31 @@ export default function PlanExecution() {
       )}
       <Typography.Title level={5}>项目进度</Typography.Title>
       {projects.error ? <QueryErrorResult title="项目进度加载失败" error={projects.error} refetch={projects.refetch} /> : (
-        <Table<PlanProjectProgressDto> rowKey="itemId" size="small" loading={projects.isLoading} dataSource={projects.data?.rows ?? []} pagination={{ pageSize: 20 }} scroll={{ x: 1300 }}
+        <Table<PlanProjectProgressDto> rowKey="itemId" size="small" loading={projects.isLoading} dataSource={filteredProgressRows} pagination={{ pageSize: 20 }} scroll={{ x: 1680 }}
           columns={[
-            { title: '项目', key: 'p', fixed: 'left', width: 200, render: (_, r) => `${r.projectName}(${r.projectCode})` },
+            {
+              title: '项目',
+              key: 'p',
+              fixed: 'left',
+              width: 220,
+              render: (_, r) => {
+                const label = r.projectCode ? `${r.projectName}(${r.projectCode})` : r.projectName;
+                return r.projectId != null ? <Link to={`/projects/${r.projectId}`}>{label}</Link> : label;
+              },
+            },
             { title: '组织', dataIndex: 'orgName', width: 110 },
+            {
+              title: '实际承办单位',
+              key: 'undertakeOrg',
+              width: 150,
+              render: (_, r) => {
+                if (!r.undertakeOrgName) return '—';
+                return r.undertakeOrgName !== r.orgName
+                  ? <Tag color="geekblue">跨单位承办:{r.undertakeOrgName}</Tag>
+                  : r.undertakeOrgName;
+              },
+            },
+            { title: '批复概算', dataIndex: 'approvedBudget', width: 130, align: 'right', render: money },
             { title: '总投资', dataIndex: 'totalInvestment', width: 130, align: 'right', render: money },
             { title: '开工累计', dataIndex: 'completedCumulative', width: 130, align: 'right', render: money },
             { title: '累计完成率', dataIndex: 'cumulativeRate', width: 100, align: 'right', render: ratio },
@@ -201,6 +464,7 @@ export default function PlanExecution() {
             { title: '年度累计实际', dataIndex: 'annualActualYtd', width: 130, align: 'right', render: money },
             { title: '年度执行率', dataIndex: 'annualRate', width: 100, align: 'right', render: ratio },
             { title: '当期', key: 'period', width: 120, align: 'right', render: (_, r) => <PeriodValue v={r.period} /> },
+            { title: '累计已付款', dataIndex: 'paidCumulative', width: 130, align: 'right', render: money },
             { title: '形象进度', dataIndex: 'physicalProgress', width: 100, align: 'right', render: (v: string | null, r) => (v == null ? <Tooltip title="模板未填形象进度">{dash}</Tooltip> : <Tooltip title={r.progressNote}><span><Ratio value={v} /></span></Tooltip>) },
             { title: '状态', dataIndex: 'status', width: 90, render: (v: keyof typeof ROW_STATUS) => <Tag color={ROW_STATUS[v].color}>{ROW_STATUS[v].text}</Tag> },
           ]} />
@@ -216,9 +480,10 @@ export default function PlanExecution() {
             { title: '行 / 取数', key: 'n', width: 100, render: (_, b) => `${b.itemCount} / ${b.factCount}` },
             { title: '导入时间', dataIndex: 'createdAt', width: 120, render: (v: string) => shortTime(v) },
             {
-              title: '操作', key: 'op', width: 220, render: (_, b) => (
+              title: '操作', key: 'op', width: 260, render: (_, b) => (
                 <Space size={0} wrap>
                   <Button type="link" size="small" onClick={() => setViewing(b)}>行与取数</Button>
+                  <Button type="link" size="small" onClick={() => void download(planApi.exportBatchPath(b.id), `综合计划执行_${b.year}_${b.actualPeriod}.xlsx`)}>导出</Button>
                   <Button type="link" size="small" onClick={() => void download(`/plan/batches/${b.id}/original`, b.fileName)}>原件</Button>
                   {writable && b.status === 'imported' && !b.isCurrent && <Button type="link" size="small" onClick={() => act.mutate({ kind: 'activate', b })}>激活</Button>}
                   {writable && b.status === 'imported' && (
