@@ -50,7 +50,7 @@
 
 ## T-8 专项验收（2026-10-03）
 
-T-8.1～T-8.6 代码实施、验收与生产发布完成；生产为 T-0～T-8 / V66，见 [发布记录](acceptance-records.md#t-8-生产发布2026-10-03)。提交、完整命令与组合浏览器复验、资源及迁移恢复证据见 [阶段验收记录](acceptance-records.md#t-84t-86--阶段完成2026-10-03)。覆盖清单见 [页面与工具目录](t8-assistant-inventory.md)。
+T-8.1～T-8.6 代码实施、验收与生产发布完成，当次发布至 V66，见 [发布记录](acceptance-records.md#t-8-生产发布2026-10-03)。当前生产已发布 T-9 / V67，见下文。提交、完整命令与组合浏览器复验、资源及迁移恢复证据见 [阶段验收记录](acceptance-records.md#t-84t-86--阶段完成2026-10-03)。覆盖清单见 [页面与工具目录](t8-assistant-inventory.md)。
 
 | 验收 | 场景 | 证据 | 状态 |
 |---|---|---|---|
@@ -70,6 +70,44 @@ T-8.1～T-8.6 代码实施、验收与生产发布完成；生产为 T-0～T-8 /
 | AC-T8-14 | query 同源筛选、分页外集合与超限 | t8-selection；assistant-t8 指标/别名筛选分析 | 通过 |
 | AC-T8-15 | 受控模型/流式、降级/取消、原始数据隔离及业务只读 | t8-config-drafts 11 项、t8-selection 10 项、t8-cleaning-draft、assistant.routing | 通过（受控上游，非供应商外呼） |
 | AC-T8-16 | 文档/协议清理、全量单测、浏览器、独立构建与资源 | 后端 1026、前端 480；全部 94 浏览器场景组合复验；V66 恢复；资源符合 OPEN-04 | 通过（未触及的 443 条遗留测试 TS 错误另列记录） |
+
+## T-9 智能合同法审扩展（2026-11-12）
+
+在 F16 现有合同详情中增加法审、制度/范本管理与签署前纠错，没有第二套审批流；只读助手工具总数随本次新增由 81 增至 82。完整执行证据见 [T-9 验收](acceptance-records.md#t-9-智能合同法审一期2026-11-12)。
+
+| 验收 | 场景 | 证据 | 状态 |
+|---|---|---|---|
+| AC-CLR-01 | candidate 人工核验、official pass、现有复核一次确认 | t9-legal-integration；ContractLegalPanel；contract-legal.spec | 工程通过 |
+| AC-CLR-02 | 条款缺失、大小写/台账金额、比例/累计/超范围/2^53 | t9-legal-core/adapters/integration | 通过 |
+| AC-CLR-03 | 固定/默认/填写项分层、原文/参考值、低风险折叠 | templateDiff 专项；面板测试与浏览器 | 通过 |
+| AC-CLR-04 | 重要合同法律意见/三重一大、硬阻断不可例外 | t9-legal-core/adapters/integration | 通过 |
+| AC-CLR-05 | 换文/同内容新版本/改金额/依据/新运行/重复确认/去重 | t9-legal-integration；contract-legal.spec | 工程通过 |
+| AC-CLR-06 | DOCX 完整性、PDF 桩/OCR 降级、模型引用/数字/注入 | t9-legal-core/adapters；受控 HTTP 模型集成 | 通过（非真实供应商联调） |
+| AC-CLR-07 | 同组织跨账号任务、组织隔离、受控原件和管理员写权限 | t9-legal-core/integration；浏览器同人例外 | 工程通过 |
+| AC-CLR-08 | 冻结版本、只追加结果/发现/缓存及复核绑定、审计 | V67 触发器和迁移/服务测试 | 通过 |
+| AC-CLR-09 | 8 份脱敏文本及律师三版链 | [评估报告](contract-legal-sample-evaluation.md)、离线脚本 | 首批已评估；多类型正式法审意见及采纳评价未验收 |
+| AC-CLR-10 | 全量回归、独立构建、临时迁移/备份恢复、生产发布与线上核验 | 验收记录、独立浏览器配置及 [生产发布记录](acceptance-records.md#t-9-生产发布2026-11-12) | 通过（2026-11-12，生产 V67） |
+
+## T-10 ～ T-12 合同全生命周期与监督报送（2026-11-13）
+
+在 F16/F17/F19/F20 既有骨架上扩展八阶段状态机、单价合同与双向收付结算、变更索赔四位一体、保函质保纠纷、多源导入、公司 5 表月报及《纪巡财审》6 表+附件槽位 ZIP 导出与 OA 门户接口；只读助手工具总数随 `contract_lifecycle_detail` 新增由 82 增至 83。原V70整体通过结论已由[独立复核](contract-lifecycle-review-2026-11-13.md)的反例推翻；以下既有场景须结合`contract-lifecycle-review.test.ts`的R01～R19反例、预算/概算、法人、日历与评价回写回归阅读。V72工程复验通过并已发布生产；逐项新证据及联调边界见[修复记录](contract-lifecycle-repair-2026-11-13.md)，原验收与生产记录保留当时事实。
+
+| 验收 | 场景 | 证据 | 状态 |
+|---|---|---|---|
+| AC-CLM-01 | 八阶段质保闭环、suspended 拦截与正交分发/归档 | t10-contract-lifecycle；contract-lifecycle.spec | 通过 |
+| AC-CLM-02 | 单价合同 0 初始额、多币种独立统计与以收定支关联 | t10-contract-lifecycle；project-profile/管理会计隔离 | 通过 |
+| AC-CLM-03 | 多相对方、承办人交接与非法定代表人授权书阻断 | t10-contract-lifecycle；contract-lifecycle.spec | 通过 |
+| AC-CLM-04 | 采购时间链、直属电站收入主体限制与超计划/概算联动 | t10-contract-lifecycle | 通过 |
+| AC-CLM-05 | 智能法审快照隔离与单价合同兼容 | t10-contract-lifecycle；t9-legal-* 全部回归 | 通过 |
+| AC-CLM-06 | 结算单三栏勾稽、未批变更拦截与未归档禁止终结 | t10-contract-lifecycle；contract-lifecycle.spec | 通过 |
+| AC-CLM-07 | 50 万/500 万分级付款审批与收入合同正向收款闭环 | t10-contract-lifecycle；contract-lifecycle.spec | 通过 |
+| AC-CLM-08 | 0 金额变更、附件 5 四档/500 万/10% 定级与防拆包采购 | t11-contract-change-safeguard；contract-lifecycle.spec | 通过 |
+| AC-CLM-09 | 中止冻结、总经理批准解除与担保方书面同意门禁 | t11-contract-change-safeguard | 通过 |
+| AC-CLM-10 | 保函保险退还索赔、质保签证解锁与 17 列纠纷双备案 | t11-contract-change-safeguard；contract-lifecycle.spec | 通过 |
+| AC-CLM-11 | 万元月报与纪巡财审多表导入及逐笔真实收付日期保留 | t12-contract-risk-supervision；t4-contract-import | 通过 |
+| AC-CLM-12 | 每月 28 日 5 表月报导出与库内整数分严格勾稽 | t12-contract-risk-supervision；contract-lifecycle.spec | 通过 |
+| AC-CLM-13 | 纪巡财审报送预检、6 表 Excel 与 4 类附件槽位 ZIP 包 | t12-contract-risk-supervision；contract-lifecycle.spec | 通过 |
+| AC-CLM-14 | 10 条新增量化风险规则、OA 门户只读同步、评价、助手工具与全量门禁 | t12-contract-risk-supervision；t4-assistant；contract-lifecycle-review；V67→V72迁移/恢复及V72回滚 | 工程复验与生产发布通过 |
 
 ## 与 lishui 的能力差异
 

@@ -24,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **前后端共享契约**：`backend/src/contracts/` 是纯类型/zod 契约（权限枚举、页面目录 `page-catalog.ts`、各领域 wire 类型）。前端通过 `@contracts/*` 别名引用，**只允许 `import type`**（构建产物不得引入 zod）。
 
-**迁移**：`db/migrations.ts`（V1–V38 继承 + 尾部追加）与 `db/migrations-newfc.ts`（V39 起 newfc 自有）合并为 `MIGRATIONS`。条目可带 `apply`（代码迁移）、`raw`（事务外）、`rebuild`（整表重建，单事务内含 `foreign_key_check`）。已发布条目不改，只追加新版本号；当前生产为 V66。
+**迁移**：`db/migrations.ts`（V1–V38 继承 + 尾部追加）与 `db/migrations-newfc.ts`（V39 起 newfc 自有）合并为 `MIGRATIONS`。条目可带 `apply`（代码迁移）、`raw`（事务外）、`rebuild`（整表重建，单事务内含 `foreign_key_check`）。已发布条目不改，只追加新版本号；当前生产已发布至V72（含V71跨模块联动及V72合同生命周期复核修复），证据见`docs/acceptance-records.md`。
 
 **财务助手（`backend/src/assistant/`）**：
 - 工具：`tools.ts` 的 `TOOL_REGISTRY` 用 `defineTools` 声明，每个工具带 zod schema、`capabilities`、`policy`（权限 + 范围 `ToolScope`）和只读 `execute`。领域工具调用领域 service，不自写查询口径。

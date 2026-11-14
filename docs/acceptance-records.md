@@ -613,3 +613,171 @@ F07/F08/F20/F23/F24/F26；T-8.1～T-8.6；AC-T8-01～16、AC-X03/X04/X05/X06/X08
 本次未创建生产测试账号、会话或业务记录，未访问其他项目运行目录或服务。**回退至 V65 旧代码须使用匹配的 V65 完整备份，并核对备份后写入；不能只换旧产物继续使用 V66。** 未实际回退生产库，临时库备份恢复与重迁移已在阶段验收记录。
 
 GitHub 提交前本地公开检查：Gitleaks 8.30.1 全 Git 历史扫描及 Git 跟踪文件独立导出扫描通过，压缩夹具递归 3 层、解码 5 层，未发现泄密；沿用既有两处精确测试值豁免，无新增豁免。日志 `/tmp/newfc-t8-gitleaks-history.log`、`/tmp/newfc-t8-gitleaks-source.log`，脱敏 JSON 同名前缀。文档更新 README、CHANGELOG、计划/specs 当前状态、覆盖矩阵及运维升级说明；保留 v0.1.0 首版与此前检查的历史结果。
+
+## T-9 智能合同法审一期（2026-11-12）
+
+F16/F20/F23/F24/F25；T-9.1～T-9.6；AC-CLR-01～10。当前工作区实现，未执行生产迁移、部署或远程发布。Node **24.22.1**；临时 SQLite V66→V67，所有测试与浏览器数据均可丢弃，未访问其他项目的运行目录或服务。
+
+交付包含制度/范本冻结版本与显式转正、幂等离线种子、DOCX 原生 XML 解析、外部 PDF 适配与 OCR 降级、bigint 规则与范本比对、受控模型证据校验、后台任务及跨账号去重、法审与现有正式复核绑定、签署前纠错、页面首屏、版本管理与只读助手工具。三份种子范本保持 candidate；测试转正只发生在临时库。
+
+| 验收 ID | 实际验证与证据 | 结果 |
+|---|---|---|
+| AC-CLR-01 | `t9-legal-integration` 的 candidate 人工核验→测试范本转正→official pass→复核人一次确认；页面调用原 `ct_review` API，记录 legalRunId/override；合成采购 DOCX 和本地受控模型 | 通过 |
+| AC-CLR-02 | `t9-legal-core/adapters`：缺条款/占位符、大小写 1 分差、分期比例与累计支付、金额解析失败和超范围；超过 2^53 的分在 API/库/上下文中精确保留，响应为十进制字符串 | 通过 |
+| AC-CLR-03 | 标点归一化、固定/默认/填写项分层，固定条款删除和候选提示；面板展开实质差异，保留期望/当前文本、条款 ID 和建议，低风险折叠 | 通过 |
+| AC-CLR-04 | 重要合同缺法律意见/三重一大时禁止例外确认；材料完整仍保留人工审查；实质履行、金额硬伤、付款异常及高风险阻断沿用同一复核事务 | 通过 |
+| AC-CLR-05 | 运行中换文拒绝落库；改金额/元数据、有效依据补传、同内容新文档版本、新一轮法审均使旧批准失效；无关过程附件不误伤；重复确认 409；旧复核仍可退回关闭 | 通过 |
+| AC-CLR-06 | 本地 PDF 适配桩校验 multipart、凭据、DNS 固定地址、禁止重定向、页码缺口和响应大小；未配置/OCR 失败及覆盖不足明确人工审查；模型异常/假摘录/假条款/无证据数字/核心截断保留规则并禁止 pass；注入文字作为不可信输入 | 通过 |
+| AC-CLR-07 | 同组织承办人与复核人均可触发及读取活跃任务；跨组织运行/正文下载/助手均拒绝；显式 AuthContext 不能借用环境中的管理员范围；制度范本管理限 knowledge:manage + allOrgs，受控原件对受限组织返回 404；同人复核要求原有管理员例外原因 | 通过 |
+| AC-CLR-08 | V67 触发器禁止运行/发现/缓存/条款修改删除；正式审核后禁止修改绑定；制度/范本版本冻结、转正/停用/原件操作有审计；已被法审引用的任务不参与过期清理，保留追溯链 | 通过 |
+| AC-CLR-09 | 已对 8 份脱敏文本离线评估；律师链三个已知修改点的文本差异为原版 3、律师版 0、终版 1，未把终版删除直接认定为缺陷。详见 [样本评估](contract-legal-sample-evaluation.md)。仍缺多类型正式法审意见配对、逐条法律标注与业务可采纳性确认 | 未执行（完整业务验收；首批评估已完成） |
+| AC-CLR-10 | 源码类型、全量回归、独立构建、相关浏览器回归及临时库 V66→V67/幂等/完整备份恢复；发布脚本加入显式迁移后的幂等种子导入。未执行生产发布与生产就绪核验 | 未执行（生产发布；工程验证见下） |
+
+工程验证：
+
+- 后端：`npx tsc --noEmit && npx vitest run`，源码类型通过，**112 文件 / 1074 项通过**；T-9 专项及相关回归 6 文件 / **71 项通过**。最终全量日志 `/tmp/newfc-t9-backend-final.log`。
+- 前端：`npx vitest run && npx tsc -b`，**52 文件 / 484 项通过**，源码类型通过。
+- 独立构建：后端 `.t9-dist`、前端 `/tmp/newfc-t9-frontend`，通过；没有替换正式 dist。
+- 浏览器：`npx playwright test --config playwright.contract-legal.config.ts`，**7 项通过**（新增法审 2 项、既有合同/费用页面 5 项）。独立 3764 端口、`/tmp/newfc-t9-e2e-*`，真实 Cookie/CSRF；受控模型不外呼。
+- 历史评估：显式运行 `backend/scripts/evaluate-contract-legal.ts --samples <受控脱敏目录> --output docs/contract-legal-sample-evaluation.md`；8 份输入，仅保存汇总。
+
+首轮回归发现并修复：AI 功能/工具目录增加后旧固定断言未更新、恢复测试写死 V66、分期金额超范围异常中断整次运行。源码旧迁移未改；金额异常改为保存人工核验发现。浏览器第一轮发现并修复窄屏概览拥挤、顶部按钮挤压标题、商务要素误取章节标题、已批准后重复显示提交入口；Ant Design 两字按钮的测试定位也已改为兼容自动空格。桌面/390px 窄屏截图在本地 `/tmp/newfc-t9-contract-{desktop,mobile}.png`，不包含真实业务资料。
+
+补充检查：`npx tsc -p backend/tsconfig.test.json` 仍报告 **443 条既有测试/脚本类型错误**，与 T-8 已记录基线一致；新增 T-9 测试/脚本没有类型错误。后端源码 `tsc --noEmit` 与前端 `tsc -b` 已通过，未把测试源码类型检查记为通过。
+
+真实 PDF 独立服务、生产模型/OCR 的合同领域联调、正式范本核定、AC-CLR-09 多类型法律标注及生产部署均不在上述受控工程测试通过结论内。生产发布须沿用 `scripts/deploy.sh` 的测试→构建→备份→显式迁移→种子→替换→就绪检查；如需回退，先核对 V67 后写入并使用相匹配的完整备份。
+
+### T-9 评审修复（2026-11-12）
+
+F16/F20；T-9.3～T-9.5；AC-CLR-01/03/05/06/10。修复当前工作区的八项评审问题，未提交或部署；不改变数据库结构及历史冻结记录。
+
+| 评审项 | 修复及回归证据 |
+|---|---|
+| 签约后补录日期使法审过期 | 指纹排除签订、生效日期；正式确认和履约推进独立校验最新日期与正文节点顺序。HTTP 闭环从空日期法审批准开始，补录有效日期后沿用同一运行及批准进入履约，日期倒置仍返回阻断 |
+| DOCX 空附属部件误报 | 按实际 Word 命名空间元素检查批注、脚注和尾注；忽略空批注与内置分隔符，真实批注仍阻断、真实附注仍转人工，非法 XML/DTD 显式失败。解析缓存版本升至 3，旧误报缓存不复用 |
+| PDF 地址校验 | 先用 `net.isIP` 区分域名与 IP，HTTP 主机及全部 DNS 结果限制为本机/私网。覆盖伪私网前缀域名、公网 IPv4/IPv6、混合和非法 DNS 结果，并断言拒绝时不发起请求；合法 `feather` / `ffmpeg` HTTPS 域名放行 |
+| 候选覆盖正式范本 | 运行与有效性门禁共用正式优先的选择函数；同编码升版候选及另一编码候选均不影响正式基准。转正后仍使旧运行过期，多个正式编码无法唯一匹配仍转人工 |
+| 法审前端契约越界 | 两个组件改用前端本地选项及 bigint 预览，后端法审契约仅以类型引用；AST 回归限制法审组件的值导入，前后端枚举及采购层级阈值/大额预览交叉校验 |
+| 上传依据分类残留 | 上传成功、切换文档类型或合同均清空依据分类；浏览器验证连续上传及切换发票后附件分类为空，避免替换有效审批依据 |
+| 台账无效依据列 | 删除合同台账的附件分类列，保留附件表分类列；浏览器断言打开详情后只有附件表具有该列 |
+| 非默认类别签署前纠错 | 合同详情返回服务端派生的 `legalReviewEnabled`，页面据此解锁；HTTP 覆盖技术服务、一般服务及销售类别的任务/运行状态，浏览器验证无正式复核时修改一般服务金额和立场 |
+
+验证记录：
+
+- 后端：源码 `npx tsc --noEmit` 通过；`npx vitest run` 全量 **113 文件 / 1099 项通过**，其中 `t9-legal-core/adapters/integration/frontend-contract` 共 4 文件 / 73 项。全量日志 `/tmp/newfc-t9-review-backend.log`；最终适配器及契约边界聚焦回归 2 文件 / 18 项通过，日志 `/tmp/newfc-t9-review-focused-final.log`。
+- 前端：`npx vitest run`，52 文件 / 484 项通过；`npx tsc -b` 通过。
+- 独立构建：后端 `.t9-dist`、前端 `/tmp/newfc-t9-frontend` 成功，没有替换正式 dist。Vite 模块检查中后端法审契约的保留模块数为 0，生产 JS 不含法审 schema 的校验文本。全站仍有既有 `contracts/assistant.ts` 运行时常量引入后端 Zod 的路径，本次不将“全站无后端 Zod”记为通过。
+- 浏览器：完整运行中 6 项通过；两项新增/扩展场景先因 Ant Design 选择框的测试定位失败，改为点击选择框容器后聚焦复跑 2 项通过，合计 8 个不同用例通过。最终将分类清空直接绑定上传完成，避免共享 mutation 的其他操作覆盖单次回调；重新构建前端并复跑覆盖连续上传、日期补录和换文失效的完整闭环 1 项通过。日志 `/tmp/newfc-t9-review-e2e.log`、`/tmp/newfc-t9-review-e2e-focused.log`、`/tmp/newfc-t9-review-e2e-upload-final.log`。使用 3764 和可丢弃临时库。
+- 测试/脚本类型检查仍为既有 443 条错误，本次新增及修改的 T-9 测试和选项模块没有错误；日志 `/tmp/newfc-t9-review-test-types.log`。
+
+## T-9 生产发布（2026-11-12）
+
+F16/F20/F23/F24/F25；T-9.1～T-9.6；AC-CLR-01～08/10、AC-X03/X04/X05/X06/X08/X10。用户明确要求部署，发布当前工作区 T-9 实现及上述八项评审修复；本次未执行 Git 提交、推送或公开发布。此前“未部署”的阶段记录保留为历史，不改写当时结果。
+
+正式执行 `scripts/deploy.sh`，未跳过测试，返回 0。Node **24.22.1**；锁定依赖安装、后端源码类型检查、**113 个测试文件 / 1099 项**及前端 **52 个测试文件 / 484 项**均通过。后端编译、前端 `tsc -b` 与 Vite 构建到 dist.new 成功；随后停服、完整备份、显式执行 V67 `contract_legal_review_v1`、幂等种子导入、替换前后端产物并启动，就绪检查通过。发布日志 `/tmp/newfc-t9-deploy.log`。
+
+生产服务于 **2026-11-12 15:33:42 CST** 启动，active/running、NRestarts=0，实际运行 Node 24.22.1 和 `backend/dist/index.js`。生产 schema 由 V66 升为 **V67**，`integrity_check` 为 ok，`foreign_key_check` 为 0。迁移前完整备份 `/data/newfc-data/backups/pre-migrate-cli-budget-backup-2026-11-12-153341.sqlite` 的清单为 V66；数据库完整性/外键、清单、库 SHA-256、对象列表及对象摘要五项均通过。当前备份与运行库登记的文件对象均为 0，因此不将本次对象校验表述为非空附件恢复验证。上一版产物保留在 `backend/dist.old` 与 `frontend/dist.old`。
+
+种子导入实际新增 **3 项 active 制度 / 28 条制度条款**和 **3 份 candidate 范本 / 241 条范本条款**，逐项核对编码、版本、状态与条款数，均与结构化种子一致。没有在生产自动转正范本。幂等重跑与保留已转正版本的行为由此前临时库测试覆盖，本次未额外重跑生产导入来制造验证记录。
+
+线上只读核验：本机 `http://127.0.0.1:3760` 与公网 `https://newfc.tangdalei.com` 的 live/ready 均为 200，ready 均报告 V67；未登录 dashboard 均为 401。两端首页、favicon、入口 JS 与 CSS 的 SHA-256 均与正式 `frontend/dist` 一致，共 **8 项资源核验**。公网 Chromium 登录页正常显示，标题为 `newfc 水利财务分析`，pageerror 为 0；截图 `/tmp/newfc-t9-production-login.png`。
+
+备份与生产库 **137 张既有非运行账本表**的原有列行数及逐行内容摘要一致，其中迁移前 **13 张非空**；新增列按 V67 迁移追加。比对时读取整数使用 `.safeIntegers(true)`，摘要保留 bigint 类型，未将金额转为浮点。运行账本 `schema_migration`、`operation_log`、`app_session`、`app_job`、`app_job_step`、`ai_model_call` 单独排除。**生产合同、合同附件、正式复核及助手消息均为 0，不能将空表一致性当作非空历史合同业务验证。** 核验连接为只读，`total_changes()` 前后相同；未创建测试账号、会话或业务记录，未调用模型、PDF 或 OCR 服务，未访问其他项目运行目录或服务。
+
+核验证据 `/tmp/newfc-t9-production-check.log`、`/tmp/newfc-t9-production-check.json`、`/tmp/newfc-t9-production-browser.log`、`/tmp/newfc-t9-production-browser.json`；均为本机运维记录，非公开下载地址。AC-CLR-10 的生产发布及就绪门禁完成；**AC-CLR-09 多类型正式法审意见配对、逐条法律标注及业务采纳评价仍未完成**，真实 PDF 服务、生产模型/OCR 的合同领域联调亦不在本次只读上线核验结论内。回退 V66 代码须先核对 V67 上线后写入，并恢复匹配的 V66 完整备份，不能只替换旧产物；本次未执行生产回退。
+
+## T-10～T-12 合同全生命周期与监督报送（2026-11-13）
+
+F04/F16/F17/F19/F20；T-10.1～T-12.5；AC-CLM-01～14。Node **24.22.1**；所有测试、独立构建、浏览器数据与迁移演练均在隔离临时库完成，未访问其他项目的运行目录或服务。
+
+| 验收 ID | 实际验证与证据 | 结果 |
+|---|---|---|
+| AC-CLM-01 | `t10-contract-lifecycle`、`contract-lifecycle.spec`：约定质保走完 `settlement → warranty → closed`、无质保直达 `closed`、未过质保期 95% 尾款禁关闭、`suspended` 拦截结算/付款与恢复、`archive_status` 未达 `checked` 拦截最终结算 | 通过 |
+| AC-CLM-02 | `t10-contract-lifecycle`：单价合同允许初始总价 0 起草/法审/签约、受结算或估算上限约束；`收入合同` 资金来源强制绑定有效收入合同；20 币种与外币不与人民币裸加；`project-profile` 与管理会计收支隔离 | 通过 |
+| AC-CLM-03 | `t10-contract-lifecycle`、`contract-lifecycle.spec`：多收款方/多付款方及投标要素、非法定代表人且缺《授权委托书》阻断 `approval → performance`、承办人交接只追加 | 通过 |
+| AC-CLM-04 | `t10-contract-lifecycle`：校验 `开始采购 ≤ 确定供应商 ≤ 签署日期`、直属电站以二级单位名义签收入合同拦截、超计划/概算预警或阻断联动 | 通过 |
+| AC-CLM-05 | `t10-contract-lifecycle`、`t9-legal-*`：签署后补录分发/结算/收付款/变更/保函/质保/纠纷不破坏 `legalSnapshot` 指纹；单价合同法审兼容；T-9 全部回归通过 | 通过 |
+| AC-CLM-06 | `t10-contract-lifecycle`、`contract-lifecycle.spec`：`ct_settlement` 三栏勾稽（应结 - 三类应扣 = 净应付）、含未批变更拦截、累计净结算/支付不突破当前合同额 | 通过 |
+| AC-CLM-07 | `t10-contract-lifecycle`、`contract-lifecycle.spec`：50 万/500 万分级付款校验与最高审批人身份登记；收入合同通过 `ct_receipt` 正向开票与到账 | 通过 |
+| AC-CLM-08 | `t11-contract-change-safeguard`、`contract-lifecycle.spec`：0 金额变更、法人内唯一 `supplement_no`、`computeChangeApprovalTier` 四档与 500 万/10% 定级、第 9.1.4 条防拆包规避采购拦截 | 通过 |
+| AC-CLM-09 | `t11-contract-change-safeguard`：中止冻结与恢复、解除须总经理审批及书面解除协议、有效 `ct_guarantee` 合同变更/中止/解除缺担保方书面同意硬阻断 | 通过 |
+| AC-CLM-10 | `t11-contract-change-safeguard`、`contract-lifecycle.spec`：保函/押金退还与索赔报告、质保期满签证解锁尾款、17 列诉讼仲裁台账与企管/纪审双备案、全操作审计 | 通过 |
+| AC-CLM-11 | `t12-contract-risk-supervision`、`t4-contract-import`：万元月报与纪巡财审多表（基本/执行/变更纠纷）预览与 `planHash` 原子导入，逐笔历史收付款保留真实发生日期，重放幂等/错误回滚 | 通过 |
+| AC-CLM-12 | `t12-contract-risk-supervision`、`contract-lifecycle.spec`：每月 28 日 5 表月报（月度统计、台账总表、结算动态、变更动态、招标清查）与整数分台账精确勾稽，`std_report` 新增 `contract_monthly_pack` | 通过 |
+| AC-CLM-13 | `t12-contract-risk-supervision`、`contract-lifecycle.spec`：报送预检定位缺项、6 张官方表头 `.xlsx`（无合并单元格、合法枚举与文本日期）+ 4 类编号附件槽位目录树 ZIP 导出及 200 MiB 上限与组织范围守卫 | 通过 |
+| AC-CLM-14 | `t12-contract-risk-supervision`、`t4-assistant`、`t9-legal-frontend-contract`：10 条新增量化风险规则与工作日计算；OA 门户 `/full` 与 `/incremental` 只读裁剪；完结合同履约评价联动；只读工具 `contract_lifecycle_detail`（工具总数 83）与前端 `import type` 边界 | 通过 |
+
+工程验证：
+
+- 后端：`npx tsc --noEmit && npx vitest run`，源码类型通过，**116 文件 / 1112 项通过**（其中 T-10/T-11/T-12/导入/助手/契约边界 6 文件 / **21 项通过**）。
+- 前端：`npx vitest run && npx tsc -b`，**52 文件 / 484 项通过**，源码类型通过。
+- 浏览器：`npx playwright test --config playwright.contract-legal.config.ts`，**11 项通过**（T-9 法审 3 项、T-10 生命周期 1 项、T-11 变更担保纠纷 1 项、T-12 报送导出与履约评价 1 项、既有项目合同与费用 5 项）。首轮 T-12 用例因页签标题分隔符定位（`/` 与 `·`）超时，修正测试定位后聚焦复验 1/1 通过，随后全套 11/11 通过（2.9m）；产品代码未改动。
+- 临时库迁移与恢复演练（`/tmp/newfc-t12-drill-*`）：V67 含 `archived` 存量合同库升级 V68→V69→V70 后 `foreign_key_check = 0`、`integrity_check = ok`、`archived → closed + transferred`；`runRestoreDrill` 分别从 V67 备份（自动升级至 V70，耗时 1745 ms）与 V70 备份（158 张表 / 117 行一致，耗时 233 ms）还原并通过临时实例存活/就绪及 `contract_summary` / `risk_summary` / `dashboard_domains` 只读查询。
+
+## T-10～T-12 生产发布（2026-11-13）
+
+F04/F16/F17/F19/F20；T-10.1～T-12.5；AC-CLM-01～14、AC-X03～X08/X10。正式执行 `scripts/deploy.sh`（未跳过测试），返回 0。Node **24.22.1**；后端 116 文件 / 1112 项与前端 52 文件 / 484 项均通过，构建到 `dist.new` 成功；停服后创建完整迁移前备份，显式执行 V68 `contract_lifecycle_foundation`、V69 `contract_change_safeguard_dispute`、V70 `contract_supervision_and_risk_rules` 及幂等种子检查（`policies=0, templates=0`），替换前后端产物并启动服务，就绪检查通过。发布日志 `/tmp/newfc-t12-deploy.log`。
+
+生产服务于 **2026-11-13 13:27:08 CST** 启动，active/running、NRestarts=0、MainPID=1365196。生产 schema 升至 **V70**，`integrity_check` 为 `ok`，`foreign_key_check` 为 0，`risk_rule` 内置合同规则增至 13 条。迁移前备份 `/data/newfc-data/backups/pre-migrate-cli-budget-backup-2026-11-13-132707.sqlite` 的五项校验（数据库完整性/外键、清单 V67、库 SHA-256、对象列表 0 项、对象摘要）均通过；`backend/dist.old` 与 `frontend/dist.old` 保留上一版产物。
+
+线上只读核验：本机 `http://127.0.0.1:3760` 与公网 `https://newfc.tangdalei.com` 的 `/api/health/live` 与 `/api/health/ready` 均返回 HTTP 200 且 `schema` 报告 `V70`，未登录 `/api/dashboard` 均为 401；两端 `index.html` 与构建后入口 JS/CSS 资源的 SHA-256 均与正式 `frontend/dist` 一致。V67 备份与 V70 生产库 **144 张既有非运行账本表**（17 张非空）核对：143 张表行数与内容（`.safeIntegers(true)` 读取）完全一致，唯一差异为 `risk_rule` 因 V70 预置 10 条合同量化风险规则由 20 行增至 30 行；只读连接 `total_changes()` 前后差值为 0，未创建测试业务数据，生产合同记录仍为 0。回退至 V67 代码须先核对 V70 上线后写入，并恢复匹配的 V67 完整备份（`pre-migrate-cli-budget-backup-2026-11-13-132707.sqlite`），不能只替换旧产物继续使用 V70 数据库。
+
+## T-12 跨模块联动补齐（V71，工作区待发布）
+
+对照 [T-10～T-12 开发详细计划](../specs/contract-lifecycle-plan.md) 第 4 节补齐三处跨模块细项及 [CLAUDE.md](../CLAUDE.md) 版本说明（按要求暂不提交 Git，亦未重新发布生产，当前生产仍运行 V70）：
+
+1. **管理会计收入合同指标（V71 `contract_mgmt_income_metrics`）**：追加重建迁移 V71 扩展 `ma_metric.calculator` 枚举，注册 `contract_received` 与 `contract_receipt_rate`（[mgmt.ts](../backend/src/contracts/mgmt.ts)、[metric.service.ts](../backend/src/modules/mgmt/metric.service.ts)、[MetricTabs.tsx](../frontend/src/pages/mgmt/MetricTabs.tsx)），仅统计有效人民币收入合同并与支出/外币隔离。
+2. **项目 360° 档案补充计数**：[project-profile.service.ts](../backend/src/modules/master/project-profile.service.ts) 与 [ProjectProfile.tsx](../frontend/src/pages/project/ProjectProfile.tsx) 补充支出/收入合同累计净结算汇总（`settledTotal`、`incomeSettledTotal`）、逐行净结算、活跃保函（`activeGuaranteeCount`）、未闭环变更（`openChangeCount`）及未闭环纠纷（`openDisputeCount`）。
+3. **工作台待办与台账筛选同口径**：抽取共享工作日计算工具 [workdays.ts](../backend/src/core/workdays.ts)（含 `workingDayCutoffBefore`），[todo.service.ts](../backend/src/modules/report/todo.service.ts)、[contract.service.ts](../backend/src/modules/contracts/contract.service.ts) 与 [Contracts.tsx](../frontend/src/pages/project/Contracts.tsx) 将 `distribution` 精确收口为“签署超 10 工作日待分发”，并新增 `guarantee_warranty`（30 天内到期保函 / 质保期满待签证）。
+
+验证结果：
+
+- 后端类型检查：`npx tsc --noEmit` 通过。
+- 后端聚焦与联动测试：`t4-linkage.test.ts`、`t4-expense.test.ts`、`t4-contracts.test.ts`、`t5-linkage.test.ts`、`t8-protocol.test.ts`、`t10-contract-lifecycle.test.ts`、`t11-contract-change-safeguard.test.ts`、`t12-contract-risk-supervision.test.ts`（8 文件 / 30 项）与 `t9-legal-frontend-contract.test.ts`、`t4-assistant.test.ts`、`t7-risk-rules.test.ts`（3 文件 / 7 项）全部通过。
+- 前端门禁：`npx tsc -b && npx vitest run` 全部通过（52 文件 / 484 项）。
+
+## 合同生命周期独立复核修复与工程复验（2026-11-13，V72待发布）
+
+F04/F16/F17/F19/F20；T-10.1～T-12.5；AC-CLM-01～14、AC-X04/X07/X10。原V70整体通过结论已有[独立复核报告](contract-lifecycle-review-2026-11-13.md)反例，历史记录保留其当时事实；本次依据该报告完成15项问题及静态缺口修复，当前为工作区工程验证，未执行生产迁移、部署、Git提交或推送。逐项变更、配置、反例及最终验证明细见[修复记录](contract-lifecycle-repair-2026-11-13.md)。
+
+- 服务端统一关闭、质保、签署、解除、审批/附件分类、收款上限及币种门禁，批准和实际支付重算最新事实；接入初签/变更/结算/支付的计划、预算及概算约束。
+- 历史月报按业务日期截止，五表冻结可重现；官方8张Sheet表头说明和31组下拉规则逐项保留；补齐逐合同风险、作废/风险变化增量、法人内补充协议判重、供应商评价回写及工作日日历配置。
+- 后端全量**117文件 / 1130项通过**，源码类型通过；状态/审批/反例聚焦**25项通过**；其后新加两项V72失败回滚反例，T-10整个文件**6/6通过**。前端最终全量**52文件 / 484项通过**，类型通过。浏览器三条完整业务流程**3/3通过**。命令、日志和首轮失败后的复验过程见修复记录。
+- V68～V71保持原字节不变，仅追加V72。V67非空库/法审引用升级、备份恢复、错币种及法人重号整体回滚与重试验证通过。独立构建完整备份恢复演练：V67→V72为3095ms（预期仅内置风险规则及迁移登记数变化），V72→V72为322ms（159表/121行逐表统计一致），对象摘要与临时实例关键查询均通过。
+- 合成100合同/300附件导出峰值RSS为**178.7MiB**，导出字节守卫生效；该观测不代表200MiB临界包实测。本次不包含真实OA/上级平台在线导入联调或AC-CLR-09正式法审样本业务验收。
+
+全部测试与演练使用Node24.22.1、临时数据和`/tmp/newfc-repair/`独立构建，无生产业务写入。修复记录保存源码/产物聚合SHA-256，当前HEAD仍为既有`71dc393`，不得作为本次修复提交标识。正式发布须保留修复源码/产物、完整迁移前备份，并按部署脚本显式执行V72；回退需恢复匹配schema的完整备份及代码。
+
+## 合同生命周期复核修复生产发布（2026-11-13，V72）
+
+F04/F16/F17/F19/F20；T-10～T-12；AC-CLM-01～14、AC-X04/X07/X08/X10。用户明确授权部署后执行`scripts/deploy.sh --skip-tests`，返回0。发布前逐文件核对工程复验的509个源码/依赖锁文件，摘要仍为`cbd9254b2a034cdd9ca896ee324561bac0be7d2fb67b493d6b8d541d86e753ca`，两端依赖锁标记一致；因此复用刚完成的后端117文件/1130项、另增2项迁移回滚、前端52文件/484项及3条浏览器流程结果，不将本次跳过测试记作重新执行测试。脚本重新执行后端构建、前端类型检查和构建，成功后才停服、备份、迁移和替换产物。
+
+生产在**2026-11-13 16:05:46 CST**启动，`newfc.service`为active/running，MainPID=1446280，NRestarts=0。生产schema从V70显式升级至V71 `contract_mgmt_income_metrics`、V72 `contract_lifecycle_review_controls`；制度/范本幂等检查返回`policies=0, templates=0`。迁移前完整备份为`/data/newfc-data/backups/pre-migrate-cli-budget-backup-2026-11-13-160545.sqlite`，数据库、清单V70、库摘要、对象列表及对象摘要五项校验全部通过（对象0个）。`backend/dist.old`、`frontend/dist.old`保留上一版V70产物。
+
+生产核验：
+
+- 本机`http://127.0.0.1:3760`及公网`https://newfc.tangdalei.com`共24项HTTP检查通过：存活/就绪均200、schema为V72；未登录的工作台、合同及OA全量接口均401；入口页、入口JS/CSS及合同、导入、标准报表、主数据关键资源SHA-256与正式产物完全一致。
+- 生产数据库`integrity_check=ok`、`foreign_key_check=0`。V70备份的158张既有表中156张逐行内容摘要一致，仅`schema_migration`追加2条、`operation_log`追加1条备份审计。原有79条审计逐条保留，金融列使用`.safeIntegers(true)`读取；核验连接`total_changes()`前后差为0，生产合同仍为0条，无合成业务写入。
+- 发布产物逐文件对照工程复验产物：后端259个文件完全一致；正式前端119个文件均与复验构建同名文件一致，干净构建清除了194个旧构建残留文件。以下发布清单聚合摘要按完整相对路径字符串排序，与工程复验清单逐文件比较作为最终依据。
+
+发布标识：`contract-lifecycle-v72-20261113-160211`。证据目录`/data/newfc-data/releases/contract-lifecycle-v72-20261113-160211/`包含`deploy.log`、`release-manifest.json`、`production-verification.json`、只读核验脚本、复用测试日志和`source.tar.gz`（770文件，SHA-256=`66e4c7112172edc67b9b6fd21e3aa7819e6104d3dd883410f237bd4d7a1a9825`）。后端发布产物聚合SHA-256=`c2104f715cc5217b60266cc37ca1f94de909b9444be884b0790eab83e3e8a405`；前端=`12888411efba13e13dbf363367a72d415ea4dec6aa42a805b3676260fba597cb`。未提交或推送Git，旧HEAD不充当发布提交，以源码归档和逐文件清单追溯本次产物。
+
+新增净资产、二级法人及日历参数在发布预检时均未配置，未猜测业务数据。管理员须按真实依据维护；缺净资产时付款从严要求集体决策与可研，二级法人未配置时归顶级，日历未配置时按周末规则计算。已有浏览器页面需刷新。回退至V70须先核对上线后写入并恢复上述匹配的V70完整备份和旧产物，不能只替换旧代码使用V72库。本次未执行真实OA/上级平台在线导入联调，AC-CLR-09业务样本边界不变。
+
+## v0.2.0 公开源码归档与发版（2026-11-14）
+
+F04/F07/F08/F16/F17/F19/F20/F23/F24/F26；T-8～T-12；AC-T8、AC-CLR、AC-CLM、AC-X04/X07/X10。用户明确授权统一版本、整理文档、上传 GitHub 并发版打标。本轮把此前生产 V72 对应的未提交实现归档，前后端 package.json 和锁文件统一为 **0.2.0**；软件标签 **v0.2.0** 与数据库迁移号 **V72** 分开管理。README、更新日志、计划索引、公开版摘要与许可声明同步；v0.1.0 的公开记录另存历史文档。
+
+本轮检查使用 Node **24.22.1** 和 `/tmp/newfc-v020-release` 独立副本，从 Git 可公开文件清单复制源码，不复制 `docs/private/`、生产环境配置或运行库；测试全部使用临时库或内存库。未在生产目录安装依赖、编译、部署、迁移或写业务数据。
+
+| 检查 | 实际结果与本机日志 |
+|---|---|
+| 后端源码类型、测试、编译 | `npx tsc --noEmit && npx vitest run && npm run build` 通过；**117 文件 / 1132 项**；`/tmp/newfc-v020-backend-{types,tests,build}.log` |
+| 前端测试、类型、构建 | `npx vitest run --maxWorkers=1 && npm run build` 通过；**52 文件 / 484 项**；`/tmp/newfc-v020-frontend-{tests,build}.log` |
+| 合同浏览器 | 独立后端 `.e2e-dist` 和前端 `dist`、3764 端口、`/tmp/newfc-t9-e2e-*` 临时库。原法审配置只调整隔离产物路径；首轮 **10/11** 通过，失败为旧法审夹具未填双方签署人，V72 正确阻断履约。补齐合成签署人后，以 `--grep 'AC-CLR-01/04/05'` 聚焦复验 **1/1** 通过。日志 `/tmp/newfc-v020-e2e.log`、`/tmp/newfc-v020-e2e-focused.log`；未声称最后一轮全套11/11 |
+| 密钥与公开范围 | Gitleaks **8.30.1**：公开源码、Git 历史和95个压缩夹具成员解码后扫描通过，沿用两处精确测试值豁免；私有目录/数据库/密钥文件未进入公开清单。日志 `/tmp/newfc-v020-{secrets,history-secrets,decoded-secrets}.log` |
+| 依赖审计 | 后端全部8项（严重1/高危4/中危3），运行依赖5项；前端全部5项（高危3/中危2），运行依赖1项。未记作通过；具体依赖与维护边界见[公开版摘要](public-release.md)，原始结果 `/tmp/newfc-v020-*-audit.json` |
+| 测试脚本类型 | `npm run typecheck:test` 报467条错误，含响应类型未收窄、只读集合变更和重复属性；未记作通过；`/tmp/newfc-v020-test-types.log` |
+| 生产只读健康 | 本机 `/api/health/ready` 返回200、ready、V72；未重新部署 |
+
+业务实现与本轮验证源码逐文件核对一致；仅清理一处源码末尾空行、补齐旧浏览器夹具，未更改 V72 业务门禁。新增 saxes 的上游 ISC/sax 声明已补入第三方许可。公开版本不包含新上传的私有业务适配方案及原件；AC-CLR-09、真实 OA/上级平台在线导入联调边界保持不变。发布的已知问题包含上述依赖公告与测试脚本类型债务，不将其隐藏为全项门禁通过。GitHub 发布位置为 https://github.com/chouleilei/newfc/releases/tag/v0.2.0 。

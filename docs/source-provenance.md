@@ -101,3 +101,20 @@ lishui 只提供业务规则和验收样本，不导入源码。下列样本按�
 ## 首个公开版本（v0.1.0）
 
 对外文档、部署示例和模拟截图按公开范围整理。内部 QA 原件保留在本地，公开版使用验收摘要，不改写历史结果。公开发布的最终验证见 [公开版验收摘要](public-release.md)。来源提交、业务样本和离线兼容的必要说明继续保留。
+
+
+## 智能合同法审一期（2026-11-12）
+
+`backend/src/modules/contracts/{document-parser,legal-*,template-diff,pdf-service-url}.ts`、共享契约、V67 迁移、前端法审/版本管理组件与 T-9 测试为 newfc 本地新增实现，复用本仓库合同生命周期、文件对象、持久任务、权限和模型渠道；未复制其他项目源码、运行库或配置。DOCX 使用既有 JSZip 与直接登记的纯 JavaScript `saxes` XML 解析依赖，不引入常驻服务。
+
+`deploy/contract-legal-seed-v1.json` 从本地受控的 2026 合同/采购办法、2025 法律事务制度汇编摘录及三份通用清理稿离线提取并核对。只包含正式制度条文和已脱敏的通用条款，不包含历史项目参数、联系人、账户或受控原件字节。提取工具 `scripts/extract-contract-legal-seed.py` 须显式传入事先转换的文本目录；服务运行时不读取 `docs/private/contract-legal-review/`。三份范本均为 candidate，核定转正必须经管理员显式操作并写入说明。
+
+`backend/scripts/evaluate-contract-legal.ts` 仅离线读取显式指定的 8 份脱敏文本，仓库保存 [汇总评估](contract-legal-sample-evaluation.md)，不保存样本全文。律师三版链仅用于文字差异与适用性边界评估，未作为正式公司范本导入。合成 DOCX、受控模型/PDF/OCR 响应及可丢弃浏览器账号只在临时测试库使用，不形成生产业务数据。
+
+## 合同生命周期复核修复（2026-11-13）
+
+`contract-controls.ts`、`contract-funding.ts`、V72追加迁移、官方表头构建器、反例回归及相关领域修复为newfc本地新增实现，依据本仓库规格与[独立复核报告](contract-lifecycle-review-2026-11-13.md)。`supervision-official-headers.json`由`scripts/extract-supervision-template-spec.py`离线抽取六份受控官方空模板的8张Sheet前5/4行及31组下拉定义，不含样本业务行、附件原件或运行配置；服务运行时只读固化元数据。详细变更与验证见[修复记录](contract-lifecycle-repair-2026-11-13.md)。
+
+## v0.2.0 公开源码基线（2026-11-14）
+
+本次将既有 T-8～T-12 与 V71/V72 生产修复的独立工作区代码归档至 Git，软件版本统一为 0.2.0；未纳入下一轮尚未实施的业务适配方案。`docs/private/`、运行库、真实业务原件、凭据和内部 QA 原件保持排除。新增运行依赖 saxes 6.0.0 使用 ISC 许可（包含上游 sax 声明），原文按上游 v6.0.0 标签补入第三方许可文本。检查结果与已知边界见 [公开版验收摘要](public-release.md)。

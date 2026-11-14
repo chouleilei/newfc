@@ -2,13 +2,14 @@
 
 newfc 初始源码来自固定的 newbd 快照，之后在独立仓库内维护；部分业务规则与脱敏测试样本参考 lishui-finance-ai。来源提交、转写范围、兼容保留项及夹具出处见 [源码来源记录](docs/source-provenance.md)。来源标识用于追溯，不代表运行时依赖。
 
-维护者已明确指定以 MIT 开源。MIT 授权适用于本仓库源码及 v0.1.0 发布源码，完整条文见 [LICENSE](LICENSE)；使用、修改或分发时须保留版权和许可声明。
+维护者已明确指定以 MIT 开源。MIT 授权适用于本仓库源码及发布源码，完整条文见 [LICENSE](LICENSE)；使用、修改或分发时须保留版权和许可声明。
 
 第三方依赖继续适用各自授权。依赖版本以 backend/frontend 的 package-lock.json 为准。直接运行依赖主要包括：
 
 | 依赖 | 许可 |
 |---|---|
 | Express、better-sqlite3、ExcelJS、Multer、Zod | MIT |
+| saxes | ISC（包含上游 sax 声明） |
 | JSZip | MIT 或 GPL-3.0-or-later 双重许可，本项目采用 MIT 路径 |
 | React、React DOM、React Router、Ant Design、TanStack Query、Day.js | MIT |
 | Apache ECharts、Remix Icon | Apache-2.0 |
