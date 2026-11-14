@@ -1,7 +1,7 @@
 import { currentAuth } from '../../core/request-context';
 import { listLegalPolicies,listLegalTemplates,publishLegalPolicy,publishLegalTemplate,changeLegalCatalog,attachLegalSource,legalCatalogSource } from './legal-catalog.service';
 import { listLegalReviews,getLegalReview,submitLegalReview } from './legal-review-run';
-import { catalogReasonRequest } from '../../contracts/contract-legal-review';
+import { catalogReasonRequest, LEGAL_CATEGORIES, type LegalCategory } from '../../contracts/contract-legal-review';
 import type { Express } from 'express';
 import { z } from 'zod';
 import type { DB } from '../../db/connection';
@@ -21,6 +21,8 @@ import {
   contractChangeFilingRequest, contractReceiptCreateRequest, contractReceiptReceiveRequest, contractSettlementCreateRequest,
   contractDisputeCreateRequest, contractDisputeUpdateRequest, contractGuaranteeCreateRequest, contractGuaranteeUpdateRequest, contractWarrantyUpsertRequest,
   contractEvaluationRequest,
+  contractPrefixMapCreateRequest, contractPrefixMapPatchRequest, CONTRACT_IMPORT_KINDS, PREFIX_ENTITY_STATUSES, SUPERVISION_EXPORT_PURPOSES,
+  type ContractImportKind, type PrefixEntityStatus, type SupervisionExportPurpose,
 } from '../../contracts/project-contract';
 import { formFields, queryFields } from '../project-budget/routes';
 import { requirePermission } from '../security/scope';
@@ -42,14 +44,20 @@ import {
 import {
   exportMonthlyLedgerXlsx, exportSupervisionPackageZip, getSupervisionPortal, listSupervisionExportLogs, preflightSupervisionExport,
 } from './contract-export.service';
-import { confirmContractImport, getContractImport, previewContractImport } from './contract-import.service';
+import {
+  confirmContractImport, generateContractImportTemplate, getContractImport, listContractImports, previewContractImport,
+} from './contract-import.service';
+import { createPrefixMap, listPrefixMaps, patchPrefixMap, suggestNextContractNo } from './prefix-map.service';
 
 addRouteRules([
   {method:'GET',pattern:/^\/contracts\/legal-catalog(\/|$)/,permission:'contract:read'},
   {method:'WRITE',pattern:/^\/contracts\/legal-catalog(\/|$)/,permission:'knowledge:manage',allOrgs:true},
   {method:'WRITE',pattern:/^\/contracts\/\d+\/legal-reviews\/run$/,permission:['contract:write','contract:review']},
-  { method: 'GET', pattern: /^\/contracts\/imports\/\d+$/, permission: 'contract:import' },
-  { method: 'WRITE', pattern: /^\/contracts\/imports(\/\d+\/confirm)?$/, permission: 'contract:import' },
+  { method: 'GET', pattern: /^\/contracts\/prefix-map$/, permission: ['contract:read', 'master:read'] },
+  { method: 'WRITE', pattern: /^\/contracts\/prefix-map(\/\d+)?$/, permission: 'master:write', allOrgs: true },
+  { method: 'GET', pattern: /^\/contracts\/next-no$/, permission: 'contract:read' },
+  { method: 'GET', pattern: /^\/contracts\/imports(\/\d+|\/templates?\/[a-z_]+)?$/, permission: ['contract:import', 'contract:migrate'] },
+  { method: 'WRITE', pattern: /^\/contracts\/imports(\/\d+\/confirm)?$/, permission: ['contract:import', 'contract:migrate'] },
   { method: 'GET', pattern: /^\/contracts\/exports\/monthly-ledger$/, permission: 'analysis:export' },
   { method: 'GET', pattern: /^\/contracts\/exports\/supervision\/preflight$/, permission: 'contract:read' },
   { method: 'GET', pattern: /^\/contracts\/exports\/logs$/, permission: 'contract:read' },
@@ -70,6 +78,7 @@ const supervisionExportBody = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   orgId: idSchema.optional(),
   scopeMode: z.enum(['changed', 'all_active']).optional(),
+  exportPurpose: z.enum(SUPERVISION_EXPORT_PURPOSES).optional(),
 });
 
 /** 合同文档:常见办公与图片格式。 */
@@ -88,12 +97,89 @@ export function registerContractRoutes(app: Express, db: () => DB, wrap: Wrap, s
   app.post('/api/contracts/:id/legal-reviews/run',wrap((req,res)=>{const {done,...result}=submitLegalReview(db,store,id(req.params.id),currentAuth());res.status(202).json(result);}));
   app.get('/api/contracts/:id/legal-reviews',wrap((req,res)=>res.json(listLegalReviews(db(),id(req.params.id)))));
   app.get('/api/contracts/:id/legal-reviews/:rid',wrap((req,res)=>res.json(getLegalReview(db(),id(req.params.id),id(req.params.rid)))));
-  const tableUpload = memoryUpload(['.csv', '.xlsx']);
-  app.post('/api/contracts/imports', tableUpload.single('file'), wrap(async (req, res) => {
-    if (!req.file) throw Errors.validation('请上传合同台账 .csv 或 .xlsx');
+
+  app.get('/api/contracts/prefix-map', wrap((req, res) => {
+    const q = queryFields(req);
+    const entityStatus = q.entityStatus && (PREFIX_ENTITY_STATUSES as readonly string[]).includes(q.entityStatus)
+      ? (q.entityStatus as PrefixEntityStatus)
+      : undefined;
+    const allowNewOnly = q.allowNewOnly === '1' || q.allowNewOnly === 'true';
+    res.json(listPrefixMaps(db(), { keyword: q.keyword, entityStatus, allowNewOnly }));
+  }));
+  app.post('/api/contracts/prefix-map', wrap((req, res) => {
+    res.status(201).json(createPrefixMap(db(), parseInput(contractPrefixMapCreateRequest, req.body)));
+  }));
+  app.patch('/api/contracts/prefix-map/:pid', wrap((req, res) => {
+    res.json(patchPrefixMap(db(), id(req.params.pid), parseInput(contractPrefixMapPatchRequest, req.body)));
+  }));
+  app.get('/api/contracts/next-no', wrap((req, res) => {
+    const q = queryFields(req);
+    if (!q.orgId) throw Errors.validation('请提供 orgId');
+    const legalCategory = q.legalCategory && (LEGAL_CATEGORIES as readonly string[]).includes(q.legalCategory)
+      ? (q.legalCategory as LegalCategory)
+      : undefined;
+    res.json(suggestNextContractNo(db(), {
+      orgId: id(q.orgId),
+      coManagedOrgId: q.coManagedOrgId ? id(q.coManagedOrgId) : undefined,
+      signingSubjectOrgId: q.signingSubjectOrgId ? id(q.signingSubjectOrgId) : undefined,
+      signingEntityLevel: q.signingEntityLevel === 'secondary_unit' ? 'secondary_unit' : q.signingEntityLevel === 'company' ? 'company' : undefined,
+      category: q.category,
+      legalCategory,
+      direction: q.direction === 'income' ? 'income' : q.direction === 'expense' ? 'expense' : undefined,
+      year: q.year ? Number(q.year) : undefined,
+    }));
+  }));
+
+  const tableUpload = memoryUpload(['.csv', '.xlsx', '.xls'], 40);
+  app.get('/api/contracts/imports', wrap((req, res) => {
+    const q = queryFields(req);
+    const importMode = q.importMode === 'legacy_tolerant' ? 'legacy_tolerant' : q.importMode === 'standard' ? 'standard' : undefined;
+    const status = q.status === 'confirmed' ? 'confirmed' : q.status === 'previewed' ? 'previewed' : undefined;
+    const limit = q.limit ? Number(q.limit) : undefined;
+    res.json(listContractImports(db(), { importMode, status, limit }));
+  }));
+  for (const tplPath of ['/api/contracts/imports/templates/:kind', '/api/contracts/imports/template/:kind']) {
+    app.get(tplPath, wrap(async (req, res) => {
+      const kindRaw = String(req.params.kind ?? '');
+      if (!(CONTRACT_IMPORT_KINDS as readonly string[]).includes(kindRaw)) {
+        throw Errors.validation(`不支持的合同导入模板类型: ${kindRaw}`);
+      }
+      const out = await generateContractImportTemplate(kindRaw as ContractImportKind);
+      sendAttachment(res, out.fileName, out.contentType, out.content);
+    }));
+  }
+  app.post('/api/contracts/imports', tableUpload.any(), wrap(async (req, res) => {
+    const uploaded = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : []);
+    if (!uploaded.length) throw Errors.validation('请上传合同台账 .csv、.xlsx 或 .xls');
     const fields = formFields(req);
     const defaultOrgId = fields.orgId ? id(fields.orgId) : undefined;
-    res.status(201).json(await previewContractImport(db(), store(), req.file.buffer, uploadName(req.file.originalname), defaultOrgId));
+    const importMode = fields.importMode === 'legacy_tolerant' ? 'legacy_tolerant' : 'standard';
+    const auth = currentAuth();
+    if (importMode === 'standard' && auth && !auth.permissions.has('contract:import')) {
+      requirePermission(auth, 'contract:import');
+    }
+    if (importMode === 'standard' && uploaded.length > 1) {
+      throw Errors.validation('标准台账导入单次仅支持上传 1 个文件');
+    }
+    const [first, ...rest] = uploaded;
+    res.status(201).json(await previewContractImport(
+      db(),
+      store(),
+      first.buffer,
+      uploadName(first.originalname),
+      defaultOrgId,
+      {
+        importMode,
+        batchGroup: fields.batchGroup,
+        asOfDate: fields.asOfDate || null,
+        extraFiles: rest.map((f) => ({
+          buffer: f.buffer,
+          fileName: uploadName(f.originalname),
+          batchGroup: fields.batchGroup,
+          asOfDate: fields.asOfDate || null,
+        })),
+      },
+    ));
   }));
   app.get('/api/contracts/imports/:id', wrap((req, res) => { res.json(getContractImport(db(), id(req.params.id))); }));
   app.post('/api/contracts/imports/:id/confirm', wrap(async (req, res) => {
@@ -116,7 +202,8 @@ export function registerContractRoutes(app: Express, db: () => DB, wrap: Wrap, s
   app.get('/api/contracts/exports/supervision/preflight', wrap((req, res) => {
     const q = queryFields(req);
     const scopeMode = q.scopeMode === 'changed' ? 'changed' : 'all_active';
-    res.json(preflightSupervisionExport(db(), { period: q.period, orgId: q.orgId ? id(q.orgId) : undefined, scopeMode }));
+    const exportPurpose: SupervisionExportPurpose = q.exportPurpose === 'internal_archive' ? 'internal_archive' : 'supervision_submit';
+    res.json(preflightSupervisionExport(db(), { period: q.period, orgId: q.orgId ? id(q.orgId) : undefined, scopeMode, exportPurpose }));
   }));
   app.get('/api/contracts/exports/logs', wrap((_req, res) => {
     res.json(listSupervisionExportLogs(db()));

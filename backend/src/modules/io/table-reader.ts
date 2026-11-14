@@ -41,7 +41,12 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
-function cellText(cell: ExcelJS.Cell): string {
+export interface WorkbookReadOptions {
+  allowUncachedFormulas?: boolean;
+  warnings?: string[];
+}
+
+function cellText(cell: ExcelJS.Cell, opts?: WorkbookReadOptions): string {
   const value = cell.value;
   if (value == null) return '';
   if (typeof value === 'number') return String(Number(value.toPrecision(15)));
@@ -49,15 +54,33 @@ function cellText(cell: ExcelJS.Cell): string {
   if (typeof value === 'object') {
     if ('formula' in value || 'sharedFormula' in value) {
       const result = (value as ExcelJS.CellFormulaValue).result;
-      if (result == null) throw Errors.validation(`公式单元格 ${cell.address} 缺少缓存计算值,请在 Excel 中重新计算保存后上传`);
+      if (result == null) {
+        if (opts?.allowUncachedFormulas) {
+          opts.warnings?.push(`公式单元格 ${cell.worksheet.name}!${cell.address} 缺少缓存计算值`);
+          return '';
+        }
+        throw Errors.validation(`公式单元格 ${cell.address} 缺少缓存计算值,请在 Excel 中重新计算保存后上传`);
+      }
       if (typeof result === 'number') return String(Number(result.toPrecision(15)));
       if (result instanceof Date) return result.toISOString().slice(0, 10);
-      if (typeof result === 'object' && 'error' in result) throw Errors.validation(`单元格 ${cell.address} 是错误值 ${result.error}`);
+      if (typeof result === 'object' && 'error' in result) {
+        if (opts?.allowUncachedFormulas) {
+          opts.warnings?.push(`单元格 ${cell.worksheet.name}!${cell.address} 公式错误值 ${result.error}`);
+          return '';
+        }
+        throw Errors.validation(`单元格 ${cell.address} 是错误值 ${result.error}`);
+      }
       return String(result).trim();
     }
     if ('richText' in value) return value.richText.map((part) => part.text).join('').trim();
     if ('text' in value) return String(value.text).trim();
-    if ('error' in value) throw Errors.validation(`单元格 ${cell.address} 是错误值 ${value.error}`);
+    if ('error' in value) {
+      if (opts?.allowUncachedFormulas) {
+        opts.warnings?.push(`单元格 ${cell.worksheet.name}!${cell.address} 错误值 ${value.error}`);
+        return '';
+      }
+      throw Errors.validation(`单元格 ${cell.address} 是错误值 ${value.error}`);
+    }
   }
   return String(value).trim();
 }
@@ -139,25 +162,40 @@ async function loadWorkbook(content: Buffer, maxRows: number, maxWorksheets = 1)
   return wb;
 }
 
-function sheetMatrix(sheet: ExcelJS.Worksheet): MatrixRow[] {
+function sheetMatrix(sheet: ExcelJS.Worksheet, opts?: WorkbookReadOptions): MatrixRow[] {
   const matrix: MatrixRow[] = [];
   // 隐藏行同样读入:原始事实不能因为显示状态被静默丢弃
   sheet.eachRow({ includeEmpty: false }, (row, rowNo) => {
-    const cells: string[] = [];
-    for (let c = 1; c <= sheet.columnCount; c++) cells.push(cellText(row.getCell(c)));
+    let maxCol = 0;
+    const entries: [number, string][] = [];
+    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+      if (colNumber > 512) return;
+      const txt = cellText(cell, opts);
+      if (txt !== '') {
+        entries.push([colNumber, txt]);
+        if (colNumber > maxCol) maxCol = colNumber;
+      }
+    });
+    const cells = new Array<string>(maxCol).fill('');
+    for (const [colNumber, txt] of entries) cells[colNumber - 1] = txt;
     matrix.push({ rowNo, cells });
   });
   return matrix;
 }
 
 /** 读取 xlsx 全部工作表为文本矩阵(含隐藏表,由调用方决定是否忽略并列出)。 */
-export async function readWorkbookSheets(content: Buffer, maxRows = MAX_IMPORT_ROWS, maxWorksheets = MAX_WORKBOOK_SHEETS): Promise<ReadSheet[]> {
+export async function readWorkbookSheets(
+  content: Buffer,
+  maxRows = MAX_IMPORT_ROWS,
+  maxWorksheets = MAX_WORKBOOK_SHEETS,
+  opts?: WorkbookReadOptions,
+): Promise<ReadSheet[]> {
   if (!content.length) throw Errors.validation('上传文件为空');
   if (isOle2Buffer(content)) {
     return readXlsWorkbookSheets(content, maxRows, maxWorksheets);
   }
   const wb = await loadWorkbook(content, maxRows, maxWorksheets);
-  return wb.worksheets.map((ws) => ({ name: ws.name.trim(), hidden: ws.state !== 'visible', rows: sheetMatrix(ws) }));
+  return wb.worksheets.map((ws) => ({ name: ws.name.trim(), hidden: ws.state !== 'visible', rows: sheetMatrix(ws, opts) }));
 }
 
 export async function readTable(content: Buffer, fileName: string, maxRows = MAX_IMPORT_ROWS, locator?: HeaderLocator): Promise<ReadTable> {

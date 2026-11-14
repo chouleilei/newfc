@@ -102,6 +102,8 @@ export interface RuleInput {
   policies: PolicyDto[];
   orgName: string;
   supplierName: string | null;
+  allowedPrefixes?: string[];
+  isDirectStation?: boolean;
 }
 export function legalRules(input: RuleInput): {
   findings: LegalFinding[];
@@ -158,15 +160,19 @@ export function legalRules(input: RuleInput): {
   if (/《(?:中华人民共和国)?合同法》/.test(text))
     add('OBSOLETE_LAW_BASIS', '仍引用已废止的合同法', /合同法/);
   const no = c.contract_no.normalize('NFKC').toUpperCase();
-  const units = 'LS|CJ|JD|ZD|GD|QD|SX|CS|ZT|XM|LN|LJD|WQ|XL|YN|YF';
+  const prefixPattern =
+    input.allowedPrefixes && input.allowedPrefixes.length > 0
+      ? input.allowedPrefixes.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+      : '[A-Z]{2,4}';
   if (
     !Number(c.external_no_exempt ?? 0) &&
+    c.migration_mode !== 'legacy_tolerant' &&
     !new RegExp(
-      `^(?:${units})[-/](?:JG|SG|SJ|CW|TH|XF|QT)-\\d+(?:[（(]补\\d+[）)])?/\\d{4}-\\d+$`,
+      `^(?:${prefixPattern})[-－/](?:JG|SG|SJ|CW|TH|XF|QT)[-－]\\d+(?:[（(]补\\d+[）)])?[/／]\\d{4}[-－]\\d+$`,
     ).test(no)
   ) {
     const pending = new RegExp(
-      `^(?:${units})[-/](?:JG|SG|SJ|CW|TH|XF|QT)-\\d+(?:[（(]补\\d+[）)])?/\\d{4}-?$`,
+      `^(?:${prefixPattern})[-－/](?:JG|SG|SJ|CW|TH|XF|QT)[-－]\\d+(?:[（(]补\\d+[）)])?[/／-]\\d{4}[-－]?$`,
     ).test(no);
     add(
       'CONTRACT_NO_FORMAT',
@@ -414,10 +420,10 @@ export function legalRules(input: RuleInput): {
     );
   if (
     (c.direction === 'income' || c.legal_category === 'income_sales') &&
-    /(江垭|皂市)(?:水)?电站/.test(input.orgName) &&
+    Boolean(input.isDirectStation) &&
     c.signing_entity_level !== 'company'
   ) {
-    add('DIRECT_STATION_INCOME_ENTITY', '直属电站（江垭/皂市水电站）资金进项合同须以公司名义签订', /甲方|乙方|签署/, 'signing');
+    add('DIRECT_STATION_INCOME_ENTITY', '直属水电站资金进项合同须以公司名义签订', /甲方|乙方|签署/, 'signing');
   }
   if (
     Number(c.is_important) ||

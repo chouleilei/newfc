@@ -7,6 +7,8 @@ import {
   type ContractPaymentType, type ContractPricingMode, type ContractReceiptDto, type ContractSettlementDto, type ContractUndertakerHandoverDto,
   type ContractWarrantyDto,
   type ContractEvaluationDto,
+  type ContractCurrencyLineDto,
+  type LegacyReconciliationDto,
 } from './contract-lifecycle';
 import { z } from 'zod';
 import { expectedVersion, id, moneyString, optionalText, pageQuery, reason, type MoneyString, type RatioString } from './common';
@@ -269,12 +271,42 @@ export interface ContractImportRowDto {
   direction?: ContractDirection;
   pricingMode?: ContractPricingMode;
   detailSummary?: string;
+  currency?: string;
+  exchangeRate?: string | null;
+  signingOrgId?: number | null;
+  signingOrgName?: string | null;
+  legalEntityOrgId?: number | null;
+  legalEntityOrgName?: string | null;
+  coManagedOrgName?: string | null;
+  canonicalEntityCode?: string;
+  legacyPrefixCode?: string;
+  legacyRawNo?: string;
+  noExemptReason?: string;
+  rawAmountText?: string;
+  rawSignDateText?: string;
+  foreignAmountText?: string;
+  missingFields?: string[];
+  isReversal?: boolean;
+  syntheticNoFlag?: boolean;
+  duplicateConflictGroup?: string;
+  isInternalGroupTx?: boolean;
+  amountFactSource?: 'confirmed_contract' | 'unit_price_open' | 'voucher_debit_clue' | 'unverified_forecast';
+  currencyStructStatus?: 'single' | 'structured_multi' | 'partial_unstructured';
+  currencyLines?: ContractCurrencyLineDto[];
+  legacySettledBaselineAmount?: MoneyString | null;
   /** update 时变化的字段:[原值, 新值] */
   changes: Record<string, [string | null, string | null]>;
 }
 export interface ContractImportDto {
   id: number;
-  importKind?: ContractImportKind;
+  importKind?: ContractImportKind | 'legacy_batch_upsert';
+  importMode?: 'standard' | 'legacy_tolerant';
+  paidOrReceivedLabel?: '已付金额' | '已收金额';
+  missingFieldCount?: number;
+  syntheticNoCount?: number;
+  reversalCount?: number;
+  duplicateSkippedCount?: number;
+  reconciliation?: LegacyReconciliationDto | null;
   fileName: string;
   fileSha256: string;
   status: 'previewed' | 'confirmed';

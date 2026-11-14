@@ -78,6 +78,109 @@ export type WarrantyConclusion = (typeof WARRANTY_CONCLUSIONS)[number];
 export const DISPUTE_STAGES = ['negotiation', 'mediation', 'arbitration', 'litigation_1st', 'litigation_2nd', 'execution', 'closed'] as const;
 export type DisputeStage = (typeof DISPUTE_STAGES)[number];
 
+export const PREFIX_ENTITY_STATUSES = ['active_legal', 'direct_unit', 'inherited_child', 'closed_history', 'external', 'ignore'] as const;
+export type PrefixEntityStatus = (typeof PREFIX_ENTITY_STATUSES)[number];
+
+export const PREFIX_KINDS = ['internal_prefix', 'typo_alias', 'role_prefix', 'external_counterparty', 'noise_header_filter'] as const;
+export type PrefixKind = (typeof PREFIX_KINDS)[number];
+
+export const SUPERVISION_EXPORT_PURPOSES = ['supervision_submit', 'internal_archive'] as const;
+export type SupervisionExportPurpose = (typeof SUPERVISION_EXPORT_PURPOSES)[number];
+
+export interface ContractPrefixMapDto {
+  id: number;
+  rawPrefix: string;
+  canonicalPrefix: string;
+  legalEntityOrgId: number | null;
+  legalEntityOrgName: string | null;
+  signingOrgId: number | null;
+  signingOrgName: string | null;
+  successorOrgId: number | null;
+  successorOrgName: string | null;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  parentCanonicalPrefix: string;
+  entityStatus: PrefixEntityStatus;
+  allowNewContract: boolean;
+  prefixKind: PrefixKind;
+  sampleContractNo: string;
+  occurrenceCount: number;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const contractPrefixMapCreateRequest = z.object({
+  rawPrefix: z.string().trim().min(1).max(40),
+  canonicalPrefix: z.string().trim().min(1).max(24),
+  legalEntityOrgId: id.nullish(),
+  signingOrgId: id.nullish(),
+  successorOrgId: id.nullish(),
+  effectiveFrom: date.nullish(),
+  effectiveTo: date.nullish(),
+  parentCanonicalPrefix: optionalText(24),
+  entityStatus: z.enum(PREFIX_ENTITY_STATUSES),
+  allowNewContract: z.boolean().default(false),
+  prefixKind: z.enum(PREFIX_KINDS).default('internal_prefix'),
+  sampleContractNo: optionalText(100),
+  occurrenceCount: z.number().int().min(0).default(0),
+  note: optionalText(500),
+});
+export type ContractPrefixMapCreateRequest = z.infer<typeof contractPrefixMapCreateRequest>;
+export const contractPrefixMapPatchRequest = contractPrefixMapCreateRequest.partial();
+export type ContractPrefixMapPatchRequest = z.infer<typeof contractPrefixMapPatchRequest>;
+
+export interface ContractNextNoDto {
+  suggestedNo: string;
+  canonicalPrefix: string;
+  yyCode: string;
+  legalEntityOrgId: number;
+  legalEntityOrgName: string;
+  signingOrgId: number;
+  signingOrgName: string;
+  isDirectStation: boolean;
+  orgKind: 'legal_entity' | 'hq_dept' | 'direct_unit' | 'closed_history';
+}
+
+export interface ContractCurrencyLineDto {
+  lineNo: number;
+  currency: string;
+  amount: MoneyString;
+  amountRole: 'contract_original' | 'settlement_agreed' | 'change_delta';
+  fxRate: string | null;
+  fxRateDate: string | null;
+  fxRateSource: string;
+}
+
+export interface LegacyReconciliationDto {
+  totalSourceRows: number;
+  filteredNoiseRows: number;
+  foldedDuplicateRows: number;
+  mainContractRows: number;
+  subEventRows: number;
+  conflictAndClueRows: number;
+  closed: boolean;
+}
+
+export interface PaymentTierPreviewDto {
+  requiredTier: ContractPaymentApprovalTier;
+  requiredTierLabel: string;
+  netAssetFound: boolean;
+  onePercentAmount: MoneyString | null;
+  ceilingAmount: MoneyString;
+  rmbAmount: MoneyString | null;
+  legalEntityOrgId: number;
+  priorYear: number;
+}
+
+export interface ChangeTierPreviewDto {
+  requiredTier: ChangeApprovalTier;
+  requiredTierLabel: string;
+  orMode: 'min' | 'max';
+  deltaRatio: RatioString;
+  reason: string;
+}
+
 /** 合同底座扩展字段（Create / Update 共用） */
 export const contractLifecycleFields = {
   direction: z.enum(CONTRACT_DIRECTIONS).optional(),
@@ -98,6 +201,8 @@ export const contractLifecycleFields = {
   fundingSourceDetail: optionalText(500),
   sourceIncomeContractId: id.nullish(),
   parentContractId: id.nullish(),
+  signingSubjectOrgId: id.nullish(),
+  coManagedOrgId: id.nullish(),
   externalNoExempt: z.boolean().optional(),
   counterpartyNames: optionalText(1000),
   undertakerName: optionalText(100),
@@ -376,6 +481,40 @@ export interface ContractLifecycleMetadataDto {
   archiveTransferredAt: string | null;
   archiveTransferNo: string | null;
   archiveDeferNote: string | null;
+  origin?: 'manual' | 'standard_import' | 'legacy_migration';
+  migrationMode?: 'normal' | 'legacy_tolerant';
+  duplicateConflictGroup?: string;
+  amountFactSource?: 'confirmed_contract' | 'unit_price_open' | 'voucher_debit_clue' | 'unverified_forecast';
+  clueVoucherDebitAmount?: MoneyString | null;
+  legacySettledBaselineAmount?: MoneyString | null;
+  legacyInvoicedBaselineAmount?: MoneyString | null;
+  legacyRevenueBaselineAmount?: MoneyString | null;
+  baselineAsOfDate?: string | null;
+  signingOrgId?: number | null;
+  signingOrgName?: string | null;
+  signingSubjectOrgId?: number | null;
+  signingSubjectOrgName?: string | null;
+  legalEntityOrgId?: number | null;
+  legalEntityOrgName?: string | null;
+  historicalLegalEntityOrgId?: number | null;
+  historicalLegalEntityOrgName?: string | null;
+  isInternalGroupTx?: boolean;
+  internalGroupAgreementKey?: string;
+  counterpartyContractId?: number | null;
+  coManagedOrgId?: number | null;
+  coManagedOrgName?: string | null;
+  currencyStructStatus?: 'single' | 'structured_multi' | 'partial_unstructured';
+  currencyLines?: ContractCurrencyLineDto[];
+  legacyRawNo?: string;
+  legacyPrefixCode?: string;
+  rawAmountText?: string;
+  rawSignDateText?: string;
+  missingFields?: string[];
+  noExemptReason?: string;
+  foreignAmountText?: string;
+  isReversal?: boolean;
+  syntheticNoFlag?: boolean;
+  changeOrMode?: 'min' | 'max';
 }
 
 export interface ContractUndertakerHandoverDto {
@@ -404,6 +543,15 @@ export interface ContractSettlementDto {
   deductPenaltyAmount: MoneyString;
   totalDeductAmount: MoneyString;
   netPayableAmount: MoneyString;
+  priorGrossAmount?: MoneyString;
+  priorTotalDeductAmount?: MoneyString;
+  priorNetPayableAmount?: MoneyString;
+  ytdGrossAmount?: MoneyString;
+  ytdTotalDeductAmount?: MoneyString;
+  ytdNetPayableAmount?: MoneyString;
+  cumulativeGrossAmount?: MoneyString;
+  cumulativeTotalDeductAmount?: MoneyString;
+  cumulativeNetPayableAmount?: MoneyString;
   note: string;
   evidenceDocumentId: number | null;
   status: 'submitted' | 'approved' | 'rejected';
@@ -541,10 +689,13 @@ export interface SupervisionPreflightItemDto {
   missingAttachments: string[];
   warnings: string[];
   ready: boolean;
+  bodyDocStatus?: 'signed' | 'contract_text' | 'missing';
+  procurementReady?: boolean | null;
 }
 
 export interface SupervisionPreflightDto {
   scopeMode: 'changed' | 'all_active';
+  exportPurpose?: SupervisionExportPurpose;
   period: string;
   totalCount: number;
   readyCount: number;

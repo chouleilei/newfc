@@ -372,10 +372,10 @@ describe('T-10.2 八阶段状态机、单价合同与授权/时间链门禁', ()
     seedNetAssets(t.db);
     const now = '2026-11-12T00:00:00.000Z';
     const stationOrgId = Number(
-      t.db.prepare("INSERT INTO org (parent_id, code, name, sort_order, status, created_at, updated_at) VALUES (?, '0199', '江垭水电站', 99, 'active', ?, ?)")
+      t.db.prepare("INSERT INTO org (parent_id, code, name, org_kind, is_direct_station, sort_order, status, created_at, updated_at) VALUES (?, '0199', '测试直属水电站', 'direct_unit', 1, 99, 'active', ?, ?)")
         .run(t.fx.orgIds.east, now, now).lastInsertRowid,
     );
-    const supplierId = await createSupplier(t.base, t.admin, 'S-CLM-02', '湖南电网售电客户');
+    const supplierId = await createSupplier(t.base, t.admin, 'S-CLM-02', '测试电网售电客户');
     const projectId = await createProject(t.base, t.admin, 'P-CLM-02', '年度单价检修项目', t.fx.orgIds.shanghai);
 
     // 1) 直属电站以二级单位签收入合同 -> 服务端与规则层双重阻断
@@ -394,7 +394,7 @@ describe('T-10.2 八阶段状态机、单价合同与授权/时间链门禁', ()
 
     const incomeContract = await ok(post(t.base, t.admin, '/api/contracts', { ...SIGNATORIES,
       contractNo: 'LS-SR-001/2026-002',
-      name: '江垭电站售电进项合同',
+      name: '直属电站售电进项合同',
       contractType: '销售',
       orgId: stationOrgId,
       supplierId,
@@ -412,8 +412,9 @@ describe('T-10.2 八阶段状态机、单价合同与授权/时间链门禁', ()
       parsed: parsed(GOOD_TEXT),
       evidence: ['client_written_offer'],
       policies: [],
-      orgName: '江垭水电站',
-      supplierName: '湖南电网售电客户',
+      orgName: '测试直属水电站',
+      supplierName: '测试电网售电客户',
+      isDirectStation: true,
     });
     expect(ruleStation.findings.some((f) => f.code === 'DIRECT_STATION_INCOME_ENTITY' && f.blocking)).toBe(true);
 

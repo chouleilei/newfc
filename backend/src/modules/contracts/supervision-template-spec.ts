@@ -136,14 +136,20 @@ export const LABEL_TO_CHANGE_KIND: Record<string, ChangeKind> = {
   变更: 'change', 中止: 'suspend', 解除: 'terminate',
 };
 
-/** 补充协议附件文件夹特殊字符转义（CLM-DEC-04）：| -> $, / -> %, 其余非法路径符 -> _ */
-export function escapeSupplementFolderName(supplementNo: string): string {
-  return supplementNo
+/**
+ * 合同编号与补充协议附件目录统一转义（标签项说明 1.5.1 / 1.5.2）：
+ * / -> %, \ -> @, | -> $, 其余 Windows 非法路径符 (: * ? " < >) -> _
+ */
+export function escapeSupervisionNoFolderName(no: string): string {
+  return no
     .trim()
     .replace(/\|/g, '$')
     .replace(/\//g, '%')
-    .replace(/[\\:*?"<>]/g, '_');
+    .replace(/\\/g, '@')
+    .replace(/[:*?"<>]/g, '_');
 }
+
+export const escapeSupplementFolderName = escapeSupervisionNoFolderName;
 
 export function sanitizeFolderSegment(name: string): string {
   return name.trim().replace(/[/\\:*?"<>|]/g, '_');

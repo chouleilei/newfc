@@ -1,6 +1,7 @@
-import { workingCalendar } from '../settings/business-settings';
+import { getSetting, workingCalendar } from '../settings/business-settings';
 import { assertContractFunding } from './contract-funding';
-import { assertWarrantyReleased, contractHasWarranty, requireEvidence } from './contract-controls';
+import { assertWarrantyReleased, contractHasWarranty, deriveContractSixDim, requireEvidence } from './contract-controls';
+import { validateNewContractNoWithPrefixMap } from './prefix-map.service';
 import { legalAccess } from './legal-access';
 import { assertGuarantorConsent, CHANGE_TIER_RANK } from './contract-change.service';
 import { getContractEvaluation, getContractWarranty, listContractDisputes, listContractGuarantees } from './contract-safeguard.service';
@@ -36,15 +37,15 @@ import {
   type ContractDistributionRequest, type ContractDistributionStatus, type ContractFundingSource, type ContractHandoverRequest, type ContractMeetingType,
   type ContractPaymentApprovalTier, type ContractPaymentType, type ContractPricingMode, type ContractReceiptDto, type ContractReportCategory,
   type ContractSettlementDto, type ContractTenderBodyType, type ContractTermType, type ContractUndertakerHandoverDto,
+  type ContractCurrencyLineDto,
 } from '../../contracts/project-contract';
 
 const nowIso = () => new Date().toISOString();
 const conflict = (code: string, message: string, details?: unknown) => new AppError(code, message, 409, undefined, details);
 const todayIso = () => nowIso().slice(0, 10);
-const isDirectStationName = (name: string) => /(江垭|皂市)(?:水)?电站/.test(name);
 const isDirectPowerStationOrg = (db: DB, orgId: number) => {
-  const row = db.prepare('SELECT name FROM org WHERE id = ?').get(orgId) as { name: string } | undefined;
-  return !!row && isDirectStationName(row.name);
+  const row = db.prepare('SELECT is_direct_station FROM org WHERE id = ?').get(orgId) as { is_direct_station: number } | undefined;
+  return row?.is_direct_station === 1;
 };
 const deriveReportCategory = (target: LegalMetadata['procurementTarget'], category: LegalMetadata['legalCategory'], explicit?: ContractReportCategory): ContractReportCategory => {
   if (explicit) return explicit;
@@ -79,6 +80,36 @@ export interface ContractRow {
   settled_gross_cents: bigint; settled_net_cents: bigint; received_cents: bigint;
   distribution_status: ContractDistributionStatus; distributed_at: string | null; company_filed_at: string | null;
   archive_status: ContractArchiveStatus; archive_checked_at: string | null; archive_transferred_at: string | null; archive_transfer_no: string | null; archive_defer_note: string | null;
+  completed_date: string | null;
+  procurement_record_id: number | null;
+  origin: 'manual' | 'standard_import' | 'legacy_migration';
+  migration_mode: 'normal' | 'legacy_tolerant';
+  duplicate_conflict_group: string;
+  amount_fact_source: 'confirmed_contract' | 'unit_price_open' | 'voucher_debit_clue' | 'unverified_forecast';
+  clue_voucher_debit_cents: bigint | null;
+  legacy_settled_baseline_cents: bigint | null;
+  legacy_invoiced_baseline_cents: bigint | null;
+  legacy_revenue_baseline_cents: bigint | null;
+  baseline_as_of_date: string | null;
+  legacy_prefix_code: string;
+  raw_amount_text: string;
+  raw_sign_date_text: string;
+  missing_fields_json: string;
+  cross_ref_source: string;
+  is_reversal: number;
+  synthetic_no_flag: number;
+  signing_org_id: number | null;
+  signing_subject_org_id: number | null;
+  legal_entity_org_id: number | null;
+  historical_legal_entity_org_id: number | null;
+  is_internal_group_tx: number;
+  internal_group_agreement_key: string;
+  counterparty_contract_id: number | null;
+  co_managed_org_id: number | null;
+  currency_struct_status: 'single' | 'structured_multi' | 'partial_unstructured';
+  legacy_raw_no: string;
+  no_exempt_reason: string;
+  foreign_amount_text: string;
 }
 
 /** 合同编号规范化:NFKC、去空白、大写。 */
@@ -97,8 +128,14 @@ function normalizeRow(r: Record<string, unknown>): ContractRow {
   return {
     ...(r as unknown as ContractRow), id: Number(r.id), org_id: Number(r.org_id), project_id: n(r.project_id), supplier_id: n(r.supplier_id),
     plan_item_id: n(r.plan_item_id), source_income_contract_id: n(r.source_income_contract_id), parent_contract_id: n(r.parent_contract_id),
+    procurement_record_id: n(r.procurement_record_id),
+    signing_org_id: n(r.signing_org_id), signing_subject_org_id: n(r.signing_subject_org_id),
+    legal_entity_org_id: n(r.legal_entity_org_id), historical_legal_entity_org_id: n(r.historical_legal_entity_org_id),
+    counterparty_contract_id: n(r.counterparty_contract_id), co_managed_org_id: n(r.co_managed_org_id),
     is_procurement: Number(r.is_procurement ?? 1), is_important: Number(r.is_important ?? 0),
     is_emergency: Number(r.is_emergency ?? 0), external_no_exempt: Number(r.external_no_exempt ?? 0),
+    is_reversal: Number(r.is_reversal ?? 0), synthetic_no_flag: Number(r.synthetic_no_flag ?? 0),
+    is_internal_group_tx: Number(r.is_internal_group_tx ?? 0),
     our_signatory_is_legal_rep: n(r.our_signatory_is_legal_rep), counterparty_signatory_is_legal_rep: n(r.counterparty_signatory_is_legal_rep),
     is_triple_major: Number(r.is_triple_major ?? 0), is_gov_procurement: Number(r.is_gov_procurement ?? 0),
     response_docs_complete: n(r.response_docs_complete), credit_checked: n(r.credit_checked),
@@ -140,12 +177,32 @@ const userName = (db: DB, id: number | null): string | null =>
 /* ================= DTO ================= */
 
 function toDto(db: DB, c: ContractRow): ContractDto {
-  const org = db.prepare('SELECT name FROM org WHERE id = ?').get(c.org_id) as { name: string } | undefined;
+  const orgNameById = (oid: number | null | undefined) =>
+    oid == null ? null : ((db.prepare('SELECT name FROM org WHERE id = ?').get(oid) as { name: string } | undefined)?.name ?? `#${oid}`);
+  const orgName = orgNameById(c.org_id) ?? `#${c.org_id}`;
   const project = c.project_id ? db.prepare('SELECT code, name FROM md_project WHERE id = ?').get(c.project_id) as { code: string; name: string } | undefined : undefined;
   const supplier = c.supplier_id ? db.prepare('SELECT name FROM md_supplier WHERE id = ?').get(c.supplier_id) as { name: string } | undefined : undefined;
   const srcIncome = c.source_income_contract_id
     ? db.prepare('SELECT contract_no, name FROM ct_contract WHERE id = ?').get(c.source_income_contract_id) as { contract_no: string; name: string } | undefined
     : undefined;
+  let missingFields: string[] = [];
+  try {
+    const parsedMissing = JSON.parse(c.missing_fields_json || '[]');
+    if (Array.isArray(parsedMissing)) missingFields = parsedMissing.map(String);
+  } catch {
+    missingFields = [];
+  }
+  const currencyLines = (db.prepare('SELECT * FROM ct_contract_currency_line WHERE contract_id = ? ORDER BY line_no ASC').safeIntegers(true).all(c.id) as Record<string, unknown>[]).map(
+    (cl): ContractCurrencyLineDto => ({
+      lineNo: Number(cl.line_no),
+      currency: String(cl.currency),
+      amount: centsToDecimalString(cl.amount_cents as bigint),
+      amountRole: cl.amount_role as ContractCurrencyLineDto['amountRole'],
+      fxRate: cl.fx_rate_scaled == null ? null : formatScaled(cl.fx_rate_scaled as bigint, RATIO_SCALE),
+      fxRateDate: (cl.fx_rate_date as string | null) ?? null,
+      fxRateSource: String(cl.fx_rate_source ?? ''),
+    }),
+  );
   const counts = db.prepare(`SELECT
       (SELECT COUNT(*) FROM ct_review WHERE contract_id = ? AND status = 'submitted') AS reviews,
       (SELECT COUNT(*) FROM ct_change WHERE contract_id = ? AND status = 'submitted') AS changes,
@@ -160,7 +217,7 @@ function toDto(db: DB, c: ContractRow): ContractDto {
     : current;
   return {
     legalCategory:c.legal_category, partyRole:c.party_role, signingEntityLevel:c.signing_entity_level, isProcurement:!!c.is_procurement, procurementTarget:c.procurement_target, procurementMethod:c.procurement_method, procurementTier:procurementTier(!!c.is_procurement,c.procurement_target,tierAmount,c.procurement_method), isImportant:!!c.is_important,
-    id: c.id, contractNo: c.contract_no, name: c.name, contractType: c.contract_type, orgId: c.org_id, orgName: org?.name ?? `#${c.org_id}`,
+    id: c.id, contractNo: c.contract_no, name: c.name, contractType: c.contract_type, orgId: c.org_id, orgName,
     projectId: c.project_id, projectCode: project?.code ?? null, projectName: project?.name ?? null, supplierId: c.supplier_id, supplierName: supplier?.name ?? null,
     originalAmount: centsToDecimalString(c.original_cents), approvedChange: centsToDecimalString(c.approved_change_cents), currentAmount: centsToDecimalString(current),
     paidAmount: centsToDecimalString(c.paid_cents), paymentRate: ratioString(c.paid_cents, current),
@@ -204,6 +261,40 @@ function toDto(db: DB, c: ContractRow): ContractDto {
     distributionStatus: c.distribution_status, distributedAt: c.distributed_at, companyFiledAt: c.company_filed_at,
     archiveStatus: c.archive_status, archiveCheckedAt: c.archive_checked_at, archiveTransferredAt: c.archive_transferred_at,
     archiveTransferNo: c.archive_transfer_no, archiveDeferNote: c.archive_defer_note,
+    origin: c.origin,
+    migrationMode: c.migration_mode,
+    duplicateConflictGroup: c.duplicate_conflict_group || '',
+    amountFactSource: c.amount_fact_source,
+    clueVoucherDebitAmount: c.clue_voucher_debit_cents == null ? null : centsToDecimalString(c.clue_voucher_debit_cents),
+    legacySettledBaselineAmount: c.legacy_settled_baseline_cents == null ? null : centsToDecimalString(c.legacy_settled_baseline_cents),
+    legacyInvoicedBaselineAmount: c.legacy_invoiced_baseline_cents == null ? null : centsToDecimalString(c.legacy_invoiced_baseline_cents),
+    legacyRevenueBaselineAmount: c.legacy_revenue_baseline_cents == null ? null : centsToDecimalString(c.legacy_revenue_baseline_cents),
+    baselineAsOfDate: c.baseline_as_of_date ?? null,
+    signingOrgId: c.signing_org_id,
+    signingOrgName: orgNameById(c.signing_org_id),
+    signingSubjectOrgId: c.signing_subject_org_id,
+    signingSubjectOrgName: orgNameById(c.signing_subject_org_id),
+    legalEntityOrgId: c.legal_entity_org_id,
+    legalEntityOrgName: orgNameById(c.legal_entity_org_id),
+    historicalLegalEntityOrgId: c.historical_legal_entity_org_id,
+    historicalLegalEntityOrgName: orgNameById(c.historical_legal_entity_org_id),
+    isInternalGroupTx: !!c.is_internal_group_tx,
+    internalGroupAgreementKey: c.internal_group_agreement_key || '',
+    counterpartyContractId: c.counterparty_contract_id,
+    coManagedOrgId: c.co_managed_org_id,
+    coManagedOrgName: orgNameById(c.co_managed_org_id),
+    currencyStructStatus: c.currency_struct_status,
+    currencyLines,
+    legacyRawNo: c.legacy_raw_no || '',
+    legacyPrefixCode: c.legacy_prefix_code || '',
+    rawAmountText: c.raw_amount_text || '',
+    rawSignDateText: c.raw_sign_date_text || '',
+    missingFields,
+    noExemptReason: c.no_exempt_reason || '',
+    foreignAmountText: c.foreign_amount_text || '',
+    isReversal: !!c.is_reversal,
+    syntheticNoFlag: !!c.synthetic_no_flag,
+    changeOrMode: getSetting<'min' | 'max'>(db, 'contract.change_or_mode') === 'max' ? 'max' : 'min',
   };
 }
 
@@ -614,7 +705,7 @@ function assertLifecycleConsistency(db: DB, params: {
     throw new AppError('VALIDATION_FAILED', '支出合同的我方立场应为买方/发包人/委托方/其他', 400);
   }
   if (params.direction === 'income' && isDirectPowerStationOrg(db, params.orgId) && params.signingEntityLevel !== 'company') {
-    throw conflict('CONTRACT_DIRECT_STATION_ENTITY', '直属电站（江垭/皂市水电站）资金进项合同须以公司名义（company）签订');
+    throw conflict('CONTRACT_DIRECT_STATION_ENTITY', '直属水电站资金进项合同须以公司名义（company）签订');
   }
   if (params.direction === 'expense' && params.fundingSource === 'income_contract') {
     if (!params.sourceIncomeContractId) throw new AppError('VALIDATION_FAILED', '资金来源为“收入合同”时须指定关联收入合同', 400);
@@ -668,7 +759,10 @@ const LIFECYCLE_COLUMN_SQL = [
 export function createContract(db: DB, input: ContractCreateRequest): ContractDetailDto {
   const scope = currentOrgScope(db);
   if (!orgInScope(scope, input.orgId)) throw notVisible('组织');
-  if (!db.prepare("SELECT 1 FROM org WHERE id = ? AND status = 'active'").get(input.orgId)) throw new AppError('VALIDATION_FAILED', '组织不存在或已停用', 400);
+  const orgCheck = db.prepare('SELECT id, status, org_kind FROM org WHERE id = ?').get(input.orgId) as { id: number; status: string; org_kind: string } | undefined;
+  if (!orgCheck) throw new AppError('VALIDATION_FAILED', '组织不存在或已停用', 400);
+  if (orgCheck.org_kind === 'closed_history') throw conflict('CONTRACT_ORG_CLOSED_HISTORY', '历史关停/吸收注销主体禁止新签合同');
+  if (orgCheck.status !== 'active') throw new AppError('VALIDATION_FAILED', '组织不存在或已停用', 400);
   if (input.projectId) assertProject(db, input.projectId, input.orgId);
   if (input.supplierId) assertSupplier(db, input.supplierId);
   const original = parseDecimalToCents(input.originalAmount, { label: '合同金额' });
@@ -682,6 +776,20 @@ export function createContract(db: DB, input: ContractCreateRequest): ContractDe
   const warrantyRatio = input.warrantyRetentionRatio == null ? null : parseScaled(input.warrantyRetentionRatio, RATIO_SCALE, { label: '质保金比例' });
   const fundingSource: ContractFundingSource = input.fundingSource ?? 'self_owned_other';
   const signingEntityLevel = input.signingEntityLevel ?? 'company';
+  const prefixValidation = validateNewContractNoWithPrefixMap(db, {
+    contractNo: input.contractNo,
+    orgId: input.orgId,
+    coManagedOrgId: input.coManagedOrgId ?? null,
+    externalNoExempt: !!input.externalNoExempt,
+    projectId: input.projectId ?? null,
+  });
+  const sixDim = deriveContractSixDim(db, {
+    orgId: input.orgId,
+    signingSubjectOrgId: input.signingSubjectOrgId ?? null,
+    signingLevel: signingEntityLevel,
+    prefixLegalEntityOrgId: prefixValidation.prefixRow?.legal_entity_org_id ?? null,
+    prefixSuccessorOrgId: prefixValidation.prefixRow?.successor_org_id ?? null,
+  });
   assertLifecycleConsistency(db, {
     orgId: input.orgId, direction, partyRole, signingEntityLevel, pricingMode, originalCents: original, bidAwardCents: bidAward,
     fundingSource, sourceIncomeContractId: input.sourceIncomeContractId ?? null,
@@ -691,14 +799,24 @@ export function createContract(db: DB, input: ContractCreateRequest): ContractDe
   });
   const normalized = normalizeContractNo(input.contractNo);
   const id = db.transaction(() => {
-    if (db.prepare('SELECT 1 FROM ct_contract WHERE normalized_no = ?').get(normalized)) throw conflict('CONTRACT_NO_EXISTS', `合同编号 ${input.contractNo} 已存在`);
+    if (
+      db.prepare('SELECT 1 FROM ct_contract WHERE COALESCE(legal_entity_org_id, org_id) = ? AND normalized_no = ?').get(
+        sixDim.legalEntityOrgId,
+        normalized,
+      )
+    ) {
+      throw conflict('CONTRACT_NO_EXISTS', `合同编号 ${input.contractNo} 在同一法人单位下已存在`);
+    }
     const now = nowIso();
     const category = input.legalCategory ?? (direction === 'income' ? 'income_sales' : 'other');
     const reportCategory = deriveReportCategory(input.procurementTarget ?? null, category, input.reportCategory);
     const newId = Number(db.prepare(`INSERT INTO ct_contract (contract_no, normalized_no, name, contract_type, org_id, project_id, supplier_id, original_cents, payment_cap_ratio_scaled,
-      sign_date, effective_date, source, created_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?)`).run(
+      sign_date, effective_date, source, origin, migration_mode, signing_org_id, signing_subject_org_id, legal_entity_org_id, historical_legal_entity_org_id, co_managed_org_id,
+      created_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'manual', 'normal', ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       input.contractNo.trim(), normalized, input.name, input.contractType ?? '', input.orgId, input.projectId ?? null, input.supplierId ?? null, original,
-      capScaled(input.paymentCapRatio), input.signDate ?? null, input.effectiveDate ?? null, currentAuth()?.userId ?? null, now, now).lastInsertRowid);
+      capScaled(input.paymentCapRatio), input.signDate ?? null, input.effectiveDate ?? null,
+      sixDim.signingOrgId, sixDim.signingSubjectOrgId, sixDim.legalEntityOrgId, sixDim.historicalLegalEntityOrgId, input.coManagedOrgId ?? null,
+      currentAuth()?.userId ?? null, now, now).lastInsertRowid);
     const lcVals: unknown[] = [
       direction, pricingMode, input.unitPriceDesc ?? '', estimatedCeiling, input.currency ?? '人民币', exchangeRate,
       reportCategory, input.summaryText ?? '', input.remark ?? '', input.planItemId ?? null, input.budgetType ?? 'single_listed',
@@ -818,6 +936,24 @@ export function updateContract(db: DB, id: number, input: ContractUpdateRequest)
     if (input.fundingSourceDetail !== undefined && input.fundingSourceDetail !== c.funding_source_detail) set('funding_source_detail', input.fundingSourceDetail, 'fundingSourceDetail');
     optVal('source_income_contract_id', input.sourceIncomeContractId, c.source_income_contract_id, 'sourceIncomeContractId');
     optVal('parent_contract_id', input.parentContractId, c.parent_contract_id, 'parentContractId');
+    if (input.coManagedOrgId !== undefined && (input.coManagedOrgId ?? null) !== c.co_managed_org_id) {
+      if (!early) throw conflict('CONTRACT_STATE', '合同起草之后不能修改统筹代办组织');
+      set('co_managed_org_id', input.coManagedOrgId ?? null, 'coManagedOrgId');
+    }
+    if (input.signingSubjectOrgId !== undefined || input.signingEntityLevel !== undefined) {
+      if (!early && (input.signingSubjectOrgId ?? c.signing_subject_org_id) !== c.signing_subject_org_id) {
+        throw conflict('CONTRACT_STATE', '合同起草之后不能修改对外签约名义组织');
+      }
+      if (c.migration_mode !== 'legacy_tolerant') {
+        const nextSixDim = deriveContractSixDim(db, {
+          orgId: c.org_id,
+          signingSubjectOrgId: input.signingSubjectOrgId === undefined ? c.signing_subject_org_id : input.signingSubjectOrgId,
+          signingLevel: input.signingEntityLevel ?? c.signing_entity_level,
+        });
+        if (nextSixDim.signingSubjectOrgId !== c.signing_subject_org_id) set('signing_subject_org_id', nextSixDim.signingSubjectOrgId, 'signingSubjectOrgId');
+        if (nextSixDim.legalEntityOrgId !== c.legal_entity_org_id) set('legal_entity_org_id', nextSixDim.legalEntityOrgId, 'legalEntityOrgId');
+      }
+    }
     reqBool('external_no_exempt', input.externalNoExempt, c.external_no_exempt, 'externalNoExempt');
     if (input.counterpartyNames !== undefined && input.counterpartyNames !== c.counterparty_names) set('counterparty_names', input.counterpartyNames, 'counterpartyNames');
     if (input.undertakerName !== undefined && input.undertakerName !== c.undertaker_name) set('undertaker_name', input.undertakerName, 'undertakerName');

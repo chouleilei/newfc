@@ -38,7 +38,11 @@
     "master:seed:coldstart": "node dist/modules/master/seed-master-coldstart-cli.js",
     "master:seed:coldstart:dev": "ts-node src/modules/master/seed-master-coldstart-cli.ts",
     "settings:seed:business": "node dist/modules/settings/seed-business-settings-cli.js",
-    "settings:seed:business:dev": "ts-node src/modules/settings/seed-business-settings-cli.ts"
+    "settings:seed:business:dev": "ts-node src/modules/settings/seed-business-settings-cli.ts",
+    "contract:seed:prefix-map": "node dist/modules/contracts/seed-prefix-map-cli.js",
+    "contract:seed:prefix-map:dev": "node -r ts-node/register/transpile-only src/modules/contracts/seed-prefix-map-cli.ts",
+    "contract:delta:reconcile": "node dist/modules/contracts/delta-reconcile-cli.js",
+    "contract:delta:reconcile:dev": "node -r ts-node/register/transpile-only src/modules/contracts/delta-reconcile-cli.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

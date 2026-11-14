@@ -13,17 +13,41 @@ export function rmbCents(c: Pick<ContractRow, 'currency' | 'exchange_rate_scaled
   return mulCents(value, c.exchange_rate_scaled, RATIO_SCALE);
 }
 
+export function tryRmbCents(
+  c: Pick<ContractRow, 'currency' | 'exchange_rate_scaled' | 'currency_struct_status'>,
+  value: bigint,
+): bigint | null {
+  if (c.currency_struct_status && c.currency_struct_status !== 'single') return null;
+  if (c.currency === '人民币') return value;
+  if (!c.exchange_rate_scaled || c.exchange_rate_scaled <= 0n) return null;
+  return mulCents(value, c.exchange_rate_scaled, RATIO_SCALE);
+}
+
 /** 签署、变更、结算和支付共用同一额度口径。仅正式采用的来源批次参与计算。 */
 export function assertContractFunding(db: DB, c: ContractRow, opts: { delta?: bigint; settlementGross?: bigint; paymentTotal?: bigint; outOfPlanDocId?: number | null; paymentDate?: string | null } = {}): void {
   if (c.direction !== 'expense') return;
+  // 历史容缺外币/复币合同在未补录汇率且非新发起付款锁定时，不阻断只读与基础维护
+  if (
+    c.migration_mode === 'legacy_tolerant' &&
+    opts.paymentTotal === undefined &&
+    tryRmbCents(c, 0n) === null
+  ) {
+    return;
+  }
   const candidate = c.pricing_mode === 'unit_price' ? c.estimated_ceiling_cents ?? 0n : BigInt(c.original_cents) + BigInt(c.approved_change_cents);
   const amount = candidate + (opts.delta ?? 0n);
   const override = opts.outOfPlanDocId ?? (opts.delta !== undefined ? undefined : (db.prepare("SELECT id FROM ct_document WHERE contract_id = ? AND evidence_kind = 'out_of_plan_approval' ORDER BY id DESC LIMIT 1").get(c.id) as { id: number } | undefined)?.id);
   if (override) requireEvidence(db, c.id, override, ['out_of_plan_approval']);
   const sumOther = (column: 'commitment' | 'settled' | 'paid', key: 'project_id' | 'plan_item_id', id: number): bigint => {
-    const rows = db.prepare(`SELECT currency, exchange_rate_scaled, original_cents, approved_change_cents, pricing_mode, estimated_ceiling_cents, settled_gross_cents, paid_cents + COALESCE((SELECT SUM(amount_cents) FROM ct_payment p WHERE p.contract_id = ct_contract.id AND p.status = 'approved'),0) AS paid_cents FROM ct_contract
+    const rows = db.prepare(`SELECT currency, exchange_rate_scaled, migration_mode, currency_struct_status, original_cents, approved_change_cents, pricing_mode, estimated_ceiling_cents, settled_gross_cents, paid_cents + COALESCE((SELECT SUM(amount_cents) FROM ct_payment p WHERE p.contract_id = ct_contract.id AND p.status = 'approved'),0) AS paid_cents FROM ct_contract
       WHERE ${key === 'plan_item_id' ? 'plan_item_id IN (SELECT id FROM plan_item WHERE item_key=(SELECT item_key FROM plan_item WHERE id=?) AND org_id=(SELECT org_id FROM plan_item WHERE id=?))' : 'project_id = ?'} AND id <> ? AND direction = 'expense' AND status <> 'voided' AND stage IN ('performance','settlement','warranty','closed')`).safeIntegers(true).all(...(key === 'plan_item_id' ? [id,id,c.id] : [id,c.id])) as ContractRow[];
-    return rows.reduce((s, r) => s + rmbCents(r, column === 'settled' ? r.settled_gross_cents : column === 'paid' ? r.paid_cents : r.pricing_mode === 'unit_price' ? r.estimated_ceiling_cents ?? 0n : r.original_cents + r.approved_change_cents), 0n);
+    return rows.reduce((s, r) => {
+      const raw = column === 'settled' ? r.settled_gross_cents : column === 'paid' ? r.paid_cents : r.pricing_mode === 'unit_price' ? r.estimated_ceiling_cents ?? 0n : r.original_cents + r.approved_change_cents;
+      if (r.migration_mode === 'legacy_tolerant') {
+        return s + (tryRmbCents(r, raw) ?? 0n);
+      }
+      return s + rmbCents(r, raw);
+    }, 0n);
   };
   if (c.plan_item_id && (opts.delta === undefined || opts.delta > 0n)) {
     const plan = db.prepare(`SELECT f.amount_cents AS cap FROM plan_fact f JOIN plan_item i ON i.id = f.item_id JOIN plan_batch b ON b.id = i.batch_id

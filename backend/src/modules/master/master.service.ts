@@ -371,12 +371,17 @@ export interface ResolveResult {
  * 外部编码/名称 → 规范实体。顺序:精确编码 → 编码映射 → 精确名称 → 名称映射 → 规范化名称(仅组织去后缀)。
  * 只匹配启用实体;多个候选时返回 ambiguous 与候选,不擅自选择。asOf 用于复现历史口径(仅影响映射层)。
  */
-export function resolveEntity(db: DB, type: MasterEntityType, input: { code?: string; name?: string; sourceSystem?: string; asOf?: string }): ResolveResult {
+export function resolveEntity(
+  db: DB,
+  type: MasterEntityType,
+  input: { code?: string; name?: string; sourceSystem?: string; asOf?: string; includeInactive?: boolean },
+): ResolveResult {
   const table = TABLE_OF[type];
   const base = { input: { code: input.code, name: input.name } };
   const hit = (matchedBy: MatchedBy, row: { id: number; code: string; name: string }, confidence: string, mappingId?: number): ResolveResult =>
     ({ ...base, matchedBy, targetId: row.id, targetCode: row.code, targetName: row.name, confidence, candidates: [], ...(mappingId ? { mappingId } : {}) });
-  const active = db.prepare(`SELECT id, COALESCE(code, '') AS code, name FROM ${table} WHERE status = 'active'`).all() as { id: number; code: string; name: string }[];
+  const statusClause = input.includeInactive ? '' : " WHERE status = 'active'";
+  const active = db.prepare(`SELECT id, COALESCE(code, '') AS code, name FROM ${table}${statusClause}`).all() as { id: number; code: string; name: string }[];
   const byId = new Map(active.map((r) => [r.id, r]));
   const asOf = input.asOf ?? nowIso();
   const mapped = (kind: 'code' | 'name', key: string) => {

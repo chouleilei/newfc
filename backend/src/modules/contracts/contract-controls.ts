@@ -3,6 +3,7 @@ import type { EvidenceKind } from '../../contracts/contract-legal-review';
 import type { ContractRow } from './contract.service';
 import { AppError } from '../../core/errors';
 import { getSetting } from '../settings/business-settings';
+import { hasPrefixMapSeeded } from './prefix-map.service';
 
 const blocked = (code: string, message: string) => new AppError(code, message, 409);
 
@@ -34,15 +35,155 @@ export function assertWarrantyReleased(db: DB, contractId: number, asOf = new Da
   requireEvidence(db, contractId, w.visa_document_id, ['warranty_release_visa']);
 }
 
-/** 公司名义签约归顶级法人；二级法人按管理员明确配置的祖先节点划界，未配置时从严归顶级。 */
-export function legalEntityOrgId(db: DB, orgId: number, signingLevel?: string): number {
-  const chain = db.prepare(`WITH RECURSIVE ancestors(id, parent_id, depth) AS (
-    SELECT id, parent_id, 0 FROM org WHERE id = ? UNION ALL
-    SELECT o.id, o.parent_id, a.depth + 1 FROM org o JOIN ancestors a ON o.id = a.parent_id
-  ) SELECT id FROM ancestors ORDER BY depth`).all(orgId) as { id: number }[];
+export interface SixDimOrgResolution {
+  signingOrgId: number;
+  signingSubjectOrgId: number;
+  legalEntityOrgId: number;
+  historicalLegalEntityOrgId: number | null;
+}
+
+interface AncestorOrgRow {
+  id: number;
+  parent_id: number | null;
+  org_kind: string;
+  contract_prefix_code: string;
+  depth: number;
+}
+
+function queryOrgChain(db: DB, orgId: number): AncestorOrgRow[] {
+  return db.prepare(`WITH RECURSIVE ancestors(id, parent_id, org_kind, contract_prefix_code, depth) AS (
+    SELECT id, parent_id, org_kind, contract_prefix_code, 0 FROM org WHERE id = ? UNION ALL
+    SELECT o.id, o.parent_id, o.org_kind, o.contract_prefix_code, a.depth + 1 FROM org o JOIN ancestors a ON o.id = a.parent_id
+  ) SELECT id, parent_id, org_kind, contract_prefix_code, depth FROM ancestors ORDER BY depth ASC`).all(orgId) as AncestorOrgRow[];
+}
+
+/**
+ * 六维签约名义与历史承接法人推导：
+ * - 显式指定 signingSubjectOrgId 时：若指向母公司/本部部门/直属非法人则绑定顶级母公司 LS；若指向独立子法人则绑定该子法人；
+ * - closed_history 历史关停主体：冻结 historicalLegalEntityOrgId = signingOrgId，现行口径指向 successor_org_id / 上级存续法人；
+ * - 本部部门(hq_dept)与直属非法人分支(direct_unit: JD/ZD/SX)固定归顶级母公司 LS；
+ * - 分子公司以自身名义签约(secondary_unit 或前缀归属该子法人且未显式指定母公司签章)归该分子公司，以集团本级名义签约归顶级母公司。
+ */
+export function deriveContractSixDim(
+  db: DB,
+  params: {
+    orgId: number;
+    signingOrgId?: number | null;
+    signingSubjectOrgId?: number | null;
+    signingLevel?: string | null;
+    prefixLegalEntityOrgId?: number | null;
+    prefixSuccessorOrgId?: number | null;
+  },
+): SixDimOrgResolution {
+  const chain = queryOrgChain(db, params.orgId);
   if (!chain.length) throw blocked('ORG_REQUIRED', '合同组织不存在');
-  const declared = new Set(getSetting<string>(db, 'contract.legal_entity_org_ids').split(',').filter(Boolean).map(Number));
-  return (signingLevel === 'company' ? undefined : chain.find(o => declared.has(o.id))?.id) ?? chain[chain.length - 1].id;
+  const root = chain[chain.length - 1];
+  const org = chain[0];
+  const signingOrgId = params.signingOrgId ?? org.id;
+  const signingChain = signingOrgId === org.id ? chain : queryOrgChain(db, signingOrgId);
+  const signingNode = signingChain[0] ?? org;
+
+  if (signingNode.org_kind === 'closed_history') {
+    const mapRow = db
+      .prepare('SELECT legal_entity_org_id, successor_org_id FROM ct_prefix_org_map WHERE signing_org_id = ? ORDER BY id ASC LIMIT 1')
+      .get(signingOrgId) as { legal_entity_org_id: number | null; successor_org_id: number | null } | undefined;
+    const successor =
+      params.prefixSuccessorOrgId ??
+      mapRow?.successor_org_id ??
+      params.prefixLegalEntityOrgId ??
+      mapRow?.legal_entity_org_id ??
+      signingChain.find((o) => o.org_kind === 'legal_entity')?.id ??
+      root.id;
+    return {
+      signingOrgId,
+      signingSubjectOrgId: signingOrgId,
+      legalEntityOrgId: successor,
+      historicalLegalEntityOrgId: signingOrgId,
+    };
+  }
+
+  if (params.signingSubjectOrgId != null) {
+    const subjChain = queryOrgChain(db, params.signingSubjectOrgId);
+    if (!subjChain.length) throw blocked('ORG_REQUIRED', '对外签约名义组织不存在');
+    const subj = subjChain[0];
+    const legalId =
+      subj.id === root.id || subj.org_kind === 'hq_dept' || subj.org_kind === 'direct_unit'
+        ? root.id
+        : (subjChain.find((o) => o.org_kind === 'legal_entity')?.id ?? root.id);
+    return {
+      signingOrgId,
+      signingSubjectOrgId: subj.id,
+      legalEntityOrgId: legalId,
+      historicalLegalEntityOrgId: null,
+    };
+  }
+
+  if (org.org_kind === 'hq_dept' || org.org_kind === 'direct_unit') {
+    return {
+      signingOrgId,
+      signingSubjectOrgId: root.id,
+      legalEntityOrgId: root.id,
+      historicalLegalEntityOrgId: null,
+    };
+  }
+
+  const declared = new Set(
+    getSetting<string>(db, 'contract.legal_entity_org_ids')
+      .split(',')
+      .filter(Boolean)
+      .map(Number),
+  );
+  const prefixSeeded = hasPrefixMapSeeded(db) || org.contract_prefix_code !== '';
+
+  if (params.signingLevel === 'company') {
+    // 若前缀明确归属某存续独立子法人且承办组织即该子法人（或其下属），绑定该子法人；否则以集团母公司名义归顶级法人
+    if (
+      prefixSeeded &&
+      params.prefixLegalEntityOrgId != null &&
+      params.prefixLegalEntityOrgId !== root.id &&
+      chain.some((o) => o.id === params.prefixLegalEntityOrgId)
+    ) {
+      return {
+        signingOrgId,
+        signingSubjectOrgId: params.prefixLegalEntityOrgId,
+        legalEntityOrgId: params.prefixLegalEntityOrgId,
+        historicalLegalEntityOrgId: null,
+      };
+    }
+    return {
+      signingOrgId,
+      signingSubjectOrgId: root.id,
+      legalEntityOrgId: root.id,
+      historicalLegalEntityOrgId: null,
+    };
+  }
+
+  const nearestDeclared = chain.find((o) => declared.has(o.id))?.id;
+  const nearestV73Legal = prefixSeeded ? chain.find((o) => o.org_kind === 'legal_entity')?.id : undefined;
+  const resolvedLegal = nearestDeclared ?? nearestV73Legal ?? root.id;
+  return {
+    signingOrgId,
+    signingSubjectOrgId: resolvedLegal,
+    legalEntityOrgId: resolvedLegal,
+    historicalLegalEntityOrgId: null,
+  };
+}
+
+/** 公司名义签约归顶级法人；二级法人按管理员配置或 V73 法人树节点划界，存在已冻结法人时优先使用冻结值。 */
+export function legalEntityOrgId(
+  db: DB,
+  orgId: number,
+  signingLevel?: string,
+  opts?: { signingSubjectOrgId?: number | null; frozenLegalEntityOrgId?: number | null },
+): number {
+  if (opts?.frozenLegalEntityOrgId != null && hasPrefixMapSeeded(db)) {
+    return opts.frozenLegalEntityOrgId;
+  }
+  return deriveContractSixDim(db, {
+    orgId,
+    signingSubjectOrgId: opts?.signingSubjectOrgId ?? null,
+    signingLevel: signingLevel ?? null,
+  }).legalEntityOrgId;
 }
 
 export function orgReportPath(db: DB, orgId: number): string {

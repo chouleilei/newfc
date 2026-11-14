@@ -12,10 +12,10 @@ export function uploadName(value: string): string {
   return decoded.includes('\uFFFD') ? value : decoded;
 }
 
-export function memoryUpload(extensions: string[]): multer.Multer {
+export function memoryUpload(extensions: string[], maxFiles = 1): multer.Multer {
   return multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: maxFiles },
     fileFilter: (_req, file, cb) => {
       if (extensions.includes(path.extname(uploadName(file.originalname)).toLowerCase())) cb(null, true);
       else cb(new AppError('VALIDATION_FAILED', `仅支持 ${extensions.join(' / ')} 文件`, 400));

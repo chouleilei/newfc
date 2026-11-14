@@ -51,6 +51,13 @@ export interface ExportContractRow {
   paid_cents: bigint; received_cents: bigint;
   stage: ContractStage; status: ContractStatus; archive_status: string;
   version: number; updated_at: string; created_at: string; completed_date: string | null; project_id: number | null;
+  plan_item_id: number | null; plan_item_name: string | null; procurement_record_id: number | null;
+  origin: 'manual' | 'standard_import' | 'legacy_migration';
+  migration_mode: 'normal' | 'legacy_tolerant';
+  is_reversal: number;
+  currency_struct_status: 'single' | 'structured_multi' | 'partial_unstructured';
+  duplicate_conflict_group: string;
+  missing_fields_json: string;
 }
 
 /** 整数分精确转万元十进制字符串（1 万元 = 1,000,000 分），无浮点误差。 */
@@ -95,11 +102,12 @@ export function queryScopedContracts(
     params.push(opts.orgId);
   }
   const raw = db.prepare(`SELECT c.*, o.name AS org_name, o.report_full_name AS org_report_full_name,
-      p.name AS project_name, s.name AS supplier_name,
+      p.name AS project_name, pi.item_name AS plan_item_name, s.name AS supplier_name,
       inc.contract_no AS source_income_no, inc.name AS source_income_name
     FROM ct_contract c
     JOIN org o ON o.id = c.org_id
     LEFT JOIN md_project p ON p.id = c.project_id
+    LEFT JOIN plan_item pi ON pi.id = c.plan_item_id
     LEFT JOIN md_supplier s ON s.id = c.supplier_id
     LEFT JOIN ct_contract inc ON inc.id = c.source_income_contract_id
     WHERE ${where.join(' AND ')}
@@ -109,6 +117,9 @@ export function queryScopedContracts(
     id: Number(r.id),
     org_id: Number(r.org_id),
     project_id: r.project_id == null ? null : Number(r.project_id),
+    plan_item_id: r.plan_item_id == null ? null : Number(r.plan_item_id),
+    plan_item_name: r.plan_item_name == null ? null : String(r.plan_item_name),
+    procurement_record_id: r.procurement_record_id == null ? null : Number(r.procurement_record_id),
     is_procurement: Number(r.is_procurement ?? 1),
     is_triple_major: Number(r.is_triple_major ?? 0),
     is_gov_procurement: Number(r.is_gov_procurement ?? 0),
@@ -119,6 +130,12 @@ export function queryScopedContracts(
     deliverable_submitted: r.deliverable_submitted == null ? null : Number(r.deliverable_submitted),
     final_accepted: Number(r.final_accepted ?? 0),
     version: Number(r.version),
+    origin: (r.origin as ExportContractRow['origin']) ?? 'manual',
+    migration_mode: (r.migration_mode as ExportContractRow['migration_mode']) ?? 'normal',
+    is_reversal: Number(r.is_reversal ?? 0),
+    currency_struct_status: (r.currency_struct_status as ExportContractRow['currency_struct_status']) ?? 'single',
+    duplicate_conflict_group: String(r.duplicate_conflict_group ?? ''),
+    missing_fields_json: String(r.missing_fields_json ?? '[]'),
     org_report_full_name: orgReportPath(db, Number(r.org_id)),
   }));
 }

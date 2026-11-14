@@ -3,12 +3,14 @@
  */
 import type { DB } from '../../db/connection';
 import type { RowError } from '../../core/errors';
-import { centsToDecimalString } from '../../core/decimal';
+import { centsToDecimalString, formatScaled, parseScaled, RATIO_SCALE } from '../../core/decimal';
 import { orgInScope, type OrgScope } from '../security/scope';
 import { normalizeHeaderText, sheetTable, type ReadSheet, type ReadTable } from '../io/table-reader';
-import { amountCents, CellError, dateCell, findHeader, headerKey } from '../io/cell-values';
+import { amountCents, CellError, dateCell, findHeader, headerKey, headerUnit } from '../io/cell-values';
 import { resolveEntity } from '../master/master.service';
+import { getSetting } from '../settings/business-settings';
 import type {
+  ChangeApprovalTier,
   ChangeKind, ContractAcquisitionMethod, ContractDecisionMethod, ContractDirection, ContractFundingSource,
   ContractImportAction, ContractImportKind, ContractImportRowDto, ContractMeetingType,
   ContractPricingMode, ContractReportCategory, ContractStage, ContractStatus, ContractTenderBodyType, ContractTermType,
@@ -16,12 +18,13 @@ import type {
 import { CONTRACT_CURRENCIES } from '../../contracts/contract-lifecycle';
 import type { LegalMetadata } from '../../contracts/contract-legal-review';
 type ProcurementMethod = LegalMetadata['procurementMethod'];
+import { procurementTier } from './legal-context';
 import {
   LABEL_TO_ACQUISITION, LABEL_TO_CATEGORY, LABEL_TO_CHANGE_KIND, LABEL_TO_DECISION, LABEL_TO_FUNDING,
   LABEL_TO_MEETING, LABEL_TO_PRICING, LABEL_TO_PROCUREMENT, LABEL_TO_TENDER_BODY, LABEL_TO_TERM_TYPE,
 } from './supervision-template-spec';
 import { normalizeContractNo } from './contract.service';
-import { normalizeSupplementNo } from './contract-change.service';
+import { CHANGE_TIER_RANK, computeChangeApprovalTier, normalizeSupplementNo } from './contract-change.service';
 
 const CURRENCY_SET = new Set<string>(CONTRACT_CURRENCIES);
 export const MIN_SIGN_DATE = '1990-01-01';
@@ -52,6 +55,17 @@ function parseYesNo(raw: string, label: string, required = false): boolean | nul
   if (v === '是') return true;
   if (v === '否') return false;
   throw new CellError(`${label}「${v}」只能填写“是”或“否”`);
+}
+
+export function parseExchangeRateCell(raw: string, label = '参考汇率'): bigint | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (!/^\d+(\.\d{1,6})?$/.test(trimmed)) {
+    throw new CellError(`${label}「${trimmed}」应为最多 6 位小数的正数`);
+  }
+  const scaled = parseScaled(trimmed, RATIO_SCALE, { label });
+  if (scaled <= 0n) throw new CellError(`${label}必须大于 0`);
+  return scaled;
 }
 
 function isTemplateInstructionRow(values: Record<string, string>, keys: string[]): boolean {
@@ -121,13 +135,87 @@ function tryMatchSupplier(db: DB, raw: string): number | null {
 export interface MonthlyPlanRow {
   row: number; contractNo: string; normalizedNo: string; name: string; contractType: string; reportCategory: ContractReportCategory;
   orgId: number; supplierId: number | null; direction: ContractDirection; pricingMode: ContractPricingMode; unitPriceDesc: string;
+  currency: string; exchangeRateScaled: bigint | null;
   originalCents: bigint; signDate: string | null; termConditionText: string; counterpartyNames: string;
   procurementMethod: ProcurementMethod; undertakerDept: string; undertakerName: string; remark: string;
   targetStage: ContractStage; targetStatus: ContractStatus;
+  subChangeDeltaCents: bigint; subSettledCents: bigint; subPaidOrReceivedCents: bigint;
   action: ContractImportAction; contractId: number | null; contractVersion: number | null; changes: Record<string, [string | null, string | null]>;
 }
 
-export function parseMonthlyLedgerSheet(db: DB, scope: OrgScope, sheet: ReadSheet, defaultOrgId?: number | null) {
+function extractMonthlySubSheetTotals(allSheets: ReadSheet[], mainSheet: ReadSheet): {
+  changeByNo: Map<string, bigint>;
+  settledByNo: Map<string, bigint>;
+  paidByNo: Map<string, bigint>;
+} {
+  const changeByNo = new Map<string, bigint>();
+  const settledByNo = new Map<string, bigint>();
+  const paidByNo = new Map<string, bigint>();
+  for (const s of allSheets) {
+    if (s === mainSheet || s.hidden) continue;
+    const isChange = s.name.includes('变更');
+    const isSettle = s.name.includes('结算') || s.name.includes('付款') || s.name.includes('收款');
+    if (!isChange && !isSettle) continue;
+    const hdrIdx = s.rows.slice(0, 8).findIndex((r) => r.cells.some((c) => headerKey(c).includes('合同编号')));
+    if (hdrIdx < 0) continue;
+    const hdrCells = s.rows[hdrIdx].cells.map((c) => headerKey(normalizeHeaderText(c)));
+    const subHdrCells = s.rows[hdrIdx + 1]?.cells.map((c) => headerKey(normalizeHeaderText(c))) ?? [];
+    const noIdx = hdrCells.findIndex((k) => k === '合同编号' || k === '原合同编号');
+    if (noIdx < 0) continue;
+    let amtIdx = -1;
+    for (let i = 0; i < Math.max(hdrCells.length, subHdrCells.length); i++) {
+      const h = hdrCells[i] ?? '';
+      const sh = subHdrCells[i] ?? '';
+      if (isChange && (sh === '累计' || h.includes('累计变更') || h.includes('变更金额'))) { amtIdx = i; break; }
+      if (isSettle && (sh === '累计' || h.includes('累计结算') || h.includes('结算金额'))) { amtIdx = i; break; }
+    }
+    let paidIdx = -1;
+    if (isSettle) {
+      paidIdx = hdrCells.findIndex((h) => h.includes('已付') || h.includes('实付') || h.includes('已收') || h.includes('实收'));
+    }
+    if (amtIdx < 0 && paidIdx < 0) continue;
+    const startRow = subHdrCells.includes('累计') ? hdrIdx + 2 : hdrIdx + 1;
+    for (const r of s.rows.slice(startRow)) {
+      const rawNo = (r.cells[noIdx] ?? '').trim();
+      if (!rawNo || /^(合计|小计|累计|总计)/.test(rawNo)) continue;
+      const norm = normalizeContractNo(rawNo);
+      if (amtIdx >= 0) {
+        const rawVal = (r.cells[amtIdx] ?? '').trim().replace(/^\+/, '');
+        if (rawVal && rawVal !== '/') {
+          try {
+            const c = amountCents(rawVal, 'wan', '分表累计金额');
+            if (c !== null) {
+              if (isChange) changeByNo.set(norm, (changeByNo.get(norm) ?? 0n) + c);
+              else settledByNo.set(norm, (settledByNo.get(norm) ?? 0n) + c);
+            }
+          } catch {
+            // ignore unparseable subsheet cells
+          }
+        }
+      }
+      if (paidIdx >= 0) {
+        const rawPaid = (r.cells[paidIdx] ?? '').trim();
+        if (rawPaid && rawPaid !== '/') {
+          try {
+            const p = amountCents(rawPaid, 'wan', '分表累计收付');
+            if (p !== null && p > 0n) paidByNo.set(norm, (paidByNo.get(norm) ?? 0n) + p);
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  }
+  return { changeByNo, settledByNo, paidByNo };
+}
+
+export function parseMonthlyLedgerSheet(
+  db: DB,
+  scope: OrgScope,
+  sheet: ReadSheet,
+  defaultOrgId?: number | null,
+  allSheets: ReadSheet[] = [sheet],
+) {
   const table = sheetTable(sheet, {
     label: '公司月报合同台账总表表头',
     isHeader: (cells) => {
@@ -150,7 +238,13 @@ export function parseMonthlyLedgerSheet(db: DB, scope: OrgScope, sheet: ReadShee
     execStatus: findHeader(table.headers, ['执行情况']),
     remark: findHeader(table.headers, ['备注']),
     org: findHeader(table.headers, ['责任组织', '承办单位']),
+    currency: findHeader(table.headers, ['币种', '合同币种']),
+    exchangeRate: findHeader(table.headers, ['参考汇率', '汇率']),
+    settledAmt: findHeader(table.headers, ['累计结算金额']),
+    changeAmt: findHeader(table.headers, ['累计变更金额']),
+    paidAmt: findHeader(table.headers, ['累计已付金额', '已付金额', '累计已收金额', '已收金额']),
   };
+  const subTotals = extractMonthlySubSheetTotals(allSheets, sheet);
   const errors: RowError[] = [];
   const rows: MonthlyPlanRow[] = [];
   const display: ContractImportRowDto[] = [];
@@ -184,6 +278,14 @@ export function parseMonthlyLedgerSheet(db: DB, scope: OrgScope, sheet: ReadShee
       else err('支出/收入', `收支方向「${v('direction')}」无效`);
     }
 
+    const currency = v('currency') || '人民币';
+    if (!CURRENCY_SET.has(currency)) err('币种', `币种「${currency}」不在官方 20 种币种枚举内`);
+    let exchangeRateScaled: bigint | null = null;
+    if (v('exchangeRate')) {
+      try { exchangeRateScaled = parseExchangeRateCell(v('exchangeRate')); }
+      catch (e) { if (e instanceof CellError) err('参考汇率', e.message); else throw e; }
+    }
+
     let pricingMode: ContractPricingMode = 'lump_sum';
     let unitPriceDesc = '';
     let originalCents = 0n;
@@ -214,6 +316,25 @@ export function parseMonthlyLedgerSheet(db: DB, scope: OrgScope, sheet: ReadShee
         if (e instanceof CellError) err('签订日期', e.message);
         else throw e;
       }
+    }
+
+    let subChangeDeltaCents = normalizedNo ? (subTotals.changeByNo.get(normalizedNo) ?? 0n) : 0n;
+    if (subChangeDeltaCents === 0n && v('changeAmt') && v('changeAmt') !== '/') {
+      try { subChangeDeltaCents = amountCents(v('changeAmt').replace(/^\+/, ''), 'wan', '累计变更金额(万元)') ?? 0n; }
+      catch (e) { if (e instanceof CellError) err('累计变更金额', e.message); else throw e; }
+    }
+    let subSettledCents = normalizedNo ? (subTotals.settledByNo.get(normalizedNo) ?? 0n) : 0n;
+    if (subSettledCents === 0n && v('settledAmt') && v('settledAmt') !== '/') {
+      try { subSettledCents = amountCents(v('settledAmt'), 'wan', '累计结算金额(万元)') ?? 0n; }
+      catch (e) { if (e instanceof CellError) err('累计结算金额', e.message); else throw e; }
+    }
+    let subPaidOrReceivedCents = normalizedNo ? (subTotals.paidByNo.get(normalizedNo) ?? 0n) : 0n;
+    if (subPaidOrReceivedCents === 0n && v('paidAmt') && v('paidAmt') !== '/') {
+      try {
+        const p = amountCents(v('paidAmt'), 'wan', '累计收付金额(万元)') ?? 0n;
+        if (p < 0n) err('累计收付金额', '累计收付金额不能为负');
+        else subPaidOrReceivedCents = p;
+      } catch (e) { if (e instanceof CellError) err('累计收付金额', e.message); else throw e; }
     }
 
     const catText = v('category');
@@ -251,6 +372,9 @@ export function parseMonthlyLedgerSheet(db: DB, scope: OrgScope, sheet: ReadShee
         if (v('undertaker')) diff('undertakerName', String(ex.undertaker_name ?? ''), v('undertaker').slice(0, 100));
         if (v('dept')) diff('undertakerDept', String(ex.undertaker_dept ?? ''), v('dept').slice(0, 100));
         if (v('counterparty')) diff('counterpartyNames', String(ex.counterparty_names ?? ''), v('counterparty').slice(0, 1000));
+        if (exchangeRateScaled !== null && String(ex.exchange_rate_scaled ?? '') !== String(exchangeRateScaled)) {
+          diff('exchangeRate', ex.exchange_rate_scaled == null ? null : formatScaled(ex.exchange_rate_scaled as bigint, RATIO_SCALE), formatScaled(exchangeRateScaled, RATIO_SCALE));
+        }
         if (String(ex.status) !== 'active' && Object.keys(changes).length) err('合同编号', '非在途合同不能更新');
         action = Object.keys(changes).length ? 'update' : 'unchanged';
       }
@@ -260,18 +384,24 @@ export function parseMonthlyLedgerSheet(db: DB, scope: OrgScope, sheet: ReadShee
       row: r.rowNo, contractNo, name: nameRaw, action: rowErrors.length ? null : action, contractId,
       orgName: orgRes.orgId ? orgNames.get(orgRes.orgId) ?? null : null,
       projectCode: null, supplierName: v('counterparty') || null,
-      amount: pricingMode === 'unit_price' ? '0.00' : centsToDecimalString(originalCents), paid: null, signDate,
-      direction, pricingMode, detailSummary: pricingMode === 'unit_price' ? `单价: ${unitPriceDesc}` : '万元月报导入',
+      amount: pricingMode === 'unit_price' ? '0.00' : centsToDecimalString(originalCents),
+      paid: subPaidOrReceivedCents > 0n ? centsToDecimalString(subPaidOrReceivedCents) : null,
+      signDate,
+      direction, pricingMode, currency,
+      exchangeRate: exchangeRateScaled === null ? null : formatScaled(exchangeRateScaled, RATIO_SCALE),
+      detailSummary: pricingMode === 'unit_price' ? `单价: ${unitPriceDesc}` : '万元月报导入',
       changes,
     });
     if (rowErrors.length) { errors.push(...rowErrors); continue; }
     rows.push({
       row: r.rowNo, contractNo, normalizedNo, name: nameRaw.slice(0, 200),
       contractType: (catText || '其他').slice(0, 50), reportCategory,
-      orgId: orgRes.orgId!, supplierId, direction, pricingMode, unitPriceDesc, originalCents, signDate,
+      orgId: orgRes.orgId!, supplierId, direction, pricingMode, unitPriceDesc, currency, exchangeRateScaled, originalCents, signDate,
       termConditionText: v('term').slice(0, 50), counterpartyNames: v('counterparty').slice(0, 1000),
       procurementMethod, undertakerDept: v('dept').slice(0, 100), undertakerName: v('undertaker').slice(0, 100),
-      remark: v('remark').slice(0, 2000), targetStage, targetStatus, action: action!, contractId, contractVersion, changes,
+      remark: v('remark').slice(0, 2000), targetStage, targetStatus,
+      subChangeDeltaCents, subSettledCents, subPaidOrReceivedCents,
+      action: action!, contractId, contractVersion, changes,
     });
   }
   if (dataRowCount === 0) errors.push({ row: 0, field: '文件', message: '公司月报合同台账总表中没有数据行' });
@@ -280,7 +410,7 @@ export function parseMonthlyLedgerSheet(db: DB, scope: OrgScope, sheet: ReadShee
 
 export interface SupBasePlanRow {
   row: number; direction: ContractDirection; contractNo: string; normalizedNo: string; name: string; orgId: number;
-  supplierId: number | null; pricingMode: ContractPricingMode; currency: string; originalCents: bigint; unitPriceDesc: string;
+  supplierId: number | null; pricingMode: ContractPricingMode; currency: string; exchangeRateScaled: bigint | null; originalCents: bigint; unitPriceDesc: string;
   counterpartyNames: string; summaryText: string; remark: string;
   fundingSource: ContractFundingSource; fundingSourceDetail: string; sourceIncomeContractId: number | null;
   entrustReason: string; isTripleMajor: boolean; decisionMethod: ContractDecisionMethod | null; decisionMethodOther: string;
@@ -314,6 +444,7 @@ export function parseSupervisionBaseSheet(db: DB, scope: OrgScope, sheet: ReadSh
 
   const cMap = {
     contractNo: col(['合同编号']), name: col(['合同名称']), pricing: col(['计价方式']), currency: col(['合同币种']),
+    exchangeRate: col(['参考汇率', '汇率']),
     total: col(['合同总价']), unitPrice: col(['合同单价']), payer: col(['合同付款方']), payee: col(['合同收款方']),
     summary: col(['合同主要内容']), remark: col(['备注']),
     fundingSource: col(['资金来源']), fundingOther: col(['其他来源']), incomeNo: col(['收入合同编号']),
@@ -360,6 +491,11 @@ export function parseSupervisionBaseSheet(db: DB, scope: OrgScope, sheet: ReadSh
     if (!pricingMode) err('计价方式', `计价方式「${v('pricing')}」只能为总价或单价`);
     const currency = v('currency') || '人民币';
     if (!CURRENCY_SET.has(currency)) err('合同币种', `币种「${currency}」不在官方 20 种币种枚举内`);
+    let exchangeRateScaled: bigint | null = null;
+    if (v('exchangeRate')) {
+      try { exchangeRateScaled = parseExchangeRateCell(v('exchangeRate')); }
+      catch (e) { if (e instanceof CellError) err('参考汇率', e.message); else throw e; }
+    }
 
     let originalCents = 0n;
     const unitPriceDesc = v('unitPrice').slice(0, 500);
@@ -470,6 +606,9 @@ export function parseSupervisionBaseSheet(db: DB, scope: OrgScope, sheet: ReadSh
         if (signDate) diff('signDate', (ex.sign_date as string | null) ?? null, signDate);
         if (v('summary')) diff('summaryText', String(ex.summary_text ?? ''), v('summary').slice(0, 2000));
         if (v('undertaker')) diff('undertakerName', String(ex.undertaker_name ?? ''), v('undertaker').slice(0, 100));
+        if (exchangeRateScaled !== null && String(ex.exchange_rate_scaled ?? '') !== String(exchangeRateScaled)) {
+          diff('exchangeRate', ex.exchange_rate_scaled == null ? null : formatScaled(ex.exchange_rate_scaled as bigint, RATIO_SCALE), formatScaled(exchangeRateScaled, RATIO_SCALE));
+        }
         if (String(ex.status) !== 'active' && Object.keys(changes).length) err('合同编号', '非在途合同不能更新');
         action = Object.keys(changes).length ? 'update' : 'unchanged';
       }
@@ -480,14 +619,15 @@ export function parseSupervisionBaseSheet(db: DB, scope: OrgScope, sheet: ReadSh
       orgName: orgRes.orgId ? orgNames.get(orgRes.orgId) ?? null : null,
       projectCode: null, supplierName: counterpartyNames || null,
       amount: pricingMode === 'unit_price' ? '0.00' : centsToDecimalString(originalCents), paid: null, signDate,
-      direction, pricingMode: pricingMode ?? 'lump_sum',
+      direction, pricingMode: pricingMode ?? 'lump_sum', currency,
+      exchangeRate: exchangeRateScaled === null ? null : formatScaled(exchangeRateScaled, RATIO_SCALE),
       detailSummary: `${currency} · ${pricingMode === 'unit_price' ? '单价' : '总价'}`,
       changes,
     });
     if (rowErrors.length) { errors.push(...rowErrors); continue; }
     rows.push({
       row: r.rowNo, direction, contractNo, normalizedNo, name, orgId: orgRes.orgId!, supplierId,
-      pricingMode: pricingMode!, currency, originalCents, unitPriceDesc,
+      pricingMode: pricingMode!, currency, exchangeRateScaled, originalCents, unitPriceDesc,
       counterpartyNames, summaryText: v('summary').slice(0, 2000), remark: v('remark').slice(0, 2000),
       fundingSource, fundingSourceDetail: v('fundingOther').slice(0, 500), sourceIncomeContractId,
       entrustReason: v('entrustReason').slice(0, 1000), isTripleMajor, decisionMethod, decisionMethodOther: v('decisionOther').slice(0, 200),
@@ -700,9 +840,32 @@ export function parseSupervisionExecSheets(db: DB, scope: OrgScope, sheets: Read
 
 export interface SupChangePlanRow {
   row: number; contractNo: string; normalizedNo: string; name: string; contractId: number; contractVersion: number; orgId: number;
-  changeKind: ChangeKind; changeMatter: string; reason: string; decisionMethod: ContractDecisionMethod | null;
+  changeKind: ChangeKind; deltaCents: bigint; requiredApprovalTier: ChangeApprovalTier; actualApprovalTier: ChangeApprovalTier;
+  flagNegativeTotalWarning: boolean;
+  changeMatter: string; reason: string; decisionMethod: ContractDecisionMethod | null;
   meetingType: ContractMeetingType | null; finalApproverName: string; supplementNo: string; normalizedSupplementNo: string;
   hasDispute: boolean; action: ContractImportAction; changes: Record<string, [string | null, string | null]>;
+}
+
+function deriveImportedActualTier(
+  requiredTier: ChangeApprovalTier,
+  decisionMethod: ContractDecisionMethod | null,
+  meetingType: ContractMeetingType | null,
+  explicitText: string,
+): ChangeApprovalTier {
+  const t = explicitText.trim();
+  let candidate: ChangeApprovalTier | null = null;
+  if (t.includes('经营层') || t.includes('董事会') || t.includes('党组') || t.includes('党委') || t === 'management_board') candidate = 'management_board';
+  else if (t.includes('总经理') || t === 'general_manager') candidate = 'general_manager';
+  else if (t.includes('双分管') || t.includes('合同归口') || t === 'dual_vp') candidate = 'dual_vp';
+  else if (t.includes('技术') && t.includes('副总') || t === 'tech_and_undertaker_vp') candidate = 'tech_and_undertaker_vp';
+  else if (t.includes('分管') || t.includes('副总') || t === 'undertaker_vp') candidate = 'undertaker_vp';
+  else if (t.includes('承办单位') || t === 'undertaker_unit') candidate = 'undertaker_unit';
+  else if (decisionMethod === 'meeting' && meetingType && ['party_committee', 'board', 'gm_office'].includes(meetingType)) {
+    candidate = 'management_board';
+  }
+  if (!candidate) return requiredTier;
+  return CHANGE_TIER_RANK[candidate] >= CHANGE_TIER_RANK[requiredTier] ? candidate : requiredTier;
 }
 
 export function parseSupervisionChangeSheet(db: DB, scope: OrgScope, sheet: ReadSheet, direction: ContractDirection) {
@@ -717,14 +880,18 @@ export function parseSupervisionChangeSheet(db: DB, scope: OrgScope, sheet: Read
     contractNo: findHeader(table.headers, ['原合同编号']),
     name: findHeader(table.headers, ['原合同名称']),
     kind: findHeader(table.headers, ['变动类型']),
+    delta: findHeader(table.headers, ['变更金额', '变动金额', '增减金额']),
     matter: findHeader(table.headers, ['变更主要事项']),
     reason: findHeader(table.headers, ['变更原因']),
     decision: findHeader(table.headers, ['变更决策方式']),
     meeting: findHeader(table.headers, ['会议形式']),
     approver: findHeader(table.headers, ['变更最终审批人姓名']),
+    approvalTier: findHeader(table.headers, ['变更审批层级', '实际审批层级']),
     supplementNo: findHeader(table.headers, ['变更补充协议编号']),
     dispute: findHeader(table.headers, ['是否产生合同纠纷']),
   };
+  const deltaUnit = (c.delta && headerUnit(c.delta)) || 'yuan';
+  const orMode: 'min' | 'max' = getSetting(db, 'contract.change_or_mode') === 'max' ? 'max' : 'min';
 
   const errors: RowError[] = [];
   const rows: SupChangePlanRow[] = [];
@@ -742,6 +909,15 @@ export function parseSupervisionChangeSheet(db: DB, scope: OrgScope, sheet: Read
     if (!contractNo) err('原合同编号', '原合同编号不能为空');
     const changeKind = LABEL_TO_CHANGE_KIND[v('kind')];
     if (!changeKind) err('变动类型', `变动类型「${v('kind')}」只能为变更、中止或解除`);
+    let deltaCents = 0n;
+    if (v('delta')) {
+      try {
+        deltaCents = amountCents(v('delta').replace(/^\+/, ''), deltaUnit, '变更金额') ?? 0n;
+      } catch (e) {
+        if (e instanceof CellError) err('变更金额', e.message);
+        else throw e;
+      }
+    }
     const changeMatter = v('matter').slice(0, 500);
     const reason = v('reason').slice(0, 500);
     if (!changeMatter) err('变更主要事项', '变更主要事项不能为空');
@@ -771,6 +947,9 @@ export function parseSupervisionChangeSheet(db: DB, scope: OrgScope, sheet: Read
     let contractVersion: number | null = null;
     let orgId = 0;
     let contractName = v('name');
+    let requiredApprovalTier: ChangeApprovalTier = 'undertaker_unit';
+    let actualApprovalTier: ChangeApprovalTier = 'undertaker_unit';
+    let flagNegativeTotalWarning = false;
     let action: ContractImportAction | null = null;
     const changes: Record<string, [string | null, string | null]> = {};
 
@@ -789,6 +968,39 @@ export function parseSupervisionChangeSheet(db: DB, scope: OrgScope, sheet: Read
         contractVersion = Number(ex.version);
         orgId = Number(ex.org_id);
         contractName = contractName || String(ex.name);
+        const origCents = ex.original_cents as bigint;
+        const curApprovedChg = ex.approved_change_cents as bigint;
+        const ceilingCents = ex.estimated_ceiling_cents === null ? null : (ex.estimated_ceiling_cents as bigint);
+        const priorPos = (
+          db.prepare("SELECT COALESCE(SUM(delta_cents), 0) AS s FROM ct_change WHERE contract_id = ? AND status = 'approved' AND delta_cents > 0")
+            .safeIntegers(true)
+            .get(contractId) as { s: bigint }
+        ).s;
+        const pTier = procurementTier(
+          Boolean(ex.is_procurement),
+          (ex.procurement_target as LegalMetadata['procurementTarget']) ?? null,
+          origCents > 0n ? origCents : (ceilingCents ?? 0n),
+          (ex.procurement_method as LegalMetadata['procurementMethod']) ?? null,
+        );
+        requiredApprovalTier = computeChangeApprovalTier({
+          originalCents: origCents,
+          estimatedCeilingCents: ceilingCents,
+          priorApprovedPositiveCents: priorPos,
+          deltaCents,
+          changeKind: changeKind!,
+          procurementTier: pTier,
+          involvesBizOrEntityChange: false,
+          involvesTechChange: false,
+          orMode,
+        }).tier;
+        actualApprovalTier = deriveImportedActualTier(requiredApprovalTier, decisionMethod, meetingType, v('approvalTier'));
+        if (String(ex.pricing_mode) === 'lump_sum' && origCents + curApprovedChg + deltaCents < 0n) {
+          if (String(ex.migration_mode) === 'legacy_tolerant') {
+            flagNegativeTotalWarning = true;
+          } else {
+            err('变更金额', `变更后合同总金额 ${centsToDecimalString(origCents + curApprovedChg + deltaCents)} 不能小于 0`);
+          }
+        }
         const dup = db.prepare('SELECT id, contract_id FROM ct_change WHERE org_root_id = ? AND normalized_supplement_no = ?')
           .get(orgId, normalizedSupplementNo) as { id: number; contract_id: number } | undefined;
         if (dup) {
@@ -797,6 +1009,7 @@ export function parseSupervisionChangeSheet(db: DB, scope: OrgScope, sheet: Read
         } else {
           action = 'update';
           changes.supplement = [null, `${v('kind')} · ${supplementNo}`];
+          if (deltaCents !== 0n) changes.delta = ['0.00', centsToDecimalString(deltaCents)];
           if (hasDispute) changes.dispute = ['否', '是'];
         }
       }
@@ -805,14 +1018,15 @@ export function parseSupervisionChangeSheet(db: DB, scope: OrgScope, sheet: Read
     display.push({
       row: r.rowNo, contractNo, name: contractName, action: rowErrors.length ? null : action,
       contractId, orgName: orgId ? orgNames.get(orgId) ?? null : null,
-      projectCode: null, supplierName: null, amount: '0.00', paid: null, signDate: null,
-      direction, detailSummary: `${v('kind')} · ${supplementNo}${hasDispute ? ' · 涉纠纷' : ''}`,
+      projectCode: null, supplierName: null, amount: centsToDecimalString(deltaCents), paid: null, signDate: null,
+      direction, detailSummary: `${v('kind')} · ${supplementNo}${deltaCents !== 0n ? ` · ${centsToDecimalString(deltaCents)}` : ''}${hasDispute ? ' · 涉纠纷' : ''}`,
       changes,
     });
     if (rowErrors.length) { errors.push(...rowErrors); continue; }
     rows.push({
       row: r.rowNo, contractNo, normalizedNo, name: contractName, contractId: contractId!, contractVersion: contractVersion!,
-      orgId, changeKind: changeKind!, changeMatter, reason, decisionMethod, meetingType,
+      orgId, changeKind: changeKind!, deltaCents, requiredApprovalTier, actualApprovalTier, flagNegativeTotalWarning,
+      changeMatter, reason, decisionMethod, meetingType,
       finalApproverName, supplementNo, normalizedSupplementNo, hasDispute, action: action!, changes,
     });
   }

@@ -382,6 +382,7 @@ interface LifecycleContractRow {
   term_type: string; term_start_date: string | null; term_end_date: string | null;
   undertaker_name: string; farmer_wage_account: string;
   distribution_status: string; company_filed_at: string | null; created_at: string;
+  is_internal_group_tx: bigint;
 }
 
 function activeLifecycleContracts(db: DB): LifecycleContractRow[] {
@@ -392,7 +393,7 @@ function activeLifecycleContracts(db: DB): LifecycleContractRow[] {
       is_emergency, emergency_start_date, budget_type, plan_item_id,
       sign_date, effective_date, procurement_start_date, supplier_confirm_date,
       term_type, term_start_date, term_end_date, undertaker_name, farmer_wage_account,
-      distribution_status, company_filed_at, created_at
+      distribution_status, company_filed_at, created_at, is_internal_group_tx
     FROM ct_contract WHERE status <> 'voided' ORDER BY id`).safeIntegers(true).all() as LifecycleContractRow[];
 }
 
@@ -496,7 +497,11 @@ function contractDistributionOverdueHits(db: DB, rule: RuleRow): RiskHit[] {
     const wd = workingDaysBetween(c.sign_date, asOf, workingCalendar(db));
     if (wd === null || wd <= 10) continue;
     const pendingDist = c.distribution_status === 'pending';
-    const pendingSubIncomeFile = c.direction === 'income' && c.signing_entity_level === 'secondary_unit' && !c.company_filed_at;
+    const pendingSubIncomeFile =
+      c.direction === 'income' &&
+      c.signing_entity_level === 'secondary_unit' &&
+      Number(c.is_internal_group_tx ?? 0n) === 0 &&
+      !c.company_filed_at;
     if (!pendingDist && !pendingSubIncomeFile) continue;
     const reasons: string[] = [];
     if (pendingDist) reasons.push('超签署日 10 个工作日未上传盖章扫描件完成分发备案');

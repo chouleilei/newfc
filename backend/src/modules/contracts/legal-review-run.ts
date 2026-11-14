@@ -29,6 +29,7 @@ import {
   type ParsedDocument,
 } from './document-parser';
 import { legalRules, norm } from './legal-rules';
+import { getAllowedNewContractPrefixes } from './prefix-map.service';
 import { templateDiff } from './template-diff';
 import { recordEvent } from './contract.service';
 const requiredPolicies = ['L-QJ03-04-2026', 'L-QJ02-04-2026', 'XLZ-2025-03'];
@@ -270,11 +271,10 @@ async function runReview(
     snap.doc.sha256,
   );
   const { policies, template } = catalog(db, snap.c.legal_category);
-  const org = (
-    db.prepare('SELECT name FROM org WHERE id=?').get(snap.c.org_id) as {
-      name: string;
-    }
-  ).name;
+  const orgRow = db
+    .prepare('SELECT name, is_direct_station FROM org WHERE id=?')
+    .get(snap.c.org_id) as { name: string; is_direct_station: number };
+  const org = orgRow.name;
   const supplier = snap.c.supplier_id
     ? ((
         db
@@ -289,6 +289,8 @@ async function runReview(
     policies,
     orgName: org,
     supplierName: supplier,
+    allowedPrefixes: getAllowedNewContractPrefixes(db),
+    isDirectStation: orgRow.is_direct_station === 1,
   });
   const findings = [...rules.findings, ...templateDiff(parsed, template)];
   const complete = requiredPolicies.every((code) =>
