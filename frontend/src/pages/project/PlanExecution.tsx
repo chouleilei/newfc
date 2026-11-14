@@ -147,8 +147,8 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     <Modal open={open} title="导入综合计划与执行（支持 16 表 .xls / .xlsx）" width={920} onCancel={close} destroyOnClose
       footer={<Space>
         <Button onClick={close}>取消</Button>
-        <Button onClick={() => run.mutate('preview')} loading={run.isPending}>预览</Button>
-        <Button type="primary" disabled={!preview?.valid} onClick={() => run.mutate('import')} loading={run.isPending}>导入</Button>
+        <Button onClick={() => run.mutate('preview')} loading={run.isPending && run.variables === 'preview'}>预览</Button>
+        <Button type="primary" disabled={!preview?.valid} onClick={() => run.mutate('import')} loading={run.isPending && run.variables === 'import'}>导入</Button>
       </Space>}>
       <Form form={form} layout="inline" preserve={false} initialValues={{ year: Number(lastPeriod().slice(0, 4)), actualPeriod: lastPeriod() }} onValuesChange={() => setPreview(null)}>
         <Form.Item name="year" label="计划年度" rules={[{ required: true }]}><InputNumber min={2000} max={2100} style={{ width: 100 }} /></Form.Item>

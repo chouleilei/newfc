@@ -72,5 +72,7 @@ Thumbs.db
 *.sw?
 design-previews/
 .e2e-dist/
+dist.e2e/
+.t9-dist/
 dist.new/
 dist.old/

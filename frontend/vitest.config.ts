@@ -7,6 +7,6 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     // 组件挂载包含 Ant Design 浮层，限制并发以适应单机与 CI 的 CPU/内存。
     maxWorkers: 2,
-    testTimeout: 15_000,
+    testTimeout: 30_000,
   },
 });

@@ -38,6 +38,16 @@ const SELECT = `SELECT id, parent_id, code, name, sort_order, status,
   org_kind, credit_code, plan_issuance_root_id, is_plan_excluded, contract_prefix_code, is_direct_station, report_full_name,
   created_at, updated_at FROM org`;
 
+function orgSelectSql(db: DB): string {
+  const cols = new Set((db.pragma('table_info(org)') as { name: string }[]).map((c) => c.name));
+  if (cols.has('org_kind')) return SELECT;
+  const reportCol = cols.has('report_full_name') ? 'report_full_name' : "'' AS report_full_name";
+  return `SELECT id, parent_id, code, name, sort_order, status,
+    'legal_entity' AS org_kind, '' AS credit_code, NULL AS plan_issuance_root_id,
+    0 AS is_plan_excluded, '' AS contract_prefix_code, 0 AS is_direct_station, ${reportCol},
+    created_at, updated_at FROM org`;
+}
+
 export interface OrgRow extends TreeNodeRow {
   org_kind: OrgKind;
   credit_code: string;
@@ -184,7 +194,7 @@ function normalizeContractPrefix(raw: string | undefined): string {
 }
 
 export function listOrgRows(db: DB): OrgRow[] {
-  return db.prepare(`${SELECT} ORDER BY sort_order, id`).all() as OrgRow[];
+  return db.prepare(`${orgSelectSql(db)} ORDER BY sort_order, id`).all() as OrgRow[];
 }
 
 export function getOrgTree(
@@ -201,7 +211,7 @@ export function getOrgTree(
 }
 
 export function getOrg(db: DB, id: number): OrgRow {
-  const row = db.prepare(`${SELECT} WHERE id = ?`).get(id) as OrgRow | undefined;
+  const row = db.prepare(`${orgSelectSql(db)} WHERE id = ?`).get(id) as OrgRow | undefined;
   if (!row) throw Errors.notFound('组织');
   return row;
 }
@@ -298,30 +308,45 @@ export function createOrg(
   const reportFullName = (input.reportFullName ?? '').trim();
   const tx = db.transaction(() => {
     validateCreateOrg(db, input);
-    const info = db
-      .prepare(
-        `INSERT INTO org (
-          parent_id, code, name, sort_order, status,
-          org_kind, credit_code, plan_issuance_root_id, is_plan_excluded, contract_prefix_code, is_direct_station, report_full_name,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        input.parentId,
-        input.code.trim(),
-        input.name.trim(),
-        input.sortOrder ?? 0,
-        effectiveStatus,
-        orgKind,
-        creditCode,
-        input.planIssuanceRootId ?? null,
-        input.isPlanExcluded ? 1 : 0,
-        contractPrefixCode,
-        input.isDirectStation ? 1 : 0,
-        reportFullName,
-        now,
-        now
-      );
+    const cols = new Set((db.pragma('table_info(org)') as { name: string }[]).map((c) => c.name));
+    const info = cols.has('org_kind')
+      ? db
+          .prepare(
+            `INSERT INTO org (
+              parent_id, code, name, sort_order, status,
+              org_kind, credit_code, plan_issuance_root_id, is_plan_excluded, contract_prefix_code, is_direct_station, report_full_name,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            input.parentId,
+            input.code.trim(),
+            input.name.trim(),
+            input.sortOrder ?? 0,
+            effectiveStatus,
+            orgKind,
+            creditCode,
+            input.planIssuanceRootId ?? null,
+            input.isPlanExcluded ? 1 : 0,
+            contractPrefixCode,
+            input.isDirectStation ? 1 : 0,
+            reportFullName,
+            now,
+            now
+          )
+      : cols.has('report_full_name')
+        ? db
+            .prepare(
+              `INSERT INTO org (parent_id, code, name, sort_order, status, report_full_name, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .run(input.parentId, input.code.trim(), input.name.trim(), input.sortOrder ?? 0, effectiveStatus, reportFullName, now, now)
+        : db
+            .prepare(
+              `INSERT INTO org (parent_id, code, name, sort_order, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`
+            )
+            .run(input.parentId, input.code.trim(), input.name.trim(), input.sortOrder ?? 0, effectiveStatus, now, now);
     const id = Number(info.lastInsertRowid);
     writeLog(db, 'org.create', 'org', id, {
       code: input.code.trim(),

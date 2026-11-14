@@ -781,3 +781,34 @@ F04/F07/F08/F16/F17/F19/F20/F23/F24/F26；T-8～T-12；AC-T8、AC-CLR、AC-CLM�
 | 生产只读健康 | 本机 `/api/health/ready` 返回200、ready、V72；未重新部署 |
 
 业务实现与本轮验证源码逐文件核对一致；仅清理一处源码末尾空行、补齐旧浏览器夹具，未更改 V72 业务门禁。新增 saxes 的上游 ISC/sax 声明已补入第三方许可。公开版本不包含新上传的私有业务适配方案及原件；AC-CLR-09、真实 OA/上级平台在线导入联调边界保持不变。发布的已知问题包含上述依赖公告与测试脚本类型债务，不将其隐藏为全项门禁通过。GitHub 发布位置为 https://github.com/chouleilei/newfc/releases/tag/v0.2.0 。
+
+## T-13 第一阶段（P0）基础治理、综合计划 16 表与历史合同容缺归并工程验收（2026-11-15，V73 待发布）
+
+F01/F04/F07/F15/F16/F19/F23/F24；T-13.1～T-13.7（覆盖全部 11 项 P0 改造：GAP-01、02、03、05、09、11、12、13、16、17、18）；AC-T13-01～AC-T13-11、AC-X01/X02/X04/X07/X08/X10。全部研发、编译、单测、迁移演练与浏览器端到端回归均在独立工作树 `/root/newfc-dev`（分支 `feat/improvement-2026-11`，基于 `v0.2.0` 切出）及显式隔离的临时 `NEWFC_DATA_DIR` 中使用 Node **24.22.1** 完成；未改动 `/root/newfc` 在线运行产物、未读写 `/data/newfc-data/` 生产库，亦未合回主分支或执行上线脚本。
+
+| 验收 ID | 工程与自动化验证证据 | 结论 |
+|---|---|---|
+| AC-T13-01 | 离线归档锁定 `backend/vendor/xlsx-0.20.3.tgz`、升级 `zod@4.6.7`，前后端 `npm audit` 均为 **0 漏洞**；后端 `npm run typecheck:test` 由 `v0.2.0` 的 **467 条错误清零至 0 条**；独立工作树与在线服务完全隔离 | 通过 |
+| AC-T13-02 | 追加迁移 `V73`（`migrations-p0-foundation.ts`）：扩展 `org` 6 列治理属性、新建 `ct_prefix_org_map` / `ct_contract_currency_line` / `ct_migration_reconcile` 及 `ct_contract` 容缺与六维主体列、升级 `plan_item` 16 表与确定性键；空库初始化与非空 `V72` 库升级至 `V73` 后 `foreign_key_check = 0`、`integrity_check = ok`，既有业务记录与触发器完整保留 | 通过 |
+| AC-T13-03 | `org.service` 与 `security.service` 支持两阶段（预览 → 确认）批量导入组织树与多级用户数据范围，拦截环状父节点与 `closed_history` 停用组织写授权；`OrgSecurityBatchImport.test.tsx` 与 `platform-admin.spec.ts` 端到端验证通过 | 通过 |
+| AC-T13-04 | 业务设置扩展至 29 项并提供法人年度净资产表、二级法人多选、节假日/调休日历及 PDF 解析探活专用编辑器；配置二级法人上年净资产后付款按 `1%` 与固定上限孰低精确分级，缺省保持最高级集体决策兜底；`SettingsBusiness.test.tsx` 与 `platform-admin.spec.ts` 通过 | 通过 |
+| AC-T13-05 | `xls-reader.ts` 与 16 张 `PlanSheetCode` 解析器支持 `.xls`/`.xlsx`、无项目编码确定性 `item_key`/`stable_item_uid`、滞后表头年份非阻断告警、小计行防重累加及断链/缺公式缓存阻断；前端 `PlanExecution` 支持 16 表切换与概算/累计已付/跨单位承办展示；`PlanExecution.test.tsx` 与 `project-contract.spec.ts` 通过 | 通过 |
+| AC-T13-06 | 移除硬编码单位码与名称正则，合同取号与前缀校验统一走 `ct_prefix_org_map` 字典驱动，冻结签约名义与历史承接法人六维属性；支持母公司编码继承取号与直属生产单元归属提示；`ContractPrefixAndForm.test.tsx` 与 `project-contract.spec.ts` 通过 | 通过 |
+| AC-T13-07 | 5 步历史合同容缺归并管线（`legacy-migration-pipeline.ts`）受 `contract:migrate` 权限与 `409 PREVIEW_STALE` 乐观锁保护，覆盖同号异合同双记录保留、集团内部协议双视角建账、单价合同执行额入基线列、复币入 `ct_contract_currency_line`、负向红冲受控入库及迁后增量强检；五维行去向 100% 闭合且正逆序输入 `planHash` 一致 | 通过 |
+| AC-T13-08 | 合同导入支持 `.xls`、8 套标准模板下载、批次历史筛选与收入合同「已收金额」展示；报送导出区分 `supervision_submit`（缺项强拦截）与 `internal_archive`（容缺导出并附《缺口待补录清单.xlsx》）；`ContractImport.test.tsx`、`ContractExportModal.test.tsx` 与 `project-contract.spec.ts` 通过 | 通过 |
+| AC-T13-09 | 法审触发类别由业务参数动态驱动默认 6 类，`tech_service` 绑定 `official` 范本复验返回 `pass`（候选范本保持人工 `promote` 转正门禁）；写事务外集成无头 LibreOffice `.doc` 安全转码与 FIB 加密预检；无扩展名范本下载自动补全 `.docx`/`.pdf`；`ContractLegalPanel.test.tsx` 与 `contract-legal.spec.ts` 通过 | 通过 |
+| AC-T13-10 | 监督 ZIP 报送模式严守盖章 `signed`、每槽 1 件与零合并单元格，归档模式回退保留 `contract_text`；目录名统一转义（`/→%`、`\\→@`、`|→$`）并检测碰撞；月报 5 表与附件 8 四处口径及截断缺陷修复并通过回归 | 通过 |
+| AC-T13-11 | 保函小数比例（如 `0.10`）、合同非负金额与编辑锁组织、变更 `changeOrMode` 与 `/change-tier-preview` 同源预览、结算允许合法负数冲回扣款但阻断负净额、附件 8 四列累计与 `/payment-tier-preview` 动态门槛预览、`DatePicker` 支付日期选择等 7 类前后端缺陷全部清零；`ContractBugFixes.test.tsx` 与 `project-contract.spec.ts` 通过 | 通过 |
+
+工程门禁与隔离演练汇总（脱敏统计）：
+
+- **后端全量门禁**：`npx tsc --noEmit && npm run typecheck:test && npx vitest run` 零错误通过，**127 文件 / 1,146 项通过**；`npm audit` **0 漏洞**。
+- **前端全量门禁**：`npx vitest run && npx tsc -b` 零错误通过，**60 文件 / 504 项通过**；独立目录 `vite build` 通过；`npm audit` **0 漏洞**。
+- **浏览器端到端（Playwright E2E）**：
+  - 法审与全生命周期套件（`playwright.contract-legal.config.ts`：`contract-legal.spec.ts`、`contract-lifecycle.spec.ts`）：**7/7 通过**。
+  - 平台治理、项目合同与范围裁剪套件（`playwright.config.ts`：`platform-admin.spec.ts`、`project-contract.spec.ts`、`scope-restricted.spec.ts`）：**11/11 通过（2.1m）**。
+- **临时 `NEWFC_DATA_DIR` 冷启动与实表全流水线演练**（演练完毕后临时目录已清理）：
+  - 组织主数据种子幂等创建 `35` 个节点（在运法人 `14`、总部部门 `10`、直属非法人单元 `3`［含直属生产单元 `2`］、停用 `closed_history` 历史节点 `8`），外部非集团主体入 `org` 为 `0`，简称映射 `35` 条，`0` 错误。
+  - 业务设置幂等初始化 `29` 项，`contract.prior_year_net_assets` 保持空值未伪造；前缀字典幂等写入 `84` 行（允许新签 `14` 行），`0` 错误。
+  - `2` 份 16 表架构 `.xls` 综合计划工作簿均以 `0` 阻断错误导入（分别入库 `694` 与 `692` 行 `plan_item`、`1,496` 行 `plan_fact`）；`28` 份历史合同工作簿经五步归并管线实现 **100% 五维行去向闭合（`18,048 = 2,558 + 6,468 + 6,038 + 2,912 + 72`）**，正序与逆序输入 `planHash` SHA-256 完全一致，重放幂等。
+- **待业务侧输入边界（未编造生产真值）**：各法人正式审计上年净资产、基准日后 OA 补采合同、重号冲突人工裁决结论及候选法审范本正式审定转正，均按方案保留管理员页面/CLI 导入入口，不在代码或迁移脚本中预置生产猜测值。

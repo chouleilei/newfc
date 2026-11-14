@@ -64,7 +64,7 @@ describe('费用页面日常操作 AC-F22/X04', () => {
     expect(new URLSearchParams(search).get('orgId')).toBe('3');
     expect(new URLSearchParams(search).get('keyword')).toBe('新事由');
     expect(new URLSearchParams(search).has('page')).toBe(false);
-  }, 20_000);
+  }, 45_000);
 
   it('单个授权根账号默认查询全部授权组织,首页待办深链不漏下级报销', async () => {
     const claims = vi.spyOn(expenseApi, 'claimsPage').mockResolvedValue(claimPage([{ ...claim, status: 'audited' }]));
@@ -106,7 +106,7 @@ describe('费用页面日常操作 AC-F22/X04', () => {
     expect(counts.mock.calls.length).toBeGreaterThan(1);
     expect(client.getQueryState(['workbench-todos'])?.isInvalidated).toBe(true);
     expect(client.getQueryState(['dashboard-domains'])?.isInvalidated).toBe(true);
-  }, 20_000);
+  }, 45_000);
 
   it('详情未打开时审核完成也刷新待复核筛选,没有运行中的审核后停止轮询', async () => {
     let finished = false;

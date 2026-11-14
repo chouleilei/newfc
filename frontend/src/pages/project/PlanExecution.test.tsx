@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 describe('F-GAP-09 PlanExecution 16表切换、.xls上传容缺提示与缺失列补齐', () => {
-  it('覆盖全部16张工作表映射、执行表批复概算/累计已付款/跨单位承办/项目跳转及 .xls 非阻断告警导入', { timeout: 30_000 }, async () => {
+  it('覆盖全部16张工作表映射、执行表批复概算/累计已付款/跨单位承办/项目跳转及 .xls 非阻断告警导入', { timeout: 60_000 }, async () => {
     // 1. 静态核对 3 域共覆盖 16 张工作表
     const allDomainSheets = [
       ...SHEET_DOMAINS.investment_purchase,

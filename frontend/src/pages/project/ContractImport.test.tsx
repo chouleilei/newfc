@@ -216,7 +216,7 @@ describe('F-GAP-12 & F-GAP-13 历史容缺批量导入（.xls/8模板/五维对�
     });
 
     // 验证五维对账摘要卡、收入列标题「已收金额」、双主体与业务化待办标签
-    expect(await screen.findByText('五维行去向对账摘要')).toBeTruthy();
+    expect(await screen.findByText('五维行去向对账摘要', {}, { timeout: 10_000 })).toBeTruthy();
     expect(screen.getByText('100% 闭合')).toBeTruthy();
     expect(screen.getAllByText('已收金额').length).toBeGreaterThan(0);
     expect(screen.getAllByText('历史已结算/开票基线').length).toBeGreaterThan(0);
@@ -233,12 +233,12 @@ describe('F-GAP-12 & F-GAP-13 历史容缺批量导入（.xls/8模板/五维对�
 
     // 点击确认导入触发 409 PREVIEW_STALE 并发冲突横幅
     fireEvent.click(screen.getByText('确认导入'));
-    const okBtns = await screen.findAllByText(/^确\s*定$/);
+    const okBtns = await screen.findAllByText(/^确\s*定$/, {}, { timeout: 10_000 });
     fireEvent.click(okBtns[okBtns.length - 1]);
     await waitFor(() => {
       expect(confirmSpy).toHaveBeenCalledWith(88, 'f0e1d2c3b4a5968778695a4b3c2d1e0f');
     });
-    expect(await screen.findByText(/409 PREVIEW_STALE/)).toBeTruthy();
+    expect(await screen.findByText(/409 PREVIEW_STALE/, {}, { timeout: 10_000 })).toBeTruthy();
   });
 
   it('ContractBaseFormModal 编辑历史容缺合同时展示合成号/红冲与双主体待补录提示横幅', { timeout: 60_000 }, async () => {

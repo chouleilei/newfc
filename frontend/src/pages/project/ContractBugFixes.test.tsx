@@ -303,7 +303,7 @@ describe('F-GAP-18 7项前端代码与校验 Bug 清零回归测试', () => {
     expect(await screen.findByText(/请确认已在文档区上传《工程量结算书》与《工程价款结算书》/)).toBeTruthy();
 
     const deductPreInput = screen
-      .getByText('扣回预付款(元，可为负)')
+      .getByText('扣回预付款(元)')
       .closest('.ant-form-item')!
       .querySelector('input')!;
     fireEvent.change(deductPreInput, { target: { value: '-50.00' } });

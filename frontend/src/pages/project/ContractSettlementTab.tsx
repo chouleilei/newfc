@@ -217,7 +217,7 @@ export function ContractSettlementTab({ contract, onChanged }: { contract: Contr
         </Card>
       )}
 
-      <Modal open={settleOpen} title="提交结算单（附件 8）" width={720} onCancel={() => setSettleOpen(false)} destroyOnClose confirmLoading={run.isPending}
+      <Modal open={settleOpen} title="提交结算单" width={720} onCancel={() => setSettleOpen(false)} destroyOnClose confirmLoading={run.isPending}
         okButtonProps={{ disabled: netPreview < 0n }}
         onOk={() => settleForm.validateFields().then(async (v) => {
           if (netPreview < 0n) {
@@ -248,9 +248,9 @@ export function ContractSettlementTab({ contract, onChanged }: { contract: Contr
             <Col span={8}><Form.Item name="inContractAmount" label="合同内应结(元)" rules={[nonNegMoneyRule]}><Input /></Form.Item></Col>
             <Col span={8}><Form.Item name="changeClaimAmount" label="已批变更索赔(元)" rules={[nonNegMoneyRule]}><Input /></Form.Item></Col>
             <Col span={8}><Form.Item name="otherAddAmount" label="其他应结(元)" rules={[nonNegMoneyRule]}><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="deductPrepaymentAmount" label="扣回预付款(元，可为负)" rules={[signedMoneyRule]}><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="deductRetentionAmount" label="预留质保金(元，可为负)" rules={[signedMoneyRule]}><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="deductPenaltyAmount" label="违约/其他扣款(元，可为负)" rules={[signedMoneyRule]}><Input /></Form.Item></Col>
+            <Col span={8}><Form.Item name="deductPrepaymentAmount" label="扣回预付款(元)" extra="可填负数冲回" rules={[signedMoneyRule]}><Input /></Form.Item></Col>
+            <Col span={8}><Form.Item name="deductRetentionAmount" label="预留质保金(元)" extra="可填负数冲回" rules={[signedMoneyRule]}><Input /></Form.Item></Col>
+            <Col span={8}><Form.Item name="deductPenaltyAmount" label="违约/其他扣款(元)" extra="可填负数冲回" rules={[signedMoneyRule]}><Input /></Form.Item></Col>
             <Col span={24}>
               <Alert style={{ marginBottom: 12 }} type={netPreview < 0n ? 'error' : 'info'}
                 message={

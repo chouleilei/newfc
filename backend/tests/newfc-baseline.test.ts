@@ -132,9 +132,22 @@ describe('AC-X01 仓库与运行隔离', () => {
   });
 
   it('独立 Git:仓库拥有自己的 .git 目录且未配置指向原项目的 remote', () => {
-    const gitDir = path.join(REPO_ROOT, '.git');
-    expect(fs.statSync(gitDir).isDirectory()).toBe(true);
-    const config = fs.readFileSync(path.join(gitDir, 'config'), 'utf8');
+    const dotGit = path.join(REPO_ROOT, '.git');
+    const stat = fs.statSync(dotGit);
+    let commonGitDir = dotGit;
+    if (stat.isFile()) {
+      const m = fs.readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+)$/m);
+      expect(m).toBeTruthy();
+      const worktreeGitDir = path.resolve(REPO_ROOT, m![1].trim());
+      const commondirFile = path.join(worktreeGitDir, 'commondir');
+      commonGitDir = fs.existsSync(commondirFile)
+        ? path.resolve(worktreeGitDir, fs.readFileSync(commondirFile, 'utf8').trim())
+        : worktreeGitDir;
+      expect(fs.statSync(commonGitDir).isDirectory()).toBe(true);
+    } else {
+      expect(stat.isDirectory()).toBe(true);
+    }
+    const config = fs.readFileSync(path.join(commonGitDir, 'config'), 'utf8');
     expect(config).not.toMatch(/newbd|lishui/);
   });
 });

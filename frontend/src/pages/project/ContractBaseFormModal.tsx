@@ -215,15 +215,13 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
           <Col span={10}>
             <Form.Item
               name="contractNo"
-              label={
-                <Space size={8}>
-                  <span>合同编号</span>
-                  {!contract && (
-                    <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => void fillSuggestedNo()}>
-                      生成建议编号
-                    </Button>
-                  )}
-                </Space>
+              label="合同编号"
+              extra={
+                !contract ? (
+                  <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => void fillSuggestedNo()}>
+                    生成建议编号
+                  </Button>
+                ) : undefined
               }
               rules={[{ required: true, whitespace: true }]}
             >
