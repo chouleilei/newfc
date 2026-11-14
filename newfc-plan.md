@@ -30,6 +30,7 @@
 - [验收规范](specs/acceptance.md)：功能与跨域验收编号、样本和证据。
 - [智能合同法审一期](specs/contract-legal-review.md) 与 [T-9 开发详细计划](specs/contract-legal-review-plan.md)：签约前智能法审业务契约与分步工程方案（工程验证及生产发布完成；历史样本完整业务验收待完成）。
 - [合同全生命周期与监督报送完善设计](specs/contract-lifecycle.md) 与 [T-10～T-12 开发详细计划](specs/contract-lifecycle-plan.md)：八阶段闭环、双向收付结算、变更索赔四位一体、担保/质保/纠纷台账，以及每月 28 日公司 5 表月报、上级《纪巡财审》8 合 1 报送包与 OA 门户只读同步接口方案。
+- [主数据底座、16 表计划扩展、合同简码映射与历史容缺清洗设计（T-13）](specs/foundation-and-legacy-migration.md)：阶段一（P0）V73 数据基座、批量初始化、16 表 `.xls` 计划解析、母公司简码映射、历史台账容缺清洗与已知缺陷清零契约。
 
 ## 已交付阶段与后续工作
 

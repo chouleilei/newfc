@@ -131,7 +131,7 @@ AI 建议结论使用以下三种，不直接写入正式审批状态：
 
 本节只约束后续开发，不代表已经实施：
 
-1. 在 `backend/src/modules/contracts/` 内扩展领域 service，复用现有 `ct_document`、`ct_review` 和审核状态，不新建第二套合同审批流程。智能审核运行与发现只追加，正式结论仍由现有复核命令完成。
+1. 在 `backend/src/modules/contracts/` 内扩展领域 service，复用现有 `ct_document`、`ct_review` 和审核状态，不新建第二套合同审批流程。智能审核运行与发现只追加，正式结论仍由现有复核命令完成。`legalEnabled` 默认覆盖物资采购、小型施工、工程施工、技术服务、一般服务、重要特殊六类业务合同（可通过 `contract.legal_review_categories` 配置微调），候选范本维持人工审定 `promote` 转正门禁，动态按该类别是否存在生效 `official` 范本判定是否可给出 `pass`；旧版 `.doc` 合同正文通过写事务外受资源边界限制的转码解析器提取段落并缓存。详见 [T-13 领域细设计](foundation-and-legacy-migration.md)。
 2. 新增制度、条款、范本、审核运行和发现表时只追加迁移。审核运行绑定 `document_id`、正文内容摘要、合同版本、制度版本、范本版本及模型/规则信息。
 3. `decideContractReview` 与阶段推进门禁 `computeBlockers` 必须同步核对当前最新正文、合同关键状态指纹及有效审核运行；旧运行、缺运行、正文变化或审核后篡改金额/法审类型/重要合同标记均不得确认或推进履约。非采购类合同（`is_procurement = 0`）不强制套用招采阶段文件阻断。既有普通类型调用方仍按原契约可用。
 4. 解析、OCR 和模型调用在后台任务中执行，不持有 SQLite 写事务；完成后用短事务重验版本并原子写入运行、发现和摘要。
