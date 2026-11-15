@@ -19,6 +19,7 @@
 | 10～12. 合同全生命周期与监督报送 | 基于 V68～V70 实现八阶段闭环、单价/外币/以收定支、双向收付结算、变更索赔四位一体、担保/质保/纠纷台账、多源导入、公司 5 表月报与《纪巡财审》6 表+附件槽位 ZIP 导出及 OA 门户接口 | 详见 [合同全生命周期设计](contract-lifecycle.md) 与 [T-10～T-12 开发详细计划](contract-lifecycle-plan.md)；通过 AC-CLM-01～14 |
 | 13. 主数据底座、16 表计划扩展、合同简码映射与历史容缺清洗（P0） | 基于 V73 完成组织 6 列扩展与主数据冷启动、批量组织/用户范围初始化、设置页专控、离线 `xlsx@0.20.3` 与 16 表 `.xls` 计划解析、六维合同简码映射、5 步历史容缺清洗流水线、分级导出门禁、受限 `.doc` 法审转换、监督包与月报 5 表缺陷修复、前后端 7 类校验 Bug 清零及 `typecheck:test` / 依赖安全公告清零 | 详见 [T-13 领域细设计](foundation-and-legacy-migration.md)；通过 AC-T13-01～11 |
 | 14. 综合计划合一下达、结构化会签招采、52 条监督预警与纠纷 17 列台账（P1） | 基于 V74 实现 AI 法审通道绑定与受限 `/parse-pdf`、综合计划与预算 8 单元 49 表合一下达及冻结签收、6 类调整与 5 类服务端审批机构派生、二/三级归并与跨单位错引拦截、`÷ 1.06` 与五项费用 `10000n` 步长勾稽、公文 `<w:tbl>` 导出与检索/待办接入、多部门结构化会签与包干池、1:N 招采与 52 条制度预警（含 `rule_scope` 与历史 `'insufficient_evidence'`）及纠纷 17 列导出与全筛联动 | 详见 [T-14 领域细设计](plan-issuance-and-supervision-rules.md)；通过 AC-T14-01～08 |
+| 15. 报销小额比价拆单预警、EAS 遗留对账、全景互跳与受控草稿（P2） | 基于 V75 实现报销挂接合同与 `≤ 30,000.00` 元比价及滚动 30 日拆单预警、EAS `2241*` 质保金/往来负余额/`1604*` 在建工程遗留核销对账、项目全景计划↔合同↔风险双向穿透、`UX-26` 智能助手计划/合同受控草稿及 `AC-CLR-09` 8 类脱敏合同法审配对回归 | 详见 [T-15 领域细设计](expense-eas-recon-and-ux26-drafts.md)；通过 AC-T15-01～05（含 AC-CLR-09） |
 
 各阶段复用本项目现有能力，不重复建设第二套助手、预算或文件底座。权限必须尽早落实，不能在所有领域完成后才补。新项目自身使用功能分支和小步提交，保持唯一正式后端与数据写入路径。
 依赖顺序：T-0 → T-1 → T-2；后续领域按各自所需主数据/事实服务开展。阶段 6 的“全量覆盖”必须核对全部 26 项，阶段 2 只代表首个闭环。
@@ -967,7 +968,7 @@ T-2 实施要点：
 
 ## T-14：综合计划合一下达、结构化会签招采、52条监督预警与纠纷17列台账（阶段二 P1）
 
-状态：**实施中（独立工作树 `feat/improvement-2026-11`，目标 schema V74）**。领域模型、四层数值勾稽、接口权限契约、52 条规则与 17 列纠纷台账及 `AC-T14-01`～`AC-T14-08` 唯一维护于 [T-14 领域细设计](plan-issuance-and-supervision-rules.md)。
+状态：**已完成工程实现、E2E 回归与临时库黄金演练（独立工作树 `feat/improvement-2026-11`，schema V74）**。领域模型、四层数值勾稽、接口权限契约、52 条规则与 17 列纠纷台账及 `AC-T14-01`～`AC-T14-08` 唯一维护于 [T-14 领域细设计](plan-issuance-and-supervision-rules.md)，验收证据见 [T-14 验收记录](../docs/acceptance-records.md)。
 
 ### 交付单元与依赖顺序
 
@@ -975,6 +976,17 @@ T-2 实施要点：
 2. **T-14.2（`GAP-06`、`GAP-07`、`GAP-08`、`GAP-10`）**：实现综合计划 8 单元 49 表合一下达、冻结快照、受限签收、6 类调整与 5 类服务端 `approval_body` 派生、本单位预算只读放行、多级归并与跨单位错引拦截、`÷ 1.06` 与五项费用 `10000n` 步长勾稽、`<w:tbl>` `.docx`/`.zip` 导出、标准报表 `plan_issuance_summary`、全局检索 `plan_item` 及工作台待办。
 3. **T-14.3（`GAP-04`、`GAP-14`、`GAP-15`、`GAP-19`）**：补齐 AI `contract_legal_review` 绑定、P50/P95 延迟与主备故障转移诊断及本机受限 `/parse-pdf`；实现 `ct_countersign` 多部门会签轮次指纹失效与包干池总额控制；实现 `1:N` 招采接口、评委资格重算与 52 条监管预警检测器（含历史 `'insufficient_evidence'` 边界）；实现纠纷 17 列 `.xlsx` 导出、合同列表/汇总全筛联动、分币种汇总与受控草稿附件撤回。
 4. **T-14.4（P1 前端工作台与 E2E/黄金演练门禁）**：升级 `SettingsAi`、`PlanExecution` 四页签、`BudgetVersions`、`StandardReports`、`Search`、`Dashboard`、`Contracts`（会签/招采/纠纷 17 列/筛选汇总/文档撤回）、`MasterEntities`、`RiskLedger`；跑通前后端全量门禁、`plan-issuance.spec.ts` 等双配置 E2E 及临时库 `V72 -> V73 -> V74` 与实表黄金演练。
+
+## T-15：报销小额比价拆单预警、EAS遗留对账、全景互跳与受控草稿（阶段三 P2）
+
+状态：**实施中（独立工作树 `feat/improvement-2026-11`，目标 schema V75）**。领域模型、金额与事实隔离边界、接口权限契约、受控草稿防直写规则及 `AC-T15-01`～`AC-T15-05`（含 `AC-CLR-09`）唯一维护于 [T-15 领域细设计](expense-eas-recon-and-ux26-drafts.md)。
+
+### 交付单元与依赖顺序
+
+1. **T-15.1（`V75` 迁移与契约层）**：追加 `V75` 数据库迁移（`ex_split_alert_log`、`eas_recon_note` 及拆单窗口业务参数种子），更新 `contracts/expense.ts`、`contracts/eas.ts`、`contracts/project-profile.ts`、`contracts/page-catalog.ts`、`contracts/config-fields.ts`、`contracts/assistant.ts` 与 `assistant-openapi.json`。
+2. **T-15.2（`GAP-20` 报销比价拆单与 EAS 遗留对账）**：实现报销单合同挂接、比价附件服务端自动重算、`EXP_SMALL_PROC_NO_COMPARISON` 与 `EXP_SPLIT_BELOW_30K`（联动 `PW_14` 客观线索）；实现 `GET /api/eas/contract-recon` 与 `POST /api/eas/contract-recon/notes` 三类遗留异常核销对账；完成 `ExpenseClaims` 与 `EasWorkspace` 第 5 页签改造。
+3. **T-15.3（`GAP-21` 全景直联、`UX-26` 受控草稿与 `AC-CLR-09` 法审配对回归）**：升级 `ProjectProfile` 与 `RiskLedger` 双向穿透过滤；实现 `'contract_draft'` 与 `'plan_issuance_draft'` 助手受控预填建议（只写表单不直写数据库）；完成 8 类脱敏合同样本法审配对真值回归与离线评估更新。
+4. **T-15.4（P2 与全阶段总验收门禁）**：在 `/root/newfc-dev` 跑通前后端全量门禁、`npm audit --omit=dev`、双配置 Playwright E2E（含 `cross-domain.spec.ts`、`assistant-domains.spec.ts`）、`V72 -> V73 -> V74 -> V75` 空库与非空库升级回退演练及全仓库新增行脱敏扫描。
 
 ## 后续领域细设计格式
 
