@@ -178,11 +178,12 @@ export function useOptionalAssistantFocus(focus: FocusDescriptor | null, label?:
  * @param label 展示用标签，只用于「当前对象」提示，不进入权威上下文。
  */
 export function useAssistantFocus(focus: FocusDescriptor | null, label?: string | null): void {
-  const registry = useAssistantRegistry();
+  const registry = useOptionalAssistantRegistry();
   const tokenRef = useRef<symbol | null>(null);
   const focusJson = focus ? JSON.stringify(focus) : null;
 
   useEffect(() => {
+    if (!registry) return undefined;
     if (!focusJson) {
       const token = tokenRef.current;
       if (token) {
@@ -241,7 +242,7 @@ export function useAssistantDraft(open: boolean, identity: string, serialize: ()
     const token = registry.registerDraft(() => {
       const draft = latest.current();
       if (!draft || draft.kind === 'budget_grid' || draft.kind === 'actual_grid') return draft;
-      if (draft.base.operation === 'create' || draft.base.operation === 'sheet_create' || draft.base.operation === 'analyze') return { ...draft, base: { ...draft.base, clientKey } };
+      if (draft.base.operation === 'create' || draft.base.operation === 'sheet_create' || draft.base.operation === 'analyze' || draft.base.operation === 'adjust') return { ...draft, base: { ...draft.base, clientKey } };
       return draft;
     });
     const surface = registry.registerSurface({ kind: 'modal', key: 'config-form-editor', entity: null, parentId: null });

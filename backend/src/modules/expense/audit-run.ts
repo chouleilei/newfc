@@ -10,6 +10,7 @@
  *   未配置记 MODEL_UNAVAILABLE(info)。任何结果都只是“待复核”,不自动通过。
  */
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type { DB } from '../../db/connection';
 import { centsToDecimalString } from '../../core/decimal';
 import { AppError } from '../../core/errors';
@@ -23,7 +24,7 @@ import { EnvChatModel, modelConfigured } from '../../assistant/model';
 import { expenseAuditPrompt } from '../../assistant/prompts';
 import type { AuditRunDto, EvidenceRef, FindingSeverity, FindingSource, RiskLevel } from '../../contracts/expense';
 import {
-  claimAttachments, claimContentHash, claimLines, clauseApplies, effectiveClauses, normalizeText, visibleClaim,
+  claimAttachments, claimContentHash, claimLines, clauseApplies, effectiveClauses, isPriceComparisonAttachment, normalizeText, visibleClaim,
   type AttachmentRow, type ClaimRow, type ClauseRow, type LineRow,
 } from './expense.service';
 
@@ -92,8 +93,215 @@ async function runOcr(db: DB, store: ObjectStore, attachments: AttachmentRow[]):
 
 /* ================= 确定性规则 ================= */
 
+export interface SplitClusterHit {
+  normalizedCategory: string;
+  supplierOrPayee: string | null;
+  windowDays: number;
+  anchorDate: string;
+  windowStart: string;
+  windowEnd: string;
+  claimIds: number[];
+  claimNos: string[];
+  totalCents: bigint;
+  fingerprint: string;
+}
+
 export interface AuditInput {
   claim: ClaimRow; lines: LineRow[]; attachments: AttachmentRow[]; clauses: ClauseRow[]; ocrTexts: Map<number, OcrText>;
+  smallProcLimitCents?: bigint;
+  linkedContractComparisonRef?: string | null;
+  splitCluster?: SplitClusterHit | null;
+}
+
+const SPLIT_ELIGIBLE_TYPE_RE = /采购|维修|修缮|工程|设备|材料|物资|外包|劳务|租赁|印刷|耗材|软件|服务|备件|检测|维护/;
+const STATUTORY_UTILITY_EXEMPT_RE = /水电费|电费缴纳|水费缴纳|通信费|宽带费|代扣税费/;
+
+function daysBetweenDates(a: string, b: string): number | null {
+  const ta = Date.parse(`${a}T00:00:00Z`);
+  const tb = Date.parse(`${b}T00:00:00Z`);
+  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return null;
+  return Math.round((tb - ta) / 86_400_000);
+}
+
+function detectClaimSplitCluster(db: DB, claim: ClaimRow, limitCents: bigint, windowDays: number): SplitClusterHit | null {
+  if (claim.amount_cents <= 0n || claim.amount_cents > limitCents) return null;
+  const normType = normalizeText(claim.expense_type);
+  const isSplitCandidate = claim.is_procurement_expense === 1 || claim.contract_id !== null || SPLIT_ELIGIBLE_TYPE_RE.test(claim.expense_type);
+  if (!isSplitCandidate) return null;
+
+  const contractSupplier = claim.contract_id !== null
+    ? (db.prepare('SELECT supplier_id, counterparty_names FROM ct_contract WHERE id = ?').get(claim.contract_id) as { supplier_id: number | null; counterparty_names: string | null } | undefined)
+    : undefined;
+  const supplierKey = contractSupplier?.supplier_id
+    ? `sup:${contractSupplier.supplier_id}`
+    : contractSupplier?.counterparty_names?.trim()
+      ? `payee:${normalizeText(contractSupplier.counterparty_names)}`
+      : null;
+
+  const peers = db.prepare(
+    `SELECT c.id, c.claim_no, c.expense_type, c.amount_cents, c.occurred_date, c.contract_id, c.is_procurement_expense,
+            ct.supplier_id, ct.counterparty_names
+     FROM ex_claim c
+     LEFT JOIN ct_contract ct ON ct.id = c.contract_id
+     WHERE c.org_id = ?
+       AND (c.id = ? OR c.status IN ('submitted','audited','reviewed','supplement'))
+       AND (c.conclusion IS NULL OR c.conclusion <> 'reject')
+       AND c.amount_cents > 0 AND c.amount_cents <= ?`
+  ).safeIntegers(true).all(claim.org_id, claim.id, limitCents) as {
+    id: bigint; claim_no: string; expense_type: string; amount_cents: bigint; occurred_date: string;
+    contract_id: bigint | null; is_procurement_expense: bigint; supplier_id: bigint | null; counterparty_names: string | null;
+  }[];
+
+  const matched = peers
+    .map((p) => {
+      const pId = Number(p.id);
+      const pContractId = p.contract_id === null ? null : Number(p.contract_id);
+      const pSupKey = p.supplier_id !== null
+        ? `sup:${Number(p.supplier_id)}`
+        : p.counterparty_names?.trim()
+          ? `payee:${normalizeText(p.counterparty_names)}`
+          : null;
+      const sameType = normalizeText(p.expense_type) === normType;
+      const sameContract = claim.contract_id !== null && pContractId === claim.contract_id;
+      const sameSupplier = supplierKey !== null && pSupKey === supplierKey;
+      return {
+        id: pId,
+        claimNo: p.claim_no,
+        date: p.occurred_date,
+        cents: BigInt(p.amount_cents),
+        matchedGroup: sameSupplier || sameContract || sameType,
+      };
+    })
+    .filter((p) => p.matchedGroup)
+    .filter((p) => {
+      const diff = daysBetweenDates(p.date, claim.occurred_date);
+      return diff !== null && Math.abs(diff) <= windowDays;
+    });
+
+  if (matched.length < 2) return null;
+  matched.sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+
+  // 取覆盖当前报销单且长度 <= windowDays 的最大累计连续自然日窗口
+  let bestWindow: typeof matched | null = null;
+  let bestSum = 0n;
+  for (let i = 0; i < matched.length; i += 1) {
+    const startDate = matched[i].date;
+    const win = matched.filter((x) => {
+      const d = daysBetweenDates(startDate, x.date);
+      return d !== null && d >= 0 && d <= windowDays;
+    });
+    if (!win.some((x) => x.id === claim.id)) continue;
+    const sum = win.reduce((s, x) => s + x.cents, 0n);
+    if (win.length >= 2 && sum >= limitCents && sum > bestSum) {
+      bestWindow = win;
+      bestSum = sum;
+    }
+  }
+  if (!bestWindow) return null;
+
+  const claimIds = [...bestWindow.map((w) => w.id)].sort((a, b) => a - b);
+  const claimNos = bestWindow.map((w) => w.claimNo);
+  const groupCategory = supplierKey ?? (claim.contract_id !== null ? `contract:${claim.contract_id}` : `type:${normType}`);
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify({ orgId: claim.org_id, groupCategory, claimIds }))
+    .digest('hex');
+  return {
+    normalizedCategory: groupCategory,
+    supplierOrPayee: contractSupplier?.counterparty_names?.trim() ? contractSupplier.counterparty_names : null,
+    windowDays,
+    anchorDate: bestWindow[bestWindow.length - 1].date,
+    windowStart: bestWindow[0].date,
+    windowEnd: bestWindow[bestWindow.length - 1].date,
+    claimIds,
+    claimNos,
+    totalCents: bestSum,
+    fingerprint,
+  };
+}
+
+function resolveLinkedContractComparisonRef(db: DB, contractId: number | null): string | null {
+  if (contractId === null) return null;
+  const rec = db.prepare(
+    `SELECT pr.id, pr.procurement_method
+     FROM ct_contract c JOIN ct_procurement_record pr ON pr.id = c.procurement_record_id
+     WHERE c.id = ? LIMIT 1`
+  ).get(contractId) as { id: number; procurement_method: string | null } | undefined;
+  if (rec) return `关联合同采购记录 #${rec.id}(${rec.procurement_method ?? 'recorded'})`;
+  const doc = db.prepare(
+    `SELECT id, name FROM ct_document
+     WHERE contract_id = ? AND (doc_type = 'procurement' OR name LIKE '%比价%' OR name LIKE '%询价%')
+     ORDER BY id DESC LIMIT 1`
+  ).get(contractId) as { id: number; name: string } | undefined;
+  return doc ? `关联合同比价附件「${doc.name}」` : null;
+}
+
+function persistSplitAlertAndRiskClue(db: DB, claim: ClaimRow, cluster: SplitClusterHit, now: string): number | null {
+  const hasRule = db.prepare("SELECT enabled, source, level FROM risk_rule WHERE code = 'PW_14'").get() as { enabled: number; source: string; level: 'high' | 'medium' | 'low' } | undefined;
+  let riskEventId: number | null = null;
+  const userId = currentAuth()?.userId ?? null;
+
+  if (hasRule && hasRule.enabled === 1) {
+    const subKey = `split_${cluster.normalizedCategory.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+    const eventKey = `PW_14:ex_claim:${claim.id}:${subKey}`;
+    const title = `${cluster.windowDays}日内同口径小额报账累计 ${centsToDecimalString(cluster.totalCents)} 元疑似拆单`;
+    const description = `同一单位 ${cluster.windowStart} 至 ${cluster.windowEnd} 连续 ${cluster.windowDays} 日内发生 ${cluster.claimIds.length} 笔小额报销（${cluster.claimNos.join('、')}），累计 ${centsToDecimalString(cluster.totalCents)} 元已达 30,000.00 元限额，疑似拆单规避集中采购（§8.1.7 / PW_14）。`;
+    const evidenceJson = JSON.stringify({
+      claimIds: cluster.claimIds,
+      claimNos: cluster.claimNos,
+      windowDays: cluster.windowDays,
+      windowStart: cluster.windowStart,
+      windowEnd: cluster.windowEnd,
+      totalAmount: centsToDecimalString(cluster.totalCents),
+      contractId: claim.contract_id,
+    });
+    const existing = db.prepare('SELECT id, status FROM risk_event WHERE event_key = ?').get(eventKey) as { id: number; status: string } | undefined;
+    if (!existing) {
+      riskEventId = Number(
+        db.prepare(
+          `INSERT INTO risk_event (
+             event_key, rule_code, source, level, org_id, project_id, subject_type, subject_id,
+             title, description, amount_cents, metric, evidence_json, evidence_status,
+             first_detected_at, last_detected_at, created_at, updated_at
+           ) VALUES (?, 'PW_14', ?, ?, ?, NULL, 'ex_claim', ?, ?, ?, ?, ?, ?, 'suspected_clue', ?, ?, ?, ?)`
+        ).run(
+          eventKey, hasRule.source, hasRule.level, claim.org_id, claim.id,
+          title, description, cluster.totalCents, String(cluster.claimIds.length), evidenceJson,
+          now, now, now, now,
+        ).lastInsertRowid
+      );
+      db.prepare(
+        'INSERT INTO risk_action (event_id, action, from_status, to_status, comment, scan_id, actor_user_id, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)'
+      ).run(riskEventId, 'detect', null, 'open', description, userId, now);
+    } else {
+      riskEventId = existing.id;
+      if (existing.status !== 'false_positive') {
+        db.prepare(
+          `UPDATE risk_event SET title = ?, description = ?, amount_cents = ?, metric = ?, evidence_json = ?,
+             evidence_status = 'suspected_clue', occurrence_count = occurrence_count + 1, last_detected_at = ?, updated_at = ?, version = version + 1
+           WHERE id = ?`
+        ).run(title, description, cluster.totalCents, String(cluster.claimIds.length), evidenceJson, now, now, existing.id);
+      }
+    }
+  }
+
+  db.prepare(
+    `INSERT INTO ex_split_alert_log (
+       org_id, normalized_category, supplier_or_payee, window_days, anchor_date,
+       claim_ids_json, claim_nos_json, claim_count, total_cents, risk_event_id, fingerprint, detected_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(fingerprint) DO UPDATE SET
+       anchor_date = excluded.anchor_date,
+       claim_nos_json = excluded.claim_nos_json,
+       claim_count = excluded.claim_count,
+       total_cents = excluded.total_cents,
+       risk_event_id = COALESCE(excluded.risk_event_id, ex_split_alert_log.risk_event_id),
+       updated_at = excluded.updated_at`
+  ).run(
+    claim.org_id, cluster.normalizedCategory, cluster.supplierOrPayee, cluster.windowDays, cluster.anchorDate,
+    JSON.stringify(cluster.claimIds), JSON.stringify(cluster.claimNos), cluster.claimIds.length, cluster.totalCents,
+    riskEventId, cluster.fingerprint, now, now,
+  );
+  return riskEventId;
 }
 
 /** 确定性规则。阈值与材料要求来自条款,不写死。 */
@@ -194,6 +402,40 @@ export function evaluateRules(input: AuditInput): { findings: DraftFinding[]; us
         [clauseRef(c), ...attachments.map(attachmentRef)], c.id);
     }
   }
+
+  // GAP-20 / §8.1.7 采购类小额直接报销书面比价报告核验（EXP_SMALL_PROC_NO_COMPARISON）
+  const limitCents = input.smallProcLimitCents ?? 3_000_000n;
+  const compareAttachments = attachments.filter((a) =>
+    isPriceComparisonAttachment(a) || /比价|询价|市场调研|三家报价|比选/.test(ocrTexts.get(a.id)?.text ?? '')
+  );
+  if (
+    claim.is_procurement_expense === 1 &&
+    claim.amount_cents > 0n &&
+    claim.amount_cents <= limitCents &&
+    compareAttachments.length === 0 &&
+    !input.linkedContractComparisonRef &&
+    !STATUTORY_UTILITY_EXEMPT_RE.test(claim.description)
+  ) {
+    const sev: FindingSeverity = claim.amount_cents >= 1_000_000n && claim.contract_id === null ? 'high' : 'medium';
+    add(
+      'EXP_SMALL_PROC_NO_COMPARISON',
+      sev,
+      `采购类直接报销金额 ${money(claim.amount_cents)} 元（≤ ${money(limitCents)} 元）未上传书面市场比价报告，请按《采购管理办法》§8.1.7 补充市场比价依据`,
+      [fieldRef('amount', money(claim.amount_cents)), fieldRef('expenseType', claim.expense_type)],
+    );
+  }
+
+  // GAP-20 / §8.1.7 & PW_14 同组织滚动窗口高频小额拆单监测（EXP_SPLIT_BELOW_30K）
+  if (input.splitCluster) {
+    const sc = input.splitCluster;
+    add(
+      'EXP_SPLIT_BELOW_30K',
+      'high',
+      `同单位连续 ${sc.windowDays} 日内（${sc.windowStart}～${sc.windowEnd}）同类小额报销共 ${sc.claimIds.length} 笔（${sc.claimNos.join('、')}），累计 ${money(sc.totalCents)} 元 ≥ ${money(limitCents)} 元，疑似拆单规避集中采购程序`,
+      [fieldRef('amount', money(claim.amount_cents)), fieldRef('occurredDate', claim.occurred_date)],
+    );
+  }
+
   return { findings, usedClauses: [...used.values()] };
 }
 
@@ -300,7 +542,14 @@ export async function runClaimAudit(db: DB, store: ObjectStore, claimId: number,
   handle?.checkCancelled();
   handle?.progress(400, 'OCR 完成');
 
-  const input: AuditInput = { claim, lines, attachments, clauses, ocrTexts: ocr.texts };
+  const smallProcLimitCents = BigInt(getSetting<number>(db, 'expense.small_procurement_limit_cents'));
+  const splitWindowDays = getSetting<number>(db, 'expense.split_window_days');
+  const linkedContractComparisonRef = resolveLinkedContractComparisonRef(db, claim.contract_id);
+  const splitCluster = detectClaimSplitCluster(db, claim, smallProcLimitCents, splitWindowDays);
+  const input: AuditInput = {
+    claim, lines, attachments, clauses, ocrTexts: ocr.texts,
+    smallProcLimitCents, linkedContractComparisonRef, splitCluster,
+  };
   const rules = evaluateRules(input);
   handle?.step({ name: '规则核对', type: 'rule', status: 'success', detail: `${rules.findings.length} 项发现`, sourceRefs: rules.usedClauses.map((c) => ({ clauseId: c.id })) });
   handle?.progress(600, '规则核对完成');
@@ -327,6 +576,9 @@ export async function runClaimAudit(db: DB, store: ObjectStore, claimId: number,
     const ins = db.prepare('INSERT INTO ex_finding (run_id, source, code, severity, message, evidence_json, clause_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
     for (const f of findings) ins.run(runId, f.source, f.code, f.severity, f.message, JSON.stringify(f.evidence), f.clauseId);
     if (fresh.status === 'submitted') db.prepare("UPDATE ex_claim SET status = 'audited', updated_at = ? WHERE id = ?").run(now, claimId);
+    if (splitCluster) {
+      persistSplitAlertAndRiskClue(db, fresh, splitCluster, now);
+    }
     writeLog(db, 'expense.claim.audit', 'ex_claim', claimId, {
       claimNo: fresh.claim_no, runId, jobId: handle?.id ?? null, riskLevel: risk, ocrStatus: ocr.status, modelStatus: model.status, findingCount: findings.length, policyRefs,
     });

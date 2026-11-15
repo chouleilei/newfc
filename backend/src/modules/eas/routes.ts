@@ -7,8 +7,8 @@ import { addRouteRules } from '../security/route-rules';
 import type { ObjectStore } from '../files/object-store';
 import { memoryUpload, sendAttachment, uploadName } from '../files/http';
 import {
-  easActivateRequest, easAuxRequirementCreate, easCorrectionCreate, easCorrectionReview, easImportForm, easLockRequest,
-  easPrecheckRequest, easUnlockRequest, EAS_DATA_TYPES,
+  easActivateRequest, easAuxRequirementCreate, easContractReconNoteRequest, easCorrectionCreate, easCorrectionReview,
+  easImportForm, easLockRequest, easPrecheckRequest, easUnlockRequest, EAS_CONTRACT_RECON_CATEGORIES, EAS_DATA_TYPES,
 } from '../../contracts/eas';
 import { id as idSchema, period as periodSchema } from '../../contracts/common';
 import {
@@ -16,11 +16,13 @@ import {
   listAuxRequirements, listBatches, listCorrections, listLocks, listSets, lockEvents, lockPeriod, periodStatus, precheck, precheckCorrection,
   reviewCorrection, unlockPeriod, upsertAuxRequirement,
 } from './eas.service';
+import { listEasContractRecon, upsertEasContractReconNote } from './eas-recon.service';
 
 addRouteRules([
   { method: 'GET', pattern: /^\/eas\//, permission: 'eas:read' },
   { method: 'WRITE', pattern: /^\/eas\/(import|precheck)$/, permission: 'eas:import' },
   { method: 'WRITE', pattern: /^\/eas\/aux-requirements(\/\d+\/deactivate)?$/, permission: 'eas:import' },
+  { method: 'WRITE', pattern: /^\/eas\/contract-recon\/notes$/, permission: 'eas:import' },
   { method: 'WRITE', pattern: /^\/eas\/sets\/\d+\/activate$/, permission: 'eas:period_lock' },
   { method: 'WRITE', pattern: /^\/eas\/locks(\/\d+\/unlock)?$/, permission: 'eas:period_lock' },
   { method: 'WRITE', pattern: /^\/eas\/corrections(\/\d+\/precheck)?$/, permission: 'eas:correction_submit' },
@@ -104,4 +106,18 @@ export function registerEasRoutes(app: Express, db: () => DB, wrap: Wrap, store:
   app.get('/api/eas/aux-requirements', wrap((req, res) => { res.json(listAuxRequirements(db(), optId(req.query.orgId))); }));
   app.post('/api/eas/aux-requirements', wrap((req, res) => { res.status(201).json(upsertAuxRequirement(db(), parseInput(easAuxRequirementCreate, req.body))); }));
   app.post('/api/eas/aux-requirements/:id/deactivate', wrap((req, res) => { res.json(deactivateAuxRequirement(db(), id(req.params.id))); }));
+
+  app.get('/api/eas/contract-recon', wrap((req, res) => {
+    const period = optPeriod(req.query.period);
+    if (!period) throw Errors.validation('请指定对账期间');
+    res.json(listEasContractRecon(db(), {
+      orgId: id(req.query.orgId),
+      period,
+      category: optEnum(req.query.category, EAS_CONTRACT_RECON_CATEGORIES),
+      unresolvedOnly: req.query.unresolvedOnly === 'true' || req.query.unresolvedOnly === '1',
+    }));
+  }));
+  app.post('/api/eas/contract-recon/notes', wrap((req, res) => {
+    res.status(201).json(upsertEasContractReconNote(db(), parseInput(easContractReconNoteRequest, req.body)));
+  }));
 }

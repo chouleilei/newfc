@@ -186,6 +186,7 @@ export interface ClaimRow {
   id: number; claim_no: string; org_id: number; applicant: string; department: string; expense_type: string; amount_cents: bigint; occurred_date: string;
   description: string; status: ClaimStatus; conclusion: 'pass' | 'reject' | null; review_version: number; content_sha256: string | null; submit_round: number;
   submitted_by_user_id: number | null; submitted_at: string | null; created_by_user_id: number | null; created_at: string; updated_at: string;
+  contract_id: number | null; is_procurement_expense: number; price_compare_doc_count: number;
 }
 export interface LineRow { id: number; line_no: number; expense_type: string; amount_cents: bigint; invoice_no: string; invoice_date: string | null; description: string }
 export interface AttachmentRow { id: number; file_object_id: number; file_sha256: string; name: string; kind_hint: string; submit_round: number; uploaded_at: string }
@@ -200,6 +201,7 @@ function normalizeClaim(r: Record<string, unknown>): ClaimRow {
   return {
     ...(r as unknown as ClaimRow), id: Number(r.id), org_id: Number(r.org_id), review_version: Number(r.review_version), submit_round: Number(r.submit_round),
     submitted_by_user_id: num(r.submitted_by_user_id), created_by_user_id: num(r.created_by_user_id), amount_cents: BigInt(r.amount_cents as bigint),
+    contract_id: num(r.contract_id), is_procurement_expense: Number(r.is_procurement_expense ?? 0), price_compare_doc_count: Number(r.price_compare_doc_count ?? 0),
   };
 }
 
@@ -236,11 +238,33 @@ function assertOrg(db: DB, orgId: number): void {
   if (!exists || !orgInScope(currentOrgScope(db), orgId)) throw notVisible('组织');
 }
 
+function assertContractVisible(db: DB, contractId: number | null | undefined): number | null {
+  if (contractId === null || contractId === undefined) return null;
+  const row = db.prepare('SELECT id, org_id, stage FROM ct_contract WHERE id = ?').get(contractId) as { id: number; org_id: number; stage: string } | undefined;
+  if (!row || !orgInScope(currentOrgScope(db), row.org_id)) throw notVisible('关联合同');
+  return row.id;
+}
+
+export function isPriceComparisonAttachment(a: Pick<AttachmentRow, 'name' | 'kind_hint'>): boolean {
+  const kh = normalizeText(a.kind_hint);
+  if (kh === 'price_comparison' || kh === 'pricecomparison') return true;
+  return /比价|询价|市场调研|三家报价|比选/.test(`${a.name} ${a.kind_hint}`);
+}
+
+/** 服务端根据已上传附件权威统计书面比价报告数量，绝不信任客户端传入计数。 */
+export function recomputePriceCompareDocCount(db: DB, claimId: number): number {
+  const count = claimAttachments(db, claimId).filter(isPriceComparisonAttachment).length;
+  db.prepare('UPDATE ex_claim SET price_compare_doc_count = ? WHERE id = ?').run(count, claimId);
+  return count;
+}
+
 /** 单据内容哈希:字段 + 明细 + 附件摘要。提交时冻结,审核运行与复核均绑定此哈希。 */
 export function claimContentHash(c: ClaimRow, lines: LineRow[], attachments: AttachmentRow[]): string {
   const canonical = {
     claimNo: c.claim_no, orgId: c.org_id, applicant: c.applicant, department: c.department, expenseType: c.expense_type, amountCents: c.amount_cents.toString(),
     occurredDate: c.occurred_date, description: c.description,
+    ...(c.contract_id !== null ? { contractId: c.contract_id } : {}),
+    ...(c.is_procurement_expense === 1 ? { isProcurementExpense: 1 } : {}),
     lines: lines.map((l) => [l.line_no, l.expense_type, l.amount_cents.toString(), l.invoice_no, l.invoice_date, l.description]),
     attachments: attachments.map((a) => [a.id, a.file_sha256, a.name, a.kind_hint]),
   };
@@ -275,15 +299,21 @@ export function createClaim(db: DB, input: ClaimCreateRequest): ClaimDetailDto {
   const parsed = parseClaimInput(input);
   const id = db.transaction(() => {
     assertOrg(db, input.orgId);
+    const contractId = assertContractVisible(db, input.contractId);
+    const isProc = input.isProcurementExpense ? 1 : 0;
     const claimNo = input.claimNo?.trim() || nextClaimNo(db);
     if (db.prepare('SELECT 1 FROM ex_claim WHERE claim_no = ?').get(claimNo)) throw conflict('CLAIM_NO_DUPLICATE', `报销单号「${claimNo}」已存在`);
     const now = nowIso();
     const cid = Number(db.prepare(`INSERT INTO ex_claim (claim_no, org_id, applicant, department, expense_type, amount_cents, occurred_date, description,
-        status, created_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`)
+        contract_id, is_procurement_expense, price_compare_doc_count, status, created_by_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'draft', ?, ?, ?)`)
       .run(claimNo, input.orgId, input.applicant, input.department, input.expenseType, parsed.amountCents, input.occurredDate, input.description,
+        contractId, isProc,
         currentAuth()?.userId ?? null, now, now).lastInsertRowid);
     writeLines(db, cid, parsed.lines);
-    writeLog(db, 'expense.claim.create', 'ex_claim', cid, { claimNo, orgId: input.orgId, amount: centsToDecimalString(parsed.amountCents), lineCount: parsed.lines.length });
+    writeLog(db, 'expense.claim.create', 'ex_claim', cid, {
+      claimNo, orgId: input.orgId, amount: centsToDecimalString(parsed.amountCents), lineCount: parsed.lines.length, contractId, isProcurementExpense: isProc === 1,
+    });
     return cid;
   }).immediate();
   return getClaimDetail(db, id);
@@ -297,11 +327,16 @@ export function updateClaim(db: DB, id: number, input: ClaimUpdateRequest): Clai
     assertStatus(c, ['draft'], '修改(提交后内容冻结)');
     assertVersion(c, input.expectedReviewVersion);
     assertOrg(db, input.orgId);
+    const contractId = assertContractVisible(db, input.contractId !== undefined ? input.contractId : c.contract_id);
+    const isProc = input.isProcurementExpense !== undefined ? (input.isProcurementExpense ? 1 : 0) : c.is_procurement_expense;
     db.prepare(`UPDATE ex_claim SET org_id = ?, applicant = ?, department = ?, expense_type = ?, amount_cents = ?, occurred_date = ?, description = ?,
-        review_version = review_version + 1, updated_at = ? WHERE id = ?`)
-      .run(input.orgId, input.applicant, input.department, input.expenseType, parsed.amountCents, input.occurredDate, input.description, nowIso(), id);
+        contract_id = ?, is_procurement_expense = ?, review_version = review_version + 1, updated_at = ? WHERE id = ?`)
+      .run(input.orgId, input.applicant, input.department, input.expenseType, parsed.amountCents, input.occurredDate, input.description, contractId, isProc, nowIso(), id);
     writeLines(db, id, parsed.lines);
-    writeLog(db, 'expense.claim.update', 'ex_claim', id, { claimNo: c.claim_no, orgId: input.orgId, amount: centsToDecimalString(parsed.amountCents), lineCount: parsed.lines.length });
+    recomputePriceCompareDocCount(db, id);
+    writeLog(db, 'expense.claim.update', 'ex_claim', id, {
+      claimNo: c.claim_no, orgId: input.orgId, amount: centsToDecimalString(parsed.amountCents), lineCount: parsed.lines.length, contractId, isProcurementExpense: isProc === 1,
+    });
   }).immediate();
   return getClaimDetail(db, id);
 }
@@ -327,8 +362,11 @@ export function addClaimAttachment(db: DB, store: ObjectStore, id: number, conte
     const aid = Number(db.prepare(`INSERT INTO ex_attachment (claim_id, file_object_id, file_sha256, name, kind_hint, submit_round, uploaded_by_user_id, uploaded_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, file.id, file.sha256, (name || fileName).slice(0, 200), kindHint ?? '', fresh.submit_round + 1, currentAuth()?.userId ?? null, nowIso()).lastInsertRowid);
+    const compareCount = recomputePriceCompareDocCount(db, id);
     db.prepare('UPDATE ex_claim SET review_version = review_version + 1, updated_at = ? WHERE id = ?').run(nowIso(), id);
-    writeLog(db, 'expense.claim.attachment', 'ex_claim', id, { claimNo: fresh.claim_no, attachmentId: aid, fileSha256: file.sha256, submitRound: fresh.submit_round + 1 });
+    writeLog(db, 'expense.claim.attachment', 'ex_claim', id, {
+      claimNo: fresh.claim_no, attachmentId: aid, fileSha256: file.sha256, submitRound: fresh.submit_round + 1, priceCompareDocCount: compareCount,
+    });
     return aid;
   }).immediate();
   return attachmentDto(claimAttachments(db, id).find((a) => a.id === attId)!);
@@ -343,6 +381,7 @@ export function removeClaimAttachment(db: DB, id: number, attachmentId: number):
     if (!a) throw notVisible('报销附件');
     if (a.submit_round !== c.submit_round + 1) throw conflict('CLAIM_STATE', '已提交轮次的附件不能移除');
     db.prepare('DELETE FROM ex_attachment WHERE id = ?').run(attachmentId);
+    recomputePriceCompareDocCount(db, id);
     db.prepare('UPDATE ex_claim SET review_version = review_version + 1, updated_at = ? WHERE id = ?').run(nowIso(), id);
     writeLog(db, 'expense.claim.attachment_remove', 'ex_claim', id, { claimNo: c.claim_no, attachmentId, fileSha256: a.file_sha256 });
   }).immediate();
@@ -366,6 +405,7 @@ export function submitClaim(db: DB, id: number, expectedReviewVersion: number): 
     const c = visibleClaim(db, id);
     assertStatus(c, ['draft', 'supplement'], '提交');
     assertVersion(c, expectedReviewVersion);
+    recomputePriceCompareDocCount(db, id);
     const lines = claimLines(db, id);
     const attachments = claimAttachments(db, id);
     if (c.status === 'supplement' && !attachments.some((a) => a.submit_round === c.submit_round + 1)) {
@@ -472,11 +512,33 @@ const attachmentDto = (a: AttachmentRow): ClaimAttachmentDto => ({
 function claimDto(db: DB, c: ClaimRow): ClaimDto {
   const org = db.prepare('SELECT name FROM org WHERE id = ?').get(c.org_id) as { name: string } | undefined;
   const run = latestRun(db, c.id);
+  const contract = c.contract_id !== null
+    ? (db.prepare('SELECT id, org_id, contract_no, name FROM ct_contract WHERE id = ?').get(c.contract_id) as { id: number; org_id: number; contract_no: string; name: string } | undefined)
+    : undefined;
+  const visibleContract = contract && orgInScope(currentOrgScope(db), contract.org_id) ? contract : undefined;
+  const splitLog = db.prepare(
+    `SELECT id, risk_event_id FROM ex_split_alert_log
+     WHERE org_id = ? AND EXISTS (SELECT 1 FROM json_each(claim_ids_json) WHERE value = ?)
+     ORDER BY id DESC LIMIT 1`
+  ).get(c.org_id, c.id) as { id: number; risk_event_id: number | null } | undefined;
+  const runFindings = run
+    ? (db.prepare('SELECT code FROM ex_finding WHERE run_id = ?').all(run.id) as { code: string }[])
+    : [];
+  const splitAlertHit = Boolean(splitLog) || runFindings.some((f) => f.code === 'EXP_SPLIT_BELOW_30K');
+  const missingComparisonAlert = runFindings.some((f) => f.code === 'EXP_SMALL_PROC_NO_COMPARISON');
   return {
     id: c.id, claimNo: c.claim_no, orgId: c.org_id, orgName: org?.name ?? `#${c.org_id}`, applicant: c.applicant, department: c.department,
     expenseType: c.expense_type, amount: centsToDecimalString(c.amount_cents), occurredDate: c.occurred_date, description: c.description, status: c.status,
     conclusion: c.conclusion, reviewVersion: c.review_version, submitRound: c.submit_round, contentSha256: c.content_sha256,
     submittedByName: userName(db, c.submitted_by_user_id), submittedAt: c.submitted_at, latestRiskLevel: run?.risk_level ?? null, createdAt: c.created_at, updatedAt: c.updated_at,
+    contractId: visibleContract ? visibleContract.id : c.contract_id,
+    contractNo: visibleContract?.contract_no ?? null,
+    contractName: visibleContract?.name ?? null,
+    isProcurementExpense: c.is_procurement_expense === 1,
+    priceCompareDocCount: c.price_compare_doc_count,
+    splitAlertHit,
+    splitRiskEventId: splitLog?.risk_event_id ?? null,
+    missingComparisonAlert,
   };
 }
 

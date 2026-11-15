@@ -33,6 +33,8 @@ import { getIssue, listIssues } from '../modules/governance/governance.service';
 import { getReport, listReports } from '../modules/standard-reports/standard-report.service';
 import { getAnalysisReport, redactDeep, reportListForAssistant } from '../modules/analysis-reports/report.service';
 import { getRiskEvent, listRiskEvents } from '../modules/risk/risk.service';
+import { currentOrgScope, notVisible, orgInScope } from '../modules/security/scope';
+import { analyzeContractDraftFields, analyzePlanIssuanceDraftFields } from './config-draft';
 import { getForecastVersion, getForecastRun, compareForecastRun, listForecastModels } from '../modules/forecast/forecast.service';
 import { getJobFor, listJobsFor } from '../modules/jobs/job.service';
 import { listBusinessSettings } from '../modules/settings/business-settings';
@@ -322,5 +324,68 @@ export const DOMAIN_TOOL_DEFINITIONS = defineTools({
     settings: listBusinessSettings(db).filter((s) => !s.key.startsWith('integration.')).map((s) => ({ label: s.label, value: s.value })),
     channels: listChannels(db).map((c) => ({ id: c.id, name: c.name, model: c.model, enabled: c.enabled })), bindings: listBindings(db).map((b) => ({ feature: b.feature, enabled: b.primaryChannelId != null })),
     notes: ['不返回密钥、账号、服务地址、余额或网络连接信息；配置修改在设置页面确认'] }),
+  },
+  suggest_contract_draft: {
+    label: "生成合同新建表单受控预填建议",
+    capabilities: ["project_data", "domain_support"], universal: false,
+    policy: { permission: "contract:read", scope: "global" },
+    schema: z.object({
+      orgId: z.number().int().safe().min(1),
+      coManagedOrgId: z.number().int().safe().min(1).optional(),
+      direction: z.enum(["expense", "income"]).optional(),
+      legalCategory: z.string().trim().max(50).optional(),
+      contractType: z.string().trim().max(60).optional(),
+      planItemId: z.number().int().safe().min(1).optional(),
+      originalAmount: z.string().trim().max(40).optional(),
+    }).strict(),
+    execute: (db: DB, p: any) => {
+      const scope = currentOrgScope(db);
+      if (!orgInScope(scope, p.orgId)) throw notVisible('组织');
+      if (p.coManagedOrgId && !orgInScope(scope, p.coManagedOrgId)) throw notVisible('被统筹组织');
+      if (p.planItemId) {
+        const pi = db.prepare('SELECT org_id FROM plan_item WHERE id = ?').get(p.planItemId) as { org_id: number | null } | undefined;
+        if (!pi || (pi.org_id !== null && !orgInScope(scope, pi.org_id))) throw notVisible('综合计划项');
+      }
+      const out = analyzeContractDraftFields(db, p);
+      return {
+        draftKind: 'contract_draft',
+        readOnly: true,
+        suggestedFields: out.suggestedFields,
+        issues: out.issues,
+        explanation: out.explanation,
+        notes: ['此工具仅输出受控表单预填建议，不创建或修改任何数据库记录；须由用户在页面表单确认后提交'],
+      };
+    },
+  },
+  suggest_plan_issuance_draft: {
+    label: "生成计划下达或调整受控预填建议",
+    capabilities: ["project_data", "domain_support"], universal: false,
+    policy: { permission: "plan:read", scope: "global" },
+    schema: z.object({
+      year: z.number().int().min(2000).max(2100).optional(),
+      issuanceStage: z.enum(["pre_arrangement", "formal_draft", "official", "adjusted"]).optional(),
+      unitOrgId: z.number().int().safe().min(1).optional(),
+      unitPackId: z.number().int().safe().min(1).optional(),
+      adjustType: z.string().trim().max(60).optional(),
+      exceedsOverallTarget: z.boolean().optional(),
+      emergencyStartDate: z.string().trim().max(20).optional(),
+    }).strict(),
+    execute: (db: DB, p: any) => {
+      const scope = currentOrgScope(db);
+      if (p.unitOrgId && !orgInScope(scope, p.unitOrgId)) throw notVisible('下达单位');
+      if (p.unitPackId) {
+        const pk = db.prepare('SELECT unit_org_id FROM plan_issuance_unit_pack WHERE id = ?').get(p.unitPackId) as { unit_org_id: number } | undefined;
+        if (!pk || !orgInScope(scope, pk.unit_org_id)) throw notVisible('下达单元包');
+      }
+      const out = analyzePlanIssuanceDraftFields(db, p);
+      return {
+        draftKind: 'plan_issuance_draft',
+        readOnly: true,
+        suggestedFields: out.suggestedFields,
+        issues: out.issues,
+        explanation: out.explanation,
+        notes: ['此工具仅输出受控预填建议与法定审批层级推导，不写入数据库'],
+      };
+    },
   },
 });

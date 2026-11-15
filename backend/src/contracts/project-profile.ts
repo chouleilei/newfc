@@ -13,7 +13,15 @@ export interface ProjectProfileBudgetDto {
 }
 export interface ProjectProfilePlanDto {
   batch: { id: number; year: number; actualPeriod: string } | null;
-  items: { itemId: number; sheetCode: string; itemName: string; orgName: string; facts: { key: string; label: string; valueType: string; value: string }[] }[];
+  items: {
+    itemId: number;
+    sheetCode: string;
+    itemName: string;
+    orgName: string;
+    linkedContractCount?: number;
+    linkedContractAmount?: MoneyString;
+    facts: { key: string; label: string; valueType: string; value: string }[];
+  }[];
 }
 export interface ProjectProfileContractsDto {
   count: number; currentTotal: MoneyString; paidTotal: MoneyString; paidRate: RatioString | null;
@@ -28,6 +36,7 @@ export interface ProjectProfileContractsDto {
   rows: {
     id: number; contractNo: string; name: string; supplierName: string | null; orgName: string; stage: string; status: string;
     direction?: string; pricingMode?: string; currency?: string;
+    planItemId?: number | null; planItemName?: string | null;
     current: MoneyString; settled?: MoneyString; paid: MoneyString; received?: MoneyString; signDate: string | null; documents: Record<string, number>;
   }[];
   payments: { id: number; contractId: number; contractNo: string; nodeName: string; amount: MoneyString; status: string; paidDate: string | null; voucherNo: string | null }[];
@@ -39,7 +48,10 @@ export interface ProjectProfileVouchersDto {
 }
 export interface ProjectProfileRisksDto {
   openCount: number; total: number;
-  rows: { id: number; ruleCode: string; ruleName: string; level: string; status: string; title: string; amount: MoneyString | null; lastDetectedAt: string }[];
+  rows: {
+    id: number; ruleCode: string; ruleName: string; level: string; status: string; title: string; amount: MoneyString | null; lastDetectedAt: string;
+    subjectType?: string; subjectId?: number; contractId?: number | null;
+  }[];
 }
 export interface ProjectProfileInvestmentDto {
   control: null | {

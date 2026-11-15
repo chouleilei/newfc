@@ -2284,7 +2284,9 @@
               "metric_formula",
               "calculation_rule",
               "cleaning_template",
-              "alias_rule"
+              "alias_rule",
+              "plan_issuance_draft",
+              "contract_draft"
             ]
           },
           "baseline": {
@@ -2890,7 +2892,9 @@
               "metric_formula",
               "calculation_rule",
               "cleaning_template",
-              "alias_rule"
+              "alias_rule",
+              "plan_issuance_draft",
+              "contract_draft"
             ]
           },
           "base": {
@@ -3361,7 +3365,8 @@
                 "type": "string",
                 "enum": [
                   "create",
-                  "sheet_create"
+                  "sheet_create",
+                  "adjust"
                 ]
               },
               "clientKey": {
@@ -3842,7 +3847,8 @@
         "level",
         "reportType",
         "includeRetired",
-        "expenseType"
+        "expenseType",
+        "planItemId"
       ],
       "entityTypes": [
         "row",
@@ -3870,7 +3876,9 @@
         "mgmt_metric"
       ],
       "factTypes": [],
-      "draftKinds": [],
+      "draftKinds": [
+        "plan_issuance_draft"
+      ],
       "defaultCapability": "domain_support",
       "capabilities": [
         "finance_data",
@@ -3903,7 +3911,8 @@
         "level",
         "reportType",
         "includeRetired",
-        "expenseType"
+        "expenseType",
+        "planItemId"
       ],
       "entityTypes": [
         "row",
@@ -3930,8 +3939,12 @@
         "governance_issue",
         "mgmt_metric"
       ],
-      "factTypes": [],
-      "draftKinds": [],
+      "factTypes": [
+        "tool:contract_legal_review"
+      ],
+      "draftKinds": [
+        "contract_draft"
+      ],
       "defaultCapability": "domain_support",
       "capabilities": [
         "finance_data",
@@ -4514,7 +4527,8 @@
         "level",
         "reportType",
         "includeRetired",
-        "expenseType"
+        "expenseType",
+        "planItemId"
       ],
       "entityTypes": [
         "row",
@@ -4542,7 +4556,9 @@
         "mgmt_metric"
       ],
       "factTypes": [],
-      "draftKinds": [],
+      "draftKinds": [
+        "contract_draft"
+      ],
       "defaultCapability": "domain_support",
       "capabilities": [
         "finance_data",
@@ -5254,7 +5270,7 @@
       ],
       "menuLabel": "预算与预测",
       "permission": "budget:read",
-      "allOrgs": true,
+      "allOrgs": false,
       "focusKinds": [
         "entity",
         "cell",
@@ -5955,33 +5971,33 @@
               "maximum": 9007199254740991
             },
             "batchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "accountScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "sheetKey": {
+              "nullable": true,
               "type": "string",
-              "maxLength": 80,
-              "nullable": true
+              "maxLength": 80
             },
             "summaryLevel": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 20,
-              "nullable": true
+              "maximum": 20
             }
           },
           "required": [
@@ -6011,22 +6027,22 @@
               "maximum": 9007199254740991
             },
             "batchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "accountScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "trendKind": {
               "type": "string",
@@ -6038,11 +6054,11 @@
               "description": "默认 composite 只汇总金额；查单个科目(含数量科目)的趋势必须传 account 并给出 trendId=科目ID"
             },
             "trendId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "trendKind=account 时为科目 ID，=metric 时为报表指标 ID",
-              "nullable": true
+              "description": "trendKind=account 时为科目 ID，=metric 时为报表指标 ID"
             }
           },
           "required": [
@@ -6153,10 +6169,10 @@
               "maximum": 9007199254740991
             },
             "batchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "threshold": {
               "type": "number",
@@ -6174,27 +6190,27 @@
               "maximum": 10
             },
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "accountScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "sheetKey": {
+              "nullable": true,
               "type": "string",
-              "maxLength": 80,
-              "nullable": true
+              "maxLength": 80
             },
             "summaryLevel": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 20,
-              "nullable": true
+              "maximum": 20
             }
           },
           "required": [
@@ -6219,27 +6235,27 @@
               "maximum": 9007199254740991
             },
             "batchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "accountScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "sheetKey": {
+              "nullable": true,
               "type": "string",
-              "maxLength": 80,
-              "nullable": true
+              "maxLength": 80
             },
             "maxDepth": {
               "type": "integer",
@@ -6260,10 +6276,10 @@
               ]
             },
             "summaryLevel": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 20,
-              "nullable": true
+              "maximum": 20
             }
           },
           "required": [
@@ -6291,51 +6307,51 @@
               ]
             },
             "versionId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "year": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1900,
-              "maximum": 9999,
-              "nullable": true
+              "maximum": 9999
             },
             "batchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "targetVersionId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "accountScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "sheetKey": {
+              "nullable": true,
               "type": "string",
-              "maxLength": 200,
-              "nullable": true
+              "maxLength": 200
             },
             "topN": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 50,
-              "nullable": true
+              "maximum": 50
             }
           },
           "required": [
@@ -6355,18 +6371,19 @@
           "type": "object",
           "properties": {
             "batchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "suggestionLimit": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 20,
-              "nullable": true
+              "maximum": 20
             },
             "errors": {
+              "maxItems": 500,
               "type": "array",
               "items": {
                 "type": "object",
@@ -6386,8 +6403,7 @@
                   }
                 },
                 "additionalProperties": false
-              },
-              "maxItems": 500
+              }
             }
           },
           "additionalProperties": false
@@ -6509,10 +6525,10 @@
           "type": "object",
           "properties": {
             "sourceProfileId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             }
           },
           "additionalProperties": false
@@ -6551,10 +6567,10 @@
           "type": "object",
           "properties": {
             "conversionId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             }
           },
           "additionalProperties": false
@@ -6613,27 +6629,27 @@
               "maximum": 9007199254740991
             },
             "batchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "accountScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "sheetKey": {
+              "nullable": true,
               "type": "string",
-              "maxLength": 200,
-              "nullable": true
+              "maxLength": 200
             }
           },
           "required": [
@@ -6671,10 +6687,10 @@
               "maximum": 9007199254740991
             },
             "orgId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             }
           },
           "required": [
@@ -6704,32 +6720,32 @@
               "description": "budget=预算版本(需传 versionId)，actual=实际数(需传 year)"
             },
             "versionId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "source=budget 时必填：预算版本 ID",
-              "nullable": true
+              "description": "source=budget 时必填：预算版本 ID"
             },
             "year": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1900,
               "maximum": 9999,
-              "description": "source=actual 时必填：年度，如 2026",
-              "nullable": true
+              "description": "source=actual 时必填：年度，如 2026"
             },
             "orgId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID 过滤，含其子树内的单元格",
-              "nullable": true
+              "description": "组织 ID 过滤，含其子树内的单元格"
             },
             "accountId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "科目 ID 过滤，含其子树内的单元格",
-              "nullable": true
+              "description": "科目 ID 过滤，含其子树内的单元格"
             }
           },
           "required": [
@@ -6798,50 +6814,50 @@
               "maximum": 9007199254740991
             },
             "batchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "accountScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "sheetKey": {
+              "nullable": true,
               "type": "string",
-              "maxLength": 200,
-              "nullable": true
+              "maxLength": 200
             },
             "summaryLevel": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 20,
-              "nullable": true
+              "maximum": 20
             },
             "basisMode": {
+              "nullable": true,
               "type": "string",
               "enum": [
                 "parent",
                 "account",
                 "metric"
               ],
-              "description": "占比基准:父级(默认)/指定科目/指定指标",
-              "nullable": true
+              "description": "占比基准:父级(默认)/指定科目/指定指标"
             },
             "basisId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "basisMode=account 时为科目 ID,=metric 时为指标 ID",
-              "nullable": true
+              "description": "basisMode=account 时为科目 ID,=metric 时为指标 ID"
             }
           },
           "required": [
@@ -6861,11 +6877,11 @@
           "type": "object",
           "properties": {
             "versionId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "传版本 ID 时按该版本绑定的快照口径列指标",
-              "nullable": true
+              "description": "传版本 ID 时按该版本绑定的快照口径列指标"
             }
           },
           "additionalProperties": false
@@ -6960,40 +6976,40 @@
               "description": "含基准年在内的年数,默认 3"
             },
             "orgCodes": {
+              "maxItems": 100,
               "type": "array",
               "items": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 40
-              },
-              "maxItems": 100
+              }
             },
             "accountCodes": {
+              "maxItems": 100,
               "type": "array",
               "items": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 40
-              },
-              "maxItems": 100
+              }
             },
             "baseBatchId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "accountScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             }
           },
           "required": [
@@ -7044,12 +7060,12 @@
           "type": "object",
           "properties": {
             "targetKind": {
+              "nullable": true,
               "type": "string",
               "enum": [
                 "budget",
                 "actual-current"
-              ],
-              "nullable": true
+              ]
             }
           },
           "additionalProperties": false
@@ -7066,21 +7082,21 @@
           "type": "object",
           "properties": {
             "targetKind": {
+              "nullable": true,
               "type": "string",
               "enum": [
                 "budget",
                 "actual-current",
                 "finance"
-              ],
-              "nullable": true
+              ]
             },
             "mappingKind": {
+              "nullable": true,
               "type": "string",
               "enum": [
                 "org",
                 "account"
-              ],
-              "nullable": true
+              ]
             }
           },
           "additionalProperties": false
@@ -7152,11 +7168,11 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID;受限账号只有一个授权组织时可省略",
-              "nullable": true
+              "description": "组织 ID;受限账号只有一个授权组织时可省略"
             },
             "period": {
               "type": "string",
@@ -7182,26 +7198,26 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             },
             "period": {
+              "nullable": true,
               "type": "string",
               "maxLength": 200,
               "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])$",
-              "description": "期间 YYYY-MM,缺省取最新当前批次",
-              "nullable": true
+              "description": "期间 YYYY-MM,缺省取最新当前批次"
             },
             "scope": {
+              "nullable": true,
               "type": "string",
               "enum": [
                 "parent",
                 "subsidiary",
                 "consolidated"
-              ],
-              "nullable": true
+              ]
             }
           },
           "additionalProperties": false
@@ -7218,24 +7234,24 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "period": {
+              "nullable": true,
               "type": "string",
               "maxLength": 200,
               "pattern": "^\\d{4}(?:-(?:0[1-9]|1[0-2]))?$",
-              "description": "期间 YYYY 或 YYYY-MM",
-              "nullable": true
+              "description": "期间 YYYY 或 YYYY-MM"
             },
             "metricId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             }
           },
           "additionalProperties": false
@@ -7252,27 +7268,27 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "status": {
+              "nullable": true,
               "type": "string",
               "enum": [
                 "unclosed",
                 "open",
                 "acknowledged",
                 "closed"
-              ],
-              "nullable": true
+              ]
             },
             "period": {
+              "nullable": true,
               "type": "string",
               "maxLength": 200,
-              "pattern": "^\\d{4}(?:-(?:0[1-9]|1[0-2]))?$",
-              "nullable": true
+              "pattern": "^\\d{4}(?:-(?:0[1-9]|1[0-2]))?$"
             }
           },
           "additionalProperties": false
@@ -7289,30 +7305,30 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "year": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1900,
-              "maximum": 9999,
-              "nullable": true
+              "maximum": 9999
             },
             "period": {
+              "nullable": true,
               "type": "string",
               "maxLength": 200,
               "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])$",
-              "description": "期间 YYYY-MM,缺省取最新当前批次",
-              "nullable": true
+              "description": "期间 YYYY-MM,缺省取最新当前批次"
             },
             "projectId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             }
           },
           "additionalProperties": false
@@ -7329,11 +7345,11 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "year": {
               "type": "integer",
@@ -7342,17 +7358,17 @@
               "description": "计划年度"
             },
             "asOfPeriod": {
+              "nullable": true,
               "type": "string",
               "maxLength": 200,
               "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])$",
-              "description": "截至期间 YYYY-MM(须在计划年度内),缺省取该年最新激活批次",
-              "nullable": true
+              "description": "截至期间 YYYY-MM(须在计划年度内),缺省取该年最新激活批次"
             },
             "projectId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             }
           },
           "required": [
@@ -7372,17 +7388,17 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "projectId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991,
-              "nullable": true
+              "maximum": 9007199254740991
             }
           },
           "additionalProperties": false
@@ -7422,11 +7438,11 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             }
           },
           "additionalProperties": false
@@ -7443,25 +7459,25 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "projectId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "可研项目 ID",
-              "nullable": true
+              "description": "可研项目 ID"
             },
             "scenarioId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "方案 ID,给出时返回该方案全部指标与未通过检查",
-              "nullable": true
+              "description": "方案 ID,给出时返回该方案全部指标与未通过检查"
             }
           },
           "additionalProperties": false
@@ -7478,25 +7494,25 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "projectId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "投资控制项目 ID",
-              "nullable": true
+              "description": "投资控制项目 ID"
             },
             "comparisonId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "对比快照 ID,给出时返回快照摘要与超限科目",
-              "nullable": true
+              "description": "对比快照 ID,给出时返回快照摘要与超限科目"
             }
           },
           "additionalProperties": false
@@ -7513,18 +7529,18 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "modelId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "预测模型 ID,给出时返回版本与运行",
-              "nullable": true
+              "description": "预测模型 ID,给出时返回版本与运行"
             }
           },
           "additionalProperties": false
@@ -7541,11 +7557,11 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "level": {
               "type": "string",
@@ -7571,11 +7587,11 @@
           "type": "object",
           "properties": {
             "orgScopeId": {
+              "nullable": true,
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991,
-              "description": "组织 ID(含下级)",
-              "nullable": true
+              "description": "组织 ID(含下级)"
             },
             "kind": {
               "type": "string",
@@ -7608,6 +7624,7 @@
               "description": "关键词(编码或名称片段,1-64 字)"
             },
             "types": {
+              "maxItems": 100,
               "type": "array",
               "items": {
                 "type": "string",
@@ -7625,12 +7642,57 @@
                   "budget_version"
                 ]
               },
-              "maxItems": 100,
               "description": "限定对象类型,缺省全部有权限的类型"
             }
           },
           "required": [
             "q"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "selectionModes": []
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "contract_legal_review",
+        "description": "读取合同法审结论：只读同源业务事实；金额和单位遵循该领域契约",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "contractId": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "contractId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "selectionModes": []
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "contract_lifecycle_detail",
+        "description": "读取合同全生命周期详情：只读同源业务事实；金额和单位遵循该领域契约",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "contractId": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "contractId"
           ],
           "additionalProperties": false
         }
@@ -7701,6 +7763,28 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 64
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "expense",
+                "income"
+              ]
+            },
+            "pricingMode": {
+              "type": "string",
+              "enum": [
+                "lump_sum",
+                "unit_price"
+              ]
+            },
+            "archiveStatus": {
+              "type": "string",
+              "enum": [
+                "collecting",
+                "checked",
+                "transferred"
+              ]
             }
           },
           "required": [
@@ -7797,23 +7881,23 @@
               "maximum": 9007199254740991
             },
             "metricIds": {
+              "minItems": 1,
+              "maxItems": 50,
               "type": "array",
               "items": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 9007199254740991
-              },
-              "minItems": 1,
-              "maxItems": 50
+              }
             },
             "periods": {
+              "minItems": 1,
+              "maxItems": 36,
               "type": "array",
               "items": {
                 "type": "string",
                 "maxLength": 200
-              },
-              "minItems": 1,
-              "maxItems": 36
+              }
             },
             "groupBy": {
               "type": "string",
@@ -8152,7 +8236,9 @@
                 "statement_summary",
                 "eas_recon",
                 "contract_payment_ledger",
-                "risk_rectification_ledger"
+                "risk_rectification_ledger",
+                "contract_monthly_pack",
+                "plan_issuance_summary"
               ]
             }
           },
@@ -8280,6 +8366,106 @@
         "parameters": {
           "type": "object",
           "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "selectionModes": []
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "suggest_contract_draft",
+        "description": "生成合同新建表单受控预填建议：只读同源业务事实；金额和单位遵循该领域契约",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "orgId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "coManagedOrgId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "direction": {
+              "type": "string",
+              "enum": [
+                "expense",
+                "income"
+              ]
+            },
+            "legalCategory": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "contractType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "planItemId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "originalAmount": {
+              "type": "string",
+              "maxLength": 40
+            }
+          },
+          "required": [
+            "orgId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "selectionModes": []
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "suggest_plan_issuance_draft",
+        "description": "生成计划下达或调整受控预填建议：只读同源业务事实；金额和单位遵循该领域契约",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "year": {
+              "type": "integer",
+              "minimum": 2000,
+              "maximum": 2100
+            },
+            "issuanceStage": {
+              "type": "string",
+              "enum": [
+                "pre_arrangement",
+                "formal_draft",
+                "official",
+                "adjusted"
+              ]
+            },
+            "unitOrgId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "unitPackId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "adjustType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "exceedsOverallTarget": {
+              "type": "boolean"
+            },
+            "emergencyStartDate": {
+              "type": "string",
+              "maxLength": 20
+            }
+          },
           "additionalProperties": false
         }
       },

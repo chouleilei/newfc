@@ -838,3 +838,28 @@ F01/F04/F15/F16/F18/F19/F20/F21/F23；T-14（覆盖全部 8 项 P1 改造：GAP-
 - **临时库实表黄金演练（`/tmp` 隔离目录演练完毕后已清理）**：
   - 非空 `V72 -> V73 -> V74` 升级后 `schema_migration = 74`、`integrity_check = ok`、`foreign_key_check = 0`。
   - 导入组织种子与 16 表 `.xls` 综合计划源簿（`692` 项），自动拆分 **8 个一级下达单元包**（排除 `is_plan_excluded = 1` 主体 `1` 家）、绑定 **7 份目标责任书**（总部无责任书）、对应 **49 张逻辑附表**；集团合并营业总收入（扣除免发主体与 8 单元半入整 `1n` 次分位尾差归因）、合并利润总额（`0n` 差）、固定资产投资、安全生产投入、五项费用精确值与 `0.01万元` 步长批复值、可控管理费半步长进位、含税运维 `÷ 1.06` 剔税换算及跨单位公式错引 `CROSS_UNIT_CELL_REF` 拦截等 **13 项黄金断言 100% 通过**；全集团导出 `.zip` 含 **15 份规范 `<w:tbl>` + `<w:tblHeader/>` 公文 `.docx`** 与 **1 份汇总底稿 `.xlsx`**。
+
+## T-15 第三阶段（P2）报销小额比价拆单预警、EAS 遗留对账、全景互跳、UX-26 受控草稿与 AC-CLR-09 多类别法审回归工程验收（2026-11-15，V75 待发布）
+
+F05/F07/F15/F16/F20/F22/F25；T-15.1～T-15.4（`GAP-20`、`GAP-21` 及 `AC-CLR-09`）；`AC-T15-01`～`AC-T15-05`（关联 `AC-F05`、`AC-F07`、`AC-F15`、`AC-F16`、`AC-F20`、`AC-F22`、`AC-F25`、`AC-CLR-09` 及跨域 `AC-X03`～`AC-X08`）。在独立 Git 工作树 `/root/newfc-dev`（分支 `feat/improvement-2026-11`）完成全部编码、测试与迁移恢复演练；生产运行目录 `/root/newfc`（`main` 分支，`v0.2.0`）、运行库 `/data/newfc-data/`（`V72`）及 `newfc.service` 全程未改动、未重启。
+
+| 验收 ID | 验收结论与关键证据 | 结果 |
+|---|---|---|
+| AC-T15-01 | 报销单支持挂接同范围合同（`contractId`）与标记采购类报销（`isProcurement`）；服务端在材料增删与提交审核时按 `material_type = 'comparison_quote'` 权威重算 `comparison_doc_count`（忽略客户端伪造值）；`≤ 30,000.00` 元（`expense.small_procurement_limit_cents = 3000000`）采购报销无书面比价命中 `EXP_SMALL_PROC_NO_COMPARISON`；同组织同类别（优先按供应商归一化键、次选科目编码）滚动 `30` 日（`expense.split_window_days = 30`）多笔小额累计 `≥ 30,000.00` 元命中 `EXP_SPLIT_BELOW_30K`、幂等写入 `ex_split_alert_log` 并联动 `PW_14` 疑似连续拆单线索；`ExpenseClaims.tsx` 实时展示 §8.1.7 比价提示与拆单预警标签；`t15-expense-split-and-eas-recon.test.ts`、`ExpenseClaims.test.tsx` 与 `cross-domain.spec.ts` 通过 | 通过 |
+| AC-T15-02 | `GET /api/eas/contract-recon` 按当前激活 EAS 数据集（`eas_period_current`）与 `OrgScope` 精确识别三类遗留异常：`deposit_2241_overdue`（`2241*` 质保金余额 `> 0n` 且质保期满已签证超 30 天未清）、`ap_negative_balance`（`2202*`/`2241*` 期末借方净额 `> 0n` 往来异常负余额）、`cip_1604_legacy`（`1604*` 在建工程期末借方净额 `> 0n` 且关联项目已确认结算/决算归档或本期零发生静止挂账）；`POST /api/eas/contract-recon/notes`（需 `eas:import` 权限）幂等写入 `eas_recon_note` 并记录 `operation_log`，原始 `eas_balance_line`/`eas_voucher_line`/`eas_aux_balance` 零改动；`EasWorkspace.tsx` 第 5 页签支持分类筛选、穿透跳转与核对说明登记；`t15-expense-split-and-eas-recon.test.ts`、`EasContractRecon.test.tsx` 与 `cross-domain.spec.ts` 通过 | 通过 |
+| AC-T15-03 | `getProjectProfile` 扩展返回综合计划项挂接合同份数 `linkedContractCount` 与人民币精确累计金额 `linkedContractAmount`（`bigint` 分汇总）、合同行 `planItemId`/`planItemName` 及风险行关联合同标识；`ProjectProfile.tsx` 点击计划卡片挂接合同信息直接切至「合同付款」页签并按 `planItemId` 过滤（支持一键清除筛选与直跳合同台账），风险页签与 `RiskLedger.tsx` 列表最右侧「关联跳转」列及详情抽屉支持一键穿透项目全景（`/projects/:id`）与合同详情（`/contracts?id=:id`），且保留整行点击打开风险抽屉交互；权限裁剪与 `OrgScope` 一致；`t15-profile-assistant-ux26.test.ts`、`ProjectProfile.test.tsx`、`risk-investment.spec.ts` 与 `cross-domain.spec.ts` 通过 | 通过 |
+| AC-T15-04 | `DraftKind` 扩展 `'contract_draft'`（绑定 `contracts`）与 `'plan_issuance_draft'`（绑定 `plan`），同步更新 `PAGE_CATALOG`、`CONFIG_FIELD_HELP` 与 `assistant-openapi.json`；服务端确定性预检按 `OrgScope` 校验组织/计划项范围（越权组织立即拦截），基于 `ct_prefix_org_map` 与计划项/调整类型派生安全结构化 `suggestedFields`（建议合同号、预算类别、默认会签部门、审批层级与制度依据），未保存表单私密文本不出网；`ContractBaseFormModal.tsx` 与 `PlanIssuanceTabs.tsx` 点击「填入助手建议草稿」仅通过内存回调回填前端 `Form` 并展示「助手建议草稿 · 待人工确认」标签，人工提交前数据库零写入；`t15-profile-assistant-ux26.test.ts`、`domainContext.test.tsx` 与 `assistant-domains.spec.ts` 通过 | 通过 |
+| AC-T15-05 | 完成 `AC-CLR-09` 覆盖 **8 大业务合同类别**（货物采购、大中型工程施工、小型基建工程、技术服务、一般综合服务、运行维护服务、收入销售合同、行政移交/重大特殊协议）的 100% 1:1 脱敏「缺陷初稿 vs 法审修订稿」自动化配对回归：数据库迁移零自动转正范本；范本为 `'candidate'` 时合规稿严格输出 `manual_review`（含 `TEMPLATE_CANDIDATE_UNCONFIRMED`）；经授权显式 `promote` 为 `'official'` 后，7 类标准合同缺陷稿预设红线 100% 召回拦截、修订合规稿输出 `pass`，第 8 类无标准范本重大特殊协议追踪 `3/3 -> 0/3 -> 1/3` 差异且补齐前置件后保持 `manual_review`（不误放 `pass`）；同步更新 [历史样本评估](contract-legal-sample-evaluation.md)；`t15-legal-regression-ac-clr-09.test.ts` 通过 | 通过 |
+
+全项目总验收门禁与全链路迁移演练汇总（`V72 -> V73 -> V74 -> V75`）：
+
+- **历史迁移只追加零修改核验**：`V1`～`V74` 全部迁移定义字节未改，仅新增 `V75`（`v75_expense_split_eas_recon_and_ux26_drafts`：`ex_split_alert_log`、`eas_recon_note` 及 `expense.split_window_days = 30`、`expense.small_procurement_limit_cents = 3000000` 默认参数种子）。
+- **后端全量门禁**：`cd /root/newfc-dev/backend && npx tsc --noEmit && npm run typecheck:test && npx vitest run && npm audit --omit=dev` 零错误通过，**138 文件 / 1,167 项通过**，生产运行依赖 **0 漏洞**。
+- **前端全量门禁**：`cd /root/newfc-dev/frontend && npx vitest run && npx tsc -b && npx vite build --outDir dist.verify --emptyOutDir && npm audit --omit=dev` 零错误通过，**67 文件 / 522 项通过**，隔离构建成功，生产运行依赖 **0 漏洞**。
+- **浏览器端到端（Playwright E2E 全量双配置）**：
+  - 法审与全生命周期配置（`playwright.contract-legal.config.ts`）：**14/14 全部通过（4.9m）**。
+  - 财务与全覆盖模拟双实例配置（`playwright.config.ts`，含 `cross-domain.spec.ts`、`assistant-domains.spec.ts`、`plan-issuance.spec.ts`、`risk-investment.spec.ts`）：**103/103 全部通过（21.0m）**。
+- **空库与非空 `V72` 库全链路迁移及回退恢复演练（临时目录演练后已清理）**：
+  - 空库 `0 -> V75`：一次性顺序执行全部 `75` 个版本耗时 `2,006 ms`，建立 `173` 张业务表（含 `ex_split_alert_log`、`eas_recon_note`），登记 `31` 项业务参数，自动转正 `'official'` 范本数为 `0`，`PRAGMA integrity_check = ok`、`PRAGMA foreign_key_check = 0`。
+  - 非空 `V72` 库升级、回退与在线恢复：在含组织、项目、供应商、合同、报销单、文件对象、EAS 三表批次与风险事件的 `V72` 库上先执行 `createBackup`（`manifest.schemaVersion = 72`），再升级 `V73 -> V74 -> V75` 耗时 `607 ms`，二次重放幂等跳过（`0` 迁移），`.safeIntegers(true)` 校验既有 `BigInt` 分金额无损且 `eas_recon_note` 读写正常；离线备份文件级回退验证版本精确回到 `72` 且完整性 `ok`；在线调用 `restoreBackup` 恢复 `V72` 备份包后自动补齐迁移 `[73, 74, 75]` 至 `finalVersion = 75`，`integrity_check = ok`、`foreign_key_check = 0`。
+- **全仓库脱敏扫描**：对比 `v0.2.0` 全部新增改动行执行机构/单位/外部实体/项目/合同实名、统一社会信用代码及涉密原始金额正则扫描，命中 **0 处**。

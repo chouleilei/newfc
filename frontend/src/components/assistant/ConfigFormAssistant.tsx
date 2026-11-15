@@ -2,15 +2,30 @@ import { useEffect, useState } from 'react';
 import { Button, Select, Space, Typography } from 'antd';
 import type { FormInstance } from 'antd';
 import { CONFIG_FIELD_HELP, type ConfigFormKind } from '@contracts/config-fields';
-import { useAssistant } from '../../assistant/AssistantProvider';
+import { useOptionalAssistant } from '../../assistant/AssistantProvider';
 import { useOptionalAssistantRegistry, useOptionalAssistantRegistryView } from '../../assistant/AssistantContextRegistry';
 import { useAssistantFocus } from '../../assistant/contextHooks';
 
-const FIELD_LABELS: Record<string, string> = { code: '编码', name: '名称', sortOrder: '排序', parentId: '上级节点', status: '状态', orgKind: '主体分类', creditCode: '统一社会信用代码', planIssuanceRootId: '计划归口一级主体', isPlanExcluded: '不单列计划', contractPrefixCode: '合同前缀简码', isDirectStation: '直属电站标志', reportFullName: '报表与公文全称', type: '科目类型', unit: '计量单位', quantityAgg: '数量汇总方式', budgetRequired: '预算必填', basisRequired: '测算依据', rootCodes: '表格根科目', collapsedCodes: '折叠科目', displayOrder: '显示顺序', kind: '指标类型', direction: '有利方向', displayFormat: '显示格式', displaySign: '展示符号', terms: '公式项', numerator: '分子', denominator: '分母', ruleType: '测算类型', sheetCode: '使用表格', config: '规则配置', quantityAccountCode: '数量科目', priceAccountCode: '单价科目', taxAccountCode: '税率科目', defaultTaxRate: '缺省税率', leftAccountCode: '乘数一', rightAccountCode: '乘数二', outputAccountCode: '输出科目', enabled: '启用', targetKind: '目标数据集', sheets: '工作表区域', columns: '列映射', valueKind: '金额或数量', amountUnit: '金额单位', signConvention: '符号口径', mappings: '名称映射', excludedRows: '排除行', headerRow: '表头行', dataStartRow: '数据开始行', dataEndRow: '数据结束行', clearBlankNotes: '空白备注覆盖', preferredSheetName: '优先工作表', mappingKind: '映射对象', sourceText: '来源名称', targetCode: '目标编码' };
+const FIELD_LABELS: Record<string, string> = {
+  code: '编码', name: '名称', sortOrder: '排序', parentId: '上级节点', status: '状态', orgKind: '主体分类', creditCode: '统一社会信用代码',
+  planIssuanceRootId: '计划归口一级主体', isPlanExcluded: '不单列计划', contractPrefixCode: '合同前缀简码', isDirectStation: '直属电站标志', reportFullName: '报表与公文全称',
+  type: '科目类型', unit: '计量单位', quantityAgg: '数量汇总方式', budgetRequired: '预算必填', basisRequired: '测算依据', rootCodes: '表格根科目', collapsedCodes: '折叠科目',
+  displayOrder: '显示顺序', kind: '指标类型', direction: '方向', displayFormat: '显示格式', displaySign: '展示符号', terms: '公式项', numerator: '分子', denominator: '分母',
+  ruleType: '测算类型', sheetCode: '使用表格', config: '规则配置', quantityAccountCode: '数量科目', priceAccountCode: '单价科目', taxAccountCode: '税率科目',
+  defaultTaxRate: '缺省税率', leftAccountCode: '乘数一', rightAccountCode: '乘数二', outputAccountCode: '输出科目', enabled: '启用',
+  targetKind: '目标数据集', sheets: '工作表区域', columns: '列映射', valueKind: '金额或数量', amountUnit: '金额单位', signConvention: '符号口径', mappings: '名称映射',
+  excludedRows: '排除行', headerRow: '表头行', dataStartRow: '数据开始行', dataEndRow: '数据结束行', clearBlankNotes: '空白备注覆盖', preferredSheetName: '优先工作表',
+  mappingKind: '映射对象', sourceText: '来源名称', targetCode: '目标编码',
+  year: '计划年度', cycleCode: '下达周期编码', issuanceStage: '下达阶段', orgId: '承办组织', unitOrgId: '申请调整单位',
+  adjustType: '调整类型', approvalBody: '法定审定机构', emergencyStartDate: '应急启动日期', decisionDocNo: '决策纪要文号', reason: '调整事由', lines: '调整明细行',
+  coManagedOrgId: '被统筹单位', signingSubjectOrgId: '名义签约主体', signingEntityLevel: '对外签约层级', contractNo: '合同编号', contractType: '合同业务类型',
+  legalCategory: '法审分类', reportCategory: '月报统计分类', projectId: '关联工程项目', planItemId: '关联综合计划项', supplierId: '签约相对方主数据',
+  counterpartyName: '签约相对方名称', originalAmount: '初始合同金额', budgetType: '预算归口类型', procurementMethod: '采购方式', countersignDepts: '建议会签部门',
+};
 
 /** 表单中显式字段帮助；hover 不更新焦点，不发送任何请求。 */
 export function ConfigFormAssistant({ kind, form, onLocateField }: { kind: ConfigFormKind; form?: FormInstance; onLocateField?: (field: string) => void }) {
-  const assistant = useAssistant();
+  const assistant = useOptionalAssistant();
   const registry = useOptionalAssistantRegistry();
   const view = useOptionalAssistantRegistryView();
   const [field, setField] = useState<string>();
@@ -31,6 +46,7 @@ export function ConfigFormAssistant({ kind, form, onLocateField }: { kind: Confi
     window.addEventListener('newfc:assistant-locate-field', locate);
     return () => window.removeEventListener('newfc:assistant-locate-field', locate);
   }, [registry, kind, form, onLocateField]);
+  if (!assistant) return null;
   return <Space wrap style={{ marginBottom: 12 }}>
     <Typography.Text type="secondary">当前修改未保存</Typography.Text>
     <Button onClick={assistant.openDock}>检查当前修改</Button>

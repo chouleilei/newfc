@@ -376,6 +376,10 @@ export function useAssistant(): AssistantValue {
   return value;
 }
 
+export function useOptionalAssistant(): AssistantValue | null {
+  return useContext(AssistantStateContext);
+}
+
 /**
  * 挂载顺序：注册中心在外(页面适配器向它登记)，会话状态在内(发送时向它取快照)。
  */

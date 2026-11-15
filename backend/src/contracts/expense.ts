@@ -124,6 +124,8 @@ export interface ClaimDto {
   isProcurementExpense?: boolean;
   priceCompareDocCount?: number;
   splitAlertHit?: boolean;
+  splitRiskEventId?: number | null;
+  missingComparisonAlert?: boolean;
 }
 export interface ClaimDetailDto extends ClaimDto {
   lines: ClaimLineDto[]; attachments: ClaimAttachmentDto[]; runs: AuditRunDto[]; reviews: ClaimReviewDto[];

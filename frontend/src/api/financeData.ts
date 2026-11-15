@@ -4,7 +4,8 @@
  */
 import { api } from './client';
 import type {
-  EasBatchDto, EasBatchLinesDto, EasCorrectionDto, EasDataType, EasPeriodLockDto, EasPeriodStatusDto, EasReconSetDto,
+  EasBatchDto, EasBatchLinesDto, EasContractReconCategory, EasContractReconDto, EasContractReconNoteRequest,
+  EasCorrectionDto, EasDataType, EasPeriodLockDto, EasPeriodStatusDto, EasReconNoteDto, EasReconSetDto,
 } from '@contracts/eas';
 import type { GovDispositionCreate, GovIssueDto, GovMatchSuggestionDto, GovQualityScoreDto, GovScanResultDto, GovVerifyDto } from '@contracts/governance';
 import type {
@@ -57,6 +58,10 @@ export const easApi = {
   auxRequirements: (orgId?: number) => api.get<{ id: number; orgId: number; orgName: string; accountCode: string; auxType: string; status: 'active' | 'inactive'; createdAt: string }[]>(`/eas/aux-requirements${qs({ orgId })}`),
   addAuxRequirement: (body: { orgId: number; accountCode: string; auxType: string }) => api.post('/eas/aux-requirements', body),
   deactivateAuxRequirement: (id: number) => api.post(`/eas/aux-requirements/${id}/deactivate`, {}),
+  contractRecon: (q: { orgId: number; period: string; category?: EasContractReconCategory; unresolvedOnly?: boolean }) =>
+    api.get<EasContractReconDto>(`/eas/contract-recon${qs({ ...q, unresolvedOnly: q.unresolvedOnly ? '1' : undefined })}`),
+  saveContractReconNote: (body: EasContractReconNoteRequest) =>
+    api.post<EasReconNoteDto>('/eas/contract-recon/notes', body),
 };
 
 export const govApi = {

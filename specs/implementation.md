@@ -979,7 +979,7 @@ T-2 实施要点：
 
 ## T-15：报销小额比价拆单预警、EAS遗留对账、全景互跳与受控草稿（阶段三 P2）
 
-状态：**实施中（独立工作树 `feat/improvement-2026-11`，目标 schema V75）**。领域模型、金额与事实隔离边界、接口权限契约、受控草稿防直写规则及 `AC-T15-01`～`AC-T15-05`（含 `AC-CLR-09`）唯一维护于 [T-15 领域细设计](expense-eas-recon-and-ux26-drafts.md)。
+状态：**已完成工程实现、双配置 E2E 回归与全链路迁移恢复演练（独立工作树 `feat/improvement-2026-11`，schema V75，待合入发布）**。领域模型、金额与事实隔离边界、接口权限契约、受控草稿防直写规则及 `AC-T15-01`～`AC-T15-05`（含 `AC-CLR-09`）唯一维护于 [T-15 领域细设计](expense-eas-recon-and-ux26-drafts.md)，验收证据见 [T-15 验收记录](../docs/acceptance-records.md)。
 
 ### 交付单元与依赖顺序
 

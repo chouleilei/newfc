@@ -1,13 +1,16 @@
 import { useBatchDeepLink } from '../../hooks/useBatchDeepLink';
 import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Alert, App as AntdApp, Button, Card, Descriptions, Drawer, Empty, Form, Input, Popconfirm, Select, Space, Table, Tabs, Tag, Typography, Upload,
+  Alert, App as AntdApp, Button, Card, Col, Descriptions, Drawer, Empty, Form, Input, Modal, Popconfirm, Row, Segmented, Select, Space, Statistic, Switch, Table, Tabs, Tag, Typography, Upload,
 } from 'antd';
 import { can, download, errorText } from '../../api/client';
-import { easApi, type EasBatchDto, type EasCorrectionDto, type EasDataType, type EasReconSetDto } from '../../api/financeData';
+import {
+  easApi, type EasBatchDto, type EasContractReconCategory, type EasContractReconItemDto, type EasCorrectionDto,
+  type EasDataType, type EasReconNoteStatus, type EasReconSetDto,
+} from '../../api/financeData';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
 import { defaultOrgId, EXCEPTION_REASON_FIELD, lastPeriod, Money, OrgSelect, PeriodPicker, RULE_STATUS, statusTag, usePrompt, compact } from './shared';
@@ -29,6 +32,17 @@ const BATCH_STATUS = { candidate: { text: '候选', color: 'processing' }, activ
 const CORRECTION_STATUS = {
   submitted: { text: '已提交', color: 'processing' }, candidate_import: { text: '待导入候选', color: 'processing' }, pending_review: { text: '待复核', color: 'warning' },
   approved: { text: '已批准', color: 'success' }, returned: { text: '已退回', color: 'default' },
+};
+const RECON_CATEGORY_LABELS: Record<EasContractReconCategory, { text: string; color: string }> = {
+  warranty_2241_overdue: { text: '质保金 2241 到期未清', color: 'gold' },
+  supplier_negative_balance: { text: '供应商往来异常负余额', color: 'red' },
+  cip_1604_legacy: { text: '在建工程 1604 长期未转固遗留', color: 'purple' },
+};
+const RECON_NOTE_STATUS_META: Record<EasReconNoteStatus, { text: string; color: string }> = {
+  pending: { text: '待核查', color: 'warning' },
+  to_writeoff: { text: '拟核销', color: 'processing' },
+  explained_normal: { text: '正常挂账说明', color: 'cyan' },
+  resolved: { text: '已核销结清', color: 'success' },
 };
 
 function ResultsTable({ set }: { set: EasReconSetDto }) {
@@ -326,8 +340,253 @@ function AuxTab() {
   );
 }
 
+function ContractReconTab() {
+  const { message } = AntdApp.useApp();
+  const qc = useQueryClient();
+  const [params] = useSearchParams();
+  const urlOrgId = params.get('orgId') && /^\d+$/.test(params.get('orgId')!) ? Number(params.get('orgId')) : undefined;
+  const urlPeriod = params.get('period') && /^\d{4}-\d{2}$/.test(params.get('period')!) ? params.get('period')! : undefined;
+  const [orgId, setOrgId] = useState<number | undefined>(urlOrgId ?? defaultOrgId());
+  const [period, setPeriod] = useState<string>(urlPeriod ?? lastPeriod());
+  const [category, setCategory] = useState<'all' | EasContractReconCategory>('all');
+  const [unresolvedOnly, setUnresolvedOnly] = useState(false);
+  const [editingItem, setEditingItem] = useState<EasContractReconItemDto | null>(null);
+  const [noteForm] = Form.useForm<{ reconStatus: EasReconNoteStatus; voucherRef?: string; note: string }>();
+
+  const canWriteNote = can('eas:import');
+  const canReadContract = can('contract:read');
+  const canReadProject = can('master:read');
+
+  const reconQ = useQuery({
+    queryKey: ['eas-contract-recon', orgId, period, category, unresolvedOnly],
+    queryFn: () => easApi.contractRecon({
+      orgId: orgId!,
+      period,
+      category: category === 'all' ? undefined : category,
+      unresolvedOnly,
+    }),
+    enabled: !!orgId && !!period,
+  });
+
+  const saveNote = useMutation({
+    mutationFn: (v: { reconStatus: EasReconNoteStatus; voucherRef?: string; note: string }) =>
+      easApi.saveContractReconNote({
+        orgId: orgId!,
+        period,
+        category: editingItem!.category,
+        targetKey: editingItem!.targetKey,
+        reconStatus: v.reconStatus,
+        voucherRef: v.voucherRef?.trim() ?? '',
+        note: v.note.trim(),
+      }),
+    onSuccess: () => {
+      message.success('已保存财务核对说明（仅记录于对账备注台账，原始 EAS 余额保持只读）');
+      setEditingItem(null);
+      void qc.invalidateQueries({ queryKey: ['eas-contract-recon'] });
+    },
+    onError: (e) => message.error(errorText(e)),
+  });
+
+  const openNoteModal = (item: EasContractReconItemDto) => {
+    setEditingItem(item);
+    noteForm.setFieldsValue({
+      reconStatus: item.reconStatus === 'pending' ? 'to_writeoff' : item.reconStatus,
+      voucherRef: item.voucherRef || item.voucherRefs[0] || '',
+      note: item.note || '',
+    });
+  };
+
+  const sum = reconQ.data?.summary;
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }} size={12}>
+      <Space wrap>
+        <OrgSelect value={orgId} onChange={setOrgId} allowClear={false} />
+        <PeriodPicker value={period} onChange={(v) => v && setPeriod(v)} />
+        <Segmented
+          value={category}
+          onChange={(v) => setCategory(v as 'all' | EasContractReconCategory)}
+          options={[
+            { value: 'all', label: `全部异常${sum ? ` (${sum.totalCount})` : ''}` },
+            { value: 'warranty_2241_overdue', label: `质保金 2241 到期未清${sum ? ` (${sum.byCategory.warranty_2241_overdue.count})` : ''}` },
+            { value: 'supplier_negative_balance', label: `供应商往来异常负余额${sum ? ` (${sum.byCategory.supplier_negative_balance.count})` : ''}` },
+            { value: 'cip_1604_legacy', label: `在建工程 1604 长期未转固遗留${sum ? ` (${sum.byCategory.cip_1604_legacy.count})` : ''}` },
+          ]}
+        />
+        <Space size={6}>
+          <Switch checked={unresolvedOnly} onChange={setUnresolvedOnly} aria-label="仅看未核销" />
+          <Typography.Text>仅看未核销</Typography.Text>
+        </Space>
+      </Space>
+
+      {!orgId ? (
+        <Alert type="info" showIcon message="请先选择组织与会计期间以执行 EAS 合同与工程遗留对账" />
+      ) : reconQ.error ? (
+        <QueryErrorResult title="EAS 合同与在建工程对账加载失败" error={reconQ.error} refetch={reconQ.refetch} />
+      ) : (
+        <>
+          {reconQ.data && !reconQ.data.hasActiveBalanceBatch && (
+            <Alert type="warning" showIcon message="该组织当前期间尚未激活生效的 EAS 科目余额/辅助核算批次，暂无账面余额可供核对" />
+          )}
+          {sum && (
+            <Row gutter={12}>
+              <Col xs={12} md={6}>
+                <Card size="small"><Statistic title="待核查/拟核销笔数" value={sum.unresolvedCount} suffix={`/ ${sum.totalCount}`} /></Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small"><Statistic title="2241 质保到期未清(元)" valueRender={() => <Money value={sum.byCategory.warranty_2241_overdue.totalAbsAmount} />} /></Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small"><Statistic title="往来异常负余额绝对值(元)" valueRender={() => <Money value={sum.byCategory.supplier_negative_balance.totalAbsAmount} />} /></Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card size="small"><Statistic title="1604 在建工程遗留(元)" valueRender={() => <Money value={sum.byCategory.cip_1604_legacy.totalAbsAmount} />} /></Card>
+              </Col>
+            </Row>
+          )}
+          <Table<EasContractReconItemDto>
+            rowKey="targetKey"
+            size="small"
+            loading={reconQ.isLoading}
+            dataSource={reconQ.data?.items ?? []}
+            scroll={{ x: 1280 }}
+            locale={{ emptyText: <Empty description="当前筛选条件下无异常对账项" /> }}
+            columns={[
+              {
+                title: '核对分类',
+                dataIndex: 'category',
+                width: 175,
+                render: (v: EasContractReconCategory) => <Tag color={RECON_CATEGORY_LABELS[v].color}>{RECON_CATEGORY_LABELS[v].text}</Tag>,
+              },
+              {
+                title: '科目编码与名称',
+                key: 'account',
+                width: 180,
+                render: (_, r) => <span><Typography.Text code>{r.accountCode}</Typography.Text> {r.accountName}</span>,
+              },
+              {
+                title: '辅助项目/供应商',
+                key: 'aux',
+                width: 180,
+                render: (_, r) => (
+                  <div>
+                    {r.supplierName && <div>客商：{r.supplierName}</div>}
+                    {(r.projectCode || r.projectName) && <div>项目：{r.projectCode ? `${r.projectCode} ` : ''}{r.projectName ?? ''}</div>}
+                    {!r.supplierName && !r.projectCode && !r.projectName && '—'}
+                  </div>
+                ),
+              },
+              {
+                title: '关联合同编号/工程',
+                key: 'links',
+                width: 210,
+                render: (_, r) => (
+                  <Space direction="vertical" size={2}>
+                    {r.contractId ? (
+                      canReadContract ? (
+                        <Link to={`/contracts?id=${r.contractId}`}>{r.contractNo ?? `合同 #${r.contractId}`}</Link>
+                      ) : (
+                        <span>{r.contractNo ?? `合同 #${r.contractId}`}</span>
+                      )
+                    ) : null}
+                    {r.projectId ? (
+                      canReadProject ? (
+                        <Link to={`/projects/${r.projectId}`}>{r.projectName ?? `工程 #${r.projectId}`}</Link>
+                      ) : (
+                        <span>{r.projectName ?? `工程 #${r.projectId}`}</span>
+                      )
+                    ) : null}
+                    {!r.contractId && !r.projectId && '—'}
+                  </Space>
+                ),
+              },
+              {
+                title: 'EAS 账面期末余额(元)',
+                dataIndex: 'bookBalance',
+                width: 150,
+                align: 'right',
+                render: (v: string) => <Money value={v} />,
+              },
+              { title: '合同质保/竣工状态', dataIndex: 'statusSummary', width: 200 },
+              {
+                title: '异常天数/说明',
+                key: 'reason',
+                render: (_, r) => (
+                  <div>
+                    {r.overdueDays != null && <Tag color="volcano">超期 {r.overdueDays} 天</Tag>}
+                    <Typography.Text type="secondary">{r.anomalyReason}</Typography.Text>
+                  </div>
+                ),
+              },
+              {
+                title: '财务核对状态',
+                dataIndex: 'reconStatus',
+                width: 170,
+                render: (v: EasReconNoteStatus, r) => (
+                  <div>
+                    <Tag color={RECON_NOTE_STATUS_META[v].color}>{RECON_NOTE_STATUS_META[v].text}</Tag>
+                    {r.voucherRef && <div><Typography.Text type="secondary" style={{ fontSize: 12 }}>凭证：{r.voucherRef}</Typography.Text></div>}
+                    {r.note && <div><Typography.Text style={{ fontSize: 12 }}>{r.note}</Typography.Text></div>}
+                  </div>
+                ),
+              },
+              ...(canWriteNote ? [{
+                title: '操作',
+                key: 'op',
+                width: 120,
+                fixed: 'right' as const,
+                render: (_: unknown, r: EasContractReconItemDto) => (
+                  <Button type="link" size="small" onClick={() => openNoteModal(r)}>登记核对说明</Button>
+                ),
+              }] : []),
+            ]}
+          />
+        </>
+      )}
+
+      <Modal
+        open={editingItem != null}
+        title={editingItem ? `登记核对说明 · ${editingItem.accountCode}` : '登记核对说明'}
+        onCancel={() => setEditingItem(null)}
+        destroyOnClose
+        confirmLoading={saveNote.isPending}
+        onOk={() => noteForm.validateFields().then((v) => saveNote.mutate(v))}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="只写附加财务核对台账，不篡改原始导入的 EAS 科目余额与凭证分录"
+        />
+        <Form form={noteForm} layout="vertical" preserve={false}>
+          <Form.Item name="reconStatus" label="财务核对结论" rules={[{ required: true, message: '请选择核对结论' }]}>
+            <Select
+              options={Object.entries(RECON_NOTE_STATUS_META).map(([value, m]) => ({ value, label: m.text }))}
+            />
+          </Form.Item>
+          <Form.Item name="voucherRef" label="关联核销/挂账凭证号(可选)">
+            <Input maxLength={100} placeholder="如 记-202606-0088" />
+          </Form.Item>
+          <Form.Item name="note" label="核对处理说明" rules={[{ required: true, whitespace: true, message: '请填写财务核对说明' }]}>
+            <Input.TextArea rows={3} maxLength={1000} placeholder="说明到期未清原因、拟冲销期间或工程转固安排" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Space>
+  );
+}
+
 export default function EasWorkspace() {
-  const [tab, setTab] = useState('period');
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') || 'period';
+  const setTab = (next: string) => {
+    setParams((prev) => {
+      const n = new URLSearchParams(prev);
+      if (next === 'period') n.delete('tab');
+      else n.set('tab', next);
+      return n;
+    }, { replace: true });
+  };
   useAssistantDomainPage({ pageKey: 'eas', ready: true, view: { tab } }, tab !== 'period' && tab !== 'corrections');
   return (
     <div>
@@ -337,6 +596,7 @@ export default function EasWorkspace() {
           { key: 'corrections', label: '锁后更正', children: <CorrectionsTab /> },
           { key: 'locks', label: '期间锁', children: <LocksTab /> },
           { key: 'aux', label: '辅助核算要求', children: <AuxTab /> },
+          { key: 'contract_recon', label: '合同与质保金/在建工程对账', children: <ContractReconTab /> },
         ]}
       />
     </div>

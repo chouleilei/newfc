@@ -1,4 +1,4 @@
-import { Descriptions, Empty, Space, Table, Typography } from 'antd';
+import { Button, Descriptions, Empty, Space, Table, Tag, Typography } from 'antd';
 import { Link } from 'react-router-dom';
 import type { AssistantFact } from '@contracts/assistant';
 
@@ -13,6 +13,7 @@ export const DOMAIN_TOOL_LABELS: Record<string, string> = {
   cross_search: '跨域检索', project_profile: '项目全景', master_entities: '项目与供应商', expense_detail: '报销审核详情', policy_search: '制度条款',
   governance_issues: '数据治理', standard_report_read: '冻结标准报表', analysis_report_read: '分析报告详情', risk_detail: '风险与整改', forecast_result: '预测版本与运行',
   task_status: '任务状态', configuration_overview: '配置与能力',
+  suggest_contract_draft: '合同草稿预填建议', suggest_plan_issuance_draft: '计划下达调整草稿建议',
 };
 const LABEL: Record<string, string> = {
   fieldName: '字段', valueType: '数值类型', facts: '原始事实', debit: '借方（元）', credit: '贷方（元）', periodFrom: '起始期间', periodTo: '截至期间', from: '起始期间', to: '截至期间', points: '趋势各期', annualPlan: '年度计划（元）', annualActualYtd: '累计执行（元）', fundSource: '资金来源', expenseCategory: '费用类别', execMonth: '执行月份', scope: '财报口径',
@@ -33,6 +34,9 @@ const LABEL: Record<string, string> = {
   models: '预测模型', model: '模型', versions: '预测版本', runs: '运行记录', outputs: '输出', comparison: '冻结对比', flaggedRows: '超限明细',
   openRisks: '未关闭风险', actions: '整改记录', reports: '报告列表', report: '冻结报表', summary: '摘要', sources: '事实来源', sections: '报告章节',
   settings: '业务设置', channels: '模型渠道', bindings: '功能绑定', notes: '口径说明', items: '记录', candidates: '候选对象',
+  draftKind: '草稿类型', readOnly: '只读建议', suggestedFields: '建议预填字段', issues: '风险与校验提示', explanation: '推导说明',
+  canonicalPrefix: '规范前缀', approvalBody: '审定机构编码', approvalBodyLabel: '法定审定机构', cycleCode: '建议周期编码',
+  issuanceStage: '下达阶段', budgetType: '预算归口类型', reportCategory: '月报分类', countersignDepts: '建议会签部门',
 };
 const STATUS: Record<string, string> = { active: '生效', draft: '草稿', frozen: '已冻结', published: '已发布', superseded: '已替代', approved: '已批准',
   submitted: '已提交', audited: '待人工复核', reviewing: '复核中', reviewed: '已复核', pending_approval: '待审批', pending_review: '待复核',
@@ -62,5 +66,46 @@ function DataView({ value, depth = 0 }: { value: unknown; depth?: number }) {
   </Space>;
 }
 export function DomainFactView({ fact }: { fact: AssistantFact }) {
-  return <div><DataView value={fact.data} /><Space wrap style={{ marginTop: 12 }}>{fact.source.references?.map((r) => <Link key={`${r.kind}:${r.id}`} to={r.path}>{r.label} · #{r.id}</Link>)}</Space></div>;
+  const raw = (fact.data && typeof fact.data === 'object' ? fact.data : null) as Record<string, unknown> | null;
+  const isDraftTool = fact.type === 'tool:suggest_contract_draft' || fact.type === 'tool:suggest_plan_issuance_draft';
+  const suggestedFields =
+    isDraftTool && raw?.suggestedFields && typeof raw.suggestedFields === 'object'
+      ? (raw.suggestedFields as Record<string, unknown>)
+      : null;
+  const draftKind =
+    typeof raw?.draftKind === 'string'
+      ? raw.draftKind
+      : fact.type === 'tool:suggest_contract_draft'
+        ? 'contract_draft'
+        : 'plan_issuance_draft';
+  return (
+    <div>
+      <DataView value={fact.data} />
+      {suggestedFields && Object.keys(suggestedFields).length > 0 && (
+        <Space wrap style={{ marginTop: 10 }}>
+          <Button
+            type="primary"
+            size="small"
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent('newfc:assistant-apply-draft', {
+                  detail: { kind: draftKind, suggestedFields },
+                }),
+              )
+            }
+          >
+            填入助手建议草稿
+          </Button>
+          <Tag color="processing">只回填表单 · 确认前不写库</Tag>
+        </Space>
+      )}
+      <Space wrap style={{ marginTop: 12 }}>
+        {fact.source.references?.map((r) => (
+          <Link key={`${r.kind}:${r.id}`} to={r.path}>
+            {r.label} · #{r.id}
+          </Link>
+        ))}
+      </Space>
+    </div>
+  );
 }

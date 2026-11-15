@@ -6,7 +6,7 @@ import { App as AntdApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { setSession } from '../../api/client';
-import { expenseApi, type ClaimDetailDto, type ExpenseQueueDto } from '../../api/projectContract';
+import { contractApi, expenseApi, type ClaimDetailDto, type ExpenseQueueDto } from '../../api/projectContract';
 import ExpenseClaims from './ExpenseClaims';
 
 let client: QueryClient;
@@ -123,4 +123,111 @@ describe('费用页面日常操作 AC-F22/X04', () => {
     await new Promise((resolve) => setTimeout(resolve, 2200));
     expect(counts).toHaveBeenCalledTimes(2);
   }, 15_000);
+
+  it('AC-T15-01：采购类小额报销实时展示 §8.1.7 比价提示、提交关联合同并渲染拆单与缺比价标识', async () => {
+    setSession({
+      authenticated: true,
+      csrfToken: 't',
+      expiresAt: '',
+      user: {
+        id: 1,
+        username: 'east',
+        displayName: '华东财务',
+        permissions: ['expense:read', 'expense:submit', 'contract:read', 'risk:read'],
+        allOrgs: false,
+        orgIds: [3],
+        mustChangePassword: false,
+      },
+    });
+    client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(['org-tree'], { rows: [], tree: [{ id: 3, code: 'SH', name: '上海公司', children: [] }] });
+    client.setQueryData(['workbench-todos'], { items: [] });
+    client.setQueryData(['dashboard-domains'], {});
+
+    const flaggedClaim: ClaimDetailDto = {
+      ...claim,
+      id: 21,
+      claimNo: 'BX-SH-21',
+      amount: '18000.00',
+      contractId: 55,
+      contractNo: 'HT-SH-2026-055',
+      contractName: '水情测报备件采购合同',
+      isProcurementExpense: true,
+      priceCompareDocCount: 0,
+      missingComparisonAlert: true,
+      splitAlertHit: true,
+      splitRiskEventId: 88,
+    };
+    vi.spyOn(expenseApi, 'claimsPage').mockResolvedValue(claimPage([flaggedClaim]));
+    vi.spyOn(expenseApi, 'queue').mockResolvedValue(queue());
+    vi.spyOn(expenseApi, 'claim').mockResolvedValue(flaggedClaim);
+    vi.spyOn(contractApi, 'list').mockResolvedValue([
+      {
+        id: 55,
+        contractNo: 'HT-SH-2026-055',
+        name: '水情测报备件采购合同',
+        orgId: 3,
+        orgName: '上海公司',
+        contractType: '货物采购',
+        projectId: null,
+        projectCode: null,
+        projectName: null,
+        supplierId: null,
+        supplierName: null,
+        originalAmount: '28000.00',
+        approvedChange: '0.00',
+        currentAmount: '28000.00',
+        paidAmount: '0.00',
+        paymentRate: '0.000000',
+        stage: 'performance',
+        status: 'active',
+        signDate: '2026-06-01',
+        startDate: null,
+        endDate: null,
+        version: 1,
+        createdAt: '2026-06-01',
+        updatedAt: '2026-06-01',
+      } as any,
+    ]);
+    const createSpy = vi.spyOn(expenseApi, 'createClaim').mockResolvedValue(flaggedClaim);
+
+    render(
+      <ConfigProvider locale={zhCN} theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={['/expense']}>
+              <ExpenseClaims />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AntdApp>
+      </ConfigProvider>,
+    );
+
+    expect(await screen.findByText('比价附件 0')).toBeTruthy();
+    expect(screen.getByText('缺比价')).toBeTruthy();
+    expect(screen.getByText('疑似连续30日拆单规避3万元限额')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('新建报销单').closest('button')!);
+    fireEvent.change(await screen.findByLabelText('申请人'), { target: { value: '李四' } });
+    fireEvent.change(screen.getByLabelText('费用类型'), { target: { value: '备品备件采购' } });
+    fireEvent.change(screen.getByLabelText('报销金额(元)'), { target: { value: '18000.00' } });
+    expect(screen.queryByText(/§8\.1\.7/)).toBeNull();
+
+    fireEvent.click(screen.getByText('属于采购类直接报销'));
+    expect(await screen.findByText(/§8\.1\.7.*3万元（含）以内直接报销项目/)).toBeTruthy();
+
+    const ctCombo = screen.getByLabelText('关联合同(可选)');
+    fireEvent.mouseDown(ctCombo);
+    fireEvent.click(await screen.findByText('HT-SH-2026-055 · 水情测报备件采购合同'));
+
+    fireEvent.click(screen.getByText(/^确\s*定$/).closest('button')!);
+    await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
+    expect(createSpy.mock.calls[0][0]).toMatchObject({
+      applicant: '李四',
+      expenseType: '备品备件采购',
+      amount: '18000.00',
+      contractId: 55,
+      isProcurementExpense: true,
+    });
+  }, 45_000);
 });

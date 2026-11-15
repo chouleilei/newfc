@@ -6,7 +6,7 @@
 import type { DB } from '../../db/connection';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalOrNull, centsToDecimalString, ratioString } from '../../core/decimal';
-import { currentOrgScope, hasPermission, scopeFilterSql, type OrgScope } from '../security/scope';
+import { currentOrgScope, hasPermission, orgInScope, scopeFilterSql, type OrgScope } from '../security/scope';
 import type { Permission } from '../../contracts/permissions';
 import { getProject } from './master.service';
 import { factValueText, fieldLabel, type PlanValueType } from '../plan-execution/plan.parse';
@@ -48,7 +48,7 @@ function budgetSection(db: DB, projectId: number, scope: OrgScope): ProjectProfi
   };
 }
 
-function planSection(db: DB, projectId: number, scope: OrgScope): ProjectProfilePlanDto {
+function planSection(db: DB, projectId: number, scope: OrgScope, canReadContracts: boolean): ProjectProfilePlanDto {
   const batch = db.prepare('SELECT id, year, actual_period FROM plan_batch WHERE is_current = 1 ORDER BY year DESC, actual_period DESC LIMIT 1').get() as
     { id: number; year: number; actual_period: string } | undefined;
   if (!batch) return { batch: null, items: [] };
@@ -57,26 +57,56 @@ function planSection(db: DB, projectId: number, scope: OrgScope): ProjectProfile
     WHERE i.batch_id = ? AND i.project_id = ? AND ${f.sql} ORDER BY i.sheet_code, i.row_no`).all(batch.id, projectId, ...f.params) as
     { id: number; sheet_code: PlanSheetCode; item_name: string; org_name: string | null }[];
   const facts = db.prepare('SELECT field_key, value_type, amount_cents, scaled_value, text_value FROM plan_fact WHERE item_id = ? ORDER BY id').safeIntegers(true);
+  const ctScope = scopeFilterSql(scope, 'c.org_id');
+  const linkedContractsStmt = db.prepare(
+    `SELECT c.currency, c.original_cents + c.approved_change_cents AS current_cents
+     FROM ct_contract c
+     WHERE c.project_id = ? AND c.plan_item_id = ? AND c.status <> 'voided' AND ${ctScope.sql}`
+  ).safeIntegers(true);
   return {
     batch: { id: batch.id, year: batch.year, actualPeriod: batch.actual_period },
-    items: items.map((it) => ({
-      itemId: it.id, sheetCode: it.sheet_code, itemName: it.item_name, orgName: it.org_name ?? '',
-      facts: (facts.all(it.id) as { field_key: string; value_type: PlanValueType; amount_cents: bigint | null; scaled_value: bigint | null; text_value: string | null }[])
-        .map((x) => ({
-          key: x.field_key, label: fieldLabel(it.sheet_code, x.field_key), valueType: x.value_type,
-          value: factValueText({ valueType: x.value_type, amount: x.amount_cents, scaled: x.scaled_value, text: x.text_value }),
-        })),
-    })),
+    items: items.map((it) => {
+      const ctRows = canReadContracts
+        ? (linkedContractsStmt.all(projectId, it.id, ...ctScope.params) as { currency: string; current_cents: bigint }[])
+        : [];
+      const linkedCents = ctRows
+        .filter((c) => c.currency === '人民币')
+        .reduce((s, c) => s + BigInt(c.current_cents), 0n);
+      return {
+        itemId: it.id,
+        sheetCode: it.sheet_code,
+        itemName: it.item_name,
+        orgName: it.org_name ?? '',
+        ...(canReadContracts
+          ? {
+              linkedContractCount: ctRows.length,
+              linkedContractAmount: centsToDecimalString(linkedCents),
+            }
+          : {}),
+        facts: (facts.all(it.id) as { field_key: string; value_type: PlanValueType; amount_cents: bigint | null; scaled_value: bigint | null; text_value: string | null }[])
+          .map((x) => ({
+            key: x.field_key, label: fieldLabel(it.sheet_code, x.field_key), valueType: x.value_type,
+            value: factValueText({ valueType: x.value_type, amount: x.amount_cents, scaled: x.scaled_value, text: x.text_value }),
+          })),
+      };
+    }),
   };
 }
 
 function contractsSection(db: DB, projectId: number, scope: OrgScope): ProjectProfileContractsDto {
   const f = scopeFilterSql(scope, 'c.org_id');
   const rows = db.prepare(`SELECT c.id, c.contract_no, c.name, s.name AS supplier_name, o.name AS org_name, c.stage, c.status, c.sign_date,
-      c.direction, c.pricing_mode, c.currency, c.original_cents + c.approved_change_cents AS current_cents, c.settled_net_cents, c.paid_cents, c.received_cents
+      c.direction, c.pricing_mode, c.currency, c.plan_item_id, pi.item_name AS plan_item_name, pi.org_id AS plan_item_org_id,
+      c.original_cents + c.approved_change_cents AS current_cents, c.settled_net_cents, c.paid_cents, c.received_cents
     FROM ct_contract c JOIN org o ON o.id = c.org_id LEFT JOIN md_supplier s ON s.id = c.supplier_id
+    LEFT JOIN plan_item pi ON pi.id = c.plan_item_id
     WHERE c.project_id = ? AND ${f.sql} ORDER BY c.id DESC`).safeIntegers(true).all(projectId, ...f.params) as
-    { id: bigint; contract_no: string; name: string; supplier_name: string | null; org_name: string; stage: string; status: string; sign_date: string | null; direction: string; pricing_mode: string; currency: string; current_cents: bigint; settled_net_cents: bigint; paid_cents: bigint; received_cents: bigint }[];
+    {
+      id: bigint; contract_no: string; name: string; supplier_name: string | null; org_name: string; stage: string; status: string;
+      sign_date: string | null; direction: string; pricing_mode: string; currency: string;
+      plan_item_id: bigint | null; plan_item_name: string | null; plan_item_org_id: bigint | null;
+      current_cents: bigint; settled_net_cents: bigint; paid_cents: bigint; received_cents: bigint;
+    }[];
   const docs = db.prepare('SELECT doc_type, COUNT(*) AS n FROM ct_document WHERE contract_id = ? GROUP BY doc_type');
   const live = rows.filter((r) => r.status !== 'voided');
   const liveExp = live.filter((r) => r.direction === 'expense' && r.currency === '人民币');
@@ -116,6 +146,8 @@ function contractsSection(db: DB, projectId: number, scope: OrgScope): ProjectPr
     rows: rows.map((r) => ({
       id: Number(r.id), contractNo: r.contract_no, name: r.name, supplierName: r.supplier_name, orgName: r.org_name, stage: r.stage, status: r.status,
       direction: r.direction, pricingMode: r.pricing_mode, currency: r.currency,
+      planItemId: r.plan_item_id !== null && (r.plan_item_org_id === null || orgInScope(scope, Number(r.plan_item_org_id))) ? Number(r.plan_item_id) : null,
+      planItemName: r.plan_item_id !== null && (r.plan_item_org_id === null || orgInScope(scope, Number(r.plan_item_org_id))) ? r.plan_item_name : null,
       current: centsToDecimalString(r.current_cents), settled: centsToDecimalString(r.settled_net_cents), paid: centsToDecimalString(r.paid_cents), received: centsToDecimalString(r.received_cents), signDate: r.sign_date,
       documents: Object.fromEntries((docs.all(Number(r.id)) as { doc_type: string; n: number }[]).map((d) => [d.doc_type, d.n])),
     })),
@@ -153,17 +185,37 @@ function vouchersSection(db: DB, projectId: number, code: string, scope: OrgScop
   };
 }
 
-function risksSection(db: DB, projectId: number, scope: OrgScope): ProjectProfileRisksDto {
+function risksSection(db: DB, projectId: number, scope: OrgScope, canReadContracts: boolean): ProjectProfileRisksDto {
   const f = scopeFilterSql(scope, 'e.org_id');
-  const rows = db.prepare(`SELECT e.id, e.rule_code, r.name AS rule_name, e.level, e.status, e.title, e.amount_cents, e.last_detected_at
+  const rows = db.prepare(`SELECT e.id, e.rule_code, r.name AS rule_name, e.level, e.status, e.title, e.amount_cents, e.last_detected_at,
+      e.subject_type, e.subject_id, e.evidence_json
     FROM risk_event e JOIN risk_rule r ON r.code = e.rule_code WHERE e.project_id = ? AND ${f.sql}
     ORDER BY CASE WHEN e.status IN ('closed','false_positive') THEN 1 ELSE 0 END, e.last_detected_at DESC, e.id DESC`).safeIntegers(true).all(projectId, ...f.params) as
-    { id: bigint; rule_code: string; rule_name: string; level: string; status: string; title: string; amount_cents: bigint | null; last_detected_at: string }[];
+    {
+      id: bigint; rule_code: string; rule_name: string; level: string; status: string; title: string; amount_cents: bigint | null;
+      last_detected_at: string; subject_type: string; subject_id: bigint; evidence_json: string;
+    }[];
+  const resolveRiskContractId = (r: (typeof rows)[number]): number | null => {
+    if (!canReadContracts) return null;
+    let cid: number | null = r.subject_type === 'contract' ? Number(r.subject_id) : null;
+    if (cid === null) {
+      try {
+        const ev = JSON.parse(r.evidence_json) as { contractId?: unknown };
+        if (typeof ev.contractId === 'number' && Number.isSafeInteger(ev.contractId)) cid = ev.contractId;
+      } catch { /* ignore */ }
+    }
+    if (cid === null) return null;
+    const ct = db.prepare('SELECT org_id FROM ct_contract WHERE id = ?').get(cid) as { org_id: number } | undefined;
+    return ct && orgInScope(scope, ct.org_id) ? cid : null;
+  };
   return {
     total: rows.length, openCount: rows.filter((r) => !['closed', 'false_positive'].includes(r.status)).length,
     rows: rows.map((r) => ({
       id: Number(r.id), ruleCode: r.rule_code, ruleName: r.rule_name, level: r.level, status: r.status, title: r.title,
       amount: centsToDecimalOrNull(r.amount_cents), lastDetectedAt: r.last_detected_at,
+      subjectType: r.subject_type,
+      subjectId: Number(r.subject_id),
+      contractId: resolveRiskContractId(r),
     })),
   };
 }
@@ -221,14 +273,15 @@ function logsSection(db: DB, projectId: number, contractIds: number[]): ProjectP
 export function getProjectProfile(db: DB, id: number): ProjectProfileDto {
   const project = getProject(db, id); // 范围外与不存在同为 404
   const scope = currentOrgScope(db);
-  const contracts = allowed('contract:read') ? contractsSection(db, id, scope) : null;
+  const canReadContracts = allowed('contract:read');
+  const contracts = canReadContracts ? contractsSection(db, id, scope) : null;
   return {
     project,
     budget: allowed('project_budget:read') ? budgetSection(db, id, scope) : null,
-    plan: allowed('plan:read') ? planSection(db, id, scope) : null,
+    plan: allowed('plan:read') ? planSection(db, id, scope, canReadContracts) : null,
     contracts,
     vouchers: allowed('eas:read') ? vouchersSection(db, id, project.code, scope) : null,
-    risks: allowed('risk:read') ? risksSection(db, id, scope) : null,
+    risks: allowed('risk:read') ? risksSection(db, id, scope, canReadContracts) : null,
     investment: allowed('investment:read') ? investmentSection(db, id, scope) : null,
     reports: allowed('report:read') ? reportsSection(db, project.orgId, scope) : null,
     logs: allowed('audit:read') ? logsSection(db, id, contracts?.rows.map((c) => c.id) ?? []) : null,

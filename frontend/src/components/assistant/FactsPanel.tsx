@@ -262,11 +262,56 @@ function RawJson({ data }: { data: unknown }) {
 }
 
 function ConfigDraftFact({ data }: { data: any }) {
+  const allIssues = Array.from(
+    new Set<string>([
+      ...((data.issues ?? []) as string[]),
+      ...((data.analysis?.issues ?? []) as string[]),
+    ]),
+  );
+  const suggested =
+    data.analysis?.suggestedFields && typeof data.analysis.suggestedFields === 'object'
+      ? (data.analysis.suggestedFields as Record<string, unknown>)
+      : null;
+  const suggestedEntries = suggested
+    ? Object.entries(suggested).filter(([, v]) => v !== undefined && v !== null && v !== '')
+    : [];
   return <Space direction="vertical" style={{ width: '100%' }}>
-    <Alert type={data.issues?.length ? 'warning' : 'success'} showIcon message={data.issues?.length ? '当前修改有待解决的问题' : '本次校验通过'} description="修改尚未保存，正式保存仍会重新检查。" />
-    {(data.issues ?? []).map((issue: string, index: number) => <Typography.Text key={index}>{issue}</Typography.Text>)}
+    <Alert type={allIssues.length ? 'warning' : 'success'} showIcon message={allIssues.length ? '当前修改有待解决的问题' : '本次校验通过'} description="修改尚未保存，正式保存仍会重新检查。" />
+    {allIssues.map((issue: string, index: number) => <Typography.Text key={index}>{issue}</Typography.Text>)}
     {(data.analysis?.fieldIssues ?? []).map((issue: { field: string; message: string }, index: number) => <Button key={index} size="small" onClick={() => window.dispatchEvent(new CustomEvent('newfc:assistant-locate-field', { detail: { kind: data.kind, targetId: data.targetId, clientKey: data.clientKey, field: issue.field } }))}>定位相关字段</Button>)}
     {(data.analysis?.explanation ?? []).map((line: string, index: number) => <Typography.Text key={index}>{line}</Typography.Text>)}
+    {suggestedEntries.length > 0 && (
+      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+        <Descriptions size="small" column={2} bordered title="助手受控预填建议">
+          {suggestedEntries.map(([k, v]) => (
+            <Descriptions.Item key={k} label={k}>
+              {Array.isArray(v) ? v.join('、') : String(v)}
+            </Descriptions.Item>
+          ))}
+        </Descriptions>
+        <Space wrap>
+          <Button
+            type="primary"
+            size="small"
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent('newfc:assistant-apply-draft', {
+                  detail: {
+                    kind: data.kind,
+                    targetId: data.targetId ?? null,
+                    clientKey: data.clientKey ?? null,
+                    suggestedFields: suggested,
+                  },
+                }),
+              )
+            }
+          >
+            填入助手建议草稿
+          </Button>
+          <Tag color="processing">只回填表单 · 确认前不写库</Tag>
+        </Space>
+      </Space>
+    )}
   </Space>;
 }
 

@@ -23,6 +23,7 @@ import { rollup, type RollupResult } from '../core/rollup';
 import { loadSnapshotNodes } from '../modules/tree/snapshot';
 import { listRows } from '../modules/actual/actual.helpers';
 import { listMetricsForVersion } from '../modules/metric/metric.service';
+import { currentOrgScope, orgInScope } from '../modules/security/scope';
 import type { DraftKind } from '../contracts/page-catalog';
 // 未信任的 wire shape；具体操作基线在读取依赖前检查。
 interface DraftWireInput { kind: DraftKind; base: Record<string, unknown>; changes: unknown }
@@ -307,7 +308,58 @@ const CONFIG_TABLES: Record<string, string> = {
   calculation_rule: 'budget_calculation_rule',
   cleaning_template: 'import_mapping_template',
   alias_rule: 'import_name_alias',
+  plan_issuance_draft: 'plan_issuance_cycle',
+  contract_draft: 'ct_contract',
 };
+
+function assertScopedDraftAccess(db: DB, kind: DraftKind, fields: Record<string, unknown>, targetId: number | null): void {
+  if (kind !== 'contract_draft' && kind !== 'plan_issuance_draft') return;
+  const scope = currentOrgScope(db);
+  const denyScope = (what: string): never => {
+    throw new AppError('SCOPE_RESTRICTED', `${what}超出当前账号授权组织范围`, 403);
+  };
+  const checkOrgId = (raw: unknown, label: string) => {
+    if (raw == null || raw === '') return;
+    const oid = Number(raw);
+    if (!Number.isSafeInteger(oid) || oid <= 0) draftInvalid(`${label} 必须是正整数`);
+    const exists = db.prepare('SELECT id FROM org WHERE id = ?').get(oid);
+    if (!exists) draftInvalid(`${label} #${oid} 不存在`);
+    if (!orgInScope(scope, oid)) denyScope(label);
+  };
+  if (kind === 'contract_draft') {
+    if (targetId != null) {
+      const row = db.prepare('SELECT org_id FROM ct_contract WHERE id = ?').get(targetId) as { org_id: number } | undefined;
+      if (row && !orgInScope(scope, row.org_id)) denyScope('合同');
+    }
+    checkOrgId(fields.orgId, '承办组织');
+    checkOrgId(fields.coManagedOrgId, '被统筹组织');
+    if (fields.projectId != null && fields.projectId !== '') {
+      const pid = Number(fields.projectId);
+      if (!Number.isSafeInteger(pid) || pid <= 0) draftInvalid('projectId 必须是正整数');
+      const p = db.prepare('SELECT org_id FROM md_project WHERE id = ?').get(pid) as { org_id: number } | undefined;
+      if (!p) draftInvalid(`项目 #${pid} 不存在`);
+      if (!orgInScope(scope, p.org_id)) denyScope('关联项目');
+    }
+    if (fields.planItemId != null && fields.planItemId !== '') {
+      const iid = Number(fields.planItemId);
+      if (!Number.isSafeInteger(iid) || iid <= 0) draftInvalid('planItemId 必须是正整数');
+      const pi = db.prepare('SELECT org_id FROM plan_item WHERE id = ?').get(iid) as { org_id: number | null } | undefined;
+      if (!pi) draftInvalid(`综合计划项 #${iid} 不存在`);
+      if (pi.org_id !== null && !orgInScope(scope, pi.org_id)) denyScope('关联综合计划项');
+    }
+  }
+  if (kind === 'plan_issuance_draft') {
+    checkOrgId(fields.orgId, '下达组织');
+    checkOrgId(fields.unitOrgId, '申请调整单位');
+    if (fields.unitPackId != null && fields.unitPackId !== '') {
+      const packId = Number(fields.unitPackId);
+      if (!Number.isSafeInteger(packId) || packId <= 0) draftInvalid('unitPackId 必须是正整数');
+      const pk = db.prepare('SELECT unit_org_id FROM plan_issuance_unit_pack WHERE id = ?').get(packId) as { unit_org_id: number } | undefined;
+      if (!pk) draftInvalid(`单元下达包 #${packId} 不存在`);
+      if (!orgInScope(scope, pk.unit_org_id)) denyScope('单元下达包');
+    }
+  }
+}
 
 /**
  * 解析并校验草稿(§9.6)。只做白名单解析与基线/确定性校验，不写任何表。
@@ -321,11 +373,21 @@ export function normalizeDraftInput(db: DB, draft: DraftWireInput, options: { sn
   if (!draft.changes || typeof draft.changes !== 'object' || Array.isArray(draft.changes)) draftInvalid('配置草稿必须为字段对象', snapshotId);
   const fields = draft.changes as Record<string, unknown>;
   const operation = text(draft.base.operation, 'draft.base.operation', 30, snapshotId);
-  const allowedOperations: Partial<Record<DraftKind, string[]>> = { org_form: ['create', 'update', 'move', 'status'], account_form: ['create', 'update', 'move', 'status', 'sheet_create', 'sheet_update'], metric_formula: ['create', 'update'], calculation_rule: ['create', 'update'], cleaning_template: ['create', 'update', 'analyze'], alias_rule: ['create', 'update'] };
+  const allowedOperations: Partial<Record<DraftKind, string[]>> = {
+    org_form: ['create', 'update', 'move', 'status'],
+    account_form: ['create', 'update', 'move', 'status', 'sheet_create', 'sheet_update'],
+    metric_formula: ['create', 'update'],
+    calculation_rule: ['create', 'update'],
+    cleaning_template: ['create', 'update', 'analyze'],
+    alias_rule: ['create', 'update'],
+    plan_issuance_draft: ['create', 'update', 'adjust'],
+    contract_draft: ['create', 'update'],
+  };
   if (!allowedOperations[draft.kind]?.includes(operation)) draftInvalid('当前草稿类型不支持此操作', snapshotId, 'draft.base.operation');
   for (const key of Object.keys(draft.base)) if (!['id', 'updatedAt', 'clientKey', 'operation', ...(operation === 'analyze' ? ['source'] : [])].includes(key)) draftInvalid('草稿基线包含不允许的字段', snapshotId, 'draft.base');
   if (operation === 'analyze') validateInput(cleaningSourceSchema, draft.base.source);
-  if ((['create', 'sheet_create', 'analyze'].includes(operation) && identity.targetId != null) || (['update', 'move', 'status', 'sheet_update'].includes(operation) && identity.targetId == null)) draftInvalid('操作与草稿基线不一致', snapshotId, 'draft.base.operation');
+  if ((['create', 'sheet_create', 'analyze', 'adjust'].includes(operation) && identity.targetId != null) || (['update', 'move', 'status', 'sheet_update'].includes(operation) && identity.targetId == null)) draftInvalid('操作与草稿基线不一致', snapshotId, 'draft.base.operation');
+  assertScopedDraftAccess(db, draft.kind, fields, identity.targetId);
   if (identity.targetId != null) {
     const table = operation === 'sheet_update' ? 'preset_sheet' : CONFIG_TABLES[draft.kind];
     const row = db.prepare(`SELECT updated_at FROM ${table} WHERE id=?`).get(identity.targetId) as { updated_at: string } | undefined;

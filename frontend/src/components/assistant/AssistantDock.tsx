@@ -166,6 +166,50 @@ function DockTurn({ turn, currentPage, onOpenFullPage, onSuggestion, onNavigate 
             />
           )}
           {/* 事实表格、归因树这类重展示留在完整页 */}
+          {(() => {
+            const draftFact = response?.facts?.find(
+              (f) =>
+                (f.type === 'draft_validation' && (f.data as any)?.analysis?.suggestedFields) ||
+                ((f.type === 'tool:suggest_contract_draft' || f.type === 'tool:suggest_plan_issuance_draft') &&
+                  (f.data as any)?.suggestedFields),
+            );
+            if (!draftFact) return null;
+            const raw = draftFact.data as any;
+            const suggestedFields = (raw?.analysis?.suggestedFields ?? raw?.suggestedFields) as Record<string, unknown> | undefined;
+            if (!suggestedFields || Object.keys(suggestedFields).length === 0) return null;
+            const kind =
+              raw?.kind ??
+              raw?.draftKind ??
+              (draftFact.type === 'tool:suggest_contract_draft' ? 'contract_draft' : 'plan_issuance_draft');
+            return (
+              <div style={{ marginTop: 8 }}>
+                <Space size={6} wrap>
+                  <Button
+                    size="small"
+                    type="primary"
+                    data-testid="assistant-dock-apply-draft"
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent('newfc:assistant-apply-draft', {
+                          detail: {
+                            kind,
+                            targetId: raw?.targetId ?? null,
+                            clientKey: raw?.clientKey ?? null,
+                            suggestedFields,
+                          },
+                        }),
+                      )
+                    }
+                  >
+                    填入助手建议草稿
+                  </Button>
+                  <Tag bordered={false} color="processing" className="newfc-ai-meta">
+                    只回填表单 · 确认前不写库
+                  </Tag>
+                </Space>
+              </div>
+            );
+          })()}
           {response?.facts?.length ? (
             <Button size="small" type="link" style={{ paddingInline: 0 }} onClick={onOpenFullPage}>
               查看 {response.facts.length} 项结构化事实与明细表
@@ -293,6 +337,7 @@ export function AssistantDock() {
           style={{ zIndex: overlayZIndex }}
           role="dialog"
           aria-label="财务助手"
+          data-testid="assistant-dock"
         >
           <div className="newfc-ai-float-head">
             <AssistantMark size={24} />

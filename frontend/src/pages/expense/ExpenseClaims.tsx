@@ -1,14 +1,15 @@
 import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { positiveQueryNumber, useListSearchParams } from '../../hooks/useListSearchParams';
 import {
-  Alert, App as AntdApp, Button, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Radio, Row, Segmented, Select, Space, Table, Tag, Typography, Upload,
+  Alert, App as AntdApp, Button, Checkbox, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Radio, Row, Segmented, Select, Space, Table, Tag, Typography, Upload,
 } from 'antd';
 import dayjs from 'dayjs';
 import { can, download, errorText } from '../../api/client';
 import {
-  expenseApi, type AuditRunDto, type ClaimDetailDto, type ClaimDto, type ClaimStatus, type Disposition, type FindingDto, type ReviewConclusion,
+  contractApi, expenseApi, type AuditRunDto, type ClaimDetailDto, type ClaimDto, type ClaimStatus, type Disposition, type FindingDto, type ReviewConclusion,
 } from '../../api/projectContract';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
@@ -23,14 +24,40 @@ import { CLAIM_STATUS, CONCLUSION_LABEL, DISPOSITION_LABEL, EvidenceTags, MODEL_
 const moneyRule = { pattern: /^\d{1,13}(\.\d{1,2})?$/, message: '金额最多 2 位小数且大于 0' };
 const dateItem = { getValueProps: (v?: string) => ({ value: v ? dayjs(v) : null }), normalize: (d: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null) };
 
+function parseCentsSafe(raw: unknown): bigint | null {
+  if (typeof raw !== 'string') return null;
+  const m = raw.trim().match(/^(\d{1,13})(?:\.(\d{1,2}))?$/);
+  if (!m) return null;
+  const frac = (m[2] ?? '').padEnd(2, '0');
+  return BigInt(m[1]) * 100n + BigInt(frac);
+}
+
 function ClaimFormModal({ open, claim, onClose, onSaved }: { open: boolean; claim?: ClaimDetailDto; onClose: () => void; onSaved: (c: ClaimDetailDto) => void }) {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [form] = Form.useForm();
+  const orgIdWatch = Form.useWatch('orgId', form) as number | undefined;
+  const isProcWatch = Form.useWatch('isProcurementExpense', form) as boolean | undefined;
+  const amountWatch = Form.useWatch('amount', form) as string | undefined;
+  const amountCents = parseCentsSafe(amountWatch);
+  const showSmallProcHint = Boolean(isProcWatch) && amountCents !== null && amountCents > 0n && amountCents <= 3_000_000n;
+  const canReadContracts = can('contract:read');
+  const contractsQ = useQuery({
+    queryKey: ['expense-contract-options', orgIdWatch ?? 'all'],
+    queryFn: () => contractApi.list(orgIdWatch ? { orgId: orgIdWatch } : {}),
+    enabled: open && canReadContracts,
+    staleTime: 30_000,
+  });
+
   const save = useMutation({
     mutationFn: (v: Record<string, unknown>) => {
       const lines = ((v.lines as Record<string, unknown>[] | undefined) ?? []).map((l) => compact(l));
-      const body = { ...compact(v), lines } as never;
+      const body = {
+        ...compact(v),
+        contractId: v.contractId ? Number(v.contractId) : null,
+        isProcurementExpense: Boolean(v.isProcurementExpense),
+        lines,
+      } as never;
       return claim ? expenseApi.updateClaim(claim.id, { ...(body as object), expectedReviewVersion: claim.reviewVersion } as never) : expenseApi.createClaim(body);
     },
     onSuccess: (c) => {
@@ -49,8 +76,10 @@ function ClaimFormModal({ open, claim, onClose, onSaved }: { open: boolean; clai
         initialValues={claim ? {
           orgId: claim.orgId, applicant: claim.applicant, department: claim.department, expenseType: claim.expenseType, amount: claim.amount,
           occurredDate: claim.occurredDate, description: claim.description,
+          contractId: claim.contractId ?? null,
+          isProcurementExpense: claim.isProcurementExpense ?? false,
           lines: claim.lines.map((l) => ({ expenseType: l.expenseType, amount: l.amount, invoiceNo: l.invoiceNo, invoiceDate: l.invoiceDate, description: l.description })),
-        } : { orgId: defaultOrgId(), occurredDate: dayjs().format('YYYY-MM-DD'), lines: [] }}>
+        } : { orgId: defaultOrgId(), occurredDate: dayjs().format('YYYY-MM-DD'), isProcurementExpense: false, contractId: null, lines: [] }}>
         <Row gutter={12}>
           {!claim && <Col span={8}><Form.Item name="claimNo" label="单号(缺省自动生成)"><Input maxLength={64} /></Form.Item></Col>}
           <Col span={8}><Form.Item name="orgId" label="组织" rules={[{ required: true, message: '请选择组织' }]}><OrgSelect onChange={(v) => form.setFieldValue('orgId', v)} width={260} allowClear={false} /></Form.Item></Col>
@@ -59,6 +88,37 @@ function ClaimFormModal({ open, claim, onClose, onSaved }: { open: boolean; clai
           <Col span={8}><Form.Item name="expenseType" label="费用类型" rules={[{ required: true, whitespace: true }]}><Input maxLength={50} placeholder="如 差旅费" /></Form.Item></Col>
           <Col span={8}><Form.Item name="amount" label="报销金额(元)" rules={[{ required: true }, moneyRule]}><Input /></Form.Item></Col>
           <Col span={8}><Form.Item name="occurredDate" label="发生日期" rules={[{ required: true }]} {...dateItem}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+          <Col span={8}>
+            <Form.Item name="isProcurementExpense" valuePropName="checked" label="采购报销属性">
+              <Checkbox>属于采购类直接报销</Checkbox>
+            </Form.Item>
+          </Col>
+          {canReadContracts && (
+            <Col span={16}>
+              <Form.Item name="contractId" label="关联合同(可选)">
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  loading={contractsQ.isLoading}
+                  placeholder="选择同组织有效关联合同"
+                  options={(contractsQ.data ?? []).map((ct) => ({
+                    value: ct.id,
+                    label: `${ct.contractNo} · ${ct.name}`,
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+          )}
+          {showSmallProcHint && (
+            <Col span={24} style={{ marginBottom: 12 }}>
+              <Alert
+                type="info"
+                showIcon
+                message="依据《采购管理办法》§8.1.7，针对采购目标内容单一、无后续服务且3万元（含）以内直接报销项目，应进行市场比价，形成书面比价报告作为报账依据（经常、重复发生的同类型项目不适用本条款），请在提交审核前于附件区上传"
+              />
+            </Col>
+          )}
           <Col span={24}><Form.Item name="description" label="事由"><Input.TextArea rows={2} maxLength={1000} /></Form.Item></Col>
         </Row>
         <Typography.Text strong>明细</Typography.Text>
@@ -212,6 +272,29 @@ function ClaimDrawer({ id, onClose }: { id: number | null; onClose: () => void }
             <Descriptions.Item label="费用类型">{c.expenseType}</Descriptions.Item>
             <Descriptions.Item label="金额"><Money value={c.amount} /></Descriptions.Item>
             <Descriptions.Item label="发生日期">{c.occurredDate}</Descriptions.Item>
+            <Descriptions.Item label="关联合同">
+              {c.contractId ? (
+                can('contract:read') ? (
+                  <Link to={`/contracts?id=${c.contractId}`}>{c.contractNo ?? `#${c.contractId}`}{c.contractName ? ` · ${c.contractName}` : ''}</Link>
+                ) : (
+                  <span>{c.contractNo ?? `#${c.contractId}`}</span>
+                )
+              ) : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="采购与比价核验" span={2}>
+              <Space wrap size={4}>
+                {c.isProcurementExpense ? <Tag color="blue">采购类报销</Tag> : <Tag>非采购报销</Tag>}
+                <Tag color={(c.priceCompareDocCount ?? 0) > 0 ? 'success' : 'default'}>比价附件 {c.priceCompareDocCount ?? 0} 份</Tag>
+                {c.missingComparisonAlert && <Tag color="orange">缺书面市场比价报告</Tag>}
+                {c.splitAlertHit && (
+                  c.splitRiskEventId && can('risk:read') ? (
+                    <Link to={`/risk?id=${c.splitRiskEventId}`}><Tag color="warning">疑似连续30日拆单规避3万元限额 · 查看线索</Tag></Link>
+                  ) : (
+                    <Tag color="warning">疑似连续30日拆单规避3万元限额</Tag>
+                  )
+                )}
+              </Space>
+            </Descriptions.Item>
             <Descriptions.Item label="提交">{c.submittedByName ? `${c.submittedByName} · ${shortTime(c.submittedAt!)}` : '—'}</Descriptions.Item>
             <Descriptions.Item label="提交轮次 / 版本">{c.submitRound} / v{c.reviewVersion}</Descriptions.Item>
             <Descriptions.Item label="内容哈希">{c.contentSha256 ? <Typography.Text code>{c.contentSha256.slice(0, 12)}…</Typography.Text> : '—'}</Descriptions.Item>
@@ -233,6 +316,9 @@ function ClaimDrawer({ id, onClose }: { id: number | null; onClose: () => void }
               {editable && (
                 <>
                   <Input placeholder="材料类别(如 住宿发票)" value={kindHint} onChange={(e) => setKindHint(e.target.value)} style={{ width: 180 }} />
+                  {c.isProcurementExpense && (
+                    <Button size="small" onClick={() => setKindHint('price_comparison')}>标记为书面比价报告</Button>
+                  )}
                   <Upload showUploadList={false} beforeUpload={(f) => { run.mutate(() => expenseApi.addAttachment(c.id, f, kindHint.trim() || undefined)); return false; }}>
                     <Button icon={<i className="ri-upload-2-line" aria-hidden />}>上传附件</Button>
                   </Upload>
@@ -332,7 +418,19 @@ export default function ExpenseClaims() {
             { title: '金额', dataIndex: 'amount', width: 130, align: 'right', render: (v: string) => <Money value={v} /> },
             { title: '发生日期', dataIndex: 'occurredDate', width: 110 },
             { title: '状态', dataIndex: 'status', width: 100, render: (v: string, r) => <Space size={2}>{statusTag(CLAIM_STATUS, v)}{r.conclusion && <Tag>{CONCLUSION_LABEL[r.conclusion]}</Tag>}</Space> },
-            { title: '风险', dataIndex: 'latestRiskLevel', width: 90, render: (v: string | null) => statusTag(RISK, v) ?? '—' },
+            {
+              title: '比价/风险', dataIndex: 'latestRiskLevel', width: 220,
+              render: (v: string | null, r) => (
+                <Space size={4} wrap>
+                  {statusTag(RISK, v) ?? '—'}
+                  {(r.isProcurementExpense || (r.priceCompareDocCount ?? 0) > 0) && (
+                    <Tag color={(r.priceCompareDocCount ?? 0) > 0 ? 'cyan' : 'default'}>比价附件 {r.priceCompareDocCount ?? 0}</Tag>
+                  )}
+                  {r.missingComparisonAlert && <Tag color="orange">缺比价</Tag>}
+                  {r.splitAlertHit && <Tag color="warning">疑似连续30日拆单规避3万元限额</Tag>}
+                </Space>
+              ),
+            },
             { title: '事由', dataIndex: 'description', ellipsis: true },
           ]} />
       )}

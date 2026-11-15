@@ -1617,7 +1617,9 @@ export async function chat(
 
   /** 草稿影响：请求内叠加基线重算(§9.6)。结果只进 facts/正文，不进模型、不落库。 */
   // 草稿影响按整版重算汇总(集团口径),与编制页同样只对全组织用户开放。
-  if (backendCtx?.draft) requireAllOrgsForAction('草稿影响测算');
+  if (backendCtx?.draft && backendCtx.draft.kind !== 'contract_draft' && backendCtx.draft.kind !== 'plan_issuance_draft') {
+    requireAllOrgsForAction('草稿影响测算');
+  }
   const draftImpact = !selection && backendCtx?.draft ? computeDraftImpact(db, backendCtx.draft) : null;
   if (backendCtx && (verificationFact || backendCtx.draft)) {
     // 模型可见的只有「页面给出的脱敏范围 + 后端重算的核验/草稿结论摘要」，原始 draft.changes 永不进入。

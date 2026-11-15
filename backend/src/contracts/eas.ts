@@ -154,3 +154,88 @@ export interface EasPeriodStatusDto {
   pendingCorrection: EasCorrectionDto | null;
   candidateBatches: EasBatchDto[];
 }
+
+/* ================= GAP-20: EAS 合同质保金 / 往来负余额 / 在建工程遗留对账 ================= */
+
+export const EAS_CONTRACT_RECON_CATEGORIES = [
+  'warranty_2241_overdue',
+  'supplier_negative_balance',
+  'cip_1604_legacy',
+] as const;
+export type EasContractReconCategory = (typeof EAS_CONTRACT_RECON_CATEGORIES)[number];
+export const EAS_CONTRACT_RECON_CATEGORY_LABELS: Record<EasContractReconCategory, string> = {
+  warranty_2241_overdue: '质保金 2241 到期未清',
+  supplier_negative_balance: '供应商往来异常负余额',
+  cip_1604_legacy: '在建工程 1604 长期未转固遗留',
+};
+
+export const EAS_RECON_NOTE_STATUSES = ['pending', 'to_writeoff', 'explained_normal', 'resolved'] as const;
+export type EasReconNoteStatus = (typeof EAS_RECON_NOTE_STATUSES)[number];
+export const EAS_RECON_NOTE_STATUS_LABELS: Record<EasReconNoteStatus, string> = {
+  pending: '待核查',
+  to_writeoff: '拟核销',
+  explained_normal: '正常挂账说明',
+  resolved: '已核销结清',
+};
+
+export const easContractReconNoteRequest = z.object({
+  orgId: id,
+  period,
+  category: z.enum(EAS_CONTRACT_RECON_CATEGORIES),
+  targetKey: z.string().trim().min(1, '核对目标键不能为空').max(200),
+  reconStatus: z.enum(EAS_RECON_NOTE_STATUSES),
+  voucherRef: z.string().trim().max(100).default(''),
+  note: z.string().trim().min(1, '请填写财务核对说明').max(1000),
+});
+export type EasContractReconNoteRequest = z.infer<typeof easContractReconNoteRequest>;
+
+export interface EasReconNoteDto {
+  id: number;
+  orgId: number;
+  period: string;
+  category: EasContractReconCategory;
+  targetKey: string;
+  reconStatus: EasReconNoteStatus;
+  voucherRef: string;
+  note: string;
+  updatedByName: string | null;
+  updatedAt: string;
+}
+
+export interface EasContractReconItemDto {
+  targetKey: string;
+  category: EasContractReconCategory;
+  accountCode: string;
+  accountName: string;
+  projectCode: string | null;
+  projectName: string | null;
+  projectId: number | null;
+  supplierName: string | null;
+  supplierId: number | null;
+  contractId: number | null;
+  contractNo: string | null;
+  contractName: string | null;
+  bookBalance: MoneyString;
+  statusSummary: string;
+  overdueDays: number | null;
+  anomalyReason: string;
+  voucherRefs: string[];
+  reconStatus: EasReconNoteStatus;
+  voucherRef: string;
+  note: string;
+  noteUpdatedByName: string | null;
+  noteUpdatedAt: string | null;
+}
+
+export interface EasContractReconDto {
+  orgId: number;
+  orgName: string;
+  period: string;
+  hasActiveBalanceBatch: boolean;
+  summary: {
+    totalCount: number;
+    unresolvedCount: number;
+    byCategory: Record<EasContractReconCategory, { count: number; totalAbsAmount: MoneyString }>;
+  };
+  items: EasContractReconItemDto[];
+}

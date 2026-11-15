@@ -79,6 +79,16 @@ export const BUSINESS_SETTINGS: readonly SettingDef[] = [
     maxLength: 500,
     description: '英文逗号分隔的法审触发类别枚举，默认覆盖货物采购、小型施工、工程施工、技术服务、一般服务、重要特殊六大类别',
   },
+  {
+    key: 'expense.split_window_days', label: '报销小额拆单监测滚动天数', group: '费用审核', type: 'int',
+    default: 30, min: 1, max: 365,
+    description: '同组织同费用类别或关联合同在连续自然日窗口内多笔小额报销累计达限额时触发疑似拆单预警（默认 30 日）',
+  },
+  {
+    key: 'expense.small_procurement_limit_cents', label: '小额采购直接报销比价门槛（分）', group: '费用审核', type: 'int',
+    default: 3000000, min: 100, max: 100000000,
+    description: '采购类直接报销需附书面市场比价报告及高频拆单监测的整数分阈值（默认 3000000 分 = 30,000.00 元）',
+  },
 ];
 
 const DEFS = new Map(BUSINESS_SETTINGS.map((d) => [d.key, d]));

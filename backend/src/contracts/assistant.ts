@@ -59,10 +59,10 @@ export type SelectionDescriptor =
   | { mode: 'bounds'; bounds: { sheetKey?: string; orgIds?: number[]; accountIds?: number[] } }
   | { mode: 'query'; query: Record<string, string | number | boolean | null> };
 
-export type ConfigDraftOperation = 'create' | 'update' | 'move' | 'status' | 'sheet_create' | 'sheet_update' | 'analyze';
+export type ConfigDraftOperation = 'create' | 'update' | 'move' | 'status' | 'sheet_create' | 'sheet_update' | 'analyze' | 'adjust';
 export type CleaningDraftSource = { token: string; sha256: string } | { batchId: number; sha256: string };
 export type ConfigDraftBase =
-  | { operation: 'create' | 'sheet_create'; clientKey: string }
+  | { operation: 'create' | 'sheet_create' | 'adjust'; clientKey: string }
   | { operation: 'update' | 'move' | 'status' | 'sheet_update'; id: number; updatedAt: string }
   | { operation: 'analyze'; clientKey: string; source: CleaningDraftSource };
 

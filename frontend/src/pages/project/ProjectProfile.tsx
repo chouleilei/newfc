@@ -1,11 +1,11 @@
 import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
-import { Alert, Card, Col, Descriptions, Empty, Row, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Alert, Button, Card, Col, Descriptions, Empty, Row, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
 import { projectProfileApi, type ProjectProfileDto } from '../../api/projectProfile';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
-import { Money, Ratio, statusTag } from '../financeData/shared';
+import { compact, Money, Ratio, statusTag } from '../financeData/shared';
 import { RISK_LEVEL, RISK_STATUS, RPT_KIND_LABEL, RPT_STATUS } from '../risk/shared';
 import { IC_VERSION_TYPE_LABEL } from '../invest/shared';
 import { CONTRACT_DOC_TYPE_LABELS, CONTRACT_STAGE_LABELS, CONTRACT_STATUS, FLOW_STATUS } from './shared';
@@ -37,13 +37,45 @@ function BudgetTab({ b }: { b: NonNullable<P['budget']> }) {
   );
 }
 
-function PlanTab({ p }: { p: NonNullable<P['plan']> }) {
+function PlanTab({
+  p,
+  projectId,
+  hasContractsTab,
+  onFilterContractsByPlanItem,
+}: {
+  p: NonNullable<P['plan']>;
+  projectId: number;
+  hasContractsTab: boolean;
+  onFilterContractsByPlanItem: (planItemId: number) => void;
+}) {
   if (!p.batch) return <Empty description="暂无当前计划执行批次" />;
   if (p.items.length === 0) return <Empty description={`${p.batch.year} 年计划(截至 ${p.batch.actualPeriod})中没有关联本项目的明细`} />;
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
       {p.items.map((it) => (
-        <Card key={it.itemId} size="small" title={`${it.itemName}(${it.orgName || '—'})`} extra={<Typography.Text type="secondary">截至 {p.batch!.actualPeriod}</Typography.Text>}>
+        <Card
+          key={it.itemId}
+          size="small"
+          title={`${it.itemName}(${it.orgName || '—'})`}
+          extra={
+            <Space wrap size={8}>
+              <Typography.Text type="secondary">截至 {p.batch!.actualPeriod}</Typography.Text>
+              {it.linkedContractCount !== undefined && (
+                <Tag color={it.linkedContractCount > 0 ? 'blue' : 'default'}>
+                  已挂接合同：{it.linkedContractCount} 份 / <Money value={it.linkedContractAmount ?? '0.00'} />
+                </Tag>
+              )}
+              {hasContractsTab && (
+                <Button size="small" type="link" onClick={() => onFilterContractsByPlanItem(it.itemId)}>
+                  查看挂接合同
+                </Button>
+              )}
+              {hasContractsTab && (
+                <Link to={`/contracts?projectId=${projectId}&planItemId=${it.itemId}`}>合同台账</Link>
+              )}
+            </Space>
+          }
+        >
           <Descriptions size="small" column={3}>
             {it.facts.map((f) => (
               <Descriptions.Item key={f.key} label={f.label}>
@@ -58,9 +90,42 @@ function PlanTab({ p }: { p: NonNullable<P['plan']> }) {
   );
 }
 
-function ContractsTab({ c }: { c: NonNullable<P['contracts']> }) {
+function ContractsTab({
+  c,
+  planItems,
+  filterPlanItemId,
+  onClearPlanFilter,
+}: {
+  c: NonNullable<P['contracts']>;
+  planItems?: NonNullable<P['plan']>['items'];
+  filterPlanItemId: number | null;
+  onClearPlanFilter: () => void;
+}) {
+  const filteredRows = filterPlanItemId != null ? c.rows.filter((r) => r.planItemId === filterPlanItemId) : c.rows;
+  const activePlanItemName =
+    filterPlanItemId != null
+      ? planItems?.find((it) => it.itemId === filterPlanItemId)?.itemName ??
+        filteredRows.find((r) => r.planItemName)?.planItemName ??
+        `#${filterPlanItemId}`
+      : null;
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
+      {filterPlanItemId != null && (
+        <Alert
+          type="info"
+          showIcon
+          message={
+            <Space wrap>
+              <span>
+                当前按综合计划项筛选：{activePlanItemName}（共 {filteredRows.length} 份合同）
+              </span>
+              <Button size="small" type="link" onClick={onClearPlanFilter}>
+                清除筛选
+              </Button>
+            </Space>
+          }
+        />
+      )}
       <Row gutter={12}>
         <Col span={6}><Card size="small"><Statistic title="合同数" value={c.count} /></Card></Col>
         <Col span={6}><Card size="small"><Statistic title="支出合同额/已结(元)" valueRender={() => <><Money value={c.currentTotal} /> / <Money value={c.settledTotal ?? '0.00'} /></>} /></Card></Col>
@@ -81,10 +146,17 @@ function ContractsTab({ c }: { c: NonNullable<P['contracts']> }) {
         <Tag color={(c.openDisputeCount ?? 0) > 0 ? 'red' : 'default'}>未闭环纠纷 {c.openDisputeCount ?? 0} 宗</Tag>
         {(c.foreignCurrencyCount ?? 0) > 0 && <Tag color="purple">外币合同 {c.foreignCurrencyCount} 份(未折算并入人民币合计)</Tag>}
       </Space>
-      <Table size="small" rowKey="id" pagination={false} dataSource={c.rows} scroll={{ x: 1120 }} columns={[
+      <Table<NonNullable<P['contracts']>['rows'][number]> size="small" rowKey="id" pagination={false} dataSource={filteredRows} scroll={{ x: 1280 }} columns={[
         { title: '合同编号', dataIndex: 'contractNo', width: 140, render: (v: string, r) => <Link to={`/contracts?id=${r.id}`}>{v}</Link> },
         { title: '方向', dataIndex: 'direction', width: 64, render: (v?: string) => (v === 'income' ? <Tag color="green">收入</Tag> : <Tag>支出</Tag>) },
         { title: '名称', dataIndex: 'name', ellipsis: true },
+        {
+          title: '关联综合计划项',
+          dataIndex: 'planItemName',
+          width: 170,
+          ellipsis: true,
+          render: (v: string | null | undefined, r) => (v ? v : r.planItemId ? `#${r.planItemId}` : '—'),
+        },
         { title: '供应商', dataIndex: 'supplierName', width: 150, ellipsis: true, render: (v: string | null) => v ?? '—' },
         { title: '阶段', dataIndex: 'stage', width: 90, render: (v: string) => CONTRACT_STAGE_LABELS[v] ?? v },
         { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => statusTag(CONTRACT_STATUS, v) },
@@ -136,6 +208,12 @@ function RisksTab({ r }: { r: NonNullable<P['risks']> }) {
       { title: '风险', dataIndex: 'title', render: (v: string, x) => <Link to={`/risk?id=${x.id}`}>{v}</Link> },
       { title: '规则', dataIndex: 'ruleName', width: 180, ellipsis: true },
       { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => statusTag(RISK_STATUS, v) },
+      {
+        title: '关联合同',
+        dataIndex: 'contractId',
+        width: 120,
+        render: (cid?: number | null) => (cid ? <Link to={`/contracts?id=${cid}`}>查看合同 #{cid}</Link> : '—'),
+      },
       { title: '金额(元)', dataIndex: 'amount', width: 130, align: 'right', render: (v: string | null) => <Money value={v} /> },
       { title: '最近命中', dataIndex: 'lastDetectedAt', width: 120, render: (v: string) => shortTime(v) },
     ]} />
@@ -175,7 +253,25 @@ function InvestmentTab({ i }: { i: NonNullable<P['investment']> }) {
 
 export default function ProjectProfile() {
   const id = Number(useParams().id);
-  useAssistantDomainPage({ pageKey: 'project_profile', ready: Number.isSafeInteger(id) && id > 0, scope: { projectId: id } });
+  const [params, setParams] = useSearchParams();
+  const tabParam = params.get('tab');
+  const rawPlanItemId = params.get('planItemId');
+  const filterPlanItemId = rawPlanItemId && /^\d+$/.test(rawPlanItemId) ? Number(rawPlanItemId) : null;
+
+  const setTabAndPlanFilter = (nextTab: string, nextPlanItemId?: number | null) => {
+    const next = new URLSearchParams(params);
+    next.set('tab', nextTab);
+    if (nextPlanItemId != null && nextPlanItemId > 0) next.set('planItemId', String(nextPlanItemId));
+    else next.delete('planItemId');
+    setParams(next, { replace: true });
+  };
+
+  useAssistantDomainPage({
+    pageKey: 'project_profile',
+    ready: Number.isSafeInteger(id) && id > 0,
+    scope: { projectId: id },
+    view: compact({ tab: tabParam ?? undefined, planItemId: filterPlanItemId ?? undefined }),
+  });
   const q = useQuery({ queryKey: ['project-profile', id], queryFn: () => projectProfileApi.get(id), enabled: Number.isSafeInteger(id) && id > 0 });
   if (q.error) return <QueryErrorResult title="项目档案加载失败" error={q.error} refetch={q.refetch} />;
   const d = q.data;
@@ -183,8 +279,30 @@ export default function ProjectProfile() {
   const p = d.project;
   const tabs = [
     d.budget && { key: 'budget', label: '项目预算', children: <BudgetTab b={d.budget} /> },
-    d.plan && { key: 'plan', label: '计划执行', children: <PlanTab p={d.plan} /> },
-    d.contracts && { key: 'contracts', label: `合同付款(${d.contracts.count})`, children: <ContractsTab c={d.contracts} /> },
+    d.plan && {
+      key: 'plan',
+      label: '计划执行',
+      children: (
+        <PlanTab
+          p={d.plan}
+          projectId={id}
+          hasContractsTab={Boolean(d.contracts)}
+          onFilterContractsByPlanItem={(planItemId) => setTabAndPlanFilter('contracts', planItemId)}
+        />
+      ),
+    },
+    d.contracts && {
+      key: 'contracts',
+      label: `合同付款(${d.contracts.count})`,
+      children: (
+        <ContractsTab
+          c={d.contracts}
+          planItems={d.plan?.items}
+          filterPlanItemId={filterPlanItemId}
+          onClearPlanFilter={() => setTabAndPlanFilter('contracts', null)}
+        />
+      ),
+    },
     d.vouchers && { key: 'vouchers', label: `EAS 凭证(${d.vouchers.lineCount})`, children: <VouchersTab v={d.vouchers} /> },
     d.risks && { key: 'risks', label: `风险(${d.risks.openCount}/${d.risks.total})`, children: <RisksTab r={d.risks} /> },
     d.investment && { key: 'investment', label: '投资控制·可研', children: <InvestmentTab i={d.investment} /> },
@@ -223,7 +341,17 @@ export default function ProjectProfile() {
           {Object.entries(p.extra).map(([k, v]) => <Descriptions.Item key={k} label={k}>{String(v)}</Descriptions.Item>)}
         </Descriptions>
       </Card>
-      {tabs.length === 0 ? <Alert type="info" showIcon message="当前账号没有项目相关业务数据的查看权限" /> : <Card size="small"><Tabs items={tabs} /></Card>}
+      {tabs.length === 0 ? (
+        <Alert type="info" showIcon message="当前账号没有项目相关业务数据的查看权限" />
+      ) : (
+        <Card size="small">
+          <Tabs
+            activeKey={tabParam && tabs.some((t) => t.key === tabParam) ? tabParam : tabs[0]?.key}
+            onChange={(key) => setTabAndPlanFilter(key, key === 'contracts' ? filterPlanItemId : null)}
+            items={tabs}
+          />
+        </Card>
+      )}
     </Space>
   );
 }

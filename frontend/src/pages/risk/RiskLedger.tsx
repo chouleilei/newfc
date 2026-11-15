@@ -47,6 +47,19 @@ function ThresholdCell({ rule }: { rule: RiskRuleDto }) {
   return rule.thresholdKind === 'amount' ? <Money value={rule.threshold} /> : <Ratio value={rule.threshold} />;
 }
 
+function resolveRiskContractId(r: Pick<RiskEventDto, 'subjectType' | 'subjectId' | 'evidence'>): number | null {
+  if (r.subjectType === 'contract' && Number.isSafeInteger(r.subjectId) && r.subjectId > 0) {
+    return r.subjectId;
+  }
+  const evCid = r.evidence?.contractId;
+  if (typeof evCid === 'number' && Number.isSafeInteger(evCid) && evCid > 0) return evCid;
+  if (typeof evCid === 'string' && /^\d+$/.test(evCid)) {
+    const n = Number(evCid);
+    if (Number.isSafeInteger(n) && n > 0) return n;
+  }
+  return null;
+}
+
 const STATUS_KEYS = Object.keys(RISK_STATUS) as RiskStatus[];
 const COMMAND_META: Record<RiskCommand, { label: string; danger?: boolean; primary?: boolean; comment?: 'required' | 'optional'; assign?: boolean; review?: boolean }> = {
   confirm: { label: '确认风险', primary: true, comment: 'optional', assign: true },
@@ -143,7 +156,15 @@ function RiskDrawer({ id, onClose }: { id: number | null; onClose: () => void })
             <Descriptions.Item label="等级">{statusTag(RISK_LEVEL, e.level)}</Descriptions.Item>
             <Descriptions.Item label="状态">{statusTag(RISK_STATUS, e.status)}</Descriptions.Item>
             <Descriptions.Item label="组织">{e.orgName}</Descriptions.Item>
-            <Descriptions.Item label="项目">{e.projectCode && e.projectId ? <Link to={`/projects/${e.projectId}`}>{e.projectCode} {e.projectName ?? ''}</Link> : '—'}</Descriptions.Item>
+            <Descriptions.Item label="项目">{e.projectId ? <Link to={`/projects/${e.projectId}`}>{e.projectCode ? `${e.projectCode} ${e.projectName ?? ''}` : `项目 #${e.projectId}`}</Link> : '—'}</Descriptions.Item>
+            <Descriptions.Item label="关联合同">
+              {(() => {
+                const cid = resolveRiskContractId(e);
+                if (!cid || !can('contract:read')) return '—';
+                const cno = typeof e.evidence?.contractNo === 'string' && e.evidence.contractNo ? e.evidence.contractNo : `查看合同 #${cid}`;
+                return <Link to={`/contracts?id=${cid}`}>{cno}</Link>;
+              })()}
+            </Descriptions.Item>
             <Descriptions.Item label="涉及金额(元)"><Money value={e.amount} /></Descriptions.Item>
             <Descriptions.Item label="指标">{e.metric ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="责任人">{e.handlerName ?? '—'}</Descriptions.Item>
@@ -309,13 +330,42 @@ function EventsTab() {
             },
             { title: '状态', dataIndex: 'status', width: 86, render: (v: RiskStatus) => statusTag(RISK_STATUS, v) },
             { title: '组织', dataIndex: 'orgName', width: 110, ellipsis: true },
-            { title: '项目', dataIndex: 'projectCode', width: 120, ellipsis: true, render: (v: string | null, r) => (v ? `${v} ${r.projectName ?? ''}` : '—') },
+            {
+              title: '项目',
+              dataIndex: 'projectCode',
+              width: 140,
+              ellipsis: true,
+              render: (v: string | null, r) => (v ? `${v} ${r.projectName ?? ''}` : r.projectId ? `项目 #${r.projectId}` : '—'),
+            },
             { title: '金额(元)', dataIndex: 'amount', width: 130, align: 'right', render: (v: string | null) => <Money value={v} /> },
             { title: '责任人', dataIndex: 'handlerName', width: 90, render: (v: string | null) => v ?? '—' },
             { title: '期限', dataIndex: 'deadline', width: 110, render: (v: string | null, r) => (v ? <Typography.Text type={r.overdue ? 'danger' : undefined}>{v}{r.overdue ? ' 逾期' : ''}</Typography.Text> : '—') },
             { title: '命中', dataIndex: 'occurrenceCount', width: 60, align: 'right' },
             { title: '最近扫描', dataIndex: 'lastScanHit', width: 90, render: (v: boolean) => (v ? <Tag color="red">命中</Tag> : <Tag>未再命中</Tag>) },
             { title: '最近命中', dataIndex: 'lastDetectedAt', width: 120, render: (v: string) => shortTime(v) },
+            {
+              title: '关联跳转',
+              key: 'linkedTargets',
+              width: 110,
+              render: (_: unknown, r) => {
+                const cid = can('contract:read') ? resolveRiskContractId(r) : null;
+                if (!r.projectId && !cid) return '—';
+                return (
+                  <Space size={6}>
+                    {r.projectId ? (
+                      <Link to={`/projects/${r.projectId}`} onClick={(ev) => ev.stopPropagation()}>
+                        项目
+                      </Link>
+                    ) : null}
+                    {cid ? (
+                      <Link to={`/contracts?id=${cid}`} onClick={(ev) => ev.stopPropagation()}>
+                        合同
+                      </Link>
+                    ) : null}
+                  </Space>
+                );
+              },
+            },
           ]}
         />
       )}

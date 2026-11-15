@@ -87,7 +87,7 @@ T-8 专项 AC-T8-01～16 已通过，逐项证据及实际门禁结果见 [阶�
 
 专项验收编号为 `AC-CLR-01`～`AC-CLR-10`（关联 `AC-F16`、`AC-X03`～`AC-X08`、`AC-X10`），各编号通过条件与历史样本评估边界唯一维护于 [智能合同法审一期设计](contract-legal-review.md#7-后续验收标准)，工程检查清单见 [T-9 开发详细计划](contract-legal-review-plan.md#7-验收核对清单对应-ac-clr-01--ac-clr-10)。
 
-AC-CLR-01～08 的已验证场景与边界见 [工程验收记录](../docs/acceptance-records.md#t-9-智能合同法审一期2026-11-12)；AC-CLR-10 的正式部署、备份及线上就绪证据见 [生产发布记录](../docs/acceptance-records.md#t-9-生产发布2026-11-12)。AC-CLR-09 仍缺多类型正式法审意见配对及业务采纳评价。
+AC-CLR-01～08 的已验证场景与边界见 [工程验收记录](../docs/acceptance-records.md#t-9-智能合同法审一期2026-11-12)；AC-CLR-10 的正式部署、备份及线上就绪证据见 [生产发布记录](../docs/acceptance-records.md#t-9-生产发布2026-11-12)。`AC-CLR-09` 8 大业务类别脱敏合同「缺陷初稿 vs 法审修订稿」配对回归已在 T-15（`AC-T15-05`）补齐并通过，详见 [历史样本评估](../docs/contract-legal-sample-evaluation.md) 与 [T-15 验收记录](../docs/acceptance-records.md)。
 
 ## T-10 ～ T-12 合同全生命周期与监督报送专项验收（已验收）
 
@@ -102,6 +102,10 @@ AC-CLR-01～08 的已验证场景与边界见 [工程验收记录](../docs/accep
 ## T-14 综合计划合一下达与制度合规闭环专项验收（阶段二 P1）
 
 专项验收编号为 `AC-T14-01`～`AC-T14-08`（细化并扩展 `AC-F01`、`AC-F02`、`AC-F04`、`AC-F15`、`AC-F16`、`AC-F18`、`AC-F19`、`AC-F20`、`AC-F21`、`AC-F23`、`AC-CLR-01`～`08`、`AC-CLM-02/03/05/08/10/11` 及跨域 `AC-X03`～`AC-X08`）。逐项通过条件唯一维护于 [T-14 领域细设计](plan-issuance-and-supervision-rules.md#6-样本与完成条件ac-t14-01--ac-t14-08)。
+
+## T-15 报销小额比价拆单预警、EAS遗留对账、全景互跳与受控草稿专项验收（阶段三 P2）
+
+专项验收编号为 `AC-T15-01`～`AC-T15-05`（细化并扩展 `AC-F05`、`AC-F07`、`AC-F15`、`AC-F16`、`AC-F20`、`AC-F22`、`AC-F25`、`AC-CLR-09` 及跨域 `AC-X03`～`AC-X08`）。逐项通过条件唯一维护于 [T-15 领域细设计](expense-eas-recon-and-ux26-drafts.md#4-验收标准ac-t15-01ac-t15-05)，工程验收与迁移演练证据见 [验收记录](../docs/acceptance-records.md)。
 
 ## 样本集设计
 

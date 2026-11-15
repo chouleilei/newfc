@@ -1,9 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, App as AntdApp, Button, Checkbox, Col, Collapse, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Space, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { api, errorText } from '../../api/client';
 import { contractApi, planApi, type ContractDetailDto } from '../../api/projectContract';
+import { useAssistantDraft } from '../../assistant/contextHooks';
+import { ConfigFormAssistant } from '../../components/assistant/ConfigFormAssistant';
 import { compact, defaultOrgId, OrgSelect } from '../financeData/shared';
 import {
   ACQUISITION_METHOD_LABELS, BUDGET_TYPE_LABELS, CONTRACT_CURRENCIES, DECISION_METHOD_LABELS,
@@ -32,6 +34,7 @@ const ratioRule = { pattern: /^(0(\.\d{1,6})?|1(\.0{1,6})?)?$/, message: '0～1 
 export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { open: boolean; contract?: ContractDetailDto; onClose: () => void; onSaved: (c: ContractDetailDto) => void }) {
   const { message } = AntdApp.useApp();
   const [form] = Form.useForm();
+  const [assistantDraftApplied, setAssistantDraftApplied] = useState(false);
   const projects = useMasterOptions('projects', open);
   const suppliers = useMasterOptions('suppliers', open);
   const incomeContracts = useQuery({
@@ -79,6 +82,89 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   const tenderBodyType = Form.useWatch('tenderBodyType', form);
   const termType = Form.useWatch('termType', form) ?? 'unspecified';
   const hasWarranty = Form.useWatch('hasWarranty', form);
+
+  useEffect(() => {
+    if (!open) setAssistantDraftApplied(false);
+  }, [open, contract?.id]);
+
+  useAssistantDraft(
+    open,
+    contract ? `contract:update:${contract.id}` : 'contract:new',
+    () => {
+      const v = form.getFieldsValue(true) as Record<string, unknown>;
+      const changes = compact({
+        orgId: v.orgId,
+        signingSubjectOrgId: v.signingSubjectOrgId,
+        signingEntityLevel: v.signingEntityLevel,
+        contractNo: v.contractNo,
+        name: v.name,
+        direction: v.direction,
+        contractType: v.contractType,
+        legalCategory: v.legalCategory,
+        reportCategory: v.reportCategory,
+        projectId: v.projectId,
+        planItemId: v.planItemId,
+        supplierId: v.supplierId,
+        counterpartyName: v.counterpartyNames,
+        originalAmount: v.originalAmount,
+        budgetType: v.budgetType,
+        procurementMethod: v.procurementMethod,
+        isEmergency: v.isEmergency,
+      });
+      if (contract) {
+        return {
+          kind: 'contract_draft',
+          base: { operation: 'update', id: contract.id, updatedAt: contract.updatedAt },
+          changes,
+        };
+      }
+      return {
+        kind: 'contract_draft',
+        base: { operation: 'create', clientKey: 'new-contract' },
+        changes,
+      };
+    },
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const onApply = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string; suggestedFields?: Record<string, unknown> }>).detail;
+      if (!detail || detail.kind !== 'contract_draft' || !detail.suggestedFields) return;
+      const sf = detail.suggestedFields;
+      const patch: Record<string, unknown> = {};
+      if (!contract && typeof sf.contractNo === 'string' && sf.contractNo.trim()) {
+        patch.contractNo = sf.contractNo.trim();
+      }
+      for (const k of [
+        'orgId',
+        'signingSubjectOrgId',
+        'signingEntityLevel',
+        'direction',
+        'contractType',
+        'legalCategory',
+        'reportCategory',
+        'projectId',
+        'planItemId',
+        'supplierId',
+        'originalAmount',
+        'budgetType',
+        'procurementMethod',
+      ] as const) {
+        if (sf[k] !== undefined && sf[k] !== null && sf[k] !== '') patch[k] = sf[k];
+      }
+      if (typeof sf.counterpartyName === 'string' && sf.counterpartyName.trim()) {
+        patch.counterpartyNames = sf.counterpartyName.trim();
+      }
+      if (Array.isArray(sf.countersignDepts) && sf.countersignDepts.length > 0) {
+        patch.relatedMgmtDepts = sf.countersignDepts.join('、');
+      }
+      form.setFieldsValue(patch);
+      setAssistantDraftApplied(true);
+    };
+    window.addEventListener('newfc:assistant-apply-draft', onApply);
+    return () => window.removeEventListener('newfc:assistant-apply-draft', onApply);
+  }, [open, contract, form]);
 
   const nextNoPreview = useQuery({
     queryKey: ['contract-next-no', orgIdWatch, signingSubjectOrgId, signingEntityLevel, contractTypeWatch, legalCategoryWatch, direction],
@@ -540,6 +626,10 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
     <Modal open={open} title={contract ? '编辑合同 ' + contract.contractNo : '新建合同'} width={900} onCancel={onClose} destroyOnClose confirmLoading={save.isPending}
       styles={{ body: { maxHeight: '72vh', overflowY: 'auto' } }}
       onOk={() => form.validateFields().then((v) => save.mutate(v), () => {})}>
+      <Space wrap style={{ marginBottom: 8 }}>
+        <ConfigFormAssistant kind="contract_draft" form={form} />
+        {assistantDraftApplied && <Tag color="processing">助手建议草稿 · 待人工确认</Tag>}
+      </Space>
       {isLegacyTolerant && contract && (
         <Alert
           type="warning"

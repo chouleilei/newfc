@@ -464,7 +464,12 @@ export function resolveAssistantContext(db: DB, raw: unknown): ResolvedAssistant
   if (auth) {
     requirePermission(auth, page.permission);
     if (page.allOrgs) requireAllOrgs(auth, page.label);
-    if (parsed.draft) requireAllOrgs(auth, '草稿校验与影响分析');
+    if (parsed.draft) {
+      const isScopedDomainDraft = parsed.draft.kind === 'contract_draft' || parsed.draft.kind === 'plan_issuance_draft';
+      if (!isScopedDomainDraft) requireAllOrgs(auth, '草稿校验与影响分析');
+      if (parsed.draft.kind === 'contract_draft') requirePermission(auth, 'contract:read');
+      if (parsed.draft.kind === 'plan_issuance_draft') requirePermission(auth, 'plan:read');
+    }
     if (parsed.draft?.kind === 'cleaning_template' || parsed.draft?.kind === 'alias_rule') requirePermission(auth, 'import:run');
     if (parsed.scope?.orgScopeId != null) assertOrgVisible(db, auth, parsed.scope.orgScopeId);
     if (parsed.focus?.kind === 'cell') assertOrgVisible(db, auth, parsed.focus.orgId);

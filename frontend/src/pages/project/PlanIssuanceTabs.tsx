@@ -26,6 +26,8 @@ import {
   type PlanUnitPackDto,
 } from '../../api/projectContract';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
+import { useAssistantDraft } from '../../assistant/contextHooks';
+import { ConfigFormAssistant } from '../../components/assistant/ConfigFormAssistant';
 import { centsToWan } from '../../utils/money';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, Money } from '../financeData/shared';
@@ -298,9 +300,44 @@ export function PlanCyclesTab({
 
   const [selectedCycleId, setSelectedCycleId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [cycleDraftApplied, setCycleDraftApplied] = useState(false);
   const [packDrawerId, setPackDrawerId] = useState<number | null>(null);
   const [reconcileMode, setReconcileMode] = useState<'legacy_reconcile' | 'strict_compile'>('legacy_reconcile');
   const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (!createOpen) setCycleDraftApplied(false);
+  }, [createOpen]);
+
+  useAssistantDraft(createOpen, `plan:cycle:new:${year}`, () => {
+    const v = form.getFieldsValue(true) as Record<string, unknown>;
+    return {
+      kind: 'plan_issuance_draft',
+      base: { operation: 'create', clientKey: 'new-plan-cycle' },
+      changes: compact({
+        year: v.year ?? year,
+        cycleCode: v.cycleCode,
+        issuanceStage: v.issuanceStage ?? 'official',
+      }),
+    };
+  });
+
+  useEffect(() => {
+    if (!createOpen) return;
+    const onApply = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string; suggestedFields?: Record<string, unknown> }>).detail;
+      if (!detail || detail.kind !== 'plan_issuance_draft' || !detail.suggestedFields) return;
+      const sf = detail.suggestedFields;
+      const patch: Record<string, unknown> = {};
+      for (const k of ['year', 'cycleCode', 'issuanceStage'] as const) {
+        if (sf[k] !== undefined && sf[k] !== null && sf[k] !== '') patch[k] = sf[k];
+      }
+      if (Object.keys(patch).length > 0) form.setFieldsValue(patch);
+      setCycleDraftApplied(true);
+    };
+    window.addEventListener('newfc:assistant-apply-draft', onApply);
+    return () => window.removeEventListener('newfc:assistant-apply-draft', onApply);
+  }, [createOpen, form]);
 
   const cyclesQ = useQuery({
     queryKey: ['plan-issuance-cycles', year],
@@ -670,6 +707,10 @@ export function PlanCyclesTab({
         destroyOnClose
         onOk={() => form.validateFields().then((v) => createMut.mutate(v), () => undefined)}
       >
+        <Space wrap style={{ marginBottom: 8 }}>
+          <ConfigFormAssistant kind="plan_issuance_draft" form={form} />
+          {cycleDraftApplied && <Tag color="processing">助手建议草稿 · 待人工确认</Tag>}
+        </Space>
         <Form
           form={form}
           layout="vertical"
@@ -950,6 +991,7 @@ export function PlanAdjustmentsTab({
 
   const [statusFilter, setStatusFilter] = useState<string | undefined>(initialStatus);
   const [createOpen, setCreateOpen] = useState(false);
+  const [adjDraftApplied, setAdjDraftApplied] = useState(false);
   const [reviewTarget, setReviewTarget] = useState<PlanAdjustmentDto | null>(null);
   const [form] = Form.useForm();
   const [reviewForm] = Form.useForm();
@@ -980,6 +1022,47 @@ export function PlanAdjustmentsTab({
   const linesWatch = (Form.useWatch('lines', form) ?? []) as Partial<PlanAdjustmentLineInput>[];
   const reviewActionWatch = (Form.useWatch('action', reviewForm) ?? 'approve') as 'approve' | 'reject';
   const reviewExceptionWatch = (Form.useWatch('exceptionReason', reviewForm) ?? '') as string;
+
+  useEffect(() => {
+    if (!createOpen) setAdjDraftApplied(false);
+  }, [createOpen]);
+
+  useAssistantDraft(createOpen, `plan:adjust:new:${year}`, () => {
+    const v = form.getFieldsValue(true) as Record<string, unknown>;
+    return {
+      kind: 'plan_issuance_draft',
+      base: { operation: 'adjust', clientKey: 'new-plan-adjust' },
+      changes: compact({
+        unitPackId: v.unitPackId,
+        adjustType: v.adjustType,
+        exceedsOverallTarget: v.exceedsOverallTarget,
+        emergencyStartDate: v.emergencyStartDate,
+        decisionDocNo: v.decisionDocNo,
+        reason: v.reason,
+      }),
+    };
+  });
+
+  useEffect(() => {
+    if (!createOpen) return;
+    const onApply = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: string; suggestedFields?: Record<string, unknown> }>).detail;
+      if (!detail || detail.kind !== 'plan_issuance_draft' || !detail.suggestedFields) return;
+      const sf = detail.suggestedFields;
+      const patch: Record<string, unknown> = {};
+      for (const k of ['unitPackId', 'adjustType', 'exceedsOverallTarget', 'emergencyStartDate', 'decisionDocNo', 'reason'] as const) {
+        if (sf[k] !== undefined && sf[k] !== null && sf[k] !== '') patch[k] = sf[k];
+      }
+      if (!patch.unitPackId && sf.unitOrgId != null && !form.getFieldValue('unitPackId')) {
+        const matchedPack = (packsQ.data?.items ?? []).find((p) => p.unitOrgId === Number(sf.unitOrgId));
+        if (matchedPack) patch.unitPackId = matchedPack.id;
+      }
+      if (Object.keys(patch).length > 0) form.setFieldsValue(patch);
+      setAdjDraftApplied(true);
+    };
+    window.addEventListener('newfc:assistant-apply-draft', onApply);
+    return () => window.removeEventListener('newfc:assistant-apply-draft', onApply);
+  }, [createOpen, form, packsQ.data?.items]);
 
   const previewApprovalBody = useMemo(
     () => deriveApprovalBodyPreview(adjustTypeWatch, exceedsWatch),
@@ -1184,6 +1267,10 @@ export function PlanAdjustmentsTab({
         destroyOnClose
         onOk={() => form.validateFields().then((v) => createMut.mutate(v), () => undefined)}
       >
+        <Space wrap style={{ marginBottom: 8 }}>
+          <ConfigFormAssistant kind="plan_issuance_draft" form={form} />
+          {adjDraftApplied && <Tag color="processing">助手建议草稿 · 待人工确认</Tag>}
+        </Space>
         <Form
           form={form}
           layout="vertical"

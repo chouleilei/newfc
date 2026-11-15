@@ -406,7 +406,7 @@ export function resolveCanonicalPrefixForOrg(db: DB, orgId: number): {
 }
 
 /**
- * 生成下一建议合同编号（L-QJ03-04-2026 附件3：XX-YY-序号/年份-流水号）。
+ * 生成下一建议合同编号（2026 合同管理规程附件3：XX-YY-序号/年份-流水号）。
  * 统筹部门代办（coManagedOrgId）时向被统筹单位取号。
  */
 export function suggestNextContractNo(

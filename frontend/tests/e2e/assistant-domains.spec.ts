@@ -68,3 +68,39 @@ test('跨域助手：实际合同对象、筛选、页签切换和桌面/移动�
   await expect.poll(() => composer.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; })).toBe(true);
   await page.screenshot({ path: info.outputPath('assistant-home-mobile-composer.png'), fullPage: true });
 });
+
+test('UX-26 合同新建弹窗草稿校验与只回填表单预填门禁 (AC-T15-04)', async ({ page, request }) => {
+  const beforeSummary = await (await request.get('/api/contracts/summary')).json();
+
+  await login(page);
+  await page.goto('/contracts');
+  await page.getByRole('button', { name: '新建合同' }).click();
+  const createModal = page.getByRole('dialog', { name: '新建合同' });
+  await expect(createModal).toBeVisible();
+
+  // 选择承办组织「上海公司」并填写未保存金额草稿
+  await createModal.locator('.ant-select').filter({ has: page.getByRole('combobox', { name: '组织' }) }).first().click();
+  const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last();
+  await dropdown.locator('.ant-select-tree-title', { hasText: '上海公司' }).first().click();
+  await expect(dropdown).toBeHidden();
+  await createModal.getByLabel('原始金额(元)').fill('250000.00');
+
+  const payloads: any[] = [];
+  page.on('request', (req) => {
+    if (req.url().includes('/api/assistant/chat')) payloads.push(req.postDataJSON());
+  });
+
+  await createModal.getByRole('button', { name: '检查当前修改' }).click();
+  await ask(page, '核验当前合同草稿并给出预填建议');
+
+  expect(payloads.at(-1)?.pageContext?.draft?.kind).toBe('contract_draft');
+  expect(payloads.at(-1)?.pageContext?.draft?.base?.operation).toBe('create');
+
+  const applyBtn = page.getByTestId('assistant-dock-apply-draft').last();
+  await expect(applyBtn).toBeVisible();
+  await applyBtn.click();
+
+  await expect(createModal.getByText('助手建议草稿 · 待人工确认')).toBeVisible();
+  const afterSummary = await (await request.get('/api/contracts/summary')).json();
+  expect(afterSummary.count).toBe(beforeSummary.count);
+});
