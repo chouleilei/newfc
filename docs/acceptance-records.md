@@ -926,4 +926,19 @@ F01/F04/F05/F07/F15/F16/F18/F19/F20/F21/F22/F23/F24/F25；T-13～T-15；AC-T13-0
 
 非失败警告仅包括 jsdom `getComputedStyle(..., pseudoElt)` 未实现、Rollup 对 Zod 源码注释位置的提示，以及 `NO_COLOR`/`FORCE_COLOR` 同时设置。源码、迁移和业务断言未因告警或重试改动。
 
-发版范围：前后端 `package.json`、锁文件、README、更新日志、计划与 specs 索引、验收记录、公开版摘要、来源记录、运维升级说明和第三方许可标题统一为 0.3.0；原 v0.2.0 公开摘要归档为 `docs/public-release-v0.2.0.md`。生产 `/data/newfc-data`、`newfc.service` 和 V72 运行库未操作。`AC-CLR-09` 正式历史业务证据及真实 OA/上级平台在线联调边界保持不变。
+发版范围：前后端 `package.json`、锁文件、README、更新日志、计划与 specs 索引、验收记录、公开版摘要、来源记录、运维升级说明和第三方许可标题统一为 0.3.0；原 v0.2.0 公开摘要归档为 `docs/public-release-v0.2.0.md`。源码发版阶段未操作生产；随后的生产部署单列于下一节。`AC-CLR-09` 正式历史业务证据及真实 OA/上级平台在线联调边界保持不变。
+
+## v0.3.0 生产部署（2026-11-15，V75）
+
+F20/F23/F25；T-13～T-15；AC-T13-01～11、AC-T14-01～08、AC-T15-01～05、AC-X04/X07/X08/X10。用户明确授权将 `v0.3.0` 部署到生产。发布标识 `newfc-v0.3.0-20261115-230513`，Git commit `346f1feb67a3cb11f7349df5e82a792eae6e974b` 与 annotated tag `v0.3.0` 一致。
+
+- 发布命令：`NEWFC_ROOT=/root/newfc NEWFC_DATA_DIR=/data/newfc-data NEWFC_SERVICE=newfc.service NEWFC_PORT=3760 scripts/deploy.sh`，退出码 0，完整日志 `/tmp/newfc-v030-deploy.log` 与证据目录内 `deploy.log`。
+- 发布门禁：后端 144 文件 / 1186 项、前端 67 文件 / 525 项通过；前后端 `dist.new` 构建成功。
+- 迁移：停服前创建 `pre-migrate-cli-budget-backup-2026-11-15-230512.sqlite`，清单格式 `newfc-backup/1`、schema V72、SHA-256 `e651883bc7bd60d737f343424b435fcb612437afac666e4384a778d80a608b55`；随后应用 V73、V74、V75，制度/范本幂等导入返回 `policies=0, templates=0`。
+- 服务：`newfc.service` active/running，MainPID `2850133`，NRestarts=0，启动时间 2026-11-15 23:05:13 CST；上一版产物保留在前后端 `dist.old`。
+- 健康与权限：本机及 `https://newfc.tangdalei.com` 的 live/ready 均 200，schema V75；登录页 200，未登录 `/api/dashboard` 401；线上首页 SHA-256 `4feb589c80ffacacb3d454de1f0fdc6188c96a3119d1c5134a8735334d824694` 与正式 `frontend/dist/index.html` 一致。
+- 数据库：当前库 `PRAGMA integrity_check = ok`、`foreign_key_check = 0`，schema_migration 最高版本 75；V75 新表 `ex_split_alert_log` 与 `eas_recon_note` 已建立。迁移前 V72 备份同样完整性 `ok`、外键错误 0，清单内数据库摘要与文件 SHA-256 一致，登记文件对象 0 个。
+- 启动日志：近 10 分钟 warning 级记录为空。
+- 证据归档：`/data/newfc-data/releases/newfc-v0.3.0-20261115-230513/`，包含 `release-manifest.json`、`production-verification.json`、`release-summary.md`、`deploy.log`、`deploy-exit-code` 和 `source.tar.gz`；源码归档 SHA-256 `c626b49caca2c6380ef07580af9f77a3dc113dbfb0da68d3b35e2a6d7171a5da`。
+
+回退边界：V75 生产库不可由旧 V72 代码直接读取；必须使用上述迁移前完整备份与 `dist.old`，先按滚动脚本核对备份后写入。真实 OA/上级平台在线联调及 `AC-CLR-09` 正式历史业务评价仍未执行。
