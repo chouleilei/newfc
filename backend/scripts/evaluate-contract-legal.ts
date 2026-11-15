@@ -12,6 +12,10 @@ import {
   type PolicyDto,
   type TemplateDto,
 } from '../src/contracts/contract-legal-review';
+import { runPairedEvaluationCli } from './evaluate-contract-legal-pairs';
+if (process.argv.includes('--paired-manifest')) {
+  runPairedEvaluationCli('--paired-manifest');
+} else {
 const arg = (name: string) => {
   const i = process.argv.indexOf(name);
   if (i < 0 || !process.argv[i + 1]) throw new Error(`必须显式传入 ${name}`);
@@ -210,3 +214,5 @@ AC-CLR-09 **已完成首批离线评估，尚未达到完整业务验收条件**
 fs.mkdirSync(path.dirname(output), { recursive: true });
 fs.writeFileSync(output, report);
 console.log(`已评估 8 份脱敏文本；律师链差异 3/0/1；报告 ${output}`);
+
+}
