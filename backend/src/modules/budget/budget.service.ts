@@ -2,7 +2,7 @@ import type { DB } from '../../db/connection';
 import { Errors } from '../../core/errors';
 import { writeLog } from '../audit/log';
 import { createOrReuseSnapshot, loadSnapshotNodes } from '../tree/snapshot';
-import { displayToSignedCents, centsToYuanString, isQuantityType, quantityStringToScaled, scaledToQuantityString, safeIntegerAdd, type AccountType } from '../../core/money';
+import { displayToSignedCents, centsToYuanString, isQuantityType, quantityStringToScaled, scaledToQuantityString, safeIntegerAdd, signOfType, type AccountType } from '../../core/money';
 import { computeLeafIds } from '../../core/tree';
 import type { TreeNodeRow } from '../../core/tree';
 import { rollup } from '../../core/rollup';
@@ -1197,9 +1197,10 @@ export function versionUnitView(db: DB, versionId: number, requestedOrgId?: numb
     .map((e) => {
       const o = orgById.get(e.org_id);
       const a = accById.get(e.account_id);
-      if (a?.type === 'income') totals.income = safeIntegerAdd(totals.income, e.amount_cents, '收入汇总');
-      else if (a?.type === 'cost') totals.cost = safeIntegerAdd(totals.cost, e.amount_cents, '成本汇总');
-      else if (a?.type === 'expense') totals.expense = safeIntegerAdd(totals.expense, e.amount_cents, '费用汇总');
+      const displayCents = isQuantityType(a?.type) ? 0 : e.amount_cents * signOfType(a?.type);
+      if (a?.type === 'income') totals.income = safeIntegerAdd(totals.income, displayCents, '收入汇总');
+      else if (a?.type === 'cost') totals.cost = safeIntegerAdd(totals.cost, displayCents, '成本汇总');
+      else if (a?.type === 'expense') totals.expense = safeIntegerAdd(totals.expense, displayCents, '费用汇总');
       return {
         orgId: e.org_id,
         orgCode: o?.code ?? '',
@@ -1209,7 +1210,7 @@ export function versionUnitView(db: DB, versionId: number, requestedOrgId?: numb
         accountName: a?.name ?? `#${e.account_id}`,
         accountType: a?.type ?? 'expense',
         amountCents: e.amount_cents,
-        amount: centsToYuanString(e.amount_cents),
+        amount: isQuantityType(a?.type) ? '0.00' : centsToYuanString(displayCents),
         quantity: e.quantity !== null ? scaledToQuantityString(e.quantity) : null,
         note: e.note ?? '',
       };

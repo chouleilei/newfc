@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -13,6 +14,8 @@ const execFileAsync = promisify(execFile);
 export const PDF_MAGIC = Buffer.from('%PDF-');
 export const MAX_PDF_PARSE_BYTES = 20 * 1024 * 1024;
 export const PDF_PARSE_TIMEOUT_MS = 20_000;
+/** 进程内随机生成的内部 PDF 解析服务令牌：未显式配置外部密钥时强制用于同进程受控调用鉴权。 */
+export const INTERNAL_PDF_PARSER_TOKEN = crypto.randomBytes(32).toString('hex');
 
 export interface PdfBlockDto {
   xMin: number;
@@ -43,6 +46,88 @@ export function isLoopbackAddress(remoteAddress: string | undefined): boolean {
     return net.isIP(v4) === 4 && v4.startsWith('127.');
   }
   return net.isIP(addr) === 4 && addr.startsWith('127.');
+}
+
+const PROXY_OR_BROWSER_HEADERS = [
+  'x-forwarded-for',
+  'x-real-ip',
+  'forwarded',
+  'x-forwarded-proto',
+  'x-forwarded-host',
+  'x-forwarded-port',
+  'cf-connecting-ip',
+  'true-client-ip',
+  'origin',
+  'referer',
+  'sec-fetch-site',
+] as const;
+
+export function isLoopbackHostHeader(hostHeader: string | undefined): boolean {
+  if (!hostHeader || !hostHeader.trim()) return false;
+  try {
+    const u = new URL(`http://${hostHeader.trim()}`);
+    if (u.username || u.password || u.pathname !== '/') return false;
+    const hostname = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    return hostname === 'localhost' || isLoopbackAddress(hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 校验请求必须是未经反向代理转发、非浏览器发起的本机直连回环请求：
+ * 拒绝携带任何 X-Forwarded-* / X-Real-IP / Forwarded / Origin 头或非回环 Host 的请求。
+ */
+export function isDirectLoopbackRequest(input: {
+  remoteAddress: string | undefined;
+  ip?: string | undefined;
+  headers: http.IncomingHttpHeaders;
+}): boolean {
+  if (!isLoopbackAddress(input.remoteAddress)) return false;
+  if (input.ip !== undefined && !isLoopbackAddress(input.ip)) return false;
+  for (const h of PROXY_OR_BROWSER_HEADERS) {
+    const v = input.headers[h];
+    if (v !== undefined && (Array.isArray(v) ? v.length > 0 : v.trim() !== '')) {
+      return false;
+    }
+  }
+  const host = typeof input.headers.host === 'string' ? input.headers.host : undefined;
+  return isLoopbackHostHeader(host);
+}
+
+export function timingSafeBearerMatch(authorization: string | undefined, expectedToken: string): boolean {
+  if (!authorization || !expectedToken) return false;
+  const expected = Buffer.from(`Bearer ${expectedToken}`, 'utf8');
+  const actual = Buffer.from(authorization, 'utf8');
+  if (expected.length !== actual.length) return false;
+  return crypto.timingSafeEqual(expected, actual);
+}
+
+/**
+ * 解析调用 PDF 解析服务时应携带的 Bearer 密钥：
+ * 若管理员已配置 `integration.pdf_parser_api_key` 则优先使用；
+ * 若未配置且目标地址为本进程内嵌 `/api/internal/pdf-parser`，自动注入进程级随机令牌。
+ */
+export function resolvePdfParserAuthKey(
+  baseUrl: string,
+  configuredKey: string | null | undefined,
+): string | null {
+  const trimmedKey = configuredKey?.trim();
+  if (trimmedKey) return trimmedKey;
+  try {
+    const u = new URL(baseUrl);
+    const hostname = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    const cleanPath = u.pathname.replace(/\/+$/, '');
+    if (
+      (hostname === 'localhost' || isLoopbackAddress(hostname)) &&
+      cleanPath.endsWith('/api/internal/pdf-parser')
+    ) {
+      return INTERNAL_PDF_PARSER_TOKEN;
+    }
+  } catch {
+    // invalid URL handled downstream by validatePdfServiceUrl
+  }
+  return null;
 }
 
 function joinWords(words: { text: string; xMin: number; xMax: number }[]): string {
@@ -171,13 +256,13 @@ export async function parsePdfBufferLocally(content: Buffer): Promise<LocalPdfPa
  */
 export function createLocalPdfParserServer(opts?: { apiKey?: () => string | null }): http.Server {
   return http.createServer(async (req, res) => {
-    if (!isLoopbackAddress(req.socket.remoteAddress)) {
+    if (!isDirectLoopbackRequest({ remoteAddress: req.socket.remoteAddress, headers: req.headers })) {
       res.writeHead(403, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ code: 'LOOPBACK_ONLY', message: '仅允许本机回环地址访问' }));
       return;
     }
     const expectedKey = opts?.apiKey?.() ?? null;
-    if (expectedKey && req.headers.authorization !== `Bearer ${expectedKey}`) {
+    if (expectedKey && !timingSafeBearerMatch(req.headers.authorization, expectedKey)) {
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ code: 'UNAUTHORIZED', message: 'PDF 解析密钥校验失败' }));
       return;

@@ -79,7 +79,13 @@ import { registerJobRoutes } from './modules/jobs/routes';
 import { registerCleaningRoutes } from './modules/io/cleaning/routes';
 import { MAX_UPLOAD_BYTES } from './modules/io/import-limits';
 import { assertNoFinanceOwnedConflicts } from './modules/finance-import/owned-scope';
-import { isLoopbackAddress, MAX_PDF_PARSE_BYTES, parsePdfBufferLocally } from './modules/contracts/local-pdf-parser';
+import {
+  INTERNAL_PDF_PARSER_TOKEN,
+  isDirectLoopbackRequest,
+  MAX_PDF_PARSE_BYTES,
+  parsePdfBufferLocally,
+  timingSafeBearerMatch,
+} from './modules/contracts/local-pdf-parser';
 
 /** 数据库句柄:恢复备份后可整体替换连接 */
 class DbHolder implements backup.RestoreHandle {
@@ -267,12 +273,13 @@ export async function createApp(opts: ServerOptions) {
     limits: { fileSize: MAX_PDF_PARSE_BYTES },
   });
   const guardLoopbackPdfParser = (req: Request, res: Response, next: NextFunction) => {
-    if (!isLoopbackAddress(req.socket.remoteAddress)) {
+    if (!isDirectLoopbackRequest({ remoteAddress: req.socket.remoteAddress, ip: req.ip, headers: req.headers })) {
       res.status(403).json({ code: 'LOOPBACK_ONLY', message: '仅允许本机回环地址访问 PDF 解析适配器' });
       return;
     }
-    const expectedKey = getSetting<string | null>(db(), 'integration.pdf_parser_api_key');
-    if (expectedKey && req.headers.authorization !== `Bearer ${expectedKey}`) {
+    const configuredKey = getSetting<string | null>(db(), 'integration.pdf_parser_api_key')?.trim();
+    const requiredToken = configuredKey || INTERNAL_PDF_PARSER_TOKEN;
+    if (!timingSafeBearerMatch(req.headers.authorization, requiredToken)) {
       res.status(401).json({ code: 'UNAUTHORIZED', message: 'PDF 解析服务密钥不匹配' });
       return;
     }

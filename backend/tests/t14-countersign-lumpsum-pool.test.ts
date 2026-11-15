@@ -220,7 +220,7 @@ describe('T-GAP-14 / AC-T14-06 多部门结构化会签、指纹失效重签、�
       orgIds: [orgId],
     });
 
-    // 建立 2026 年度经营预算科目总额包干池 1,000,000.00 元（100,000,000 分）
+    // 建立 2026 年度经营预算科目总额包干池 1,000,000.00 元（expense 按利润方向存为 -100,000,000 分）
     const poolAccountId = Number(
       db.prepare(
         `INSERT INTO account (code, name, type, status, sort_order, created_at, updated_at)
@@ -230,7 +230,7 @@ describe('T-GAP-14 / AC-T14-06 多部门结构化会签、指纹失效重签、�
     const bv = await json(post(base, admin, '/api/versions', { year: 2026, name: '2026包干预算版', kind: 'budget' }));
     db.prepare(
       `INSERT INTO budget_entry (version_id, org_id, account_id, amount_cents, updated_at) VALUES (?, ?, ?, ?, datetime('now'))`,
-    ).run(bv.id, orgId, poolAccountId, 100_000_000);
+    ).run(bv.id, orgId, poolAccountId, -100_000_000);
 
     // 关闭智能法审强制门禁（聚焦测试包干池拦截），仅保留常规合同复核与签署件推进
     await put(base, admin, '/api/settings/business', {

@@ -1,4 +1,5 @@
 import { probePdfServiceHealth, validatePdfServiceUrl } from '../contracts/pdf-service-url';
+import { resolvePdfParserAuthKey } from '../contracts/local-pdf-parser';
 /**
  * 业务设置(AC-F23):类型化登记表 + app_setting 键值存储。
  *
@@ -304,7 +305,10 @@ export async function testPdfParserConnection(
   if (!candidate) {
     return { ok: false, status: 0, latencyMs: 0, message: '尚未配置 PDF 解析服务地址' };
   }
-  const apiKey = getSetting<string | null>(db, 'integration.pdf_parser_api_key');
+  const apiKey = resolvePdfParserAuthKey(
+    candidate,
+    getSetting<string | null>(db, 'integration.pdf_parser_api_key'),
+  );
   const timeoutSec = getSetting<number>(db, 'integration.pdf_parser_timeout_seconds');
   return probePdfServiceHealth(candidate, apiKey, Math.min(Math.max(timeoutSec * 1000, 3_000), 10_000));
 }

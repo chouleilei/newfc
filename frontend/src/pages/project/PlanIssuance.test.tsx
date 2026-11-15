@@ -317,7 +317,36 @@ describe('F-GAP-06/07/08/10 综合计划与预算合一下达、签收、联动�
     vi.spyOn(planApi, 'overview').mockResolvedValue({ year: 2026, asOfPeriod: null, batch: null, sheets: [], notes: [] });
     vi.spyOn(planApi, 'projects').mockResolvedValue({ year: 2026, asOfPeriod: null, batch: null, rows: [], notes: [] });
     vi.spyOn(planApi, 'batches').mockResolvedValue([]);
-    const packsSpy = vi.spyOn(planApi, 'packs').mockResolvedValue({ items: [MOCK_PACK] });
+    const redactedCrossUnitPack: PlanUnitPackDto = {
+      ...MOCK_PACK,
+      id: 99,
+      unitOrgId: 201,
+      unitOrgCode: 'U09',
+      unitOrgName: '乙兄弟发电公司',
+      docNo: '',
+      issuedDate: null,
+      attachmentCount: 0,
+      hasResponsibilityLetter: false,
+      responsibilityLetterNo: '',
+      budgetVersionId: null,
+      mergedChildOrgs: [],
+      attachments: [],
+      undertakeItems: [
+        {
+          itemId: 501,
+          sheetCode: 'safety_input',
+          itemName: '跨单位协同防汛演练',
+          ownerUnitOrgId: 201,
+          ownerUnitOrgName: '乙兄弟发电公司',
+          undertakeOrgId: 102,
+          undertakeOrgName: '甲水电运营公司',
+          approvedAmount: '80000.00',
+        },
+      ],
+    };
+    const packsSpy = vi.spyOn(planApi, 'packs').mockImplementation(async (q) => ({
+      items: q?.view === 'undertake' ? [MOCK_PACK, redactedCrossUnitPack] : [MOCK_PACK],
+    }));
     const ackSpy = vi.spyOn(planApi, 'acknowledgePack').mockResolvedValue({ ...MOCK_PACK, signOffStatus: 'acknowledged', version: 4 });
     const downloadSpy = vi.spyOn(clientMod, 'download').mockResolvedValue(true);
 
@@ -326,9 +355,12 @@ describe('F-GAP-06/07/08/10 综合计划与预算合一下达、签收、联动�
     await waitFor(() => expect(screen.getByText('甲水电运营公司')).toBeTruthy());
     expect(packsSpy).toHaveBeenCalledWith(expect.objectContaining({ status: 'issued', view: 'unit' }));
 
-    // 切换至实际承办法人视角
+    // 切换至实际承办法人视角：范围外归口包仅展示本单位承办项标签，不暴露本单位专属操作按钮
     fireEvent.click(screen.getByText('按实际承办法人视角'));
     await waitFor(() => expect(packsSpy).toHaveBeenCalledWith(expect.objectContaining({ view: 'undertake' })));
+    await waitFor(() => expect(screen.getByText('跨单位承办（仅展示本单位承办项）')).toBeTruthy(), { timeout: 5000 });
+    expect(screen.getByText('跨单位协同防汛演练')).toBeTruthy();
+    expect(screen.getAllByText('确认签收')).toHaveLength(1);
 
     // 导出 .docx 公文
     const docxBtn = (await screen.findByText('导出下达公文及责任书 (.docx)')).closest('button')!;
@@ -484,8 +516,8 @@ describe('F-GAP-06/07/08/10 综合计划与预算合一下达、签收、联动�
       '/budget',
     );
 
-    await waitFor(() => expect(screen.getByText('本单位已下达经营预算只读视图')).toBeTruthy());
-    await waitFor(() => expect(screen.getByText(/本单位预算摘要 · 2026年度正式预算/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('本单位已下达经营预算只读视图')).toBeTruthy(), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByText(/本单位预算摘要 · 2026年度正式预算/)).toBeTruthy(), { timeout: 5000 });
     expect(buttonByText('查看本单位预算')).toBeTruthy();
     expect(screen.queryByText('创建版本')).toBeNull();
     expect(screen.queryByText('测算模板')).toBeNull();

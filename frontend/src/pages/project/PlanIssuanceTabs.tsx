@@ -834,6 +834,7 @@ export function PlanPacksTab({
   const [statusFilter, setStatusFilter] = useState<string | undefined>(initialStatus);
   const [drawerPackId, setDrawerPackId] = useState<number | null>(null);
   const [ackTarget, setAckTarget] = useState<PlanUnitPackDto | null>(null);
+  const [expandedUndertakeKeys, setExpandedUndertakeKeys] = useState<number[]>([]);
   const [ackForm] = Form.useForm<{ ackNote?: string }>();
 
   useEffect(() => {
@@ -844,6 +845,16 @@ export function PlanPacksTab({
     queryKey: ['plan-issuance-packs', year, statusFilter, view],
     queryFn: () => planApi.packs({ year, status: statusFilter, view }),
   });
+
+  useEffect(() => {
+    if (view === 'undertake' && packsQ.data?.items) {
+      setExpandedUndertakeKeys(
+        packsQ.data.items.filter((p) => (p.undertakeItems?.length ?? 0) > 0).map((p) => p.id),
+      );
+    } else if (view !== 'undertake') {
+      setExpandedUndertakeKeys([]);
+    }
+  }, [view, packsQ.data]);
 
   const ackMut = useMutation({
     mutationFn: ({ pack, ackNote }: { pack: PlanUnitPackDto; ackNote?: string }) =>
@@ -892,6 +903,30 @@ export function PlanPacksTab({
           loading={packsQ.isLoading}
           dataSource={packsQ.data?.items ?? []}
           pagination={false}
+          expandable={
+            view === 'undertake'
+              ? {
+                  rowExpandable: (p) => (p.undertakeItems?.length ?? 0) > 0,
+                  expandedRowKeys: expandedUndertakeKeys,
+                  onExpandedRowsChange: (keys) => setExpandedUndertakeKeys(keys.map(Number)),
+                  expandedRowRender: (p) => (
+                    <Table
+                      rowKey="itemId"
+                      size="small"
+                      pagination={false}
+                      dataSource={p.undertakeItems ?? []}
+                      columns={[
+                        { title: '工作表', dataIndex: 'sheetCode', width: 130 },
+                        { title: '项目名称', dataIndex: 'itemName' },
+                        { title: '归口下达单元', dataIndex: 'ownerUnitOrgName', width: 150 },
+                        { title: '实际承办法人', dataIndex: 'undertakeOrgName', width: 150 },
+                        { title: '批复金额(元)', dataIndex: 'approvedAmount', width: 140, align: 'right', render: (v: string) => <Money value={v} /> },
+                      ]}
+                    />
+                  ),
+                }
+              : undefined
+          }
           columns={[
             {
               title: '归口下达单元',
@@ -929,35 +964,41 @@ export function PlanPacksTab({
               title: '操作',
               key: 'op',
               width: 270,
-              render: (_, p) => (
-                <Space size={4} wrap>
-                  <Button size="small" onClick={() => setDrawerPackId(p.id)}>
-                    查看详情
-                  </Button>
-                  {can('plan:read') && (
-                    <Button
-                      size="small"
-                      onClick={() =>
-                        void download(planApi.exportPackDocxPath(p.id), `综合计划与预算下达通知_${p.unitOrgName}.docx`)
-                      }
-                    >
-                      导出下达公文及责任书 (.docx)
+              render: (_, p) => {
+                const isRedactedCrossUnit = view === 'undertake' && !p.docNo && p.attachmentCount === 0 && !getSession()?.user?.allOrgs;
+                if (isRedactedCrossUnit) {
+                  return <Tag color="geekblue">跨单位承办（仅展示本单位承办项）</Tag>;
+                }
+                return (
+                  <Space size={4} wrap>
+                    <Button size="small" onClick={() => setDrawerPackId(p.id)}>
+                      查看详情
                     </Button>
-                  )}
-                  {p.signOffStatus === 'issued' && can('plan:write') && (
-                    <Button
-                      size="small"
-                      type="primary"
-                      onClick={() => {
-                        ackForm.resetFields();
-                        setAckTarget(p);
-                      }}
-                    >
-                      确认签收
-                    </Button>
-                  )}
-                </Space>
-              ),
+                    {can('plan:read') && (
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          void download(planApi.exportPackDocxPath(p.id), `综合计划与预算下达通知_${p.unitOrgName}.docx`)
+                        }
+                      >
+                        导出下达公文及责任书 (.docx)
+                      </Button>
+                    )}
+                    {p.signOffStatus === 'issued' && can('plan:write') && (
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={() => {
+                          ackForm.resetFields();
+                          setAckTarget(p);
+                        }}
+                      >
+                        确认签收
+                      </Button>
+                    )}
+                  </Space>
+                );
+              },
             },
           ]}
         />

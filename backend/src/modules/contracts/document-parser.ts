@@ -11,6 +11,7 @@ import type { DB } from '../../db/connection';
 import type { LegalFinding } from '../../contracts/contract-legal-review';
 import { getSetting } from '../settings/business-settings';
 import { recognizeAttachment } from '../expense/ocr-client';
+import { resolvePdfParserAuthKey } from './local-pdf-parser';
 import { pdfServiceJson } from './pdf-service-url';
 
 const execFileAsync = promisify(execFile);
@@ -422,9 +423,12 @@ export async function parseContractDocument(
         new Blob([new Uint8Array(content)], { type: 'application/pdf' }),
         name,
       );
-      const key = getSetting<string | null>(
-        db,
-        'integration.pdf_parser_api_key',
+      const key = resolvePdfParserAuthKey(
+        base,
+        getSetting<string | null>(
+          db,
+          'integration.pdf_parser_api_key',
+        ),
       );
       const body = pdfResponse.parse(
         await pdfServiceJson(

@@ -3,7 +3,7 @@ import http from 'node:http';
 import { describe, expect, it } from 'vitest';
 import { AI_FEATURES, listBindings, listChannels } from '../src/modules/settings/ai-channels.service';
 import { parseContractDocument } from '../src/modules/contracts/document-parser';
-import { isLoopbackAddress, parsePdftotextBboxXml } from '../src/modules/contracts/local-pdf-parser';
+import { INTERNAL_PDF_PARSER_TOKEN, isLoopbackAddress, parsePdftotextBboxXml } from '../src/modules/contracts/local-pdf-parser';
 import { renderDocx } from '../src/modules/analysis-reports/render';
 import { boot, get, json, post, upload, type Session } from './t3-helpers';
 import { fetchAs } from './http-helpers';
@@ -163,15 +163,32 @@ describe('T-GAP-04 / AC-T14-01 AI 功能绑定补齐、多样本慢响应诊断�
     expect(xmlPages).toHaveLength(1);
     expect(xmlPages[0].blocks[0].text).toContain('第一条 合同标的与范围');
 
+    // 未携带服务令牌或经反向代理转发的请求均须拒绝
+    expect((await fetch(`${base}/api/internal/pdf-parser/health`)).status).toBe(401);
+    expect(
+      (await fetch(`${base}/api/internal/pdf-parser/health`, {
+        headers: {
+          authorization: `Bearer ${INTERNAL_PDF_PARSER_TOKEN}`,
+          'x-forwarded-for': '198.51.100.20',
+          'x-forwarded-proto': 'https',
+        },
+      })).status,
+    ).toBe(403);
+
+    const authHeaders = { authorization: `Bearer ${INTERNAL_PDF_PARSER_TOKEN}` };
     // 探活本机回环 PDF 解析器健康端点
-    const healthRes = await fetch(`${base}/api/internal/pdf-parser/health`);
+    const healthRes = await fetch(`${base}/api/internal/pdf-parser/health`, { headers: authHeaders });
     expect(healthRes.status).toBe(200);
     expect((await healthRes.json() as any).status).toBe('ok');
 
     // 非 PDF 魔数拒绝
     const badForm = new FormData();
     badForm.append('file', new Blob([Buffer.from('NOT_A_PDF_FILE')]), 'bad.pdf');
-    const badRes = await fetch(`${base}/api/internal/pdf-parser/parse-pdf`, { method: 'POST', body: badForm });
+    const badRes = await fetch(`${base}/api/internal/pdf-parser/parse-pdf`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: badForm,
+    });
     expect(badRes.status).toBe(400);
 
     // 配置 integration.pdf_parser_base_url 指向本服务内嵌端点，验证完整 PDF 解析与缓存命中

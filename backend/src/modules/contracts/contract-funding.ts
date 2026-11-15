@@ -2,6 +2,7 @@ import type { DB } from '../../db/connection';
 import type { ContractRow } from './contract.service';
 import { AppError } from '../../core/errors';
 import { mulCents, RATIO_SCALE } from '../../core/decimal';
+import { signOfType } from '../../core/money';
 import { workingDaysBetween } from '../../core/workdays';
 import { workingCalendar } from '../settings/business-settings';
 import { requireEvidence } from './contract-controls';
@@ -78,17 +79,20 @@ export function computeBudgetPoolUsage(
   if (capCents === null && c.budget_pool_account_id != null) {
     const entryCap = db
       .prepare(
-        `SELECT SUM(be.amount_cents) AS cap
+        `SELECT SUM(be.amount_cents) AS cap, a.type AS account_type
          FROM budget_entry be
          JOIN budget_version bv ON bv.id = be.version_id
-         WHERE be.org_id = ? AND be.account_id = ? AND bv.year = ? AND bv.status IN ('published','approved','draft')
-         GROUP BY bv.id
-         ORDER BY CASE bv.status WHEN 'published' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, bv.id DESC
+         JOIN account a ON a.id = be.account_id
+         WHERE be.org_id = ? AND be.account_id = ? AND bv.year = ? AND bv.kind = 'budget' AND bv.status IN ('locked','draft')
+         GROUP BY bv.id, a.type
+         ORDER BY bv.is_current DESC, CASE bv.status WHEN 'locked' THEN 0 ELSE 1 END, bv.id DESC
          LIMIT 1`,
       )
       .safeIntegers(true)
-      .get(c.org_id, c.budget_pool_account_id, yearNum) as { cap: bigint | null } | undefined;
-    if (entryCap?.cap != null) capCents = BigInt(entryCap.cap);
+      .get(c.org_id, c.budget_pool_account_id, yearNum) as { cap: bigint | null; account_type: string } | undefined;
+    if (entryCap?.cap != null) {
+      capCents = BigInt(entryCap.cap) * BigInt(signOfType(entryCap.account_type));
+    }
   }
   if (capCents === null && c.plan_item_id != null) {
     const planCap = db
@@ -98,41 +102,51 @@ export function computeBudgetPoolUsage(
          JOIN plan_item i ON i.id = f.item_id
          JOIN plan_batch b ON b.id = i.batch_id
          WHERE i.item_key = (SELECT item_key FROM plan_item WHERE id = ?)
-           AND i.org_id = (SELECT org_id FROM plan_item WHERE id = ?)
+           AND COALESCE(i.org_id, -1) = COALESCE((SELECT org_id FROM plan_item WHERE id = ?), -1)
+           AND b.year = (SELECT b2.year FROM plan_item i2 JOIN plan_batch b2 ON b2.id = i2.batch_id WHERE i2.id = ?)
            AND b.is_current = 1 AND b.status <> 'voided'
            AND f.measure = 'annual_plan' AND f.field_key = 'annual_plan' AND f.value_type = 'amount'
          ORDER BY b.year DESC, b.actual_period DESC LIMIT 1`,
       )
       .safeIntegers(true)
-      .get(c.plan_item_id, c.plan_item_id) as { cap: bigint | null } | undefined;
+      .get(c.plan_item_id, c.plan_item_id, c.plan_item_id) as { cap: bigint | null } | undefined;
     if (planCap?.cap != null) capCents = BigInt(planCap.cap);
   }
+
+  const yearExpr = "substr(COALESCE(NULLIF(sign_date, ''), created_at), 1, 4) = ?";
+  const poolWhere =
+    c.budget_pool_account_id != null
+      ? `budget_pool_account_id = ? AND ${yearExpr}`
+      : c.plan_item_id != null
+        ? `plan_item_id IN (
+             SELECT i2.id FROM plan_item i2
+             JOIN plan_batch b2 ON b2.id = i2.batch_id
+             WHERE i2.item_key = (SELECT item_key FROM plan_item WHERE id = ?)
+               AND COALESCE(i2.org_id, -1) = COALESCE((SELECT org_id FROM plan_item WHERE id = ?), -1)
+               AND b2.year = (SELECT b3.year FROM plan_item i3 JOIN plan_batch b3 ON b3.id = i3.batch_id WHERE i3.id = ?)
+           )`
+        : `budget_pool_account_id IS NULL AND plan_item_id IS NULL AND ${yearExpr}`;
+  const poolParams: unknown[] =
+    c.budget_pool_account_id != null
+      ? [c.budget_pool_account_id, yearStr]
+      : c.plan_item_id != null
+        ? [c.plan_item_id, c.plan_item_id, c.plan_item_id]
+        : [yearStr];
+
   if (capCents === null) {
-    // 继承同组织同池其他合同已登记的池上限
+    // 继承同组织同年度同池其他合同已登记的池上限
     const peerCap = db
       .prepare(
         `SELECT MAX(budget_pool_cap_cents) AS cap
          FROM ct_contract
          WHERE org_id = ? AND budget_type = 'lump_sum_pool' AND status <> 'voided'
            AND id <> ? AND budget_pool_cap_cents IS NOT NULL
-           AND (${c.budget_pool_account_id != null ? 'budget_pool_account_id = ?' : c.plan_item_id != null ? 'plan_item_id = ?' : "substr(COALESCE(sign_date, created_at), 1, 4) = ?"})`,
+           AND (${poolWhere})`,
       )
       .safeIntegers(true)
-      .get(
-        c.org_id,
-        c.id || 0,
-        c.budget_pool_account_id ?? c.plan_item_id ?? yearStr,
-      ) as { cap: bigint | null } | undefined;
+      .get(c.org_id, c.id || 0, ...poolParams) as { cap: bigint | null } | undefined;
     if (peerCap?.cap != null) capCents = BigInt(peerCap.cap);
   }
-
-  const poolWhere =
-    c.budget_pool_account_id != null
-      ? 'budget_pool_account_id = ?'
-      : c.plan_item_id != null
-        ? 'plan_item_id = ?'
-        : 'substr(COALESCE(sign_date, created_at), 1, 4) = ?';
-  const poolParam = c.budget_pool_account_id ?? c.plan_item_id ?? yearStr;
 
   const peers = db
     .prepare(
@@ -143,7 +157,7 @@ export function computeBudgetPoolUsage(
          AND status <> 'voided' AND id <> ? AND ${poolWhere}`,
     )
     .safeIntegers(true)
-    .all(c.org_id, c.id || 0, poolParam) as ContractRow[];
+    .all(c.org_id, c.id || 0, ...poolParams) as ContractRow[];
 
   const usedOtherCents = peers.reduce((sum, p) => sum + contractAnnualPoolRmb(p, 0n), 0n);
   const thisCents = contractAnnualPoolRmb(c, delta);

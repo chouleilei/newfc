@@ -114,10 +114,11 @@ describe('T-GAP-06 / AC-T14-02 V72→V73→V74 迁移与综合计划 8 单元合
     const bvId = bvRes.id as number;
     const now = new Date().toISOString();
     // 含税 1,060,000.00 / 1.06 = 1,000,000.00；含税 530,000.00 / 1.06 = 500,000.00
+    // 经营预算成本/费用按利润方向存为负数（core/money.ts SIGN_BY_TYPE）
     db.prepare(`INSERT INTO budget_entry (version_id, org_id, account_id, amount_cents, updated_at) VALUES (?, ?, ?, ?, ?)`).run(bvId, hubAId, accIncome, 500_000_000, now);
-    db.prepare(`INSERT INTO budget_entry (version_id, org_id, account_id, amount_cents, updated_at) VALUES (?, ?, ?, ?, ?)`).run(bvId, hubAId, accMaint, 100_000_000, now);
+    db.prepare(`INSERT INTO budget_entry (version_id, org_id, account_id, amount_cents, updated_at) VALUES (?, ?, ?, ?, ?)`).run(bvId, hubAId, accMaint, -100_000_000, now);
     db.prepare(`INSERT INTO budget_entry (version_id, org_id, account_id, amount_cents, updated_at) VALUES (?, ?, ?, ?, ?)`).run(bvId, subDId, accIncome, 300_000_000, now);
-    db.prepare(`INSERT INTO budget_entry (version_id, org_id, account_id, amount_cents, updated_at) VALUES (?, ?, ?, ?, ?)`).run(bvId, subDId, accMaint, 50_000_000, now);
+    db.prepare(`INSERT INTO budget_entry (version_id, org_id, account_id, amount_cents, updated_at) VALUES (?, ?, ?, ?, ?)`).run(bvId, subDId, accMaint, -50_000_000, now);
 
     // 导入并激活 2026 综合计划批次
     const wbBuf = buildSyntheticPlanWorkbook();
@@ -338,7 +339,7 @@ describe('T-GAP-06 / AC-T14-02 V72→V73→V74 迁移与综合计划 8 单元合
     expect(newCycle.issuanceStage).toBe('adjusted');
     expect(newCycle.sourceBudgetVersionId).not.toBe(bvId);
     expect(newCycle.reconcileReport.passed).toBe(true);
-    expect(db.prepare('SELECT amount_cents FROM budget_entry WHERE version_id = ? AND org_id = ? AND account_id = ?').safeIntegers(true).get(newCycle.sourceBudgetVersionId, hubAId, accMaint)).toEqual({ amount_cents: 110000000n });
+    expect(db.prepare('SELECT amount_cents FROM budget_entry WHERE version_id = ? AND org_id = ? AND account_id = ?').safeIntegers(true).get(newCycle.sourceBudgetVersionId, hubAId, accMaint)).toEqual({ amount_cents: -110000000n });
     // 同一旧周期的第二份在途申请不能再次批准并覆盖已派生的新周期。
     const staleReview = await post(base, reviewerUser.session, `/api/plan/issuance/adjustments/${adminSelfAdj.id}/review`, {
       action: 'approve', decisionDocNo: '旧周期重复审批',

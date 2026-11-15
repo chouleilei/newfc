@@ -18,6 +18,7 @@ import {
   roundHalfUpDiv,
   toCentsBig,
 } from '../../core/decimal';
+import { signOfType } from '../../core/money';
 import { currentAuth } from '../../core/request-context';
 import { todayUtcDate, workingDaysBetween } from '../../core/workdays';
 import { writeLog } from '../audit/log';
@@ -397,15 +398,15 @@ function buildPackSummaries(
 
     if (operatingRevenueCents === 0n && profitBeforeTaxCents === 0n && budgetEntries.length > 0) {
       let bIncome = 0n;
-      let bCostExp = 0n;
+      let bCostExpSigned = 0n;
       for (const be of budgetEntries) {
         if (!coveredOrgIds.has(Number(be.org_id))) continue;
         const v = toCentsBig(be.amount_cents);
         if (be.account_type === 'income') bIncome += v;
-        else if (be.account_type === 'cost' || be.account_type === 'expense') bCostExp += v;
+        else if (be.account_type === 'cost' || be.account_type === 'expense') bCostExpSigned += v;
       }
       operatingRevenueCents = bIncome;
-      profitBeforeTaxCents = bIncome - bCostExp;
+      profitBeforeTaxCents = bIncome + bCostExpSigned;
       netProfitCents = profitBeforeTaxCents;
     }
 
@@ -516,26 +517,27 @@ function buildPackSummaries(
   return out;
 }
 
+const DEFAULT_PACK_METRICS: PlanUnitPackDto['metrics'] = {
+  operatingRevenue: '0.00',
+  totalRevenue: '0.00',
+  profitBeforeTax: '0.00',
+  netProfit: '0.00',
+  investmentTotal: '0.00',
+  purchaseTotal: '0.00',
+  maintenanceTotal: '0.00',
+  safetyInputTotal: '0.00',
+  fiveExpensesExact: '0.00',
+  fiveExpensesIssued: '0.00',
+  controllableMgmtFeeExact: '0.00',
+  controllableMgmtFeeIssued: '0.00',
+};
+
 function packRowToDto(db: DB, p: PackRow, orgById: Map<number, OrgMetaRow>, includeDetails: boolean): PlanUnitPackDto {
   const uOrg = orgById.get(p.unit_org_id);
   const summary = JSON.parse(p.pack_summary_json || '{}') as Partial<PackSummaryStored>;
   const ackUser = p.ack_user_id
     ? (db.prepare('SELECT display_name, username FROM app_user WHERE id = ?').get(p.ack_user_id) as { display_name: string; username: string } | undefined)
     : undefined;
-  const defaultMetrics: PlanUnitPackDto['metrics'] = {
-    operatingRevenue: '0.00',
-    totalRevenue: '0.00',
-    profitBeforeTax: '0.00',
-    netProfit: '0.00',
-    investmentTotal: '0.00',
-    purchaseTotal: '0.00',
-    maintenanceTotal: '0.00',
-    safetyInputTotal: '0.00',
-    fiveExpensesExact: '0.00',
-    fiveExpensesIssued: '0.00',
-    controllableMgmtFeeExact: '0.00',
-    controllableMgmtFeeIssued: '0.00',
-  };
   return {
     id: p.id,
     cycleId: p.cycle_id,
@@ -555,7 +557,7 @@ function packRowToDto(db: DB, p: PackRow, orgById: Map<number, OrgMetaRow>, incl
     ackNote: p.ack_note,
     version: p.version,
     mergedChildOrgs: summary.mergedChildOrgs ?? [],
-    metrics: summary.metrics ?? defaultMetrics,
+    metrics: summary.metrics ?? { ...DEFAULT_PACK_METRICS },
     ...(includeDetails
       ? {
           attachments: summary.attachments ?? [],
@@ -856,13 +858,13 @@ export function reconcileCycleTotals(
         WHERE e.version_id = ? AND e.org_id = ?
       `).safeIntegers(true).all(c.source_budget_version_id, eo.id) as unknown as { amount_cents: bigint | number; account_type: string }[];
       let inc = 0n;
-      let cost = 0n;
+      let costSigned = 0n;
       for (const r of bRows) {
         if (r.account_type === 'income') inc += toCentsBig(r.amount_cents);
-        else if (r.account_type === 'cost' || r.account_type === 'expense') cost += toCentsBig(r.amount_cents);
+        else if (r.account_type === 'cost' || r.account_type === 'expense') costSigned += toCentsBig(r.amount_cents);
       }
       eoRev = inc;
-      eoProfit = inc - cost;
+      eoProfit = inc + costSigned;
     }
     const em = excludedMeta[eo.code] ?? excludedMeta[String(eo.id)];
     if (em?.operatingRevenue !== undefined) eoRev = parseDecimalToCents(em.operatingRevenue);
@@ -936,16 +938,18 @@ export function reconcileCycleTotals(
   }
   if (explicitVatChecks.length === 0 && c.source_budget_version_id !== null) {
     const maintBudgetRows = db.prepare(`
-      SELECT e.org_id, SUM(e.amount_cents) AS total_cents
+      SELECT e.org_id, a.type AS account_type, e.amount_cents
       FROM budget_entry e JOIN account a ON a.id = e.account_id
       WHERE e.version_id = ? AND (a.code LIKE '%MAINT%' OR a.name LIKE '%运行维护%' OR a.name LIKE '%运维费%')
-      GROUP BY e.org_id
-    `).safeIntegers(true).all(c.source_budget_version_id) as unknown as { org_id: number; total_cents: bigint | number }[];
+    `).safeIntegers(true).all(c.source_budget_version_id) as unknown as { org_id: number; account_type: string; amount_cents: bigint | number }[];
     const maintBudgetByUnit = new Map<number, bigint>();
-    const rootOrgId = allOrgs.find((o) => o.parent_id === null)?.id ?? null;
+    const rootOrgId = allOrgs.find((o) => o.parent_id === null && o.status === 'active')?.id
+      ?? allOrgs.find((o) => o.parent_id === null)?.id
+      ?? null;
     for (const r of maintBudgetRows) {
       const uid = resolveIssuanceUnitOrgId(Number(r.org_id), orgById, rootOrgId);
-      if (uid !== null) maintBudgetByUnit.set(uid, (maintBudgetByUnit.get(uid) ?? 0n) + toCentsBig(r.total_cents));
+      const displayCents = toCentsBig(r.amount_cents) * BigInt(signOfType(r.account_type));
+      if (uid !== null) maintBudgetByUnit.set(uid, (maintBudgetByUnit.get(uid) ?? 0n) + displayCents);
     }
     for (const p of packDtos) {
       const planIncl = parseDecimalToCents(p.metrics.maintenanceTotal);
@@ -1146,13 +1150,37 @@ export function listUnitPacks(
       return false;
     })
     .map((dto) => {
-      if (!scope.all && !orgInScope(scope, dto.unitOrgId) && dto.undertakeItems) {
+      if (scope.all) return dto;
+      if (!orgInScope(scope, dto.unitOrgId)) {
         return {
           ...dto,
-          undertakeItems: dto.undertakeItems.filter((it) => orgInScope(scope, it.undertakeOrgId)),
+          docNo: '',
+          issuedDate: null,
+          attachmentCount: 0,
+          hasResponsibilityLetter: false,
+          responsibilityLetterNo: '',
+          budgetVersionId: null,
+          ackUserId: null,
+          ackUserName: null,
+          ackAt: null,
+          ackNote: '',
+          mergedChildOrgs: dto.mergedChildOrgs.filter((c) => orgInScope(scope, c.id)),
+          metrics: { ...DEFAULT_PACK_METRICS },
+          attachments: [],
+          undertakeItems: (dto.undertakeItems ?? []).filter((it) => orgInScope(scope, it.undertakeOrgId)),
         };
       }
-      return dto;
+      return {
+        ...dto,
+        mergedChildOrgs: dto.mergedChildOrgs.filter((c) => orgInScope(scope, c.id)),
+        ...(dto.undertakeItems
+          ? {
+              undertakeItems: dto.undertakeItems.filter(
+                (it) => orgInScope(scope, it.ownerUnitOrgId) || orgInScope(scope, it.undertakeOrgId),
+              ),
+            }
+          : {}),
+      };
     });
 }
 
@@ -1173,7 +1201,15 @@ export function getUnitPack(db: DB, packId: number): PlanUnitPackDto {
   const row = getPackRowScopedOrThrow(db, packId, scope);
   const allOrgs = loadAllOrgs(db);
   const orgById = new Map(allOrgs.map((o) => [o.id, o]));
-  return packRowToDto(db, row, orgById, true);
+  const dto = packRowToDto(db, row, orgById, true);
+  if (scope.all) return dto;
+  return {
+    ...dto,
+    mergedChildOrgs: dto.mergedChildOrgs.filter((c) => orgInScope(scope, c.id)),
+    undertakeItems: (dto.undertakeItems ?? []).filter(
+      (it) => orgInScope(scope, it.ownerUnitOrgId) || orgInScope(scope, it.undertakeOrgId),
+    ),
+  };
 }
 
 export function acknowledgeUnitPack(db: DB, packId: number, input: PlanPackAcknowledgeRequest): PlanUnitPackDto {
@@ -1761,7 +1797,7 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
               : toCentsBig(l.delta_cents as bigint | number);
             const existingEntry = db.prepare('SELECT amount_cents FROM budget_entry WHERE version_id = ? AND org_id = ? AND account_id = ?')
               .safeIntegers(true).get(newBudgetVersionId, adjPack.unit_org_id, Number(l.budget_account_id)) as { amount_cents: bigint } | undefined;
-            const directionSign = ['cost', 'expense'].includes(account.type) && (!existingEntry || existingEntry.amount_cents < 0n) ? -1n : 1n;
+            const directionSign = BigInt(signOfType(account.type));
             const deltaNum = centsToSafeNumber(budgetDelta * directionSign, '预算联动调整额');
             if (existingEntry) {
               db.prepare('UPDATE budget_entry SET amount_cents = ?, updated_at = ? WHERE version_id = ? AND org_id = ? AND account_id = ?')
