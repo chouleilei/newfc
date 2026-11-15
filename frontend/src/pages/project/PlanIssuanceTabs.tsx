@@ -74,7 +74,7 @@ const APPROVAL_BODY_LABELS: Record<PlanApprovalBody, string> = {
 const VALUE_TYPE_OPTIONS: { value: PlanAdjustmentValueType; label: string; defaultUnit: string; scale: number }[] = [
   { value: 'amount_cents', label: '金额(元)', defaultUnit: '元', scale: 2 },
   { value: 'scaled_int', label: '数量指标(万kWh / MW)', defaultUnit: '万kWh', scale: 4 },
-  { value: 'rate_bp', label: '比率(%)', defaultUnit: '%', scale: 2 },
+  { value: 'rate_bp', label: '比率（原表口径）', defaultUnit: '比率', scale: 6 },
   { value: 'text', label: '文本说明', defaultUnit: '', scale: 0 },
 ];
 
@@ -125,11 +125,19 @@ function computeDeltaPreview(valueType: PlanAdjustmentValueType, beforeVal?: str
     const diff = a - b;
     return (diff > 0n ? '+' : '') + formatCentsPreview(diff);
   }
-  const bn = Number(beforeVal ?? 0);
-  const an = Number(afterVal ?? 0);
-  if (!Number.isFinite(bn) || !Number.isFinite(an)) return '0';
-  const d = an - bn;
-  return `${d > 0 ? '+' : ''}${d.toFixed(valueType === 'rate_bp' ? 2 : 4)}`;
+  const scale = valueType === 'rate_bp' ? 6 : 4;
+  const factor = 10n ** BigInt(scale);
+  const parse = (raw: string): bigint | null => {
+    const m = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(raw.trim());
+    if (!m) return null;
+    if ((m[3]?.length ?? 0) > scale) return null;
+    const v = BigInt(m[2]) * factor + BigInt((m[3] ?? '').padEnd(scale, '0'));
+    return m[1] === '-' ? -v : v;
+  };
+  const before = parse(beforeVal ?? '0'); const after = parse(afterVal ?? '0');
+  if (before === null || after === null) return '—';
+  const delta = after - before; const abs = delta < 0n ? -delta : delta;
+  return `${delta < 0n ? '-' : delta > 0n ? '+' : ''}${abs / factor}.${String(abs % factor).padStart(scale, '0')}`;
 }
 
 interface UnitBudgetBrief {
@@ -369,6 +377,10 @@ export function PlanCyclesTab({
     queryFn: () => api.get<{ id: number; name: string; year: number }[]>(`/versions?year=${year}`),
     enabled: createOpen && can('budget:read'),
   });
+  const capOrgsQ = useQuery({
+    queryKey: ['org-tree'], queryFn: () => api.get<{ rows: { id: number; name: string; status: string }[] }>('/org/tree'),
+    enabled: createOpen && can('master:read'),
+  });
 
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['plan-issuance-cycles'] });
@@ -387,6 +399,7 @@ export function PlanCyclesTab({
         sourceBudgetVersionId: v.sourceBudgetVersionId ? Number(v.sourceBudgetVersionId) : null,
         issuedDate: v.issuedDate ? String(v.issuedDate) : null,
         docNoPrefix: v.docNoPrefix ? String(v.docNoPrefix).trim() : undefined,
+        annualSpecialCaps: v.annualSpecialCaps as PlanIssuanceCycleCreateRequest['annualSpecialCaps'],
         decisionDocMeta: compact({
           partyCommitteeDocNo: v.partyCommitteeDocNo ? String(v.partyCommitteeDocNo).trim() : undefined,
           gmOfficeDocNo: v.gmOfficeDocNo ? String(v.gmOfficeDocNo).trim() : undefined,
@@ -785,6 +798,23 @@ export function PlanCyclesTab({
               </Form.Item>
             </Col>
           </Row>
+          <Typography.Text strong>分子公司年度专项控制上限（元）</Typography.Text>
+          <Typography.Paragraph type="secondary">经批准的上限随本周期冻结；未配置或调整后超限时，计划外项目须报公司审批。</Typography.Paragraph>
+          <Form.List name="annualSpecialCaps">
+            {(fields, { add, remove }) => <Space direction="vertical" style={{ width: '100%' }}>
+              {fields.map(({ key, name }) => <Row key={key} gutter={8}>
+                <Col span={8}><Form.Item name={[name, 'unitOrgId']} label="下达单元" rules={[{ required: true }]}>
+                  <Select showSearch optionFilterProp="label" options={(capOrgsQ.data?.rows ?? []).filter((o) => o.status === 'active').map((o) => ({ value: o.id, label: o.name }))} />
+                </Form.Item></Col>
+                <Col span={7}><Form.Item name={[name, 'sheetCode']} label="专项工作表" rules={[{ required: true }]}>
+                  <Select options={Object.entries(sheetLabels).map(([value, label]) => ({ value, label }))} />
+                </Form.Item></Col>
+                <Col span={7}><Form.Item name={[name, 'amount']} label="年度批准上限" rules={[{ required: true }, { pattern: /^\d+(\.\d{1,2})?$/, message: '请输入非负金额，最多两位小数' }]}><Input /></Form.Item></Col>
+                <Col span={2}><Button type="link" danger onClick={() => remove(name)}>删除</Button></Col>
+              </Row>)}
+              <Button type="dashed" onClick={() => add({ amount: '0.00' })}>增加专项上限</Button>
+            </Space>}
+          </Form.List>
         </Form>
       </Modal>
     </Space>
@@ -1010,6 +1040,15 @@ export function PlanAdjustmentsTab({
     enabled: createOpen,
   });
   const selectedCycleId = Form.useWatch('cycleId', form) as number | undefined;
+  const sourcePlanBatchId = cyclesQ.data?.items.find((c) => c.id === selectedCycleId)?.sourcePlanBatchId;
+  const adjustmentItemsQ = useQuery({
+    queryKey: ['plan-adjustment-source-items', sourcePlanBatchId], queryFn: () => planApi.items(sourcePlanBatchId!),
+    enabled: createOpen && sourcePlanBatchId != null,
+  });
+  const adjustmentAccountsQ = useQuery({
+    queryKey: ['plan-adjustment-accounts'], queryFn: () => api.get<{ rows: { id: number; name: string; code: string; status: string }[] }>('/account/tree'),
+    enabled: createOpen && can('master:read'),
+  });
   const packsQ = useQuery({
     queryKey: ['plan-issuance-packs-for-adj', selectedCycleId],
     queryFn: () => planApi.packs({ cycleId: selectedCycleId }),
@@ -1034,6 +1073,8 @@ export function PlanAdjustmentsTab({
       base: { operation: 'adjust', clientKey: 'new-plan-adjust' },
       changes: compact({
         unitPackId: v.unitPackId,
+        cycleId: v.cycleId,
+        lines: v.lines,
         adjustType: v.adjustType,
         exceedsOverallTarget: v.exceedsOverallTarget,
         emergencyStartDate: v.emergencyStartDate,
@@ -1093,6 +1134,9 @@ export function PlanAdjustmentsTab({
         lines: rawLines.map((ln) => {
           const meta = VALUE_TYPE_OPTIONS.find((o) => o.value === ln.valueType) ?? VALUE_TYPE_OPTIONS[0];
           return {
+            planItemId: ln.planItemId ?? null,
+            stableItemUid: ln.stableItemUid,
+            budgetAccountId: ln.budgetAccountId ?? null,
             targetSheetCode: ln.targetSheetCode,
             targetItemName: String(ln.targetItemName ?? '').trim(),
             valueType: ln.valueType ?? 'amount_cents',
@@ -1368,6 +1412,27 @@ export function PlanAdjustmentsTab({
                   const deltaText = computeDeltaPreview(vt, ln.beforeVal, ln.afterVal);
                   return (
                     <Card key={key} size="small">
+                      <Row gutter={8}>
+                        <Col span={16}><Form.Item name={[restField.name, 'planItemId']} label="关联原计划项（新增项目留空）">
+                          <Select allowClear showSearch optionFilterProp="label"
+                            options={(adjustmentItemsQ.data ?? []).filter((item) => ['leaf', 'detail'].includes(item.itemType)).map((item) => ({ value: item.id, label: `${item.itemName} · ${item.orgName ?? ''}` }))}
+                            onChange={(id?: number) => {
+                              const item = adjustmentItemsQ.data?.find((p) => p.id === id);
+                              const fact = item?.facts.find((f) => f.fieldKey === 'annual_plan');
+                              const current = form.getFieldValue(['lines', restField.name]) ?? {};
+                              form.setFieldValue(['lines', restField.name], item && fact ? { ...current,
+                                planItemId: item.id, stableItemUid: item.stableItemUid, targetSheetCode: item.sheetCode, targetItemName: item.itemName,
+                                valueType: ({ amount: 'amount_cents', quantity: 'scaled_int', ratio: 'rate_bp', text: 'text' } as const)[fact.valueType],
+                                scale: fact.valueType === 'amount' ? 2 : fact.valueType === 'ratio' ? 6 : fact.valueType === 'quantity' ? 4 : 0, unit: fact.valueType === 'amount' ? '元' : fact.valueType === 'quantity' ? '原表数量' : fact.valueType === 'ratio' ? '比率' : '文本',
+                                beforeVal: fact.valueType === 'amount' ? item.approvedAmount ?? fact.value : fact.value,
+                                afterVal: fact.valueType === 'amount' ? item.approvedAmount ?? fact.value : fact.value,
+                              } : { ...current, planItemId: null, stableItemUid: undefined, beforeVal: '0' });
+                            }} />
+                        </Form.Item></Col>
+                        <Col span={8}><Form.Item name={[restField.name, 'budgetAccountId']} label="联动经营预算科目（可选）">
+                          <Select allowClear showSearch optionFilterProp="label" options={(adjustmentAccountsQ.data?.rows ?? []).filter((a) => a.status === 'active').map((a) => ({ value: a.id, label: `${a.code} ${a.name}` }))} />
+                        </Form.Item></Col>
+                      </Row>
                       <Row gutter={8} align="middle">
                         <Col span={5}>
                           <Form.Item {...restField} name={[restField.name, 'targetSheetCode']} label="工作表" rules={[{ required: true }]}>

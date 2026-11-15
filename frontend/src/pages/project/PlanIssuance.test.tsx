@@ -2,11 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App as AntdApp, ConfigProvider } from 'antd';
+import { createCache, StyleProvider } from '@ant-design/cssinjs';
 import zhCN from 'antd/locale/zh_CN';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { AssistantRegistryProvider } from '../../assistant/AssistantContextRegistry';
-import PlanExecution from './PlanExecution';
+import PlanExecution, { SHEET_LABEL as PLAN_SHEET_LABELS } from './PlanExecution';
+import { PlanCyclesTab, PlanAdjustmentsTab } from './PlanIssuanceTabs';
 import BudgetVersions from '../BudgetVersions';
 import { WorkbenchTodoCard } from '../dashboard/WorkbenchTodoCard';
 import { DomainOverviewCard } from '../dashboard/DomainOverviewCard';
@@ -125,6 +127,7 @@ function mountNode(node: React.ReactNode, url = '/plan?tab=cycles') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
   qc.setQueryData(['org-tree'], { rows: [], tree: [] });
   return render(
+    <StyleProvider cache={createCache()} autoClear hashPriority="high">
     <ConfigProvider locale={zhCN} theme={{ token: { motion: false } }}>
       <AntdApp>
         <QueryClientProvider client={qc}>
@@ -133,11 +136,95 @@ function mountNode(node: React.ReactNode, url = '/plan?tab=cycles') {
           </MemoryRouter>
         </QueryClientProvider>
       </AntdApp>
-    </ConfigProvider>,
+    </ConfigProvider>
+    </StyleProvider>,
   );
 }
 
+// 先按文案定位，再确认语义元素；避免 JSDOM 为表格中每个按钮反复解析整套 CSS。
+function buttonByText(text: string | RegExp, scope: HTMLElement = document.body): HTMLButtonElement {
+  const button = within(scope).getByText(text).closest('button');
+  expect(button).not.toBeNull();
+  return button!;
+}
+async function dialogByTitle(text: string | RegExp): Promise<HTMLElement> {
+  const dialog = (await screen.findByText(text)).closest<HTMLElement>('[role="dialog"]');
+  expect(dialog).not.toBeNull();
+  return dialog!;
+}
+
+function setupAdjustmentReview() {
+  clientMod.setSession({ authenticated: true, csrfToken: 'review', expiresAt: '', user: { id: 2, username: 'unit', displayName: '单位经办人', permissions: ['plan:read','plan:write','master:read'], allOrgs: false, orgIds: [102], mustChangePassword: false } });
+  vi.spyOn(planApi, 'cycles').mockResolvedValue({ items: [{ id: 10, cycleCode: '2026-FORMAL', sourcePlanBatchId: 7, status: 'published' } as PlanIssuanceCycleDto] });
+  vi.spyOn(planApi, 'packs').mockResolvedValue({ items: [MOCK_PACK] });
+  vi.spyOn(planApi, 'adjustments').mockResolvedValue({ items: [] });
+  vi.spyOn(planApi, 'items').mockResolvedValue([
+    { id: 71, sheetCode: 'maintenance', itemName: '待调整维保项目', itemType: 'leaf', stableItemUid: 'stable-71', orgName: MOCK_PACK.unitOrgName, approvedAmount: '1060000.00', facts: [{ fieldKey: 'annual_plan', valueType: 'amount', value: '1060000.00' }] } as never,
+    { id: 72, sheetCode: 'capacity_add', itemName: '六位比率指标', itemType: 'leaf', stableItemUid: 'stable-72', orgName: MOCK_PACK.unitOrgName, approvedAmount: '0.00', facts: [{ fieldKey: 'annual_plan', valueType: 'ratio', value: '0.500001' }] } as never,
+  ]);
+  vi.spyOn(clientMod.api, 'get').mockResolvedValue({ rows: [{ id: 33, code: 'COST_MAINT', name: '运行维护费', status: 'active' }] });
+  return vi.spyOn(planApi, 'createAdjustment').mockResolvedValue({ id: 55 } as never);
+}
+
 describe('F-GAP-06/07/08/10 综合计划与预算合一下达、签收、联动调整与受限预算视图', () => {
+  it('独立复核：正式专项上限仅在用户确认后提交，保持元字符串与组织/工作表绑定', { timeout: 60_000 }, async () => {
+    clientMod.setSession({ authenticated: true, csrfToken: 'review', expiresAt: '', user: { id: 1, username: 'admin', displayName: '验收管理员', permissions: ['plan:read','plan:write','master:read'], allOrgs: true, orgIds: [], mustChangePassword: false } });
+    vi.spyOn(planApi, 'cycles').mockResolvedValue({ items: [] });
+    vi.spyOn(planApi, 'batches').mockResolvedValue([]);
+    vi.spyOn(clientMod.api, 'get').mockResolvedValue({ rows: [{ id: 102, name: MOCK_PACK.unitOrgName, status: 'active' }] });
+    const created = { id: 99, year: 2026, cycleCode: '2026-FORMAL', issuanceStage: 'official', sourcePlanBatchId: null, sourceBudgetVersionId: null, decisionDocMeta: {}, frozenSnapshot: {}, snapshotSha256: '', status: 'draft', version: 1, unitPackCount: 0, acknowledgedCount: 0, excludedOrgs: [], packs: [], reconcileReport: null, createdByUserId: 1, createdAt: '', updatedAt: '' } as PlanIssuanceCycleDto;
+    const save = vi.spyOn(planApi, 'createCycle').mockResolvedValue(created);
+    vi.spyOn(planApi, 'cycle').mockResolvedValue(created);
+    mountNode(<PlanCyclesTab year={2026} sheetLabels={PLAN_SHEET_LABELS} />);
+    fireEvent.click(buttonByText('创建下达周期'));
+    const dialog = await dialogByTitle('创建年度综合计划与预算合一下达周期');
+    fireEvent.click(buttonByText('增加专项上限', dialog));
+    fireEvent.mouseDown(within(dialog).getByLabelText('下达单元'));
+    fireEvent.click(await screen.findByText(MOCK_PACK.unitOrgName));
+    fireEvent.mouseDown(within(dialog).getByLabelText('专项工作表'));
+    fireEvent.click(await screen.findByText(PLAN_SHEET_LABELS.maintenance));
+    fireEvent.change(within(dialog).getByLabelText('年度批准上限'), { target: { value: '700000.00' } });
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.click(buttonByText(/确\s*定/, dialog));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ annualSpecialCaps: [{ unitOrgId: 102, sheetCode: 'maintenance', amount: '700000.00' }] })));
+  });
+
+  it('独立复核：选择原计划项回填基线并在确认时提交计划ID与预算联动科目', { timeout: 60_000 }, async () => {
+    const save = setupAdjustmentReview();
+    mountNode(<PlanAdjustmentsTab year={2026} sheetLabels={PLAN_SHEET_LABELS} />);
+    fireEvent.click(buttonByText('发起调整申请'));
+    const dialog = await dialogByTitle('发起计划与预算联动调整申请');
+    fireEvent.mouseDown(within(dialog).getByLabelText('原下达周期'));
+    fireEvent.click(await screen.findByText(/^2026-FORMAL/));
+    fireEvent.mouseDown(within(dialog).getByLabelText('申请调整单元包'));
+    fireEvent.click((await screen.findAllByText(new RegExp(MOCK_PACK.unitOrgName))).find((e) => e.closest('.ant-select-item-option'))!);
+    fireEvent.mouseDown(within(dialog).getByLabelText('关联原计划项（新增项目留空）'));
+    fireEvent.click((await screen.findAllByText(/待调整维保项目/)).find((e) => e.closest('.ant-select-item-option'))!);
+    await waitFor(() => expect((within(dialog).getByLabelText('调整前') as HTMLInputElement).value).toBe('1060000.00'));
+    fireEvent.change(within(dialog).getByLabelText('调整后'), { target: { value: '1166000.00' } });
+    fireEvent.change(within(dialog).getByLabelText('调整事由与预算联动说明'), { target: { value: '合成专项调整' } });
+    fireEvent.mouseDown(within(dialog).getByLabelText('联动经营预算科目（可选）'));
+    fireEvent.click(await screen.findByText('COST_MAINT 运行维护费'));
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.click(buttonByText(/确\s*定/, dialog));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ lines: [expect.objectContaining({ planItemId: 71, stableItemUid: 'stable-71', budgetAccountId: 33, beforeVal: '1060000.00', afterVal: '1166000.00' })] })));
+  });
+
+  it('独立复核：六位比率按原计划事实回填并精确预览，确认前不提交', { timeout: 60_000 }, async () => {
+    const save = setupAdjustmentReview();
+    mountNode(<PlanAdjustmentsTab year={2026} sheetLabels={PLAN_SHEET_LABELS} />);
+    fireEvent.click(buttonByText('发起调整申请'));
+    const dialog = await dialogByTitle('发起计划与预算联动调整申请');
+    fireEvent.mouseDown(within(dialog).getByLabelText('原下达周期'));
+    fireEvent.click(await screen.findByText(/^2026-FORMAL/));
+    fireEvent.mouseDown(within(dialog).getByLabelText('关联原计划项（新增项目留空）'));
+    fireEvent.click((await screen.findAllByText(/六位比率指标/)).find((e) => e.closest('.ant-select-item-option'))!);
+    await waitFor(() => expect((within(dialog).getByLabelText('调整前') as HTMLInputElement).value).toBe('0.500001'));
+    fireEvent.change(within(dialog).getByLabelText('调整后'), { target: { value: '0.600009' } });
+    expect(await within(dialog).findByText('+0.100008')).toBeTruthy();
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it('集团管理员稽核检出 CROSS_UNIT_CELL_REF 时禁用发布，修复通过后可正式发布并打包导出 .zip', { timeout: 60_000 }, async () => {
     clientMod.setSession({
       authenticated: true,
@@ -194,20 +281,20 @@ describe('F-GAP-06/07/08/10 综合计划与预算合一下达、签收、联动�
     await waitFor(() => expect(screen.getByText(/检出跨单位单元格公式错引 \(CROSS_UNIT_CELL_REF\)/)).toBeTruthy());
     expect(screen.getByText(/丁合并调节小水电\(EX01\) 标记为不单发下达通知/)).toBeTruthy();
 
-    const publishBtn = screen.getByRole('button', { name: '正式发布下达' }) as HTMLButtonElement;
+    const publishBtn = buttonByText('正式发布下达') as HTMLButtonElement;
     expect(publishBtn.disabled).toBe(true);
 
     // 重跑稽核消缺后允许发布
-    fireEvent.click(screen.getByRole('button', { name: '运行合并与税率/五项费用稽核' }));
+    fireEvent.click(buttonByText('运行合并与税率/五项费用稽核'));
     await waitFor(() => expect(reconcileSpy).toHaveBeenCalledWith(10, { mode: 'legacy_reconcile' }));
-    await waitFor(() => expect((screen.getByRole('button', { name: '正式发布下达' }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((buttonByText('正式发布下达') as HTMLButtonElement).disabled).toBe(false));
 
-    fireEvent.click(screen.getByRole('button', { name: '正式发布下达' }));
-    const confirmBtn = await screen.findByRole('button', { name: /确认发布下达/ }, { timeout: 5000 });
+    fireEvent.click(buttonByText('正式发布下达'));
+    const confirmBtn = (await screen.findByText(/确认发布下达/)).closest('button')!;
     fireEvent.click(confirmBtn);
     await waitFor(() => expect(publishSpy).toHaveBeenCalledWith(10));
 
-    fireEvent.click(screen.getByRole('button', { name: '打包下载全集团下达公文包 (.zip)' }));
+    fireEvent.click(buttonByText('打包下载全集团下达公文包 (.zip)'));
     expect(downloadSpy).toHaveBeenCalledWith('/plan/issuance/cycles/10/export-zip', expect.stringContaining('.zip'));
   });
 
@@ -244,15 +331,15 @@ describe('F-GAP-06/07/08/10 综合计划与预算合一下达、签收、联动�
     await waitFor(() => expect(packsSpy).toHaveBeenCalledWith(expect.objectContaining({ view: 'undertake' })));
 
     // 导出 .docx 公文
-    const docxBtn = await screen.findByRole('button', { name: '导出下达公文及责任书 (.docx)' }, { timeout: 5000 });
+    const docxBtn = (await screen.findByText('导出下达公文及责任书 (.docx)')).closest('button')!;
     fireEvent.click(docxBtn);
     expect(downloadSpy).toHaveBeenCalledWith('/plan/issuance/packs/21/export-docx', expect.stringContaining('.docx'));
 
     // 点击确认签收并校验 expectedVersion 传参
-    fireEvent.click(screen.getByRole('button', { name: '确认签收' }));
-    const dlg = await screen.findByRole('dialog', { name: /确认签收「甲水电运营公司」/ });
+    fireEvent.click(buttonByText('确认签收'));
+    const dlg = await dialogByTitle(/确认签收「甲水电运营公司」/);
     fireEvent.change(within(dlg).getByPlaceholderText(/经本单位经营班子核对/), { target: { value: '核对无误予以签收' } });
-    fireEvent.click(within(dlg).getByRole('button', { name: '确认签收' }));
+    fireEvent.click(buttonByText('确认签收', dlg));
     await waitFor(() =>
       expect(ackSpy).toHaveBeenCalledWith(21, { expectedVersion: 3, ackNote: '核对无误予以签收' }),
     );
@@ -318,17 +405,17 @@ describe('F-GAP-06/07/08/10 综合计划与预算合一下达、签收、联动�
     await waitFor(() => expect(screen.getByText('超5工作日补报预警')).toBeTruthy());
     expect(screen.getByText('报集团公司审批')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /^复\s*核$/ }));
-    const dlg = await screen.findByRole('dialog', { name: /复核计划与预算调整申请 #88/ });
+    fireEvent.click(buttonByText(/^复\s*核$/));
+    const dlg = await dialogByTitle(/复核计划与预算调整申请 #88/);
     expect(within(dlg).getByText(/同人自审管控提示/)).toBeTruthy();
-    const okBtn = within(dlg).getByRole('button', { name: /^确\s*定$/ }) as HTMLButtonElement;
+    const okBtn = buttonByText(/^确\s*定$/, dlg) as HTMLButtonElement;
     expect(okBtn.disabled).toBe(true);
 
     fireEvent.change(within(dlg).getByPlaceholderText('说明单管理员应急复核原因'), {
       target: { value: '单人维护演练环境同人复核' },
     });
-    await waitFor(() => expect((within(dlg).getByRole('button', { name: /^确\s*定$/ }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(within(dlg).getByRole('button', { name: /^确\s*定$/ }));
+    await waitFor(() => expect((buttonByText(/^确\s*定$/, dlg) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(buttonByText(/^确\s*定$/, dlg));
     await waitFor(() =>
       expect(reviewSpy).toHaveBeenCalledWith(
         88,
@@ -399,10 +486,10 @@ describe('F-GAP-06/07/08/10 综合计划与预算合一下达、签收、联动�
 
     await waitFor(() => expect(screen.getByText('本单位已下达经营预算只读视图')).toBeTruthy());
     await waitFor(() => expect(screen.getByText(/本单位预算摘要 · 2026年度正式预算/)).toBeTruthy());
-    expect(screen.getByRole('button', { name: '查看本单位预算' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '创建版本' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '测算模板' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '更多' })).toBeNull();
+    expect(buttonByText('查看本单位预算')).toBeTruthy();
+    expect(screen.queryByText('创建版本')).toBeNull();
+    expect(screen.queryByText('测算模板')).toBeNull();
+    expect(screen.queryByText('更多')).toBeNull();
 
     // 工作台待办与域概览
     expect(screen.getByText('待签收综合计划下达包')).toBeTruthy();
