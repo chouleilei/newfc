@@ -22,7 +22,12 @@ type Status = 'active' | 'inactive';
 type EntityType = 'org' | 'account' | 'project' | 'supplier';
 
 interface Project { id: number; code: string; name: string; projectType: string; orgId: number; orgName: string; status: Status; extra?: Record<string, unknown>; updatedAt: string }
-interface Supplier { evaluations?: { contractId: number; contractNo: string; qualityScore: number; scheduleScore: number; serviceScore: number; recommendation: string; comment: string; evaluatedAt: string }[]; id: number; code: string | null; name: string; supplierType: string; creditCode: string; status: Status; extra?: Record<string, unknown>; updatedAt: string }
+interface Supplier {
+  evaluations?: { contractId: number; contractNo: string; qualityScore: number; scheduleScore: number; serviceScore: number; recommendation: string; comment: string; evaluatedAt: string }[];
+  id: number; code: string | null; name: string; supplierType: string; creditCode: string; status: Status;
+  isInPool?: boolean; pooledAt?: string | null;
+  extra?: Record<string, unknown>; updatedAt: string;
+}
 interface Mapping {
   id: number; sourceSystem: string; entityType: EntityType; matchKind: 'code' | 'name'; sourceKey: string; sourceLabel: string;
   targetId: number; targetCode: string; targetName: string; validFrom: string; validTo: string | null; note: string; active: boolean;
@@ -148,7 +153,8 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
   const writable = can('master:write');
   const [keyword, setKeyword] = useState(initialKeyword);
   const [editing, setEditing] = useState<Supplier | 'new' | null>(null);
-  const [form] = Form.useForm<{ code?: string; name: string; supplierType?: string; creditCode?: string; extra?: Record<string, unknown> }>();
+  const [form] = Form.useForm<{ code?: string; name: string; supplierType?: string; creditCode?: string; isInPool?: boolean; pooledAt?: string | null; extra?: Record<string, unknown> }>();
+  const isInPoolWatch = Boolean(Form.useWatch('isInPool', form));
   const custom = useCustomFields('supplier');
   const fields = custom.data?.items ?? [];
   const list = useQuery({
@@ -157,7 +163,7 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
   });
   const refresh = () => void qc.invalidateQueries({ queryKey: ['master-suppliers'] });
   const save = useMutation({
-    mutationFn: (v: { code?: string; name: string; supplierType?: string; creditCode?: string; extra?: Record<string, unknown> }) => editing === 'new'
+    mutationFn: (v: { code?: string; name: string; supplierType?: string; creditCode?: string; isInPool?: boolean; pooledAt?: string | null; extra?: Record<string, unknown> }) => editing === 'new'
       ? api.post<Supplier>('/master/suppliers', { ...v, extra: mergeExtra(undefined, v.extra) })
       : api.patch<Supplier>(`/master/suppliers/${(editing as Supplier).id}`, {
         ...v, code: (editing as Supplier).code ? undefined : v.code, extra: fields.length ? mergeExtra((editing as Supplier).extra, v.extra) : undefined,
@@ -176,8 +182,8 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
     form.resetFields();
     setEditing(s);
     form.setFieldsValue(s === 'new'
-      ? { code: '', name: '', supplierType: '', creditCode: '', extra: extraInitial(fields, undefined) }
-      : { code: s.code ?? '', name: s.name, supplierType: s.supplierType, creditCode: s.creditCode, extra: extraInitial(fields, s.extra) });
+      ? { code: '', name: '', supplierType: '', creditCode: '', isInPool: false, pooledAt: null, extra: extraInitial(fields, undefined) }
+      : { code: s.code ?? '', name: s.name, supplierType: s.supplierType, creditCode: s.creditCode, isInPool: Boolean(s.isInPool), pooledAt: s.pooledAt ?? null, extra: extraInitial(fields, s.extra) });
   };
   return (
     <>
@@ -199,6 +205,17 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
           { title: '名称', dataIndex: 'name' },
           { title: '类型', dataIndex: 'supplierType', width: 120 },
           { title: '统一社会信用代码', dataIndex: 'creditCode', width: 190 },
+          {
+            title: '合格供应商库',
+            key: 'pool',
+            width: 150,
+            render: (_, s) =>
+              s.isInPool ? (
+                <Tag color="blue">库内{s.pooledAt ? ` (${s.pooledAt})` : ''}</Tag>
+              ) : (
+                <Tag>非库内</Tag>
+              ),
+          },
           { title: '状态', dataIndex: 'status', width: 80, render: statusTag },
           ...(writable ? [{
             title: '操作', width: 120,
@@ -221,6 +238,17 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
           <Form.Item name="name" label="供应商名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={200} /></Form.Item>
           <Form.Item name="supplierType" label="类型"><Input maxLength={64} /></Form.Item>
           <Form.Item name="creditCode" label="统一社会信用代码" rules={[{ pattern: /^$|^[0-9A-HJ-NPQRTUWXYa-hj-npqrtuwxy]{18}$/, message: '18 位统一社会信用代码' }]}><Input maxLength={18} /></Form.Item>
+          <Form.Item name="isInPool" label="纳入合格供应商库" valuePropName="checked"><Switch /></Form.Item>
+          {isInPoolWatch && (
+            <Form.Item
+              name="pooledAt"
+              label="入库生效日期"
+              getValueProps={(v?: string | null) => ({ value: v ? dayjs(v) : null })}
+              normalize={(d: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null)}
+            >
+              <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+          )}
           <CustomFieldItems fields={fields} extra={editing && editing !== 'new' ? editing.extra : undefined} />
         </Form>
       </Modal>

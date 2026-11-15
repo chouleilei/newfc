@@ -18,6 +18,7 @@ import type {
 import type { LegalMetadata } from '../../contracts/contract-legal-review';
 import { tryRmbCents } from './contract-funding';
 import { procurementTier } from './legal-context';
+import { recordMonthlyReportExported } from './contract-procurement.service';
 import { CATEGORY_TO_LABEL, PROCUREMENT_TO_LABEL } from './supervision-template-spec';
 
 const nowIso = () => new Date().toISOString();
@@ -505,6 +506,12 @@ export async function exportMonthlyLedgerXlsx(db: DB, opts: { period?: string; o
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
   const fileName = `合同月报5表_${period}.xlsx`;
   recordExportLog(db, { exportKind: 'monthly_ledger', orgId: opts.orgId, period, scopeMode: 'all', contractCount: contracts.length, fileName, buf });
+  if (opts.orgId) {
+    recordMonthlyReportExported(db, opts.orgId, period);
+  } else {
+    const orgIds = new Set(contracts.map((c) => c.org_id));
+    for (const oid of orgIds) recordMonthlyReportExported(db, oid, period);
+  }
   return { fileName, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content: buf };
 }
 

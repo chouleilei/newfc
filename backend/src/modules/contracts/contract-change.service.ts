@@ -133,7 +133,7 @@ export function assertGuarantorConsent(db: DB, contractId: number, guarantorCons
     return;
   }
   if (evidenceDocId) {
-    const d = db.prepare('SELECT evidence_kind, change_id FROM ct_document WHERE id = ? AND contract_id = ?').get(evidenceDocId, contractId) as { evidence_kind: string | null; change_id: number | null } | undefined;
+    const d = db.prepare('SELECT evidence_kind, change_id FROM ct_document WHERE id = ? AND contract_id = ? AND withdrawn_at IS NULL').get(evidenceDocId, contractId) as { evidence_kind: string | null; change_id: number | null } | undefined;
     if (d?.evidence_kind === 'guarantor_consent' && (d.change_id === null || d.change_id === changeId)) return;
   }
   throw conflict('GUARANTOR_CONSENT_REQUIRED', '合同存在有效担保/保函记录，发生变更、中止或解除须附担保单位书面同意函（制度 10.8/10.9）');
@@ -270,8 +270,9 @@ export function submitContractChange(db: DB, id: number, input: ContractChangeRe
       decision_method, decision_method_other, meeting_type, meeting_type_other, final_approver_name, final_approver_title,
       required_approval_tier, actual_approval_tier, supplement_no, normalized_supplement_no, has_dispute,
       tech_review_applied_at, tech_review_replied_at, tech_special_audit_doc_id, out_of_plan_doc_id, guarantor_consent_doc_id, discipline_filed_at,
+      adverse_occurred_at, adverse_reported_at,
       submitted_by_user_id, submitted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id, orgRootId, changeKind, delta, input.changeMatter ?? '', input.reason, input.evidenceDocumentId,
       input.involvesBizOrEntityChange ? 1 : 0, input.involvesTechChange ? 1 : 0, 0,
       input.decisionMethod ?? null, input.decisionMethodOther ?? '', input.meetingType ?? null, input.meetingTypeOther ?? '',
@@ -279,6 +280,7 @@ export function submitContractChange(db: DB, id: number, input: ContractChangeRe
       tierInfo.tier, input.actualApprovalTier ?? null, suppNo, normSuppNo, input.hasDispute ? 1 : 0,
       input.techReviewAppliedAt ?? null, input.techReviewRepliedAt ?? null, input.techSpecialAuditDocId ?? null,
       input.outOfPlanDocId ?? null, input.guarantorConsentDocumentId ?? null, input.disciplineFiledAt ?? null,
+      input.adverseOccurredAt ?? null, input.adverseReportedAt ?? null,
       currentAuth()?.userId ?? null, nowIso(),
     ).lastInsertRowid);
 
@@ -370,6 +372,12 @@ export function updateContractChangeFiling(db: DB, id: number, changeId: number,
     }
     if (input.hasDispute !== undefined) {
       db.prepare('UPDATE ct_change SET has_dispute = ? WHERE id = ?').run(input.hasDispute ? 1 : 0, changeId);
+    }
+    if (input.adverseOccurredAt !== undefined) {
+      db.prepare('UPDATE ct_change SET adverse_occurred_at = ? WHERE id = ?').run(input.adverseOccurredAt, changeId);
+    }
+    if (input.adverseReportedAt !== undefined) {
+      db.prepare('UPDATE ct_change SET adverse_reported_at = ? WHERE id = ?').run(input.adverseReportedAt, changeId);
     }
     bump(db, id);
     recordEvent(db, id, 'change.filing', { changeId, ...input });

@@ -10,7 +10,7 @@ export function legalRunCurrent(
   if (!run || run.context_fingerprint !== fingerprint) return false;
   const text = db
     .prepare(
-      "SELECT MAX(id) AS id FROM ct_document WHERE contract_id=? AND doc_type='contract_text'",
+      "SELECT MAX(id) AS id FROM ct_document WHERE contract_id=? AND doc_type='contract_text' AND withdrawn_at IS NULL",
     )
     .get(run.contract_id) as { id: number | null };
   if (text.id !== run.document_id) return false;

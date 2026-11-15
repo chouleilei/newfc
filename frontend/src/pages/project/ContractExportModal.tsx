@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Button, Card, Col, Modal, Row, Segmented, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, App as AntdApp, Button, Card, Col, Form, Input, Modal, Row, Segmented, Space, Statistic, Table, Tabs, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { can, download, errorText } from '../../api/client';
 import {
   contractApi,
+  type MonthlyReportLogDto,
   type SupervisionExportLogDto,
   type SupervisionExportPurpose,
   type SupervisionPreflightItemDto,
@@ -50,8 +51,10 @@ export function ContractExportModal({ open, onClose }: { open: boolean; onClose:
   const [orgId, setOrgId] = useState<number | undefined>(undefined);
   const [scopeMode, setScopeMode] = useState<'all_active' | 'changed'>('all_active');
   const [exportPurpose, setExportPurpose] = useState<SupervisionExportPurpose>('supervision_submit');
+  const [oaForm] = Form.useForm<{ oaRefNo: string }>();
 
   const canExport = can('analysis:export');
+  const canWriteContract = can('contract:write');
   const preflight = useQuery({
     queryKey: ['contract-supervision-preflight', period, orgId, scopeMode, exportPurpose],
     queryFn: () => contractApi.preflightSupervision({ period, orgId, scopeMode, exportPurpose }),
@@ -61,6 +64,25 @@ export function ContractExportModal({ open, onClose }: { open: boolean; onClose:
     queryKey: ['contract-supervision-logs'],
     queryFn: () => contractApi.supervisionExportLogs(),
     enabled: open,
+  });
+  const monthlyLogsQ = useQuery({
+    queryKey: ['contract-monthly-report-logs', period, orgId],
+    queryFn: () => contractApi.monthlyReportLogs({ reportMonth: period, orgId }),
+    enabled: open && can('contract:read'),
+  });
+  const submitOaMut = useMutation({
+    mutationFn: (v: { oaRefNo: string }) =>
+      contractApi.submitMonthlyReportLog({
+        orgId,
+        reportMonth: period,
+        oaRefNo: v.oaRefNo.trim(),
+      }),
+    onSuccess: (res) => {
+      message.success(`已登记 ${res.reportMonth} 月报 OA 正式报送记录（${res.oaRefNo}）`);
+      oaForm.resetFields();
+      void monthlyLogsQ.refetch();
+    },
+    onError: (e) => message.error(errorText(e)),
   });
 
   const exportZip = useMutation({
@@ -85,7 +107,10 @@ export function ContractExportModal({ open, onClose }: { open: boolean; onClose:
 
   const exportMonthly = async () => {
     const ok = await download(contractApi.monthlyLedgerExportPath({ period, orgId }), `合同月报5表_${period}.xlsx`);
-    if (ok) void qc.invalidateQueries({ queryKey: ['contract-supervision-logs'] });
+    if (ok) {
+      void qc.invalidateQueries({ queryKey: ['contract-supervision-logs'] });
+      void monthlyLogsQ.refetch();
+    }
   };
 
   const pf = preflight.data;
@@ -217,10 +242,70 @@ export function ContractExportModal({ open, onClose }: { open: boolean; onClose:
                   type="info"
                   showIcon
                   message="按制度第 15 章及附件 9～11 自动生成《01_月度统计表》《02_合同台账总表》《03_结算动态分表》《04_变更动态分表》《05_招标项目清查表》，金额由整数分精确折算为万元。"
+                  description="注意：仅下载月报 Excel 只记录「已下载导出 (exportedAt)」，须通过 OA 完成正式呈批后在下方登记「OA 报送单号」方标记为「已通过 OA 正式报送 (submittedAt)」，用于消除每月 28 日月报逾期预警 (CW-28)。"
                 />
-                <Button type="primary" disabled={!canExport} onClick={() => void exportMonthly()}>
-                  下载 {period} 公司 5 表月报 (.xlsx)
-                </Button>
+                <Space wrap>
+                  <Button type="primary" disabled={!canExport} onClick={() => void exportMonthly()}>
+                    下载 {period} 公司 5 表月报 (.xlsx)
+                  </Button>
+                </Space>
+                {canWriteContract && (
+                  <Card size="small" title={`登记 ${period} 月报 OA 正式报送回执`}>
+                    <Form
+                      form={oaForm}
+                      layout="inline"
+                      onFinish={(v) => submitOaMut.mutate(v)}
+                    >
+                      <Form.Item
+                        name="oaRefNo"
+                        label="OA 流程单号/回执号"
+                        rules={[{ required: true, whitespace: true, message: '请填写 OA 报送单号' }]}
+                      >
+                        <Input placeholder="如 OA-HTYB-202610-008" style={{ width: 260 }} maxLength={120} />
+                      </Form.Item>
+                      <Form.Item>
+                        <Button type="primary" htmlType="submit" loading={submitOaMut.isPending}>
+                          登记本月 OA 已报送
+                        </Button>
+                      </Form.Item>
+                    </Form>
+                  </Card>
+                )}
+                <Table<MonthlyReportLogDto>
+                  rowKey="id"
+                  size="small"
+                  loading={monthlyLogsQ.isLoading}
+                  dataSource={monthlyLogsQ.data ?? []}
+                  pagination={false}
+                  locale={{ emptyText: `${period} 尚无月报导出或 OA 报送记录` }}
+                  columns={[
+                    { title: '单位', dataIndex: 'orgName', width: 160 },
+                    { title: '报送月份', dataIndex: 'reportMonth', width: 100 },
+                    {
+                      title: '下载导出状态 (exportedAt)',
+                      dataIndex: 'exportedAt',
+                      width: 190,
+                      render: (v: string | null) =>
+                        v ? <Tag color="blue">已下载导出 · {shortTime(v)}</Tag> : <Tag>未下载</Tag>,
+                    },
+                    {
+                      title: 'OA 正式报送状态 (submittedAt)',
+                      key: 'submitted',
+                      render: (_, r) =>
+                        r.submittedAt ? (
+                          <Space size={4} wrap>
+                            <Tag color="success">已通过 OA 正式报送</Tag>
+                            <Typography.Text code>{r.oaRefNo}</Typography.Text>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {r.submittedByName ? `${r.submittedByName} · ` : ''}{shortTime(r.submittedAt)}
+                            </Typography.Text>
+                          </Space>
+                        ) : (
+                          <Tag color="warning">仅下载未登记 OA 报送</Tag>
+                        ),
+                    },
+                  ]}
+                />
               </Space>
             ),
           },

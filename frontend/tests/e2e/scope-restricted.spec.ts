@@ -29,8 +29,9 @@ test('受限账号:侧栏与首页按范围裁剪,越权接口与问答拒绝', 
   await expect(page.getByText('首页').first()).toBeVisible();
 
   const nav = page.getByRole('navigation').or(page.locator('.ant-layout-sider')).first();
-  await expect(nav).not.toContainText('预算与预测');
+  await expect(nav).not.toContainText('编制进度');
   await expect(nav).not.toContainText('实际录入与快照');
+  await expect(nav).not.toContainText('历年对比');
   // finance 夹具库是否已有当前采用版本取决于前序用例:无版本时首页是初始化指引,受限账号只看进度、不给维护入口;
   // 有版本时是驾驶舱。两种状态都不得出现维护入口和全局日志。
   const onboarding = page.getByText('部分步骤需要预算维护人员');
@@ -65,6 +66,12 @@ test('受限账号:侧栏与首页按范围裁剪,越权接口与问答拒绝', 
   await expect(page.getByRole('tab', { name: '后台任务' })).toBeVisible();
   await expect(page.getByRole('tab', { name: '模型调用' })).toHaveCount(0);
   expect((await page.request.get('/api/model-calls')).status()).toBe(403);
+
+  // T-14 / F-GAP-06: 受限单位账号可进入 /budget 查看本单位只读预算，但绝不暴露创建版本、测算模板等全域维护入口
+  await page.goto('/budget');
+  await expect(page.getByText('本单位已下达经营预算只读视图')).toBeVisible();
+  await expect(page.getByRole('button', { name: '创建版本' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '测算模板' })).toHaveCount(0);
 
   await context.close();
 });

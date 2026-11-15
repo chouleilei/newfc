@@ -10,6 +10,7 @@ import { listMetrics, listMetricsForVersion, snapshotMetricsForVersion, assertNo
 import { isAccountVisibleForScope } from '../../core/accountScope';
 import { budgetQualityReport } from '../check/budget-quality';
 import { listRows } from '../actual/actual.helpers';
+import { currentOrgScope, orgInScope } from '../security/scope';
 
 /** 预算版本与编制(方案六)。 */
 
@@ -1162,11 +1163,63 @@ export function copyVersion(db: DB, sourceId: number, newName: string, note?: st
 export function versionSummary(db: DB, versionId: number) {
   const v = getVersion(db, versionId);
   const { orgRows, accRows } = versionLeaves(db, v);
-  const entries = db
+  const scope = currentOrgScope(db);
+  const allEntries = db
     .prepare('SELECT org_id, account_id, amount_cents, quantity FROM budget_entry WHERE version_id = ?')
     .all(versionId) as { org_id: number; account_id: number; amount_cents: number; quantity: number | null }[];
+  const entries = scope.all ? allEntries : allEntries.filter((e) => orgInScope(scope, e.org_id));
   const metricDefinitions = listMetricsForVersion(db, versionId);
   const metrics = metricDefinitions.filter((m) => m.status === 'active');
   const result = rollup(orgRows, accRows, entries.map((e) => ({ orgId: e.org_id, accountId: e.account_id, amountCents: e.amount_cents, quantity: e.quantity })), metricDefinitions);
   return { version: v, orgRows, accRows, rollup: result, metrics };
+}
+
+/** 本单位预算只读明细视图（按当前登录用户 OrgScope 严格裁剪，越权 orgId 返回 404）。 */
+export function versionUnitView(db: DB, versionId: number, requestedOrgId?: number) {
+  const v = getVersion(db, versionId);
+  const scope = currentOrgScope(db);
+  if (requestedOrgId !== undefined && !orgInScope(scope, requestedOrgId)) {
+    throw Errors.notFound('预算单元视图');
+  }
+  const { orgRows, accRows } = versionLeaves(db, v);
+  const orgById = new Map(orgRows.map((o) => [o.id, o]));
+  const accById = new Map(accRows.map((a) => [a.id, a]));
+  const allowedOrgs = orgRows.filter((o) => orgInScope(scope, o.id) && (requestedOrgId === undefined || o.id === requestedOrgId || o.parent_id === requestedOrgId));
+  const allowedOrgSet = new Set(allowedOrgs.map((o) => o.id));
+
+  const rawEntries = db
+    .prepare('SELECT org_id, account_id, amount_cents, quantity, note FROM budget_entry WHERE version_id = ? ORDER BY org_id, account_id')
+    .all(versionId) as { org_id: number; account_id: number; amount_cents: number; quantity: number | null; note: string }[];
+
+  const totals = { income: 0, cost: 0, expense: 0 };
+  const rows = rawEntries
+    .filter((e) => allowedOrgSet.has(e.org_id))
+    .map((e) => {
+      const o = orgById.get(e.org_id);
+      const a = accById.get(e.account_id);
+      if (a?.type === 'income') totals.income = safeIntegerAdd(totals.income, e.amount_cents, '收入汇总');
+      else if (a?.type === 'cost') totals.cost = safeIntegerAdd(totals.cost, e.amount_cents, '成本汇总');
+      else if (a?.type === 'expense') totals.expense = safeIntegerAdd(totals.expense, e.amount_cents, '费用汇总');
+      return {
+        orgId: e.org_id,
+        orgCode: o?.code ?? '',
+        orgName: o?.name ?? `#${e.org_id}`,
+        accountId: e.account_id,
+        accountCode: a?.code ?? '',
+        accountName: a?.name ?? `#${e.account_id}`,
+        accountType: a?.type ?? 'expense',
+        amountCents: e.amount_cents,
+        amount: centsToYuanString(e.amount_cents),
+        quantity: e.quantity !== null ? scaledToQuantityString(e.quantity) : null,
+        note: e.note ?? '',
+      };
+    });
+
+  return {
+    version: v,
+    scopedAllOrgs: scope.all,
+    orgs: allowedOrgs.map((o) => ({ id: o.id, code: o.code, name: o.name })),
+    totalsByAccountType: totals,
+    rows,
+  };
 }

@@ -10,7 +10,7 @@
 import * as XLSX from 'xlsx';
 import { Errors } from '../../core/errors';
 import { MAX_IMPORT_ROWS, MAX_UPLOAD_BYTES, MAX_WORKBOOK_SHEETS } from './import-limits';
-import type { MatrixRow, ReadSheet } from './table-reader';
+import type { FormulaCellRef, MatrixRow, ReadSheet } from './table-reader';
 
 export const OLE2_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -96,12 +96,16 @@ export function readXlsWorkbookSheets(
     const range = XLSX.utils.decode_range(ws['!ref']);
     const totalCols = Math.min(range.e.c - range.s.c + 1, 256);
     const rows: MatrixRow[] = [];
+    const formulas: FormulaCellRef[] = [];
     for (let r = range.s.r; r <= range.e.r; r++) {
       const cells: string[] = [];
       let hasNonEmpty = false;
       for (let offset = 0; offset < totalCols; offset++) {
         const addr = XLSX.utils.encode_cell({ r, c: range.s.c + offset });
         const cell = Object.prototype.hasOwnProperty.call(ws, addr) ? (ws[addr] as XLSX.CellObject) : undefined;
+        if (cell?.f && typeof cell.f === 'string') {
+          formulas.push({ rowNo: r + 1, colIndex: offset, address: addr, formula: cell.f });
+        }
         const text = formatXlsCell(cell);
         if (text !== '') hasNonEmpty = true;
         cells.push(text);
@@ -112,7 +116,7 @@ export function readXlsWorkbookSheets(
       }
       rows.push({ rowNo: r + 1, cells });
     }
-    out.push({ name: rawName.trim(), hidden, rows });
+    out.push({ name: rawName.trim(), hidden, rows, ...(formulas.length > 0 ? { formulas } : {}) });
   });
 
   return out;

@@ -8,8 +8,36 @@
  */
 import JSZip from 'jszip';
 
-export interface RenderSection { title: string; body: string }
-export interface RenderDoc { title: string; meta: string[]; sections: RenderSection[]; watermark?: string | null }
+export interface RenderTableMerge {
+  row: number;
+  col: number;
+  rowSpan?: number;
+  colSpan?: number;
+}
+export interface RenderTableSection {
+  headers: string[];
+  colWidths?: number[];
+  rows: (string | number | null)[][];
+  merges?: RenderTableMerge[];
+}
+export interface RenderRedHead {
+  issuer: string;
+  docNo: string;
+  signOff: string;
+  issueDate: string;
+}
+export interface RenderSection {
+  title: string;
+  body: string;
+  table?: RenderTableSection;
+}
+export interface RenderDoc {
+  title: string;
+  meta: string[];
+  sections: RenderSection[];
+  watermark?: string | null;
+  redHead?: RenderRedHead | null;
+}
 type Para = { text: string; style: 'title' | 'meta' | 'heading' | 'body' };
 
 /** 文档模型 → 段落序列(DOCX 与 PDF 共用)。正文按换行拆段,空行忽略。 */
@@ -47,10 +75,125 @@ const STYLE_PARA: Record<Para['style'], string> = {
   body: '<w:spacing w:after="80"/>',
 };
 
+const PRINTABLE_WIDTH_DXA = 9638;
+
+function colIndexToWidths(colCount: number, customWidths?: number[]): number[] {
+  if (colCount <= 0) return [];
+  if (customWidths && customWidths.length === colCount) {
+    const sum = customWidths.reduce((a, b) => a + Math.max(200, Math.trunc(b)), 0);
+    if (sum > 0) {
+      const scaled = customWidths.map((w) => Math.max(400, Math.round((Math.max(200, w) / sum) * PRINTABLE_WIDTH_DXA)));
+      const diff = PRINTABLE_WIDTH_DXA - scaled.reduce((a, b) => a + b, 0);
+      scaled[scaled.length - 1] += diff;
+      return scaled;
+    }
+  }
+  const base = Math.floor(PRINTABLE_WIDTH_DXA / colCount);
+  const arr = new Array<number>(colCount).fill(base);
+  arr[colCount - 1] += PRINTABLE_WIDTH_DXA - base * colCount;
+  return arr;
+}
+
+function renderDocxTableXml(table: RenderTableSection, fontXml: string): string {
+  const colCount = Math.max(table.headers.length, ...table.rows.map((r) => r.length), 1);
+  const widths = colIndexToWidths(colCount, table.colWidths);
+  const gridCols = widths.map((w) => `<w:gridCol w:w="${w}"/>`).join('');
+  const borders = [
+    '<w:top w:val="single" w:sz="4" w:space="0" w:color="333333"/>',
+    '<w:left w:val="single" w:sz="4" w:space="0" w:color="333333"/>',
+    '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="333333"/>',
+    '<w:right w:val="single" w:sz="4" w:space="0" w:color="333333"/>',
+    '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="666666"/>',
+    '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="666666"/>',
+  ].join('');
+  const tblPr = `<w:tblPr><w:tblW w:w="${PRINTABLE_WIDTH_DXA}" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders>${borders}</w:tblBorders></w:tblPr>`;
+
+  // Build merge lookup on data rows (0-indexed within table.rows)
+  const skipHorizontal = new Set<string>();
+  const hSpan = new Map<string, number>();
+  const vMergeMode = new Map<string, 'restart' | 'continue'>();
+  for (const m of table.merges ?? []) {
+    const cs = Math.max(1, m.colSpan ?? 1);
+    const rs = Math.max(1, m.rowSpan ?? 1);
+    for (let dr = 0; dr < rs; dr++) {
+      const rIdx = m.row + dr;
+      if (cs > 1) {
+        hSpan.set(`${rIdx}:${m.col}`, cs);
+        for (let dc = 1; dc < cs; dc++) skipHorizontal.add(`${rIdx}:${m.col + dc}`);
+      }
+      if (rs > 1) {
+        vMergeMode.set(`${rIdx}:${m.col}`, dr === 0 ? 'restart' : 'continue');
+      }
+    }
+  }
+
+  const headerCells = Array.from({ length: colCount }, (_, cIdx) => {
+    const text = normalizeText(String(table.headers[cIdx] ?? ''));
+    return `<w:tc><w:tcPr><w:tcW w:w="${widths[cIdx]}" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="40"/></w:pPr><w:r><w:rPr>${fontXml}<w:b/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p></w:tc>`;
+  }).join('');
+  const headerTr = `<w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>${headerCells}</w:tr>`;
+
+  const bodyTrs = table.rows.map((row, rIdx) => {
+    const cells: string[] = [];
+    for (let cIdx = 0; cIdx < colCount; cIdx++) {
+      const key = `${rIdx}:${cIdx}`;
+      if (skipHorizontal.has(key)) continue;
+      const span = hSpan.get(key) ?? 1;
+      const cellWidth = widths.slice(cIdx, cIdx + span).reduce((a, b) => a + b, 0);
+      const vm = vMergeMode.get(key);
+      const rawVal = row[cIdx];
+      const text = vm === 'continue' ? '' : normalizeText(rawVal === null || rawVal === undefined ? '' : String(rawVal));
+      const isNumericLike = /^[-+]?\d[\d,]*(\.\d+)?%?$/.test(text.trim());
+      const align = isNumericLike ? 'right' : cIdx === 0 ? 'center' : 'left';
+      const tcPr = `<w:tcPr><w:tcW w:w="${cellWidth}" w:type="dxa"/>${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ''}${vm === 'restart' ? '<w:vMerge w:val="restart"/>' : vm === 'continue' ? '<w:vMerge/>' : ''}</w:tcPr>`;
+      cells.push(`<w:tc>${tcPr}<w:p><w:pPr><w:jc w:val="${align}"/><w:spacing w:after="30"/></w:pPr><w:r><w:rPr>${fontXml}<w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p></w:tc>`);
+    }
+    return `<w:tr><w:trPr><w:cantSplit/></w:trPr>${cells.join('')}</w:tr>`;
+  }).join('');
+
+  return `<w:tbl>${tblPr}<w:tblGrid>${gridCols}</w:tblGrid>${headerTr}${bodyTrs}</w:tbl>`;
+}
+
 export async function renderDocx(doc: RenderDoc): Promise<Buffer> {
-  const paras = paragraphsOf(doc);
   const font = '<w:rFonts w:ascii="SimSun" w:hAnsi="SimSun" w:eastAsia="宋体"/>';
-  const body = paras.map((p) => `<w:p><w:pPr>${STYLE_PARA[p.style]}</w:pPr><w:r><w:rPr>${font}${STYLE_RUN[p.style]}</w:rPr><w:t xml:space="preserve">${xmlEscape(p.text)}</w:t></w:r></w:p>`).join('');
+  const hasStructuredAdditions = Boolean(doc.redHead) || doc.sections.some((s) => Boolean(s.table));
+  const paras = paragraphsOf(doc);
+  let body: string;
+  if (!hasStructuredAdditions) {
+    body = paras.map((p) => `<w:p><w:pPr>${STYLE_PARA[p.style]}</w:pPr><w:r><w:rPr>${font}${STYLE_RUN[p.style]}</w:rPr><w:t xml:space="preserve">${xmlEscape(p.text)}</w:t></w:r></w:p>`).join('');
+  } else {
+    const parts: string[] = [];
+    if (doc.redHead) {
+      parts.push(`<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="120"/></w:pPr><w:r><w:rPr>${font}<w:b/><w:color w:val="CC0000"/><w:sz w:val="44"/></w:rPr><w:t xml:space="preserve">${xmlEscape(normalizeText(doc.redHead.issuer))}</w:t></w:r></w:p>`);
+      parts.push(`<w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:bottom w:val="single" w:sz="12" w:space="6" w:color="CC0000"/></w:pBdr><w:spacing w:after="200"/></w:pPr><w:r><w:rPr>${font}<w:sz w:val="24"/></w:rPr><w:t xml:space="preserve">${xmlEscape(normalizeText(doc.redHead.docNo))}</w:t></w:r></w:p>`);
+    }
+    parts.push(`<w:p><w:pPr>${STYLE_PARA.title}</w:pPr><w:r><w:rPr>${font}${STYLE_RUN.title}</w:rPr><w:t xml:space="preserve">${xmlEscape(normalizeText(doc.title))}</w:t></w:r></w:p>`);
+    for (const m of doc.meta) {
+      parts.push(`<w:p><w:pPr>${STYLE_PARA.meta}</w:pPr><w:r><w:rPr>${font}${STYLE_RUN.meta}</w:rPr><w:t xml:space="preserve">${xmlEscape(normalizeText(m))}</w:t></w:r></w:p>`);
+    }
+    for (const s of doc.sections) {
+      if (s.title.trim()) {
+        parts.push(`<w:p><w:pPr>${STYLE_PARA.heading}</w:pPr><w:r><w:rPr>${font}${STYLE_RUN.heading}</w:rPr><w:t xml:space="preserve">${xmlEscape(normalizeText(s.title))}</w:t></w:r></w:p>`);
+      }
+      for (const line of s.body.split(/\r?\n/)) {
+        if (line.trim()) {
+          parts.push(`<w:p><w:pPr>${STYLE_PARA.body}</w:pPr><w:r><w:rPr>${font}${STYLE_RUN.body}</w:rPr><w:t xml:space="preserve">${xmlEscape(normalizeText(line.trimEnd()))}</w:t></w:r></w:p>`);
+        }
+      }
+      if (s.table && s.table.headers.length > 0) {
+        parts.push(renderDocxTableXml(s.table, font));
+      }
+    }
+    if (doc.redHead && (doc.redHead.signOff || doc.redHead.issueDate)) {
+      if (doc.redHead.signOff) {
+        parts.push(`<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:before="240" w:after="60"/></w:pPr><w:r><w:rPr>${font}<w:sz w:val="24"/></w:rPr><w:t xml:space="preserve">${xmlEscape(normalizeText(doc.redHead.signOff))}</w:t></w:r></w:p>`);
+      }
+      if (doc.redHead.issueDate) {
+        parts.push(`<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:after="120"/></w:pPr><w:r><w:rPr>${font}<w:sz w:val="24"/></w:rPr><w:t xml:space="preserve">${xmlEscape(normalizeText(doc.redHead.issueDate))}</w:t></w:r></w:p>`);
+      }
+    }
+    body = parts.join('');
+  }
   const hasWatermark = !!doc.watermark;
   const sect = `<w:sectPr>${hasWatermark ? '<w:headerReference w:type="default" r:id="rIdHeader1"/>' : ''}<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>`;
   const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';

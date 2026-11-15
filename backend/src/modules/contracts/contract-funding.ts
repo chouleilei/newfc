@@ -23,6 +23,150 @@ export function tryRmbCents(
   return mulCents(value, c.exchange_rate_scaled, RATIO_SCALE);
 }
 
+export interface BudgetPoolUsageInfo {
+  capCents: bigint | null;
+  usedOtherCents: bigint;
+  thisCents: bigint;
+  totalUsedCents: bigint;
+  remainingCents: bigint | null;
+}
+
+function contractAnnualPoolRmb(r: Pick<ContractRow, 'currency' | 'exchange_rate_scaled' | 'currency_struct_status' | 'migration_mode' | 'pricing_mode' | 'estimated_ceiling_cents' | 'original_cents' | 'approved_change_cents' | 'annual_plan_alloc_cents'>, delta = 0n): bigint {
+  const base =
+    r.annual_plan_alloc_cents !== null && r.annual_plan_alloc_cents !== undefined
+      ? BigInt(r.annual_plan_alloc_cents) + delta
+      : (r.pricing_mode === 'unit_price'
+          ? (r.estimated_ceiling_cents ?? 0n) + delta
+          : BigInt(r.original_cents) + BigInt(r.approved_change_cents) + delta);
+  if (r.migration_mode === 'legacy_tolerant') {
+    return tryRmbCents(r, base) ?? 0n;
+  }
+  return rmbCents(r, base);
+}
+
+/** 计算生产经营总额包干池（lump_sum_pool）同组织/同科目/同计划项跨合同年度占用与剩余可用额度。 */
+export function computeBudgetPoolUsage(
+  db: DB,
+  c: Pick<
+    ContractRow,
+    | 'id'
+    | 'org_id'
+    | 'direction'
+    | 'budget_type'
+    | 'budget_pool_account_id'
+    | 'budget_pool_cap_cents'
+    | 'plan_item_id'
+    | 'sign_date'
+    | 'created_at'
+    | 'currency'
+    | 'exchange_rate_scaled'
+    | 'currency_struct_status'
+    | 'migration_mode'
+    | 'pricing_mode'
+    | 'estimated_ceiling_cents'
+    | 'original_cents'
+    | 'approved_change_cents'
+    | 'annual_plan_alloc_cents'
+  >,
+  delta = 0n,
+): BudgetPoolUsageInfo | null {
+  if (c.direction !== 'expense' || c.budget_type !== 'lump_sum_pool') return null;
+  const yearStr = (c.sign_date || c.created_at || new Date().toISOString()).slice(0, 4);
+  const yearNum = Number(yearStr) || new Date().getUTCFullYear();
+
+  let capCents: bigint | null = c.budget_pool_cap_cents != null ? BigInt(c.budget_pool_cap_cents) : null;
+  if (capCents === null && c.budget_pool_account_id != null) {
+    const entryCap = db
+      .prepare(
+        `SELECT SUM(be.amount_cents) AS cap
+         FROM budget_entry be
+         JOIN budget_version bv ON bv.id = be.version_id
+         WHERE be.org_id = ? AND be.account_id = ? AND bv.year = ? AND bv.status IN ('published','approved','draft')
+         GROUP BY bv.id
+         ORDER BY CASE bv.status WHEN 'published' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, bv.id DESC
+         LIMIT 1`,
+      )
+      .safeIntegers(true)
+      .get(c.org_id, c.budget_pool_account_id, yearNum) as { cap: bigint | null } | undefined;
+    if (entryCap?.cap != null) capCents = BigInt(entryCap.cap);
+  }
+  if (capCents === null && c.plan_item_id != null) {
+    const planCap = db
+      .prepare(
+        `SELECT f.amount_cents AS cap
+         FROM plan_fact f
+         JOIN plan_item i ON i.id = f.item_id
+         JOIN plan_batch b ON b.id = i.batch_id
+         WHERE i.item_key = (SELECT item_key FROM plan_item WHERE id = ?)
+           AND i.org_id = (SELECT org_id FROM plan_item WHERE id = ?)
+           AND b.is_current = 1 AND b.status <> 'voided'
+           AND f.measure = 'annual_plan' AND f.field_key = 'annual_plan' AND f.value_type = 'amount'
+         ORDER BY b.year DESC, b.actual_period DESC LIMIT 1`,
+      )
+      .safeIntegers(true)
+      .get(c.plan_item_id, c.plan_item_id) as { cap: bigint | null } | undefined;
+    if (planCap?.cap != null) capCents = BigInt(planCap.cap);
+  }
+  if (capCents === null) {
+    // 继承同组织同池其他合同已登记的池上限
+    const peerCap = db
+      .prepare(
+        `SELECT MAX(budget_pool_cap_cents) AS cap
+         FROM ct_contract
+         WHERE org_id = ? AND budget_type = 'lump_sum_pool' AND status <> 'voided'
+           AND id <> ? AND budget_pool_cap_cents IS NOT NULL
+           AND (${c.budget_pool_account_id != null ? 'budget_pool_account_id = ?' : c.plan_item_id != null ? 'plan_item_id = ?' : "substr(COALESCE(sign_date, created_at), 1, 4) = ?"})`,
+      )
+      .safeIntegers(true)
+      .get(
+        c.org_id,
+        c.id || 0,
+        c.budget_pool_account_id ?? c.plan_item_id ?? yearStr,
+      ) as { cap: bigint | null } | undefined;
+    if (peerCap?.cap != null) capCents = BigInt(peerCap.cap);
+  }
+
+  const poolWhere =
+    c.budget_pool_account_id != null
+      ? 'budget_pool_account_id = ?'
+      : c.plan_item_id != null
+        ? 'plan_item_id = ?'
+        : 'substr(COALESCE(sign_date, created_at), 1, 4) = ?';
+  const poolParam = c.budget_pool_account_id ?? c.plan_item_id ?? yearStr;
+
+  const peers = db
+    .prepare(
+      `SELECT currency, exchange_rate_scaled, currency_struct_status, migration_mode,
+              pricing_mode, estimated_ceiling_cents, original_cents, approved_change_cents, annual_plan_alloc_cents
+       FROM ct_contract
+       WHERE org_id = ? AND budget_type = 'lump_sum_pool' AND direction = 'expense'
+         AND status <> 'voided' AND id <> ? AND ${poolWhere}`,
+    )
+    .safeIntegers(true)
+    .all(c.org_id, c.id || 0, poolParam) as ContractRow[];
+
+  const usedOtherCents = peers.reduce((sum, p) => sum + contractAnnualPoolRmb(p, 0n), 0n);
+  const thisCents = contractAnnualPoolRmb(c, delta);
+  const totalUsedCents = usedOtherCents + thisCents;
+  const remainingCents = capCents === null ? null : capCents - totalUsedCents;
+  return { capCents, usedOtherCents, thisCents, totalUsedCents, remainingCents };
+}
+
+export function assertBudgetPoolCap(
+  db: DB,
+  c: Parameters<typeof computeBudgetPoolUsage>[1],
+  opts: { delta?: bigint; hasOverride?: boolean } = {},
+): void {
+  const usage = computeBudgetPoolUsage(db, c, opts.delta ?? 0n);
+  if (!usage || usage.capCents === null || opts.hasOverride) return;
+  if (usage.thisCents > 0n && usage.totalUsedCents > usage.capCents) {
+    throw fail(
+      'BUDGET_POOL_EXCEEDED',
+      '生产经营总额包干项目跨合同累计占用突破年度包干总额池上限，须先调增包干额度或办理计划外审批',
+    );
+  }
+}
+
 /** 签署、变更、结算和支付共用同一额度口径。仅正式采用的来源批次参与计算。 */
 export function assertContractFunding(db: DB, c: ContractRow, opts: { delta?: bigint; settlementGross?: bigint; paymentTotal?: bigint; outOfPlanDocId?: number | null; paymentDate?: string | null } = {}): void {
   if (c.direction !== 'expense') return;
@@ -36,13 +180,22 @@ export function assertContractFunding(db: DB, c: ContractRow, opts: { delta?: bi
   }
   const candidate = c.pricing_mode === 'unit_price' ? c.estimated_ceiling_cents ?? 0n : BigInt(c.original_cents) + BigInt(c.approved_change_cents);
   const amount = candidate + (opts.delta ?? 0n);
-  const override = opts.outOfPlanDocId ?? (opts.delta !== undefined ? undefined : (db.prepare("SELECT id FROM ct_document WHERE contract_id = ? AND evidence_kind = 'out_of_plan_approval' ORDER BY id DESC LIMIT 1").get(c.id) as { id: number } | undefined)?.id);
+  const override = opts.outOfPlanDocId ?? (opts.delta !== undefined ? undefined : (db.prepare("SELECT id FROM ct_document WHERE contract_id = ? AND evidence_kind = 'out_of_plan_approval' AND withdrawn_at IS NULL ORDER BY id DESC LIMIT 1").get(c.id) as { id: number } | undefined)?.id);
   if (override) requireEvidence(db, c.id, override, ['out_of_plan_approval']);
   const sumOther = (column: 'commitment' | 'settled' | 'paid', key: 'project_id' | 'plan_item_id', id: number): bigint => {
-    const rows = db.prepare(`SELECT currency, exchange_rate_scaled, migration_mode, currency_struct_status, original_cents, approved_change_cents, pricing_mode, estimated_ceiling_cents, settled_gross_cents, paid_cents + COALESCE((SELECT SUM(amount_cents) FROM ct_payment p WHERE p.contract_id = ct_contract.id AND p.status = 'approved'),0) AS paid_cents FROM ct_contract
+    const rows = db.prepare(`SELECT currency, exchange_rate_scaled, migration_mode, currency_struct_status, original_cents, approved_change_cents, annual_plan_alloc_cents, pricing_mode, estimated_ceiling_cents, settled_gross_cents, paid_cents + COALESCE((SELECT SUM(amount_cents) FROM ct_payment p WHERE p.contract_id = ct_contract.id AND p.status = 'approved'),0) AS paid_cents FROM ct_contract
       WHERE ${key === 'plan_item_id' ? 'plan_item_id IN (SELECT id FROM plan_item WHERE item_key=(SELECT item_key FROM plan_item WHERE id=?) AND org_id=(SELECT org_id FROM plan_item WHERE id=?))' : 'project_id = ?'} AND id <> ? AND direction = 'expense' AND status <> 'voided' AND stage IN ('performance','settlement','warranty','closed')`).safeIntegers(true).all(...(key === 'plan_item_id' ? [id,id,c.id] : [id,c.id])) as ContractRow[];
     return rows.reduce((s, r) => {
-      const raw = column === 'settled' ? r.settled_gross_cents : column === 'paid' ? r.paid_cents : r.pricing_mode === 'unit_price' ? r.estimated_ceiling_cents ?? 0n : r.original_cents + r.approved_change_cents;
+      const raw =
+        column === 'settled'
+          ? r.settled_gross_cents
+          : column === 'paid'
+            ? r.paid_cents
+            : key === 'plan_item_id' && r.annual_plan_alloc_cents != null
+              ? BigInt(r.annual_plan_alloc_cents)
+              : r.pricing_mode === 'unit_price'
+                ? r.estimated_ceiling_cents ?? 0n
+                : r.original_cents + r.approved_change_cents;
       if (r.migration_mode === 'legacy_tolerant') {
         return s + (tryRmbCents(r, raw) ?? 0n);
       }
@@ -55,9 +208,11 @@ export function assertContractFunding(db: DB, c: ContractRow, opts: { delta?: bi
       AND b.is_current = 1 AND b.status <> 'voided' AND f.measure = 'annual_plan' AND f.field_key = 'annual_plan' AND f.value_type = 'amount'
       ORDER BY b.year DESC, b.actual_period DESC LIMIT 1`).safeIntegers(true).get(c.plan_item_id, c.plan_item_id) as { cap: bigint } | undefined;
     if (!plan) throw fail('PLAN_SOURCE_MISSING', '关联计划未有正式采用的年度金额，请先确认计划');
-    const used = sumOther('commitment', 'plan_item_id', c.plan_item_id) + rmbCents(c, amount);
+    const annualBasis = c.annual_plan_alloc_cents != null ? BigInt(c.annual_plan_alloc_cents) + (opts.delta ?? 0n) : amount;
+    const used = sumOther('commitment', 'plan_item_id', c.plan_item_id) + rmbCents(c, annualBasis);
     if (used > plan.cap && !override) throw fail('OUT_OF_PLAN_APPROVAL_REQUIRED', '合同及变更占用超过综合计划额度，须先办理计划外审批');
   }
+  assertBudgetPoolCap(db, c, { delta: opts.delta, hasOverride: !!override });
   if (!c.project_id) return;
   const budget = db.prepare(`SELECT SUM(e.budget_cents) AS cap FROM pb_entry e WHERE e.project_id = ? AND e.batch_id = (
     SELECT b.id FROM pb_batch b JOIN pb_entry e2 ON e2.batch_id = b.id WHERE e2.project_id = ? AND b.is_current = 1 AND b.status <> 'voided' ORDER BY b.year DESC, b.period DESC LIMIT 1)`)

@@ -17,6 +17,177 @@ import { PLAN_SHEET_LABELS, type PlanMeasure, type PlanSheetCode, type PlanWarni
 export type PlanValueType = 'amount' | 'quantity' | 'ratio' | 'text';
 export interface FieldDef { key: string; label: string; aliases: readonly string[]; measure: PlanMeasure; type: PlanValueType }
 
+export interface UnitFormulaMatcher {
+  key: string;
+  label: string;
+  tokens: string[];
+}
+
+function excelColToIndex(colLetters: string): number {
+  let idx = 0;
+  for (const ch of colLetters.toUpperCase()) {
+    idx = idx * 26 + (ch.charCodeAt(0) - 64);
+  }
+  return idx - 1;
+}
+
+function matchOrgUnit(text: string, matchers: UnitFormulaMatcher[]): UnitFormulaMatcher | null {
+  const cleaned = text
+    .replace(/^\[\d+\]/, '')
+    .replace(/(利润总表|利润预算表|利润表|五项费用预算表|五项费用|管理类费用预算表|管理费用预算表|管理费用|制造费用预算表|制造费用|运行维护费|运维明细|预算表|计划表|汇总表)/g, '')
+    .replace(/[0-9.\-_()\s（）]/g, '')
+    .trim();
+  if (!cleaned) return null;
+  let best: { m: UnitFormulaMatcher; len: number } | null = null;
+  for (const m of matchers) {
+    for (const rawTok of m.tokens) {
+      const tok = rawTok.trim();
+      if (tok.length < 2) continue;
+      if (cleaned.includes(tok) || text.includes(tok)) {
+        if (!best || tok.length > best.len) best = { m, len: tok.length };
+      }
+    }
+  }
+  return best?.m ?? null;
+}
+
+/**
+ * 扫描工作簿跨单位单元格错列公式引用（CROSS_UNIT_CELL_REF）：
+ * 1) 同簿多单位分表引用同一汇总表时，基于各分表主引用列亲和度（Dominant Column Affinity）识别串列错引（如分表主引 GW 列而单格误引他表专属 FA 列）；
+ * 2) 分表直接跨表引用另一归口单位分表单元格；
+ * 3) 分表引用同簿汇总表中表头归属另一单位的列。
+ */
+export function scanWorkbookCrossUnitFormulas(
+  sheets: ReadSheet[],
+  unitMatchers: UnitFormulaMatcher[] = [],
+): PlanWarningDto[] {
+  const warnings: PlanWarningDto[] = [];
+  const seen = new Set<string>();
+  const refRegex = /(?:(?:'([^']+)'|([A-Za-z0-9_\u4e00-\u9fa5[\].-]+))!)(\$?[A-Z]{1,3})\$?(\d+)/g;
+  const cleanTargetName = (raw: string) => raw.replace(/^\[\d+\]/, '').trim();
+  const bySheetName = new Map(sheets.map((s) => [s.name.trim(), s]));
+
+  // Pass 1: 统计每张分表对每个目标表的数据列（排除 A/B 序号与名称列）引用频次，建立列亲和度映射
+  const sheetTargetColCounts = new Map<string, Map<string, Map<string, number>>>();
+  for (const s of sheets) {
+    if (!s.formulas?.length) continue;
+    const byTarget = new Map<string, Map<string, number>>();
+    for (const fc of s.formulas) {
+      refRegex.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = refRegex.exec(fc.formula)) !== null) {
+        const targetSheet = cleanTargetName(m[1] ?? m[2] ?? '');
+        const colLetters = (m[3] ?? '').replace(/\$/g, '').toUpperCase();
+        if (!targetSheet || !colLetters || targetSheet === s.name) continue;
+        if (colLetters === 'A' || colLetters === 'B') continue;
+        let colMap = byTarget.get(targetSheet);
+        if (!colMap) {
+          colMap = new Map();
+          byTarget.set(targetSheet, colMap);
+        }
+        colMap.set(colLetters, (colMap.get(colLetters) ?? 0) + 1);
+      }
+    }
+    if (byTarget.size > 0) sheetTargetColCounts.set(s.name, byTarget);
+  }
+
+  const dominantColBySheetTarget = new Map<string, string>();
+  const colOwnerSheet = new Map<string, string>();
+  for (const [sheetName, byTarget] of sheetTargetColCounts.entries()) {
+    for (const [targetSheet, colMap] of byTarget.entries()) {
+      let total = 0;
+      let topCol = '';
+      let topCount = 0;
+      for (const [col, cnt] of colMap.entries()) {
+        total += cnt;
+        if (cnt > topCount) {
+          topCount = cnt;
+          topCol = col;
+        }
+      }
+      if (topCount >= 2 && topCount * 2 > total) {
+        dominantColBySheetTarget.set(`${sheetName}::${targetSheet}`, topCol);
+        const ownerKey = `${targetSheet}::${topCol}`;
+        if (!colOwnerSheet.has(ownerKey)) colOwnerSheet.set(ownerKey, sheetName);
+      }
+    }
+  }
+
+  // Pass 2: 逐格核验跨单位串表或串列引用
+  for (const s of sheets) {
+    if (!s.formulas?.length) continue;
+    const selfUnit = unitMatchers.length > 0 ? matchOrgUnit(s.name, unitMatchers) : null;
+    for (const fc of s.formulas) {
+      refRegex.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = refRegex.exec(fc.formula)) !== null) {
+        const rawTarget = m[1] ?? m[2] ?? '';
+        const targetSheet = cleanTargetName(rawTarget);
+        const rawCol = m[3] ?? '';
+        const colLetters = rawCol.replace(/\$/g, '').toUpperCase();
+        const refRow = m[4] ?? '';
+        if (!targetSheet || !colLetters || targetSheet === s.name) continue;
+
+        const dominant = dominantColBySheetTarget.get(`${s.name}::${targetSheet}`);
+        if (colLetters !== 'A' && colLetters !== 'B' && dominant && colLetters !== dominant) {
+          const peerOwner = colOwnerSheet.get(`${targetSheet}::${colLetters}`);
+          const dedupKey = `${s.name}:${fc.address}:${targetSheet}:${colLetters}${refRow}`;
+          if (!seen.has(dedupKey)) {
+            seen.add(dedupKey);
+            warnings.push({
+              code: 'CROSS_UNIT_CELL_REF',
+              sheet: s.name,
+              row: fc.rowNo,
+              message: `工作表“${s.name}”单元格 ${fc.address} 公式（=${fc.formula}）跨列引用了 ${targetSheet}!${rawCol}${refRow}${peerOwner ? `（该列归属“${peerOwner}”）` : ''}，与本表主数据列 ${dominant} 不一致`,
+            });
+          }
+          continue;
+        }
+
+        if (selfUnit) {
+          const targetUnit = matchOrgUnit(targetSheet, unitMatchers);
+          if (targetUnit && targetUnit.key !== selfUnit.key) {
+            const dedupKey = `${s.name}:${fc.address}:${targetSheet}:${colLetters}${refRow}`;
+            if (!seen.has(dedupKey)) {
+              seen.add(dedupKey);
+              warnings.push({
+                code: 'CROSS_UNIT_CELL_REF',
+                sheet: s.name,
+                row: fc.rowNo,
+                message: `归属“${selfUnit.label}”的工作表“${s.name}”单元格 ${fc.address} 公式（=${fc.formula}）跨单位引用了归属“${targetUnit.label}”的工作表“${targetSheet}”`,
+              });
+            }
+            continue;
+          }
+          const inWbTarget = bySheetName.get(targetSheet);
+          if (inWbTarget && !targetUnit && colLetters !== 'A' && colLetters !== 'B') {
+            const colIdx = excelColToIndex(colLetters);
+            for (const headerRow of inWbTarget.rows.slice(0, 5)) {
+              const headerCell = headerRow.cells[colIdx] ?? '';
+              if (!headerCell) continue;
+              const colUnit = matchOrgUnit(headerCell, unitMatchers);
+              if (colUnit && colUnit.key !== selfUnit.key) {
+                const dedupKey = `${s.name}:${fc.address}:${targetSheet}:${colLetters}${refRow}`;
+                if (!seen.has(dedupKey)) {
+                  seen.add(dedupKey);
+                  warnings.push({
+                    code: 'CROSS_UNIT_CELL_REF',
+                    sheet: s.name,
+                    row: fc.rowNo,
+                    message: `归属“${selfUnit.label}”的工作表“${s.name}”单元格 ${fc.address} 公式（=${fc.formula}）引用了汇总表“${targetSheet}”归属“${colUnit.label}”的列 ${colLetters}`,
+                  });
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return warnings;
+}
+
 const IGNORED_SHEET_PATTERNS = [
   /^目录/,
   /^sheet\d+$/i,
@@ -239,10 +410,11 @@ export function parsePlanWorkbook(
   sheets: ReadSheet[],
   year: number,
   extraAliases: PlanExtraAliases = {},
-  opts: { isLegacyXls?: boolean } = {}
+  opts: { isLegacyXls?: boolean; unitMatchers?: UnitFormulaMatcher[] } = {}
 ): ParsedPlanWorkbook {
   const errors: RowError[] = [];
-  const warnings: PlanWarningDto[] = [];
+  const crossFormulaWarnings = scanWorkbookCrossUnitFormulas(sheets, opts.unitMatchers ?? []);
+  const warnings: PlanWarningDto[] = [...crossFormulaWarnings];
   const out: ParsedPlanSheet[] = [];
   const ignored: string[] = [];
   const seen = new Set<PlanSheetCode>();
@@ -494,6 +666,11 @@ export function parsePlanWorkbook(
       }
 
       const pathStr = itemType === 'category' ? categories.slice(0, -1).join('/') : categories.join('/');
+      for (const cw of crossFormulaWarnings) {
+        if (cw.sheet === sheet.name && cw.row === r.rowNo) {
+          rowWarnings.push(cw);
+        }
+      }
       items.push({
         sheetCode: code, rowNo: r.rowNo, seqNo: seqNo.slice(0, 20), itemName: name.slice(0, 200), itemType,
         path: pathStr,

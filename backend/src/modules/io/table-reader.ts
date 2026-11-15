@@ -90,7 +90,8 @@ function normalizeHeader(value: string): string {
 }
 
 export interface MatrixRow { rowNo: number; cells: string[] }
-export interface ReadSheet { name: string; hidden: boolean; rows: MatrixRow[] }
+export interface FormulaCellRef { rowNo: number; colIndex: number; address: string; formula: string }
+export interface ReadSheet { name: string; hidden: boolean; rows: MatrixRow[]; formulas?: FormulaCellRef[] }
 /** 表头定位:缺省取第一个非空行;给出 isHeader 时在前 within 行内找第一行满足条件的行(模板常有标题/单位行)。 */
 export interface HeaderLocator {
   isHeader: (cells: string[]) => boolean;
@@ -162,14 +163,23 @@ async function loadWorkbook(content: Buffer, maxRows: number, maxWorksheets = 1)
   return wb;
 }
 
-function sheetMatrix(sheet: ExcelJS.Worksheet, opts?: WorkbookReadOptions): MatrixRow[] {
+function sheetMatrixWithFormulas(sheet: ExcelJS.Worksheet, opts?: WorkbookReadOptions): { rows: MatrixRow[]; formulas: FormulaCellRef[] } {
   const matrix: MatrixRow[] = [];
+  const formulas: FormulaCellRef[] = [];
   // 隐藏行同样读入:原始事实不能因为显示状态被静默丢弃
   sheet.eachRow({ includeEmpty: false }, (row, rowNo) => {
     let maxCol = 0;
     const entries: [number, string][] = [];
     row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
       if (colNumber > 512) return;
+      if (cell.value && typeof cell.value === 'object' && 'formula' in cell.value && typeof cell.value.formula === 'string') {
+        formulas.push({
+          rowNo,
+          colIndex: colNumber - 1,
+          address: cell.address,
+          formula: cell.value.formula,
+        });
+      }
       const txt = cellText(cell, opts);
       if (txt !== '') {
         entries.push([colNumber, txt]);
@@ -180,7 +190,7 @@ function sheetMatrix(sheet: ExcelJS.Worksheet, opts?: WorkbookReadOptions): Matr
     for (const [colNumber, txt] of entries) cells[colNumber - 1] = txt;
     matrix.push({ rowNo, cells });
   });
-  return matrix;
+  return { rows: matrix, formulas };
 }
 
 /** 读取 xlsx 全部工作表为文本矩阵(含隐藏表,由调用方决定是否忽略并列出)。 */
@@ -195,7 +205,10 @@ export async function readWorkbookSheets(
     return readXlsWorkbookSheets(content, maxRows, maxWorksheets);
   }
   const wb = await loadWorkbook(content, maxRows, maxWorksheets);
-  return wb.worksheets.map((ws) => ({ name: ws.name.trim(), hidden: ws.state !== 'visible', rows: sheetMatrix(ws, opts) }));
+  return wb.worksheets.map((ws) => {
+    const { rows, formulas } = sheetMatrixWithFormulas(ws, opts);
+    return { name: ws.name.trim(), hidden: ws.state !== 'visible', rows, ...(formulas.length > 0 ? { formulas } : {}) };
+  });
 }
 
 export async function readTable(content: Buffer, fileName: string, maxRows = MAX_IMPORT_ROWS, locator?: HeaderLocator): Promise<ReadTable> {
@@ -216,7 +229,7 @@ export async function readTable(content: Buffer, fileName: string, maxRows = MAX
     const wb = await loadWorkbook(content, maxRows);
     const sheet = wb.worksheets[0];
     if (!sheet) throw Errors.validation('工作簿没有工作表');
-    return toTable(sheetMatrix(sheet), maxRows, locator);
+    return toTable(sheetMatrixWithFormulas(sheet).rows, maxRows, locator);
   }
   if (ext === '.xls') {
     const sheets = readXlsWorkbookSheets(content, maxRows, MAX_WORKBOOK_SHEETS);

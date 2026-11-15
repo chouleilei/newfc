@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import {
-  Alert, App as AntdApp, Button, Card, Col, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tag, Typography,
+  Alert, App as AntdApp, Button, Card, Col, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Table, Tag, Tooltip, Typography,
 } from 'antd';
 import dayjs from 'dayjs';
-import { can, errorText } from '../../api/client';
+import { can, download, errorText } from '../../api/client';
 import {
   contractApi, type ContractDetailDto, type ContractDisputeCreateRequest, type ContractDisputeDto,
   type ContractDisputeUpdateRequest, type ContractDocType, type ContractGuaranteeCreateRequest,
@@ -14,6 +14,7 @@ import {
 import { compact, Money, statusTag } from '../financeData/shared';
 import { CONTRACT_DOC_TYPE_LABELS } from './shared';
 import {
+  DISPUTE_JUDGMENT_RESULT_OPTIONS, DISPUTE_LITIGATION_TYPE_OPTIONS, DISPUTE_OUR_ROLE_OPTIONS,
   DISPUTE_STAGE_LABELS, EVALUATION_RECOMMENDATION_LABELS, GUARANTEE_DIRECTION_LABELS, GUARANTEE_STATUS_LABELS, GUARANTEE_TYPE_LABELS,
   parseMoneyToCentsPreview, WARRANTY_CONCLUSION_LABELS,
 } from './contractOptions';
@@ -48,6 +49,7 @@ export function ContractSafeguardTab({ contract, onChanged }: { contract: Contra
   const [wVisaOpen, setWVisaOpen] = useState(false);
   const [dCreateOpen, setDCreateOpen] = useState(false);
   const [dEditing, setDEditing] = useState<ContractDisputeDto | null>(null);
+  const [disputeColMode, setDisputeColMode] = useState<'full17' | 'compact'>('full17');
   const [evalOpen, setEvalOpen] = useState(false);
 
   const [gCreateForm] = Form.useForm();
@@ -238,35 +240,123 @@ export function ContractSafeguardTab({ contract, onChanged }: { contract: Contra
       <Card
         size="small"
         title={'合同纠纷与诉讼仲裁台账（17 列）· ' + disputes.length}
-        extra={writableNotVoided && <Button size="small" type="primary" onClick={openDisputeCreate}>登记纠纷 / 诉讼</Button>}
+        extra={
+          <Space wrap size={6}>
+            <Segmented<'full17' | 'compact'>
+              size="small"
+              value={disputeColMode}
+              onChange={setDisputeColMode}
+              options={[
+                { value: 'full17', label: '完整 17列模式' },
+                { value: 'compact', label: '日常紧凑视图' },
+              ]}
+            />
+            {can('contract:read') && (
+              <Button
+                size="small"
+                onClick={() =>
+                  void download(
+                    contractApi.disputesExportPath({ contractId: contract.id }),
+                    `诉讼仲裁17列台账_${contract.contractNo}.xlsx`,
+                  )
+                }
+              >
+                导出 17列纠纷台账 (.xlsx)
+              </Button>
+            )}
+            {writableNotVoided && <Button size="small" type="primary" onClick={openDisputeCreate}>登记纠纷 / 诉讼</Button>}
+          </Space>
+        }
       >
         <Table
           rowKey="id"
           size="small"
           pagination={false}
           dataSource={disputes}
-          scroll={{ x: 1100 }}
-          columns={[
-            { title: '发生日', dataIndex: 'occurredDate', width: 105 },
-            { title: '阶段', dataIndex: 'stage', width: 100, render: (v: string) => statusTag(DISPUTE_STAGE_LABELS, v) },
-            { title: '案号 / 受理机构', key: 'case', width: 200, render: (_, r) => <span>{r.caseNo || '—'}{r.institutionName ? ' · ' + r.institutionName : ''}</span> },
-            { title: '诉讼类型 / 案由', key: 'type', width: 190, render: (_, r) => <span>{r.litigationType || '—'}{r.causeOfAction ? ' · ' + r.causeOfAction : ''}</span> },
-            { title: '涉案金额', dataIndex: 'disputeAmount', width: 110, align: 'right', render: (v: string) => <Money value={v} /> },
-            { title: '实际获赔/付', dataIndex: 'actualSettledAmount', width: 110, align: 'right', render: (v: string | null) => (v ? <Money value={v} /> : '—') },
-            {
-              title: '报告与双备案', key: 'filing', width: 210,
-              render: (_, r) => (
-                <div style={{ fontSize: 12 }}>
-                  <div>归口报告：{r.reportedToDeptAt ?? '未报'} · 总经理批：{r.gmApprovedAt ?? '—'}</div>
-                  <div>企管备案：{r.filedToMgmtAt ?? '未备'} · 纪审备案：{r.filedToDisciplineAt ?? '未备'}</div>
-                </div>
-              ),
-            },
-            {
-              title: '操作', key: 'op', width: 85,
-              render: (_, r) => (writableNotVoided ? <Button size="small" onClick={() => openDisputeEdit(r)}>更新</Button> : null),
-            },
-          ]}
+          scroll={{ x: disputeColMode === 'full17' ? 2480 : 1120 }}
+          expandable={{
+            expandedRowRender: (r) => (
+              <Descriptions size="small" bordered column={2}>
+                <Descriptions.Item label="案情简介">{r.caseSummary || '—'}</Descriptions.Item>
+                <Descriptions.Item label="裁判结果">{r.judgmentResult || '—'}</Descriptions.Item>
+                <Descriptions.Item label="内部报告与审批">
+                  发生日：{r.occurredDate} ｜ 归口报告：{r.reportedToDeptAt ?? '未报'} ｜ 总经理批：{r.gmApprovedAt ?? '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="企管与纪审双备案">
+                  企管备案：{r.filedToMgmtAt ?? '未备'} ｜ 纪审备案：{r.filedToDisciplineAt ?? '未备'}
+                  {r.changeId ? ` ｜ 关联变更 #${r.changeId}` : ''}
+                </Descriptions.Item>
+              </Descriptions>
+            ),
+          }}
+          columns={
+            disputeColMode === 'full17'
+              ? [
+                  { title: '序号', key: 'seq', width: 62, render: (_, __, idx) => idx + 1 },
+                  { title: '诉讼类型', dataIndex: 'litigationType', width: 105, render: (v: string) => v || '—' },
+                  { title: '案由', dataIndex: 'causeOfAction', width: 140, render: (v: string) => v || '—' },
+                  { title: '相对方及其诉讼地位', dataIndex: 'counterpartyAndRole', width: 170, render: (v: string) => v || '—' },
+                  { title: '程序阶段', dataIndex: 'stage', width: 105, render: (v: string) => statusTag(DISPUTE_STAGE_LABELS, v) },
+                  { title: '受理机构', dataIndex: 'institutionName', width: 150, render: (v: string) => v || '—' },
+                  { title: '案号', dataIndex: 'caseNo', width: 145, render: (v: string) => v || '—' },
+                  { title: '涉诉单位', dataIndex: 'involvedOrgName', width: 135, render: (v: string) => v || contract.orgName || '—' },
+                  { title: '诉讼地位', dataIndex: 'ourLitigationRole', width: 95, render: (v: string) => v || '—' },
+                  { title: '受理时间', dataIndex: 'acceptedDate', width: 105, render: (v: string | null) => v ?? '—' },
+                  {
+                    title: '案情简介',
+                    dataIndex: 'caseSummary',
+                    width: 210,
+                    ellipsis: { showTitle: false },
+                    render: (v: string) => (v ? <Tooltip title={v}>{v}</Tooltip> : '—'),
+                  },
+                  { title: '法律文书形式', dataIndex: 'legalDocForm', width: 120, render: (v: string) => v || '—' },
+                  { title: '结案时间', dataIndex: 'closedDate', width: 105, render: (v: string | null) => v ?? '—' },
+                  { title: '诉讼金额', dataIndex: 'disputeAmount', width: 125, align: 'right', render: (v: string) => <Money value={v} /> },
+                  {
+                    title: '裁判结果',
+                    dataIndex: 'judgmentResult',
+                    width: 130,
+                    ellipsis: { showTitle: false },
+                    render: (v: string) => (v ? <Tooltip title={v}>{v}</Tooltip> : '—'),
+                  },
+                  {
+                    title: '单位实际获得或支付的金额',
+                    dataIndex: 'actualSettledAmount',
+                    width: 185,
+                    align: 'right',
+                    render: (v: string | null) => (v ? <Money value={v} /> : '—'),
+                  },
+                  { title: '备注（代理律所及承办律师）', dataIndex: 'lawFirmAndLawyer', width: 195, render: (v: string) => v || '—' },
+                  {
+                    title: '操作',
+                    key: 'op',
+                    fixed: 'right',
+                    width: 85,
+                    render: (_, r) => (writableNotVoided ? <Button size="small" onClick={() => openDisputeEdit(r)}>更新</Button> : null),
+                  },
+                ]
+              : [
+                  { title: '发生日', dataIndex: 'occurredDate', width: 105 },
+                  { title: '程序阶段', dataIndex: 'stage', width: 100, render: (v: string) => statusTag(DISPUTE_STAGE_LABELS, v) },
+                  { title: '案号 / 受理机构', key: 'case', width: 200, render: (_, r) => <span>{r.caseNo || '—'}{r.institutionName ? ' · ' + r.institutionName : ''}</span> },
+                  { title: '诉讼类型 / 案由', key: 'type', width: 190, render: (_, r) => <span>{r.litigationType || '—'}{r.causeOfAction ? ' · ' + r.causeOfAction : ''}</span> },
+                  { title: '诉讼金额', dataIndex: 'disputeAmount', width: 110, align: 'right', render: (v: string) => <Money value={v} /> },
+                  { title: '实际获赔/付', dataIndex: 'actualSettledAmount', width: 110, align: 'right', render: (v: string | null) => (v ? <Money value={v} /> : '—') },
+                  {
+                    title: '报告与双备案', key: 'filing', width: 210,
+                    render: (_, r) => (
+                      <div style={{ fontSize: 12 }}>
+                        <div>归口报告：{r.reportedToDeptAt ?? '未报'} · 总经理批：{r.gmApprovedAt ?? '—'}</div>
+                        <div>企管备案：{r.filedToMgmtAt ?? '未备'} · 纪审备案：{r.filedToDisciplineAt ?? '未备'}</div>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: '操作', key: 'op', width: 85,
+                    render: (_, r) => (writableNotVoided ? <Button size="small" onClick={() => openDisputeEdit(r)}>更新</Button> : null),
+                  },
+                ]
+          }
         />
       </Card>
 
@@ -419,26 +509,46 @@ export function ContractSafeguardTab({ contract, onChanged }: { contract: Contra
           <Row gutter={12}>
             <Col span={8}><Form.Item name="occurredDate" label="纠纷发生日" rules={[{ required: true }]} {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={8}><Form.Item name="reportedToDeptAt" label="向归口部门书面报告日" {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col span={8}><Form.Item name="stage" label="处理阶段" rules={[{ required: true }]}><Select options={Object.entries(DISPUTE_STAGE_LABELS).map(([value, m]) => ({ value, label: m.text }))} /></Form.Item></Col>
-            <Col span={8}><Form.Item name="litigationType" label="诉讼 / 仲裁类型"><Input maxLength={100} placeholder="如 民事诉讼 / 商事仲裁" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="stage" label="程序阶段" rules={[{ required: true }]}><Select showSearch options={Object.entries(DISPUTE_STAGE_LABELS).map(([value, m]) => ({ value, label: m.text }))} /></Form.Item></Col>
+            <Col span={8}>
+              <Form.Item name="litigationType" label="诉讼类型">
+                <Select allowClear showSearch placeholder="请选择诉讼/仲裁类型" options={DISPUTE_LITIGATION_TYPE_OPTIONS} />
+              </Form.Item>
+            </Col>
             <Col span={8}><Form.Item name="causeOfAction" label="案由"><Input maxLength={200} /></Form.Item></Col>
-            <Col span={8}><Form.Item name="ourLitigationRole" label="我方诉讼地位"><Input maxLength={100} placeholder="如 原告 / 被告 / 申请人" /></Form.Item></Col>
-            <Col span={12}><Form.Item name="counterpartyAndRole" label="相对方及诉讼地位"><Input maxLength={300} /></Form.Item></Col>
-            <Col span={12}><Form.Item name="involvedOrgName" label="涉案单位"><Input maxLength={200} /></Form.Item></Col>
-            <Col span={8}><Form.Item name="institutionName" label="受理法院 / 仲裁机构"><Input maxLength={200} /></Form.Item></Col>
+            <Col span={8}>
+              <Form.Item name="ourLitigationRole" label="诉讼地位">
+                <Select allowClear showSearch placeholder="请选择我方诉讼地位" options={DISPUTE_OUR_ROLE_OPTIONS} />
+              </Form.Item>
+            </Col>
+            <Col span={12}><Form.Item name="counterpartyAndRole" label="相对方及其诉讼地位"><Input maxLength={300} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="involvedOrgName" label="涉诉单位"><Input maxLength={200} /></Form.Item></Col>
+            <Col span={8}><Form.Item name="institutionName" label="受理机构"><Input maxLength={200} /></Form.Item></Col>
             <Col span={8}><Form.Item name="caseNo" label="案号"><Input maxLength={100} /></Form.Item></Col>
-            <Col span={8}><Form.Item name="acceptedDate" label="受理日期" {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={8}><Form.Item name="acceptedDate" label="受理时间" {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={8}><Form.Item name="gmApprovedAt" label="总经理起诉/应诉审批日" {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={8}><Form.Item name="legalDocForm" label="法律文书形式"><Input maxLength={100} /></Form.Item></Col>
-            <Col span={8}><Form.Item name="lawFirmAndLawyer" label="代理律所及律师"><Input maxLength={300} /></Form.Item></Col>
+            <Col span={8}><Form.Item name="lawFirmAndLawyer" label="备注（代理律所及承办律师）"><Input maxLength={300} /></Form.Item></Col>
             <Col span={8}><Form.Item name="disputeAmount" label="涉案金额(元)" rules={[nonNegMoneyRule]}><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="actualSettledAmount" label="实际获赔 / 支付金额(元)" rules={[nonNegMoneyRule]}><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="closedDate" label="结案日期" {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={8}><Form.Item name="actualSettledAmount" label="单位实际获得或支付的金额(元)" rules={[nonNegMoneyRule]}><Input /></Form.Item></Col>
+            <Col span={8}><Form.Item name="closedDate" label="结案时间" {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={8}><Form.Item name="changeId" label="关联合同变更(可选)"><Select allowClear options={contract.changes.map((ch) => ({ value: ch.id, label: (ch.supplementNo ?? '#' + ch.id) + ' · ' + ch.reason }))} /></Form.Item></Col>
             <Col span={8}><Form.Item name="filedToMgmtAt" label="企管部备案日期" {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={8}><Form.Item name="filedToDisciplineAt" label="纪审部备案日期" {...datePickerProps}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col span={12}><Form.Item name="caseSummary" label="案情摘要"><Input.TextArea rows={2} maxLength={2000} /></Form.Item></Col>
-            <Col span={12}><Form.Item name="judgmentResult" label="裁判 / 调解结果"><Input.TextArea rows={2} maxLength={1000} /></Form.Item></Col>
+            <Col span={8}>
+              <Form.Item name="judgmentResult" label="裁判结果">
+                <Select allowClear showSearch placeholder="请选择裁判结果" options={DISPUTE_JUDGMENT_RESULT_OPTIONS} />
+              </Form.Item>
+            </Col>
+            <Col span={16}>
+              <Form.Item
+                name="caseSummary"
+                label="案情简介"
+                extra="制度要求一般不超过200字，概括案件主体事实与争议要点"
+              >
+                <Input.TextArea rows={2} showCount maxLength={2000} />
+              </Form.Item>
+            </Col>
           </Row>
         </Form>
       </Modal>

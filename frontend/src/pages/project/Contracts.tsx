@@ -4,23 +4,29 @@ import { ContractBaseFormModal } from './ContractBaseFormModal';
 import { ContractSettlementTab } from './ContractSettlementTab';
 import { ContractChangeTab } from './ContractChangeTab';
 import { ContractSafeguardTab } from './ContractSafeguardTab';
+import { ContractCountersignTab } from './ContractCountersignTab';
+import { ContractProcurementTab } from './ContractProcurementTab';
 import { ContractExportModal } from './ContractExportModal';
-import type { EvidenceKind } from '@contracts/contract-legal-review';
+import type { EvidenceKind, LegalCategory, ProcurementMethod } from '@contracts/contract-legal-review';
 import {
   ARCHIVE_STATUS_LABELS, DIRECTION_LABELS, DISTRIBUTION_STATUS_LABELS, EVIDENCE_KINDS, EVIDENCE_LABELS,
-  PRICING_MODE_LABELS,
+  LEGAL_CATEGORIES, LEGAL_LABELS, METHOD_LABELS, PRICING_MODE_LABELS, PROCUREMENT_METHODS,
 } from './contractOptions';
 import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { positiveQueryNumber, useListSearchParams } from '../../hooks/useListSearchParams';
 import {
-  Alert, App as AntdApp, Button, Card, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Timeline, Typography, Upload,
+  Alert, App as AntdApp, Badge, Button, Card, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Popconfirm, Row, Segmented, Select, Space, Table, Tabs, Tag, Timeline, Tooltip, Typography, Upload,
 } from 'antd';
+import type { SorterResult } from 'antd/es/table/interface';
 import dayjs from 'dayjs';
-import { api, can, download, errorText } from '../../api/client';
+import { can, download, errorText } from '../../api/client';
 import {
-  contractApi, type ContractArchiveStatus, type ContractDetailDto, type ContractDirection, type ContractDocType, type ContractDto, type ContractPricingMode, type ContractStage, type ContractStatus, type ContractTodo,
+  contractApi, type ContractArchiveStatus, type ContractDetailDto, type ContractDirection, type ContractDocType,
+  type ContractDto, type ContractListQuery, type ContractPricingMode, type ContractSortDir, type ContractSortField,
+  type ContractStage, type ContractStatus, type ContractTodo,
 } from '../../api/projectContract';
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
@@ -50,10 +56,12 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
   const [opModalKind, setOpModalKind] = useState<'distribution' | 'archive' | 'handover' | null>(null);
   const [opForm] = Form.useForm();
   const [evidenceKind,setEvidenceKind]=useState<EvidenceKind>();
+  const [docChangeId, setDocChangeId] = useState<number | undefined>();
   const [docType, setDocType] = useState<ContractDocType>('contract_text');
   useEffect(() => {
     setDocType('contract_text');
     setEvidenceKind(undefined);
+    setDocChangeId(undefined);
   }, [id]);
   const q = useQuery({ queryKey: ['contract', id], queryFn: () => contractApi.get(id!), enabled: id != null });
   const c = q.data;
@@ -195,6 +203,30 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
             <Descriptions.Item label="签订日期">{c.signDate ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="生效日期">{c.effectiveDate ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="合同类型">{c.contractType || '—'}</Descriptions.Item>
+            <Descriptions.Item label="关联综合计划项">
+              {c.planItemName
+                ? `${c.planItemName}${c.annualPlanAllocAmount ? `（本年分配 ${c.annualPlanAllocAmount} 元）` : ''}`
+                : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="主/关联合同">{c.parentContractNo ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label="单位审签领导">
+              {c.unitApproverName || '—'}{c.unitApproverTitle ? `（${c.unitApproverTitle}）` : ''}
+            </Descriptions.Item>
+            <Descriptions.Item label="资信与响应核验">
+              <Space size={4} wrap>
+                <Tag color={c.creditChecked ? 'success' : 'default'}>
+                  失信核查:{c.creditChecked ? '已通过' : '待核'}
+                </Tag>
+                <Tag color={c.responseDocsComplete ? 'success' : 'default'}>
+                  响应文件:{c.responseDocsComplete ? '齐备' : '待补'}
+                </Tag>
+              </Space>
+            </Descriptions.Item>
+            <Descriptions.Item label="承办人交接记录" span={2}>
+              {(c.handovers?.length ?? 0) > 0
+                ? c.handovers!.map((h) => `${h.fromUndertaker || '原经办'} → ${h.toUndertaker} (${h.handoverDate})`).join('；')
+                : '无交接记录'}
+            </Descriptions.Item>
           </Descriptions>
           {c.status === 'active' && c.nextStage && (c.blockers.length ? (
             <Alert type="warning" showIcon message={`推进到「${CONTRACT_STAGE_LABELS[c.nextStage]}」前还需:`}
@@ -208,10 +240,23 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
                     <Space wrap style={{ marginBottom: 8 }}>
                       <Select aria-label="文档类型" value={docType} onChange={(value) => { setDocType(value); setEvidenceKind(undefined); }} style={{ width: 140 }} options={Object.entries(CONTRACT_DOC_TYPE_LABELS).map(([value, label]) => ({ value, label }))} />
                       <Select aria-label="签订依据分类" value={evidenceKind} allowClear placeholder="签订依据分类（可选）" style={{width:230}} onChange={setEvidenceKind} options={EVIDENCE_KINDS.map(value=>({value,label:EVIDENCE_LABELS[value]}))}/>
+                      <Select
+                        aria-label="关联补充协议"
+                        value={docChangeId}
+                        allowClear
+                        placeholder="关联补充协议（可选）"
+                        style={{ width: 200 }}
+                        onChange={setDocChangeId}
+                        options={c.changes.map((ch) => ({
+                          value: ch.id,
+                          label: `${ch.supplementNo ?? `变更#${ch.id}`} · ${ch.reason}`,
+                        }))}
+                      />
                       <Upload accept=".docx,.pdf,.doc,.png,.jpg,.jpeg,.wps" showUploadList={false} beforeUpload={(f) => {
                         run.mutate(async () => {
-                          const document = await contractApi.uploadDocument(c.id, f, docType, undefined, evidenceKind);
+                          const document = await contractApi.uploadDocument(c.id, f, docType, undefined, evidenceKind, docChangeId);
                           setEvidenceKind(undefined);
+                          setDocChangeId(undefined);
                           return document;
                         });
                         return false;
@@ -227,17 +272,45 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
                     columns={[
                       { title: '类型', dataIndex: 'docType', width: 100, render: (v: string) => CONTRACT_DOC_TYPE_LABELS[v] },
                       { title: '签订依据', dataIndex: 'evidenceKind', render: (v: EvidenceKind | null) => v ? EVIDENCE_LABELS[v] : '—' },
+                      {
+                        title: '关联补充协议',
+                        key: 'chg',
+                        width: 140,
+                        render: (_, d) => d.changeSupplementNo || (d.changeId ? `变更#${d.changeId}` : '—'),
+                      },
                       { title: '名称', dataIndex: 'name', ellipsis: true },
                       { title: '上传', key: 'u', width: 170, render: (_, d) => `${d.uploadedBy ?? '—'} · ${shortTime(d.uploadedAt)}` },
                       {
-                        title: '操作', key: 'op', width: 160, render: (_, d) => (
+                        title: '操作', key: 'op', width: 220, render: (_, d) => (
                           <Space size={0}>
+                            {d.withdrawnAt && <Tag>已撤回</Tag>}
                             <Button type="link" size="small" onClick={() => void download(`/contracts/${c.id}/documents/${d.id}/content`, d.name)}>下载</Button>
-                            {writable && d.docType === 'contract_text' && !c.reviews.some((r) => r.status === 'submitted') && (
+                            {writable && !d.withdrawnAt && d.docType === 'contract_text' && !c.reviews.some((r) => r.status === 'submitted') && (
                               <Button type="link" size="small" onClick={async () => {
                                 const v = await prompt({ title: '提交合同审核', fields: [{ name: 'note', label: '说明', multiline: true }] });
                                 if (v) run.mutate(() => contractApi.submitReview(c.id, d.id, v.note || undefined));
                               }}>提交审核</Button>
+                            )}
+                            {can('contract:write') && !d.withdrawnAt && (
+                              d.canWithdraw === false ? (
+                                <Tooltip title="该文档已被审核、变更、结算或付款记录引用，禁止撤回">
+                                  <Button type="link" size="small" danger disabled>
+                                    撤回作废
+                                  </Button>
+                                </Tooltip>
+                              ) : (
+                                <Popconfirm
+                                  title="确认撤回作废该未引用草稿附件？"
+                                  okText="确认撤回"
+                                  cancelText="取消"
+                                  okButtonProps={{ danger: true }}
+                                  onConfirm={() => run.mutate(() => contractApi.withdrawDocument(c.id, d.id, '草稿未引用文档撤回作废'))}
+                                >
+                                  <Button type="link" size="small" danger>
+                                    撤回作废
+                                  </Button>
+                                </Popconfirm>
+                              )
                             )}
                           </Space>
                         ),
@@ -257,6 +330,27 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
                   ]} />
               ),
             },
+            {
+              key: 'countersigns',
+              label: `多部门会签 ${c.countersigns?.filter((cs) => cs.status !== 'superseded').length ?? 0}`,
+              children: <ContractCountersignTab contract={c} onChanged={(d) => refresh(d)} />,
+            },
+            ...(c.isProcurement !== false || c.procurementRecordId != null || c.procurementRecord != null
+              ? [
+                  {
+                    key: 'procurement',
+                    label: (
+                      <Space size={4}>
+                        <span>招采过程</span>
+                        {(c.linkedProcurementContractCount ?? 0) > 1 && (
+                          <Badge count={`共享${c.linkedProcurementContractCount}`} color="purple" />
+                        )}
+                      </Space>
+                    ),
+                    children: <ContractProcurementTab contract={c} onChanged={(d) => refresh(d)} />,
+                  },
+                ]
+              : []),
             {
               key: 'changes',
               label: `变更与索赔 ${c.changes.length}`,
@@ -382,6 +476,7 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
 }
 
 export default function Contracts() {
+  const navigate = useNavigate();
   const { params, setParams, page, pageSize, update } = useListSearchParams();
   const todo = (params.get('todo') ?? undefined) as ContractTodo | undefined;
   const status = (params.get('status') || undefined) as ContractStatus | undefined;
@@ -389,6 +484,16 @@ export default function Contracts() {
   const direction = (params.get('direction') || undefined) as ContractDirection | undefined;
   const pricingMode = (params.get('pricingMode') || undefined) as ContractPricingMode | undefined;
   const archiveStatus = (params.get('archiveStatus') || undefined) as ContractArchiveStatus | undefined;
+  const legalCategory = (params.get('legalCategory') || undefined) as LegalCategory | undefined;
+  const procurementMethod = (params.get('procurementMethod') || undefined) as ProcurementMethod | undefined;
+  const signDateFrom = params.get('signDateFrom') || undefined;
+  const signDateTo = params.get('signDateTo') || undefined;
+  const migrationMode = (params.get('migrationMode') || undefined) as 'normal' | 'legacy_tolerant' | undefined;
+  const projectId = positiveQueryNumber(params.get('projectId'));
+  const planItemId = positiveQueryNumber(params.get('planItemId'));
+  const sortBy = (params.get('sortBy') || undefined) as ContractSortField | undefined;
+  const sortDir = (params.get('sortDir') || undefined) as ContractSortDir | undefined;
+  const queueParam = params.get('queue') || 'all';
   const orgId = positiveQueryNumber(params.get('orgId'));
   const keyword = params.get('keyword')?.trim() || undefined;
   const [catalogOpen,setCatalogOpen]=useState(false);
@@ -397,14 +502,36 @@ export default function Contracts() {
   const openId = params.get('id') ? Number(params.get('id')) : null;
   const setOpenId = (id: number | null) => setParams((p) => { const n = new URLSearchParams(p); if (id == null) n.delete('id'); else n.set('id', String(id)); return n; }, { replace: true });
   const todoValid = todo && todo in TODO_LABEL ? todo : undefined;
+  const filterQuery: Partial<ContractListQuery> = compact({
+    status,
+    stage,
+    direction,
+    pricingMode,
+    archiveStatus,
+    legalCategory,
+    procurementMethod,
+    signDateFrom,
+    signDateTo,
+    migrationMode,
+    orgId,
+    projectId,
+    planItemId,
+    keyword,
+    todo: todoValid,
+  });
   const list = useQuery({
-    queryKey: ['contracts', status, stage, direction, pricingMode, archiveStatus, orgId, keyword, todoValid, page, pageSize],
-    queryFn: () => contractApi.listPage({ ...compact({ status, stage, direction, pricingMode, archiveStatus, orgId, keyword, todo: todoValid }), page, pageSize }),
+    queryKey: ['contracts', filterQuery, sortBy, sortDir, page, pageSize],
+    queryFn: () => contractApi.listPage({ ...filterQuery, ...compact({ sortBy, sortDir }), page, pageSize }),
   });
   useEffect(() => { if (list.data && list.data.page !== page) update({ page: list.data.page }, false); }, [list.data?.page, page, update]);
-  const summary = useQuery({ queryKey: ['contract-summary', orgId], queryFn: () => contractApi.summary({ orgId }) });
+  const summary = useQuery({
+    queryKey: ['contract-summary', filterQuery],
+    queryFn: () => contractApi.summary(filterQuery),
+  });
   useAssistantDomainPage({ pageKey: 'contracts', ready: !list.isLoading && !list.error, scope: { orgScopeId: orgId, contractId: openId ?? undefined }, view: { status, keyword, todo, stage, direction, pricingMode, archiveStatus } });
   const s = summary.data;
+  const sortOrderOf = (field: ContractSortField) =>
+    sortBy === field ? (sortDir === 'asc' ? 'ascend' : sortDir === 'desc' ? 'descend' : null) : null;
   return (
     <div>
       {s && (
@@ -433,14 +560,78 @@ export default function Contracts() {
       )}
       <ContractLegalCatalog open={catalogOpen} onClose={()=>setCatalogOpen(false)}/>
       <ContractExportModal open={exportOpen} onClose={() => setExportOpen(false)} />
+      <div style={{ marginBottom: 8 }}>
+        <Segmented<string>
+          value={queueParam}
+          onChange={(q) => {
+            if (q === 'review') {
+              update({ queue: 'review', todo: 'review', migrationMode: undefined, archiveStatus: undefined });
+            } else if (q === 'legacy_fill') {
+              update({ queue: 'legacy_fill', todo: undefined, migrationMode: 'legacy_tolerant', archiveStatus: 'collecting' });
+            } else if (q === 'legacy_clue') {
+              update({ queue: 'legacy_clue', todo: undefined, migrationMode: 'legacy_tolerant', archiveStatus: undefined });
+            } else {
+              update({ queue: undefined, todo: undefined, migrationMode: undefined, archiveStatus: undefined });
+            }
+          }}
+          options={[
+            { value: 'all', label: '全部合同' },
+            { value: 'review', label: '待我会签·复核' },
+            { value: 'legacy_fill', label: '待补录要素与盖章件' },
+            { value: 'legacy_clue', label: '重号与凭证线索待核' },
+          ]}
+        />
+      </div>
       <Space wrap style={{ marginBottom: 12 }}>
         <Button onClick={()=>setCatalogOpen(true)}>法审制度与范本</Button>
         <Button onClick={() => setExportOpen(true)}>报送导出 (月报 / 纪巡财审)</Button>
+        {can('contract:import') && <Button onClick={() => navigate('/contracts/import')}>台账导入</Button>}
         <Select allowClear placeholder="状态" value={status} onChange={(v) => update({ status: v })} style={{ width: 110 }} options={Object.entries(CONTRACT_STATUS).map(([value, m]) => ({ value, label: m.text }))} />
         <Select allowClear placeholder="阶段" value={stage} onChange={(v) => update({ stage: v })} style={{ width: 120 }} options={CONTRACT_STAGE_ORDER.map((value) => ({ value, label: CONTRACT_STAGE_LABELS[value] }))} />
         <Select allowClear placeholder="收支方向" value={direction} onChange={(v) => update({ direction: v })} style={{ width: 110 }} options={Object.entries(DIRECTION_LABELS).map(([value, label]) => ({ value, label }))} />
         <Select allowClear placeholder="计价方式" value={pricingMode} onChange={(v) => update({ pricingMode: v })} style={{ width: 110 }} options={Object.entries(PRICING_MODE_LABELS).map(([value, label]) => ({ value, label }))} />
         <Select allowClear placeholder="归档状态" value={archiveStatus} onChange={(v) => update({ archiveStatus: v })} style={{ width: 130 }} options={Object.entries(ARCHIVE_STATUS_LABELS).map(([value, label]) => ({ value, label }))} />
+        <Select
+          aria-label="法审类别筛选"
+          allowClear
+          placeholder="法审类别"
+          value={legalCategory}
+          onChange={(v) => update({ legalCategory: v })}
+          style={{ width: 135 }}
+          options={LEGAL_CATEGORIES.map((value) => ({ value, label: LEGAL_LABELS[value] }))}
+        />
+        <Select
+          aria-label="采购方式筛选"
+          allowClear
+          placeholder="采购方式"
+          value={procurementMethod}
+          onChange={(v) => update({ procurementMethod: v })}
+          style={{ width: 135 }}
+          options={PROCUREMENT_METHODS.map((value) => ({ value, label: METHOD_LABELS[value] }))}
+        />
+        <DatePicker.RangePicker
+          value={signDateFrom && signDateTo ? [dayjs(signDateFrom), dayjs(signDateTo)] : null}
+          placeholder={['签订起日', '签订止日']}
+          style={{ width: 235 }}
+          onChange={(dates) =>
+            update({
+              signDateFrom: dates?.[0] ? dates[0].format('YYYY-MM-DD') : undefined,
+              signDateTo: dates?.[1] ? dates[1].format('YYYY-MM-DD') : undefined,
+            })
+          }
+        />
+        <Select
+          aria-label="建档模式筛选"
+          allowClear
+          placeholder="建档来源"
+          value={migrationMode}
+          onChange={(v) => update({ migrationMode: v })}
+          style={{ width: 125 }}
+          options={[
+            { value: 'normal', label: '正常建档' },
+            { value: 'legacy_tolerant', label: '历史容缺' },
+          ]}
+        />
         <OrgSelect value={orgId} onChange={(v) => update({ orgId: v })} placeholder="全部授权组织" />
         <Input.Search key={keyword ?? ''} defaultValue={keyword} maxLength={100} allowClear placeholder="编号或名称" onSearch={(v) => update({ keyword: v.trim() || undefined })} style={{ width: 200 }} />
         {can('contract:write') && <Button type="primary" onClick={() => setCreating(true)}>新建合同</Button>}
@@ -450,13 +641,65 @@ export default function Contracts() {
           action={<Button size="small" onClick={() => update({ todo: undefined })}>显示全部</Button>} />
       )}
       {list.error ? <QueryErrorResult title="合同加载失败" error={list.error} refetch={list.refetch} /> : (
-        <Table<ContractDto> rowKey="id" size="small" loading={list.isFetching} dataSource={list.data?.items ?? []} pagination={{
-          current: list.data?.page ?? page, pageSize, total: list.data?.total ?? 0, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100],
-          showTotal: (total) => `共 ${total} 条`, onChange: (p, size) => update({ page: size === pageSize ? p : 1, pageSize: size }, false),
-        }} scroll={{ x: 1300 }}
+        <Table<ContractDto>
+          rowKey="id"
+          size="small"
+          loading={list.isFetching}
+          dataSource={list.data?.items ?? []}
+          onChange={(_pagination, _filters, sorter) => {
+            const sObj = (Array.isArray(sorter) ? sorter[0] : sorter) as SorterResult<ContractDto>;
+            const colKey = (sObj?.columnKey ?? sObj?.field) as ContractSortField | undefined;
+            if (!sObj?.order || !colKey) {
+              if (sortBy || sortDir) update({ sortBy: undefined, sortDir: undefined }, false);
+              return;
+            }
+            const nextDir: ContractSortDir = sObj.order === 'ascend' ? 'asc' : 'desc';
+            if (colKey !== sortBy || nextDir !== sortDir) {
+              update({ sortBy: colKey, sortDir: nextDir }, false);
+            }
+          }}
+          pagination={{
+            current: list.data?.page ?? page, pageSize, total: list.data?.total ?? 0, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100],
+            showTotal: (total) => `共 ${total} 条`, onChange: (p, size) => update({ page: size === pageSize ? p : 1, pageSize: size }, false),
+          }}
+          scroll={{ x: 1620 }}
           onRow={(r) => ({ onClick: () => setOpenId(r.id), style: { cursor: 'pointer' } })}
+          summary={() => {
+            const totals = list.data?.totals ?? [];
+            if (totals.length === 0) return null;
+            return (
+              <Table.Summary fixed>
+                {totals.map((t) => (
+                  <Table.Summary.Row key={t.currency}>
+                    <Table.Summary.Cell index={0} colSpan={8}>
+                      <Typography.Text strong>
+                        当前筛选合计（{t.currency} · {t.count} 份）
+                      </Typography.Text>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={8} align="right">
+                      <Money value={t.originalTotal} />
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={9} align="right">
+                      <Money value={t.currentTotal} />
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={10} align="right">
+                      <Space direction="vertical" size={0}>
+                        <span>付:<Money value={t.paidTotal} /></span>
+                        {t.receivedTotal !== '0.00' && <span>收:<Money value={t.receivedTotal} /></span>}
+                      </Space>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell index={11} colSpan={4}>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        累计结算：<Money value={t.settledTotal} />（严禁跨币种直接相加）
+                      </Typography.Text>
+                    </Table.Summary.Cell>
+                  </Table.Summary.Row>
+                ))}
+              </Table.Summary>
+            );
+          }}
           columns={[
-            { title: '合同编号', dataIndex: 'contractNo', width: 140, fixed: 'left' },
+            { title: '合同编号', key: 'contractNo', dataIndex: 'contractNo', width: 145, fixed: 'left', sorter: true, sortOrder: sortOrderOf('contractNo') },
             { title: '方向', dataIndex: 'direction', width: 72, render: (v?: ContractDirection) => (v === 'income' ? <Tag color="green">收入</Tag> : <Tag>支出</Tag>) },
             { title: '名称', dataIndex: 'name', ellipsis: true },
             { title: '组织', dataIndex: 'orgName', width: 120 },
@@ -464,9 +707,12 @@ export default function Contracts() {
             { title: '供应商', dataIndex: 'supplierName', width: 140, ellipsis: true, render: (v: string | null) => v ?? '—' },
             { title: '阶段', dataIndex: 'stage', width: 90, render: (v: string) => CONTRACT_STAGE_LABELS[v] },
             { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => statusTag(CONTRACT_STATUS, v) },
+            { title: '原始金额', key: 'originalAmount', dataIndex: 'originalAmount', width: 130, align: 'right', sorter: true, sortOrder: sortOrderOf('originalAmount'), render: (v: string) => <Money value={v} /> },
             { title: '当前金额', dataIndex: 'currentAmount', width: 140, align: 'right', render: (v: string, r) => <span><Money value={v} />{r.currency && r.currency !== '人民币' ? ' ' + r.currency : ''}{r.pricingMode === 'unit_price' && <Tag style={{ marginLeft: 4 }}>单价</Tag>}</span> },
             { title: '已付/已收', key: 'paidOrRec', width: 130, align: 'right', render: (_, r) => <Money value={r.direction === 'income' ? (r.receivedAmount ?? '0.00') : r.paidAmount} /> },
             { title: '执行比例', key: 'execRate', width: 90, align: 'right', render: (_, r) => { const rate = r.direction === 'income' ? r.receiptRate : r.paymentRate; return rate == null ? '—' : <Ratio value={rate} />; } },
+            { title: '签订日期', key: 'signDate', dataIndex: 'signDate', width: 110, sorter: true, sortOrder: sortOrderOf('signDate'), render: (v: string | null) => v ?? '—' },
+            { title: '更新时间', key: 'updatedAt', dataIndex: 'updatedAt', width: 115, sorter: true, sortOrder: sortOrderOf('updatedAt'), render: (v: string) => shortTime(v) },
             {
               title: '待办', key: 'todo', width: 150, render: (_, r) => (
                 <Space size={2} wrap>

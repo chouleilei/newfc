@@ -13,6 +13,8 @@ import { listForecastModels } from '../forecast/forecast.service';
 import { listRiskEvents } from '../risk/risk.service';
 import { listAnalysisReports } from '../analysis-reports/report.service';
 import { listVersions } from '../budget/budget.service';
+import { listPlanBatches, planItems } from '../plan-execution/plan.service';
+import { PLAN_SHEET_LABELS } from '../../contracts/plan-execution';
 import {
   SEARCH_TYPE_HINTS, SEARCH_TYPES, SEARCH_TYPE_LABELS, type SearchItemDto, type SearchResultDto, type SearchSuggestionDto, type SearchType,
 } from '../../contracts/search';
@@ -31,6 +33,7 @@ const PERMISSION: Record<SearchType, Permission> = {
   project: 'master:read', supplier: 'master:read', contract: 'contract:read', expense_claim: 'expense:read',
   project_budget_batch: 'project_budget:read', feasibility_project: 'investment:read', investment_project: 'investment:read',
   forecast_model: 'forecast:read', risk_event: 'risk:read', analysis_report: 'report:read', budget_version: 'budget:read',
+  plan_item: 'plan:read',
 };
 const PER_TYPE_DEFAULT = 20;
 const TOTAL_LIMIT = 100;
@@ -120,6 +123,35 @@ function collect(db: DB, type: SearchType, k: string): Candidate[] {
         id: v.id, code: String(v.year), title: v.name, subtitle: v.is_current ? '当前采用' : '', orgName: null,
         status: VERSION_STATUS_LABEL[v.status] ?? v.status, path: pagePath('budget_edit', { id: v.id }), updatedAt: v.updated_at,
       }));
+    }
+    case 'plan_item': {
+      const lower = k.toLowerCase();
+      const batches = listPlanBatches(db, { status: 'imported' });
+      const activeBatches = batches.filter((b) => b.isCurrent);
+      const targetBatches = activeBatches.length > 0 ? activeBatches : batches.slice(0, 3);
+      const results: Candidate[] = [];
+      for (const b of targetBatches) {
+        const items = planItems(db, b.id).filter((it) =>
+          (it.itemType === 'detail' || it.itemType === 'leaf') &&
+          (it.itemName.toLowerCase().includes(lower) ||
+            (it.projectCode ?? '').toLowerCase().includes(lower) ||
+            (it.orgName ?? '').toLowerCase().includes(lower) ||
+            (it.undertakeOrgName ?? '').toLowerCase().includes(lower))
+        );
+        for (const it of items) {
+          results.push({
+            id: it.id,
+            code: it.projectCode || it.seqNo || null,
+            title: it.itemName,
+            subtitle: `${b.year}年度 · ${PLAN_SHEET_LABELS[it.sheetCode]}`,
+            orgName: it.orgName ?? it.undertakeOrgName ?? null,
+            status: b.isCurrent ? '当前生效' : b.actualPeriod,
+            path: pagePath('plan', { batchId: b.id, itemId: it.id }),
+            updatedAt: b.createdAt,
+          });
+        }
+      }
+      return results;
     }
   }
 }

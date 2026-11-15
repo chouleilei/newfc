@@ -72,12 +72,12 @@ describe('侧栏按权限裁剪(AC-X04)', () => {
 
   it('只授权部分组织的账号不展示集团口径入口,按范围裁剪的分析页照常展示', () => {
     const list = [
-      { key: 'grp-budget', label: '预算', children: [{ key: '/budget', label: '编制' }, { key: '/progress', label: '进度' }] },
+      { key: 'grp-budget', label: '预算', children: [{ key: '/budget', label: '版本(本单位只读)' }, { key: '/actual', label: '实际' }, { key: '/progress', label: '进度' }] },
       { key: 'grp-analysis', label: '分析', children: [{ key: '/analysis', label: '执行' }, { key: '/history', label: '历年' }] },
     ];
     const all = () => true;
-    expect(keys(filterMenuByPermission(list, all, false))).toEqual(['grp-analysis', '/analysis']);
-    expect(keys(filterMenuByPermission(list, all, true))).toEqual(['grp-budget', '/budget', '/progress', 'grp-analysis', '/analysis', '/history']);
+    expect(keys(filterMenuByPermission(list, all, false))).toEqual(['grp-budget', '/budget', 'grp-analysis', '/analysis']);
+    expect(keys(filterMenuByPermission(list, all, true))).toEqual(['grp-budget', '/budget', '/actual', '/progress', 'grp-analysis', '/analysis', '/history']);
   });
 });
 
@@ -106,7 +106,8 @@ describe('独立项目领域导航', () => {
     try {
       setSession({ authenticated: true, csrfToken: 't', expiresAt: '', user: { id: 1, username: 'analyst', displayName: '分析员', permissions: ['dashboard:read', 'budget:read', 'analysis:read'], allOrgs: false, orgIds: [3], mustChangePassword: false } });
       expect(canAccessPreferencePath('/analysis?year=2026')).toBe(true);
-      expect(canAccessPreferencePath('/budget')).toBe(false);
+      expect(canAccessPreferencePath('/budget')).toBe(true);
+      expect(canAccessPreferencePath('/budget/1')).toBe(false);
       expect(canAccessPreferencePath('/actual')).toBe(false);
       expect(canAccessPreferencePath('/history')).toBe(false);
       expect(canAccessPreferencePath('/jobs')).toBe(false);

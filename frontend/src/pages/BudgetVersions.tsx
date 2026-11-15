@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Alert, Card, Button, Modal, Form, Input, InputNumber, Select, Space, App, Tag, Typography, Result, Tooltip, Grid, Dropdown } from 'antd';
+import { Alert, Card, Button, Drawer, Modal, Form, Input, InputNumber, Select, Space, App, Table, Tag, Typography, Result, Tooltip, Grid, Dropdown, Descriptions } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import type { MenuProps, TableProps } from 'antd';
-import { api, download } from '../api/client';
+import { api, can, download, getSession } from '../api/client';
 import { errorText } from '../components/TreeNodePage';
 import { FinanceEmpty } from '../components/FinanceEmpty';
 import { centsToWan } from '../utils/money';
@@ -27,6 +27,26 @@ export interface VersionRow {
   locked_at: string | null;
 }
 
+interface UnitViewData {
+  version: VersionRow;
+  scopedAllOrgs: boolean;
+  orgs: { id: number; code: string; name: string }[];
+  totalsByAccountType: { income: number; cost: number; expense: number };
+  rows: {
+    orgId: number;
+    orgCode: string;
+    orgName: string;
+    accountId: number;
+    accountCode: string;
+    accountName: string;
+    accountType: string;
+    amountCents: number;
+    amount: string;
+    quantity: string | null;
+    note: string;
+  }[];
+}
+
 const STATUS_TAG: Record<string, { color: string; text: string }> = {
   draft: { color: 'gold', text: '草稿' },
   locked: { color: 'green', text: '定稿' },
@@ -38,9 +58,15 @@ export default function BudgetVersions() {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const screens = Grid.useBreakpoint();
+  const session = getSession();
+  const allOrgs = session ? !!session.user.allOrgs : true;
+  const canWriteGlobal = allOrgs && (!session || can('budget:write'));
+  const canFinalizeGlobal = allOrgs && (!session || can('budget:finalize'));
   /** 窄屏收窄头部操作:Card 的 title+extra 是不换行的 flex,三个固定宽度控件会把整页撑出横向滚动 */
   const compactActions = screens.sm === false;
   const [yearFilter, setYearFilter] = useState<number | undefined>();
+  const [unitViewVersionId, setUnitViewVersionId] = useState<number | null>(null);
+  const [unitDrawerOpen, setUnitDrawerOpen] = useState(false);
 
   /* URL 范围契约(UX-02):年度筛选进 URL(?year=),刷新/书签恢复同一筛选;
      非法年度给出可见说明并忽略(筛选是只读条件,回落到「全部」不影响数据)。
@@ -191,6 +217,19 @@ export default function BudgetVersions() {
   const activeVersions = (versions ?? []).filter((v) => v.status !== 'archived');
   const archivedVersions = (versions ?? []).filter((v) => v.status === 'archived');
 
+  useEffect(() => {
+    if (!allOrgs && unitViewVersionId == null && activeVersions.length > 0) {
+      const preferred = activeVersions.find((v) => v.is_current === 1) ?? activeVersions[0];
+      setUnitViewVersionId(preferred.id);
+    }
+  }, [allOrgs, activeVersions, unitViewVersionId]);
+
+  const unitViewQuery = useQuery({
+    queryKey: ['budget-unit-view', unitViewVersionId],
+    queryFn: () => api.get<UnitViewData>(`/versions/${unitViewVersionId}/unit-view`),
+    enabled: unitViewVersionId != null && (!allOrgs || unitDrawerOpen),
+  });
+
   /* 主次分级(方案三.3):编制/查看常驻,其余收进「更多」下拉。危险动作在菜单内改为确认弹窗。
      音量守恒修订(《视觉高级感提升方案》3.6③):行级一律 default,全页唯一 primary 归页头「创建版本」。 */
   const versionColumns: NonNullable<TableProps<VersionRow>['columns']> = [
@@ -215,79 +254,106 @@ export default function BudgetVersions() {
     {
       title: '操作', width: 200,
       render: (_, v: VersionRow) => (
-        <Space size={4}>
-          {/* 草稿是可行动项:主色填充与「当前」标签同级,让「哪个版本需要我」3 秒可扫;
-              不带 ?sheet= 以便恢复该版本上次使用的视图(UX-06) */}
-          <Button size="small" type={v.status === 'draft' ? 'primary' : 'default'} onClick={() => navigate(`/budget/${v.id}`)}>
-            {v.status === 'draft' ? '编制' : '查看'}
-          </Button>
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                v.status === 'draft' && {
-                  key: 'rename',
-                  label: '改名',
-                  onClick: () => {
-                    nameForm.setFieldsValue({ name: v.name });
-                    setNameModal({ id: v.id, mode: 'rename', initial: v.name });
+        !allOrgs ? (
+          <Space size={4}>
+            <Button
+              size="small"
+              type={unitViewVersionId === v.id ? 'primary' : 'default'}
+              onClick={() => {
+                setUnitViewVersionId(v.id);
+                setUnitDrawerOpen(true);
+              }}
+            >
+              查看本单位预算
+            </Button>
+          </Space>
+        ) : (
+          <Space size={4}>
+            {/* 草稿是可行动项:主色填充与「当前」标签同级,让「哪个版本需要我」3 秒可扫;
+                不带 ?sheet= 以便恢复该版本上次使用的视图(UX-06) */}
+            <Button size="small" type={v.status === 'draft' && canWriteGlobal ? 'primary' : 'default'} onClick={() => navigate(`/budget/${v.id}`)}>
+              {v.status === 'draft' && canWriteGlobal ? '编制' : '查看'}
+            </Button>
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  canWriteGlobal && v.status === 'draft' && {
+                    key: 'rename',
+                    label: '改名',
+                    onClick: () => {
+                      nameForm.setFieldsValue({ name: v.name });
+                      setNameModal({ id: v.id, mode: 'rename', initial: v.name });
+                    },
                   },
-                },
-                v.status === 'draft' && {
-                  key: 'lock',
-                  label: '定稿',
-                  title: '通过定稿前检查后锁定为定稿版本',
-                  onClick: () => void openFinalize(v),
-                  disabled: action.isPending || finalizePending,
-                },
-                v.status === 'locked' && !v.is_current && {
-                  key: 'set-current',
-                  label: `设为当前${v.kind === 'forecast' ? '预测' : '预算'}`,
-                  onClick: () => openAdopt(v),
-                  disabled: action.isPending || adoptPending,
-                },
-                v.status === 'locked' && {
-                  key: 'copy',
-                  label: '基于此版继续编制',
-                  onClick: () => {
-                    nameForm.setFieldsValue({ name: `${v.name}-修订` });
-                    setNameModal({ id: v.id, mode: 'copy', initial: `${v.name}-修订` });
+                  canFinalizeGlobal && v.status === 'draft' && {
+                    key: 'lock',
+                    label: '定稿',
+                    title: '通过定稿前检查后锁定为定稿版本',
+                    onClick: () => void openFinalize(v),
+                    disabled: action.isPending || finalizePending,
                   },
-                },
-                v.status === 'locked' && !v.is_current && {
-                  key: 'archive',
-                  label: '归档',
-                  danger: false,
-                  onClick: () => modal.confirm({
-                    title: '归档后仅可查看,继续?',
-                    onOk: () => action.mutate({ id: v.id, act: 'archive' }),
-                  }),
-                  disabled: action.isPending,
-                },
-                {
-                  key: 'export',
-                  label: '导出明细',
-                  onClick: () => download(`/io/export/budget-detail/${v.id}`, `预算明细-${v.year}-${v.name}.xlsx`),
-                },
-                { type: 'divider' },
-                v.status === 'draft' && {
-                  key: 'delete',
-                  label: '删除',
-                  danger: true,
-                  onClick: () => modal.confirm({
-                    title: '删除整个草稿版本及明细?',
-                    okText: '删除',
-                    okButtonProps: { danger: true },
-                    onOk: () => del.mutate(v.id),
-                  }),
-                  disabled: del.isPending,
-                },
-              ].filter(Boolean) as MenuProps['items'],
-            }}
-          >
-            <Button size="small" icon={<i className="ri-more-2-fill" aria-hidden />}>更多</Button>
-          </Dropdown>
-        </Space>
+                  canFinalizeGlobal && v.status === 'locked' && !v.is_current && {
+                    key: 'set-current',
+                    label: `设为当前${v.kind === 'forecast' ? '预测' : '预算'}`,
+                    onClick: () => openAdopt(v),
+                    disabled: action.isPending || adoptPending,
+                  },
+                  canWriteGlobal && v.status === 'locked' && {
+                    key: 'copy',
+                    label: '基于此版继续编制',
+                    onClick: () => {
+                      nameForm.setFieldsValue({ name: `${v.name}-修订` });
+                      setNameModal({ id: v.id, mode: 'copy', initial: `${v.name}-修订` });
+                    },
+                  },
+                  canFinalizeGlobal && v.status === 'locked' && !v.is_current && {
+                    key: 'archive',
+                    label: '归档',
+                    danger: false,
+                    onClick: () => modal.confirm({
+                      title: '归档后仅可查看,继续?',
+                      onOk: () => action.mutate({ id: v.id, act: 'archive' }),
+                    }),
+                    disabled: action.isPending,
+                  },
+                  {
+                    key: 'unit-view',
+                    label: '单元预算只读摘要',
+                    onClick: () => {
+                      setUnitViewVersionId(v.id);
+                      setUnitDrawerOpen(true);
+                    },
+                  },
+                  {
+                    key: 'export',
+                    label: '导出明细',
+                    onClick: () => download(`/io/export/budget-detail/${v.id}`, `预算明细-${v.year}-${v.name}.xlsx`),
+                  },
+                  ...(canWriteGlobal && v.status === 'draft'
+                    ? [
+                        { type: 'divider' as const },
+                        {
+                          key: 'delete',
+                          label: '删除',
+                          danger: true,
+                          onClick: () => modal.confirm({
+                            title: '删除整个草稿版本及明细?',
+                            okText: '删除',
+                            okButtonProps: { danger: true },
+                            onOk: () => del.mutate(v.id),
+                          }),
+                          disabled: del.isPending,
+                        },
+                      ]
+                    : []),
+                ].filter(Boolean) as MenuProps['items'],
+              }}
+            >
+              <Button size="small" icon={<i className="ri-more-2-fill" aria-hidden />}>更多</Button>
+            </Dropdown>
+          </Space>
+        )
       ),
     },
   ];
@@ -308,11 +374,39 @@ export default function BudgetVersions() {
           />
           {/* 测算模板原在侧栏占一行,已收为本页入口:它是编制的前置配置,
               与版本列表是同一工作流,分开反而不易找。 */}
-          <Button icon={<i className="ri-calculator-line" aria-hidden />} onClick={() => navigate('/data?tab=calculations')}>{compactActions ? '模板' : '测算模板'}</Button>
-          <Button type="primary" icon={<i className="ri-add-line" aria-hidden />} onClick={() => { form.resetFields(); setCreateOpen(true); }}>{compactActions ? '新建' : '创建版本'}</Button>
+          {allOrgs && (
+            <Button icon={<i className="ri-calculator-line" aria-hidden />} onClick={() => navigate('/data?tab=calculations')}>{compactActions ? '模板' : '测算模板'}</Button>
+          )}
+          {canWriteGlobal && (
+            <Button type="primary" icon={<i className="ri-add-line" aria-hidden />} onClick={() => { form.resetFields(); setCreateOpen(true); }}>{compactActions ? '新建' : '创建版本'}</Button>
+          )}
         </Space>
       }
     >
+      {!allOrgs && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="本单位已下达经营预算只读视图"
+          description="当前账号按授权组织范围只读浏览预算版本与本单位科目明细，集团全域编制、定稿与切换功能仅面向集团统筹权限开放。"
+        />
+      )}
+      {!allOrgs && unitViewQuery.data && (
+        <Card size="small" style={{ marginBottom: 12 }} title={`本单位预算摘要 · ${unitViewQuery.data.version.name} (${unitViewQuery.data.version.year}年)`}>
+          <Descriptions size="small" column={{ xs: 1, sm: 3 }}>
+            <Descriptions.Item label="授权组织">
+              {unitViewQuery.data.orgs.map((o) => o.name).join('、') || '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="营业收入预算合计">
+              {centsToWan(unitViewQuery.data.totalsByAccountType.income)} 万元
+            </Descriptions.Item>
+            <Descriptions.Item label="成本与费用预算合计">
+              {centsToWan(unitViewQuery.data.totalsByAccountType.cost + unitViewQuery.data.totalsByAccountType.expense)} 万元
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
+      )}
       {scopeIssues.length > 0 && (
         <Alert
           type="warning"
@@ -344,7 +438,9 @@ export default function BudgetVersions() {
             emptyText: yearFilter != null
               ? <FinanceEmpty kind="search" description={`没有 ${yearFilter} 年的预算或预测版本`} onClearFilters={() => setYearFilter(undefined)} />
               : <FinanceEmpty kind="data" description="还没有预算或预测版本">
-                  <Button type="primary" size="small" style={{ marginTop: 8 }} onClick={() => { form.resetFields(); setCreateOpen(true); }}>创建版本</Button>
+                  {canWriteGlobal && (
+                    <Button type="primary" size="small" style={{ marginTop: 8 }} onClick={() => { form.resetFields(); setCreateOpen(true); }}>创建版本</Button>
+                  )}
                 </FinanceEmpty>,
           }}
           columns={versionColumns}
@@ -366,6 +462,39 @@ export default function BudgetVersions() {
           </div>
         )}
       </>}
+
+      <Drawer
+        open={unitDrawerOpen}
+        onClose={() => setUnitDrawerOpen(false)}
+        width={860}
+        destroyOnClose
+        title={unitViewQuery.data ? `本单位预算明细 · ${unitViewQuery.data.version.name} (${unitViewQuery.data.version.year}年)` : '本单位预算明细'}
+      >
+        {unitViewQuery.data && (
+          <Space direction="vertical" style={{ width: '100%' }} size={12}>
+            <Descriptions size="small" bordered column={3}>
+              <Descriptions.Item label="收入合计">{centsToWan(unitViewQuery.data.totalsByAccountType.income)} 万元</Descriptions.Item>
+              <Descriptions.Item label="成本合计">{centsToWan(unitViewQuery.data.totalsByAccountType.cost)} 万元</Descriptions.Item>
+              <Descriptions.Item label="费用合计">{centsToWan(unitViewQuery.data.totalsByAccountType.expense)} 万元</Descriptions.Item>
+            </Descriptions>
+            <Table
+              rowKey={(r) => `${r.orgId}-${r.accountId}`}
+              size="small"
+              loading={unitViewQuery.isLoading}
+              dataSource={unitViewQuery.data.rows}
+              pagination={{ pageSize: 20 }}
+              columns={[
+                { title: '组织', dataIndex: 'orgName', width: 150 },
+                { title: '科目编码', dataIndex: 'accountCode', width: 110 },
+                { title: '科目名称', dataIndex: 'accountName' },
+                { title: '金额(元)', dataIndex: 'amount', width: 130, align: 'right' },
+                { title: '数量', dataIndex: 'quantity', width: 100, align: 'right', render: (v: string | null) => v ?? '—' },
+                { title: '备注', dataIndex: 'note', ellipsis: true },
+              ]}
+            />
+          </Space>
+        )}
+      </Drawer>
 
       <Modal
         title="创建预算或全年预测草稿"

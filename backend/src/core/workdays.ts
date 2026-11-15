@@ -50,6 +50,21 @@ export function workingDaysBetween(fromDate: string, toDate: string, calendar?: 
   return count;
 }
 
+export function addWorkingDays(fromDate: string, workingDays: number, calendar?: WorkingCalendar): string | null {
+  const start = parseUtcDate(fromDate);
+  if (!start) return null;
+  if (workingDays <= 0) return fromDate;
+  let cur = start.getTime();
+  let left = Math.trunc(workingDays);
+  while (left > 0) {
+    cur += 86_400_000;
+    if (isWorkingDay(formatUtcDate(new Date(cur)), calendar)) {
+      left--;
+    }
+  }
+  return formatUtcDate(new Date(cur));
+}
+
 /**
  * 返回使得 workingDaysBetween(d, toDate) > minWorkingDays 成立的最大日期 d（YYYY-MM-DD）。
  * 用于 SQL 中高效筛选“距今已超过 N 个工作日”的日期列（d <= cutoff）。

@@ -142,6 +142,17 @@ export function mulCents(cents: bigint, factorScaled: bigint, factorScale: numbe
   return checkRange(roundDiv(cents * factorScaled, 10n ** BigInt(factorScale), rounding), '金额乘积');
 }
 
+/** 整数分除法(ROUND_HALF_UP 远离零半入整),供税率折算(如 amountCents * 100n / 106n)等精确计算使用。 */
+export function roundHalfUpDiv(numerator: bigint, denominator: bigint): bigint {
+  return checkRange(roundDiv(numerator, denominator, 'half-up'), '定点商');
+}
+
+/** 按给定最小分值步长(如 0.01万元 = 100.00元 = 10000n)执行 ROUND_HALF_UP 取整。 */
+export function roundHalfUpStep(cents: bigint, stepCents: bigint): bigint {
+  if (stepCents <= 0n) throw new Error('步长必须为正整数分');
+  return checkRange(roundDiv(cents, stepCents, 'half-up') * stepCents, '步长舍入金额');
+}
+
 /**
  * 按权重分摊金额,最大余数法保证各份之和严格等于总额(分摊守恒)。
  * 权重为非负 bigint;全部为零时报错,由调用方决定缺省口径。

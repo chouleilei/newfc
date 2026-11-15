@@ -12,7 +12,7 @@ import type {
   FfBaselineTimelineDto, FfInsightDto, FfPublicationDto, FfReviewQueueItemDto, FfReviewStatus, FfVersionReviewDto, ForecastDiagnostic, ForecastOutput, ForecastParam,
 } from '@contracts/finance-forecast';
 import type {
-  RiskChecklistDto, RiskCommand, RiskEventDetailDto, RiskEventDto, RiskExplanationDto, RiskLevel, RiskListQuery, RiskRuleCreate, RiskRuleDto, RiskRuleUpdate, RiskScanDto,
+  RiskChecklistDto, RiskCommand, RiskEventDetailDto, RiskEventDto, RiskExplanationDto, RiskLevel, RiskListQuery, RiskRuleCreate, RiskRuleDto, RiskRuleScope, RiskRuleUpdate, RiskScanDto,
   RiskSummaryDto,
 } from '@contracts/risk';
 import type { RptGenerate, RptKind, RptListQuery, RptReportDto, RptReportListItemDto, RptSectionEditDto, RptStatus } from '@contracts/analysis-reports';
@@ -223,7 +223,7 @@ export const riskApi = {
   attachmentPath: (id: number, actionId: number) => `/risk/events/${id}/actions/${actionId}/attachment`,
   scans: () => api.get<RiskScanDto[]>('/risk/scans'),
   scan: (orgId?: number) => api.post<RiskScanDto>('/risk/scans', orgId ? { orgId } : {}),
-  rules: () => api.get<RiskRuleDto[]>('/risk/rules'),
+  rules: (q?: { ruleScope?: RiskRuleScope }) => api.get<RiskRuleDto[]>(`/risk/rules${qs({ ruleScope: q?.ruleScope })}`),
   updateRule: (code: string, body: RiskRuleUpdate) => api.patch<RiskRuleDto>(`/risk/rules/${code}`, body),
   createRule: (body: RiskRuleCreate) => api.post<RiskRuleDto>('/risk/rules', body),
   explain: (id: number) => api.post<RiskExplanationDto>(`/risk/events/${id}/explain`, {}),

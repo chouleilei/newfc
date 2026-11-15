@@ -164,11 +164,12 @@ export function updateProject(db: DB, id: number, input: Record<string, unknown>
 
 interface SupplierRow {
   id: number; code: string | null; name: string; normalized_name: string; supplier_type: string; credit_code: string;
-  status: 'active' | 'inactive'; extra_json: string; created_at: string; updated_at: string;
+  status: 'active' | 'inactive'; is_in_pool: number; pooled_at: string | null; extra_json: string; created_at: string; updated_at: string;
 }
 
 export interface PublicSupplier {
   id: number; code: string | null; name: string; supplierType: string; creditCode: string; status: 'active' | 'inactive';
+  isInPool: boolean; pooledAt: string | null;
   extra: Record<string, unknown>; createdAt: string; updatedAt: string;
   evaluations: { contractId: number; contractNo: string; qualityScore: number; scheduleScore: number; serviceScore: number; recommendation: string; comment: string; evaluatedAt: string }[];
 }
@@ -182,6 +183,7 @@ function supplierEvaluations(db: DB, id: number): PublicSupplier['evaluations'] 
 
 const toSupplier = (db: DB, r: SupplierRow): PublicSupplier => ({
   id: r.id, code: r.code, name: r.name, supplierType: r.supplier_type, creditCode: r.credit_code, status: r.status,
+  isInPool: Number(r.is_in_pool ?? 0) === 1, pooledAt: r.pooled_at ?? null,
   extra: JSON.parse(r.extra_json), createdAt: r.created_at, updatedAt: r.updated_at, evaluations: supplierEvaluations(db, r.id),
 });
 
@@ -209,12 +211,19 @@ export function createSupplier(db: DB, input: Record<string, unknown>): PublicSu
   const name = text(input.name, '供应商名称', 200);
   const normalized = normalizeName(name);
   const c = input.code === undefined || input.code === null || input.code === '' ? null : code(input.code, '供应商编码');
+  const isInPool = input.isInPool === true || input.isInPool === 1 ? 1 : 0;
+  const pooledAt =
+    typeof input.pooledAt === 'string' && input.pooledAt.trim()
+      ? input.pooledAt.trim().slice(0, 10)
+      : isInPool
+        ? nowIso().slice(0, 10)
+        : null;
   const tx = db.transaction(() => {
     const dup = db.prepare('SELECT id, name FROM md_supplier WHERE normalized_name = ? OR (code IS NOT NULL AND code = ?)').get(normalized, c) as { id: number; name: string } | undefined;
     if (dup) throw new AppError('DUPLICATE_SUPPLIER', `供应商已存在:${dup.name}(id=${dup.id})`, 409);
     const now = nowIso();
-    const id = Number(db.prepare(`INSERT INTO md_supplier (code, name, normalized_name, supplier_type, credit_code, status, extra_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`).run(c, name, normalized, text(input.supplierType, '供应商类型', 64, false), creditCode(input.creditCode), validateCustomExtra(db, 'supplier', input.extra, null), now, now).lastInsertRowid);
+    const id = Number(db.prepare(`INSERT INTO md_supplier (code, name, normalized_name, supplier_type, credit_code, status, is_in_pool, pooled_at, extra_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`).run(c, name, normalized, text(input.supplierType, '供应商类型', 64, false), creditCode(input.creditCode), isInPool, pooledAt, validateCustomExtra(db, 'supplier', input.extra, null), now, now).lastInsertRowid);
     writeLog(db, 'master.supplier.create', 'md_supplier', id, { code: c, name });
     return id;
   });
@@ -241,9 +250,22 @@ export function updateSupplier(db: DB, id: number, input: Record<string, unknown
     if (input.supplierType !== undefined) { next.supplier_type = text(input.supplierType, '供应商类型', 64, false); changes.supplierType = next.supplier_type; }
     if (input.creditCode !== undefined) { next.credit_code = creditCode(input.creditCode); changes.creditCode = true; }
     if (input.status !== undefined) { next.status = status(input.status); changes.status = next.status; }
+    if (input.isInPool !== undefined) {
+      next.is_in_pool = input.isInPool === true || input.isInPool === 1 ? 1 : 0;
+      if (next.is_in_pool === 1 && !next.pooled_at && input.pooledAt === undefined) {
+        next.pooled_at = nowIso().slice(0, 10);
+      } else if (next.is_in_pool === 0 && input.pooledAt === undefined) {
+        next.pooled_at = null;
+      }
+      changes.isInPool = next.is_in_pool === 1;
+    }
+    if (input.pooledAt !== undefined) {
+      next.pooled_at = typeof input.pooledAt === 'string' && input.pooledAt.trim() ? input.pooledAt.trim().slice(0, 10) : null;
+      changes.pooledAt = next.pooled_at;
+    }
     if (input.extra !== undefined) { next.extra_json = validateCustomExtra(db, 'supplier', input.extra, row.extra_json); changes.extra = true; }
-    db.prepare(`UPDATE md_supplier SET code = ?, name = ?, normalized_name = ?, supplier_type = ?, credit_code = ?, status = ?, extra_json = ?, updated_at = ? WHERE id = ?`)
-      .run(next.code, next.name, next.normalized_name, next.supplier_type, next.credit_code, next.status, next.extra_json, nowIso(), id);
+    db.prepare(`UPDATE md_supplier SET code = ?, name = ?, normalized_name = ?, supplier_type = ?, credit_code = ?, status = ?, is_in_pool = ?, pooled_at = ?, extra_json = ?, updated_at = ? WHERE id = ?`)
+      .run(next.code, next.name, next.normalized_name, next.supplier_type, next.credit_code, next.status, next.is_in_pool ?? 0, next.pooled_at ?? null, next.extra_json, nowIso(), id);
     writeLog(db, next.status !== row.status ? `master.supplier.${next.status === 'inactive' ? 'deactivate' : 'activate'}` : 'master.supplier.update', 'md_supplier', id, changes);
   });
   tx();

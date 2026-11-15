@@ -35,7 +35,7 @@ describe('T-6 工作台业务概况', () => {
     const { base, db, admin, fx } = await boot('newfc-t6-dash-');
     // 空库:全部块存在,计数为 0,风险金额与项目预算执行率不可用
     const empty = await blocksOf(base, admin);
-    expect(Object.keys(empty).sort()).toEqual(['contract', 'expense', 'investment', 'project_budget', 'report', 'risk']);
+    expect(Object.keys(empty).sort()).toEqual(['contract', 'expense', 'investment', 'plan', 'project_budget', 'report', 'risk']);
     expect(empty.contract['履约中合同'].value).toBe(0);
     expect(empty.risk['未关闭金额']).toMatchObject({ value: null, note: '尚未执行风险扫描' });
     expect(empty.project_budget['执行率'].value).toBeNull();

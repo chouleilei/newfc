@@ -19,6 +19,27 @@ export function dashboardDomains(db: DB): DashboardDomainsDto {
   const count = (sql: string, ...params: unknown[]) => (db.prepare(sql).get(...params, ...sc.params) as { n: number }).n;
   const blocks: DomainBlock[] = [];
 
+  if (can('plan:read')) {
+    const ps = scopeFilterSql(scope, 'p.unit_org_id');
+    const packAgg = db.prepare(`
+      SELECT COUNT(*) AS total,
+             SUM(CASE WHEN p.sign_off_status = 'issued' THEN 1 ELSE 0 END) AS pendingAck,
+             SUM(CASE WHEN p.sign_off_status = 'acknowledged' THEN 1 ELSE 0 END) AS acked
+      FROM plan_issuance_unit_pack p
+      JOIN plan_issuance_cycle c ON c.id = p.cycle_id
+      WHERE c.status = 'published' AND ${ps.sql}
+    `).get(...ps.params) as { total: number; pendingAck: number | null; acked: number | null };
+    blocks.push({
+      key: 'plan',
+      label: '综合计划下达',
+      path: '/plan',
+      metrics: [
+        { label: '生效下达单元包', value: packAgg.total, unit: 'count' },
+        { label: '待签收下达包', value: packAgg.pendingAck ?? 0, unit: 'count' },
+        { label: '已签收下达包', value: packAgg.acked ?? 0, unit: 'count' },
+      ],
+    });
+  }
   if (can('contract:read')) {
     const s = contractSummary(db);
     blocks.push({ key: 'contract', label: '合同', path: '/contracts', metrics: [

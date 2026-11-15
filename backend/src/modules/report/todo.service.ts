@@ -22,6 +22,22 @@ export function workbenchTodos(db: DB): { items: TodoItem[] } {
   const countClaims = (status: string) =>
     (db.prepare(`SELECT COUNT(*) AS n FROM ex_claim WHERE status = ? AND ${ex.sql}`).get(status, ...ex.params) as { n: number }).n;
   const items: TodoItem[] = [];
+  if (can('plan:write')) {
+    const ps = scopeFilterSql(scope, 'p.unit_org_id');
+    const pendingAck = (db.prepare(`
+      SELECT COUNT(*) AS n
+      FROM plan_issuance_unit_pack p
+      JOIN plan_issuance_cycle c ON c.id = p.cycle_id
+      WHERE c.status = 'published' AND p.sign_off_status = 'issued' AND ${ps.sql}
+    `).get(...ps.params) as { n: number }).n;
+    items.push({ key: 'plan_issuance_ack', label: '待签收综合计划下达包', count: pendingAck, path: '/plan?tab=packs&status=issued' });
+  }
+  if (can('plan:write') && scope.all) {
+    const pendingAdj = (db.prepare(`
+      SELECT COUNT(*) AS n FROM plan_adjustment WHERE status = 'submitted'
+    `).get() as { n: number }).n;
+    items.push({ key: 'plan_adjustment_review', label: '待复核综合计划调整', count: pendingAdj, path: '/plan?tab=adjustments&status=submitted' });
+  }
   if (can('contract:review')) {
     items.push({ key: 'contract_review', label: '待审核合同', count: countContracts('ct_review x', "x.status = 'submitted'"), path: '/contracts?todo=review' });
     items.push({ key: 'contract_change', label: '待复核合同变更', count: countContracts('ct_change x', "x.status = 'submitted'"), path: '/contracts?todo=change' });

@@ -1,11 +1,22 @@
 import { useState } from 'react';
 import PromptSupplementsPanel from './settings/PromptSupplementsPanel';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App as AntdApp, Badge, Button, Card, Divider, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd';
-import { api, ApiError } from '../api/client';
+import { Alert, App as AntdApp, Badge, Button, Card, Divider, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
+import { api, ApiError, can } from '../api/client';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { shortTime } from '../utils/relativeTime';
 import { useAssistantPageContext } from '../assistant/contextHooks';
+
+interface AiCallDiagnostics {
+  recentCalls: number;
+  okCalls: number;
+  errorCalls: number;
+  timeoutCalls: number;
+  timeoutRate: number;
+  fallbackCalls: number;
+  p50LatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
 
 interface ChannelItem {
   id: number;
@@ -21,13 +32,27 @@ interface ChannelItem {
   lastTestLatencyMs: number | null;
   lastTestMessage: string | null;
   lastTestedAt: string | null;
+  diagnostics?: AiCallDiagnostics;
 }
 
 interface BindingItem {
   feature: string;
   primaryChannelId: number | null;
   fallbackChannelId: number | null;
+  updatedAt?: string | null;
+  diagnostics?: AiCallDiagnostics;
 }
+
+export const AI_FEATURE_ORDER = [
+  'chat',
+  'narrative',
+  'checkpoint_summary',
+  'cleaning_suggest',
+  'mapping_candidates',
+  'master_data_semantic',
+  'expense_audit',
+  'contract_legal_review',
+] as const;
 
 const FEATURE_LABELS: Record<string, { label: string; desc: string }> = {
   chat: { label: '助手对话', desc: 'AI 助手的意图路由与对话生成' },
@@ -53,6 +78,7 @@ const STATUS_META: Record<string, { status: 'success' | 'warning' | 'error' | 'd
 export default function SettingsAi() {
   const { message } = AntdApp.useApp();
   const queryClient = useQueryClient();
+  const manageable = can('settings:manage');
   const [editing, setEditing] = useState<ChannelItem | null>(null);
   const [creating, setCreating] = useState(false);
   const [testingId, setTestingId] = useState<number | null>(null);
@@ -127,10 +153,17 @@ export default function SettingsAi() {
     onError: (err) => message.error(err instanceof ApiError ? err.body.message : '保存失败'),
   });
 
-  const testChannel = async (id: number) => {
+  const testChannel = async (id: number, samples = 1) => {
     setTestingId(id);
     try {
-      const result = await api.post<{ status: string; latencyMs: number; message: string }>(`/settings/ai-channels/${id}/test`, {});
+      const result = await api.post<{
+        status: string;
+        latencyMs: number;
+        message: string;
+        sampleCount?: number;
+        p50LatencyMs?: number;
+        p95LatencyMs?: number;
+      }>(`/settings/ai-channels/${id}/test`, samples > 1 ? { samples } : {});
       if (result.status === 'ok') message.success(result.message);
       else if (result.status === 'degraded') message.warning(result.message);
       else message.error(result.message);
@@ -143,8 +176,30 @@ export default function SettingsAi() {
   };
 
   const enabledOptions = (channels?.items ?? []).filter((c) => c.enabled).map((c) => ({ value: c.id, label: `${c.name} (${c.model})` }));
-  const bindingRows = bindings?.items ?? [];
+  const rawBindings = bindings?.items ?? [];
+  const byFeature = new Map(rawBindings.map((b) => [b.feature, b]));
+  const bindingRows: BindingItem[] = [
+    ...AI_FEATURE_ORDER.map((feature) => byFeature.get(feature) ?? {
+      feature,
+      primaryChannelId: null,
+      fallbackChannelId: null,
+    }),
+    ...rawBindings.filter((b) => !(AI_FEATURE_ORDER as readonly string[]).includes(b.feature)),
+  ];
   const draftOf = (feature: string, current: BindingItem) => bindingDraft?.[feature] ?? { primary: current.primaryChannelId, fallback: current.fallbackChannelId };
+  const degradedChannels = (channels?.items ?? []).filter((c) => c.lastTestStatus === 'degraded');
+  const changedFeatureCount = bindingRows.filter((row) => {
+    const d = draftOf(row.feature, row);
+    return d.primary !== row.primaryChannelId || d.fallback !== row.fallbackChannelId;
+  }).length;
+
+  const saveAllBindings = () => {
+    const items = bindingRows.map((row) => {
+      const draft = draftOf(row.feature, row);
+      return { feature: row.feature, primaryChannelId: draft.primary, fallbackChannelId: draft.fallback };
+    });
+    bindingMutation.mutate(items);
+  };
 
   return (
     <Card className="newfc-root-card">
@@ -154,11 +209,22 @@ export default function SettingsAi() {
         style={{ marginBottom: 12 }}
         message="渠道配置明文存储于本地数据库(newfc.sqlite),请勿外发该文件;未绑定渠道的功能回退到 AI_* 环境变量(模板降级兜底不变)。"
       />
+      {degradedChannels.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`检测到慢响应渠道（degraded > 5,000ms）：${degradedChannels.map((c) => `${c.name}${c.lastTestLatencyMs ? ` (${c.lastTestLatencyMs}ms)` : ''}`).join('、')}`}
+          description="单次探活超过 5,000ms 仅标记为慢响应告警而不机械判定渠道不可用；建议为「合同智能法审」等高负载功能独立绑定低延迟主渠道并配置备用渠道自动故障转移。"
+        />
+      )}
       <Space style={{ marginBottom: 12 }}>
         <Typography.Text strong>模型渠道</Typography.Text>
-        <Button type="primary" size="small" icon={<i className="ri-add-line" aria-hidden />} onClick={() => { setCreating(true); setEditing(null); form.resetFields(); }} disabled={settingsError}>
-          新增渠道
-        </Button>
+        {manageable && (
+          <Button type="primary" size="small" icon={<i className="ri-add-line" aria-hidden />} onClick={() => { setCreating(true); setEditing(null); form.resetFields(); }} disabled={settingsError}>
+            新增渠道
+          </Button>
+        )}
       </Space>
       {settingsError ? (
         /* 失败不能显示空渠道/空绑定表:那会被误读为「尚未配置」，还会诱发重复创建 */
@@ -185,28 +251,58 @@ export default function SettingsAi() {
             dataIndex: 'enabled',
             width: 70,
             render: (v: boolean, row) => (
-              <Switch size="small" checked={v} onChange={(enabled) => toggleMutation.mutate({ id: row.id, enabled })} />
+              <Switch size="small" disabled={!manageable} checked={v} onChange={(enabled) => toggleMutation.mutate({ id: row.id, enabled })} />
             ),
           },
           {
             title: '状态',
             key: 'status',
-            width: 130,
+            width: 150,
             render: (_, row) => {
               const meta = row.lastTestStatus ? STATUS_META[row.lastTestStatus] : { status: 'default' as const, label: '未测试' };
-              return <Badge status={meta.status} text={meta.label.trim()} />;
+              return (
+                <Space direction="vertical" size={0}>
+                  <Badge status={meta.status} text={meta.label.trim()} />
+                  {row.lastTestLatencyMs != null && (
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      探活 {row.lastTestLatencyMs}ms
+                    </Typography.Text>
+                  )}
+                </Space>
+              );
+            },
+          },
+          {
+            title: '调用延迟与故障转移诊断',
+            key: 'diag',
+            width: 210,
+            render: (_, row) => {
+              const d = row.diagnostics;
+              if (!d || d.recentCalls === 0) return <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无近期调用样本</Typography.Text>;
+              return (
+                <Space size={4} wrap>
+                  <Tag>P50 {d.p50LatencyMs ?? '—'}ms / P95 {d.p95LatencyMs ?? '—'}ms</Tag>
+                  <Tag color={d.timeoutRate > 0 ? 'warning' : 'default'}>超时率 {(d.timeoutRate * 100).toFixed(1)}%</Tag>
+                  {d.fallbackCalls > 0 && <Tag color="processing">回退 {d.fallbackCalls} 次</Tag>}
+                </Space>
+              );
             },
           },
           { title: '最近测试', dataIndex: 'lastTestedAt', width: 155, render: (v: string | null) => (v ? shortTime(v) : '—') },
           {
             title: '操作',
             key: 'op',
-            width: 210,
-            render: (_, row) => (
+            width: 250,
+            render: (_, row) => manageable ? (
               <Space size={4}>
-                <Button size="small" icon={<i className="ri-flashlight-line" aria-hidden />} loading={testingId === row.id} onClick={() => void testChannel(row.id)}>
+                <Button size="small" icon={<i className="ri-flashlight-line" aria-hidden />} loading={testingId === row.id} onClick={() => void testChannel(row.id, 1)}>
                   测试
                 </Button>
+                <Tooltip title="连续发送 3 次探活请求以评估 P50/P95 延迟抖动">
+                  <Button size="small" loading={testingId === row.id} onClick={() => void testChannel(row.id, 3)}>
+                    3样本探活
+                  </Button>
+                </Tooltip>
                 <Button
                   size="small"
                   onClick={() => {
@@ -221,7 +317,7 @@ export default function SettingsAi() {
                   <Button size="small" danger>删除</Button>
                 </Popconfirm>
               </Space>
-            ),
+            ) : <Typography.Text type="secondary">只读</Typography.Text>,
           },
         ]}
       />
@@ -233,22 +329,18 @@ export default function SettingsAi() {
 
       <Space style={{ margin: '20px 0 12px' }}>
         <Typography.Text strong>功能绑定</Typography.Text>
-        {bindingDraft && (
+        {manageable && changedFeatureCount > 0 && (
           <>
-            <Button
-              type="primary"
-              size="small"
-              loading={bindingMutation.isPending}
-              onClick={() => {
-                const items = bindingRows.map((row) => {
-                  const draft = draftOf(row.feature, row);
-                  return { feature: row.feature, primaryChannelId: draft.primary, fallbackChannelId: draft.fallback };
-                });
-                bindingMutation.mutate(items);
-              }}
-            >
-              保存绑定
-            </Button>
+            {changedFeatureCount > 1 && (
+              <Button
+                type="primary"
+                size="small"
+                loading={bindingMutation.isPending}
+                onClick={saveAllBindings}
+              >
+                保存全部绑定
+              </Button>
+            )}
             <Button size="small" onClick={() => setBindingDraft(null)}>放弃修改</Button>
           </>
         )}
@@ -262,13 +354,21 @@ export default function SettingsAi() {
           {
             title: '功能',
             dataIndex: 'feature',
-            width: 220,
-            render: (f: string) => (
-              <div>
-                <div>{FEATURE_LABELS[f]?.label ?? f}</div>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{FEATURE_LABELS[f]?.desc ?? ''}</Typography.Text>
-              </div>
-            ),
+            width: 250,
+            render: (f: string, row) => {
+              const draft = draftOf(f, row);
+              return (
+                <div>
+                  <Space size={6} wrap>
+                    <span>{FEATURE_LABELS[f]?.label ?? f}</span>
+                    {draft.primary == null && <Tag color="warning">未绑定主渠道（当前回退默认渠道）</Tag>}
+                  </Space>
+                  <div>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>{FEATURE_LABELS[f]?.desc ?? ''}</Typography.Text>
+                  </div>
+                </div>
+              );
+            },
           },
           {
             title: '主渠道',
@@ -277,7 +377,9 @@ export default function SettingsAi() {
               const draft = draftOf(row.feature, row);
               return (
                 <Select
+                  aria-label={`${FEATURE_LABELS[row.feature]?.label ?? row.feature}-主渠道`}
                   allowClear
+                  disabled={!manageable}
                   placeholder="回退 env/任一启用渠道"
                   style={{ width: '100%' }}
                   value={draft.primary}
@@ -294,7 +396,9 @@ export default function SettingsAi() {
               const draft = draftOf(row.feature, row);
               return (
                 <Select
+                  aria-label={`${FEATURE_LABELS[row.feature]?.label ?? row.feature}-备用渠道`}
                   allowClear
+                  disabled={!manageable}
                   placeholder="无备用"
                   style={{ width: '100%' }}
                   value={draft.fallback}
@@ -304,6 +408,49 @@ export default function SettingsAi() {
               );
             },
           },
+          {
+            title: '近期耗时与回退',
+            key: 'featureDiag',
+            width: 190,
+            render: (_, row) => {
+              const d = row.diagnostics;
+              if (!d || d.recentCalls === 0) return <Typography.Text type="secondary" style={{ fontSize: 12 }}>暂无记录</Typography.Text>;
+              return (
+                <Space size={4} wrap>
+                  <Tag>P50 {d.p50LatencyMs ?? '—'}ms / P95 {d.p95LatencyMs ?? '—'}ms</Tag>
+                  {d.timeoutCalls > 0 && <Tag color="warning">超时 {d.timeoutCalls}</Tag>}
+                  {d.fallbackCalls > 0 && <Tag color="processing">回退 {d.fallbackCalls}</Tag>}
+                </Space>
+              );
+            },
+          },
+          ...(manageable
+            ? [
+                {
+                  title: '操作',
+                  key: 'saveRow',
+                  width: 110,
+                  render: (_: unknown, row: BindingItem) => {
+                    const draft = draftOf(row.feature, row);
+                    const rowDirty = draft.primary !== row.primaryChannelId || draft.fallback !== row.fallbackChannelId;
+                    return rowDirty ? (
+                      <Button
+                        type="primary"
+                        size="small"
+                        loading={bindingMutation.isPending}
+                        onClick={saveAllBindings}
+                      >
+                        保存绑定
+                      </Button>
+                    ) : (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {row.primaryChannelId != null ? '已绑定' : '待配置'}
+                      </Typography.Text>
+                    );
+                  },
+                },
+              ]
+            : []),
         ]}
       />
       </>

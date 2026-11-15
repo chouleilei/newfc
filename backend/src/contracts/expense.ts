@@ -63,6 +63,8 @@ const claimFields = {
   amount: positiveMoney,
   occurredDate: date,
   description: z.string().trim().max(1000).default(''),
+  contractId: id.nullish(),
+  isProcurementExpense: z.boolean().optional(),
   lines: z.array(claimLineInput).max(200).default([]),
 };
 export const claimCreateRequest = z.object({ claimNo: z.string().trim().max(64).optional(), ...claimFields });
@@ -116,6 +118,12 @@ export interface ClaimDto {
   id: number; claimNo: string; orgId: number; orgName: string; applicant: string; department: string; expenseType: string; amount: MoneyString;
   occurredDate: string; description: string; status: ClaimStatus; conclusion: 'pass' | 'reject' | null; reviewVersion: number; submitRound: number;
   contentSha256: string | null; submittedByName: string | null; submittedAt: string | null; latestRiskLevel: RiskLevel | null; createdAt: string; updatedAt: string;
+  contractId?: number | null;
+  contractNo?: string | null;
+  contractName?: string | null;
+  isProcurementExpense?: boolean;
+  priceCompareDocCount?: number;
+  splitAlertHit?: boolean;
 }
 export interface ClaimDetailDto extends ClaimDto {
   lines: ClaimLineDto[]; attachments: ClaimAttachmentDto[]; runs: AuditRunDto[]; reviews: ClaimReviewDto[];

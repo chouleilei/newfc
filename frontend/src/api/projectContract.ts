@@ -9,13 +9,19 @@ import type { PageDto, PageQuery } from '@contracts/common';
 import type { PbBatchDto, PbBatchListQuery, PbEntryDto, PbPreviewDto, PbSummaryDto } from '@contracts/project-budget';
 import type {
   PlanBatchDto, PlanItemDto, PlanOverviewDto, PlanPreviewDto, PlanProjectProgressListDto, PlanSheetCode,
+  PlanAdjustmentCreateRequest, PlanAdjustmentDto, PlanAdjustmentReviewRequest,
+  PlanIssuanceCycleCreateRequest, PlanIssuanceCycleDto, PlanPackAcknowledgeRequest,
+  PlanReconcileReportDto, PlanReconcileRequest, PlanUnitPackDto,
 } from '@contracts/plan-execution';
 import type {
   ContractArchiveStatusRequest, ContractChangeFilingRequest, ContractChangeRequest, ContractDistributionRequest, ContractHandoverRequest,
   ContractPaymentRequest, ContractReceiptCreateRequest, ContractReceiptReceiveRequest, ContractSettlementCreateRequest,
   ContractDisputeCreateRequest, ContractDisputeUpdateRequest, ContractGuaranteeCreateRequest, ContractGuaranteeUpdateRequest, ContractWarrantyUpsertRequest,
   ContractEvaluationRequest, SupervisionExportLogDto, SupervisionPortalResponseDto, SupervisionPreflightDto,
-  ContractCreateRequest, ContractDetailDto, ContractDocType, ContractDocumentDto, ContractDto, ContractImportDto, ContractListQuery, ContractStage, ContractSummaryDto,
+  ContractCountersignDecideRequest, ContractCountersignDto, ContractCreateRequest, ContractDetailDto,
+  ContractDocType, ContractDocumentDto, ContractDto, ContractImportDto, ContractListQuery, ContractPageDto,
+  ContractStage, ContractSummaryDto, MonthlyReportLogDto, MonthlyReportLogRequest,
+  ProcurementRecordDto, ProcurementRecordSaveRequest,
   DecisionRequest,
   ChangeKind, ChangeTierPreviewDto, ContractImportKind, ContractNextNoDto, ContractPrefixMapCreateRequest,
   ContractPrefixMapDto, ContractPrefixMapPatchRequest, PaymentTierPreviewDto, PrefixEntityStatus, SupervisionExportPurpose,
@@ -71,6 +77,28 @@ export const planApi = {
   projects: (q: PlanQueryFields) => api.get<PlanProjectProgressListDto>(`/plan/projects${qs({ ...q })}`),
   templatePath: (year?: number) => `/plan/template${qs({ year })}`,
   exportBatchPath: (id: number) => `/plan/batches/${id}/export`,
+  cycles: (q?: { year?: number; status?: string }) =>
+    api.get<{ items: PlanIssuanceCycleDto[] }>(`/plan/issuance/cycles${qs(q ?? {})}`),
+  createCycle: (body: PlanIssuanceCycleCreateRequest) =>
+    api.post<PlanIssuanceCycleDto>('/plan/issuance/cycles', body),
+  cycle: (id: number) => api.get<PlanIssuanceCycleDto>(`/plan/issuance/cycles/${id}`),
+  reconcileCycle: (id: number, body?: PlanReconcileRequest) =>
+    api.post<PlanReconcileReportDto>(`/plan/issuance/cycles/${id}/reconcile`, body ?? {}),
+  publishCycle: (id: number) =>
+    api.post<PlanIssuanceCycleDto>(`/plan/issuance/cycles/${id}/publish`, {}),
+  exportCycleZipPath: (id: number) => `/plan/issuance/cycles/${id}/export-zip`,
+  packs: (q?: { cycleId?: number; year?: number; status?: string; view?: 'unit' | 'undertake' }) =>
+    api.get<{ items: PlanUnitPackDto[] }>(`/plan/issuance/packs${qs(q ?? {})}`),
+  pack: (id: number) => api.get<PlanUnitPackDto>(`/plan/issuance/packs/${id}`),
+  acknowledgePack: (id: number, body: PlanPackAcknowledgeRequest) =>
+    api.post<PlanUnitPackDto>(`/plan/issuance/packs/${id}/acknowledge`, body),
+  exportPackDocxPath: (id: number) => `/plan/issuance/packs/${id}/export-docx`,
+  adjustments: (q?: { cycleId?: number; status?: string }) =>
+    api.get<{ items: PlanAdjustmentDto[] }>(`/plan/issuance/adjustments${qs(q ?? {})}`),
+  createAdjustment: (body: PlanAdjustmentCreateRequest) =>
+    api.post<PlanAdjustmentDto>('/plan/issuance/adjustments', body),
+  reviewAdjustment: (id: number, body: PlanAdjustmentReviewRequest) =>
+    api.post<PlanAdjustmentDto>(`/plan/issuance/adjustments/${id}/review`, body),
 };
 
 type Decision = Partial<DecisionRequest> & Pick<DecisionRequest, 'decision'>;
@@ -98,8 +126,8 @@ export const contractApi = {
     year?: number;
   }) => api.get<ContractNextNoDto>(`/contracts/next-no${qs({ ...q })}`),
   list: (q: Partial<ContractListQuery>) => api.get<ContractDto[]>(`/contracts${qs({ ...q })}`),
-  listPage: (q: ContractListQuery & PageQuery) => api.get<PageDto<ContractDto>>(`/contracts/page${qs({ ...q })}`),
-  summary: (q: { orgId?: number; projectId?: number }) => api.get<ContractSummaryDto>(`/contracts/summary${qs(q)}`),
+  listPage: (q: ContractListQuery & PageQuery) => api.get<ContractPageDto>(`/contracts/page${qs({ ...q })}`),
+  summary: (q: Partial<ContractListQuery>) => api.get<ContractSummaryDto>(`/contracts/summary${qs({ ...q })}`),
   get: (id: number) => api.get<ContractDetailDto>(`/contracts/${id}`),
   paymentTierPreview: (id: number, q: { amount?: string; plannedDate?: string }) =>
     api.get<PaymentTierPreviewDto>(`/contracts/${id}/payment-tier-preview${qs({ ...q })}`),
@@ -132,8 +160,31 @@ export const contractApi = {
     api.post<ContractDetailDto>(`/contracts/${id}/archive-status`, body),
   handoverUndertaker: (id: number, body: ContractHandoverRequest) =>
     api.post<ContractDetailDto>(`/contracts/${id}/undertaker-handover`, body),
-  uploadDocument: (id: number, file: File, docType: ContractDocType, name?: string, evidenceKind?: EvidenceKind) =>
-    api.post<ContractDocumentDto>(`/contracts/${id}/documents`, form(file, { docType, name, evidenceKind })),
+  uploadDocument: (id: number, file: File, docType: ContractDocType, name?: string, evidenceKind?: EvidenceKind, changeId?: number) =>
+    api.post<ContractDocumentDto>(`/contracts/${id}/documents`, form(file, { docType, name, evidenceKind, changeId })),
+  withdrawDocument: (id: number, docId: number, reason: string) =>
+    api.post<ContractDetailDto>(`/contracts/${id}/documents/${docId}/withdraw`, { reason }),
+  countersigns: (id: number) => api.get<ContractCountersignDto[]>(`/contracts/${id}/countersigns`),
+  triggerCountersigns: (id: number, assignedReviewers?: Record<string, number | null>) =>
+    api.post<ContractCountersignDto[]>(`/contracts/${id}/countersigns`, assignedReviewers ? { assignedReviewers } : {}),
+  decideCountersign: (id: number, cid: number, body: ContractCountersignDecideRequest) =>
+    api.post<ContractCountersignDto[]>(`/contracts/${id}/countersigns/${cid}/decide`, body),
+  getProcurement: (id: number) => api.get<ProcurementRecordDto | null>(`/contracts/${id}/procurement`),
+  saveProcurement: (id: number, body: ProcurementRecordSaveRequest | { linkProcurementRecordId: number | null }) =>
+    api.put<ProcurementRecordDto | null>(`/contracts/${id}/procurement`, body),
+  listProcurementRecords: (q?: { orgId?: number; keyword?: string; procurementMethod?: string }) =>
+    api.get<ProcurementRecordDto[]>(`/procurement-records${qs(q ?? {})}`),
+  createProcurementRecord: (body: ProcurementRecordSaveRequest) =>
+    api.post<ProcurementRecordDto>('/procurement-records', body),
+  getProcurementRecord: (pid: number) => api.get<ProcurementRecordDto>(`/procurement-records/${pid}`),
+  updateProcurementRecord: (pid: number, body: ProcurementRecordSaveRequest) =>
+    api.put<ProcurementRecordDto>(`/procurement-records/${pid}`, body),
+  disputesExportPath: (q?: { orgId?: number; contractId?: number; stage?: string }) =>
+    `/contracts/disputes/export${qs(q ?? {})}`,
+  monthlyReportLogs: (q?: { orgId?: number; reportMonth?: string }) =>
+    api.get<MonthlyReportLogDto[]>(`/contracts/monthly-report-logs${qs(q ?? {})}`),
+  submitMonthlyReportLog: (body: MonthlyReportLogRequest) =>
+    api.post<MonthlyReportLogDto>('/contracts/monthly-report-log', body),
   submitReview: (id: number, documentId: number, note?: string) => api.post<ContractDetailDto>(`/contracts/${id}/reviews`, { documentId, note }),
   decideReview: (id: number, rid: number, body: Decision) => api.post<ContractDetailDto>(`/contracts/${id}/reviews/${rid}/decide`, body),
   submitChange: (id: number, body: ContractChangeRequest) => api.post<ContractDetailDto>(`/contracts/${id}/changes`, body),

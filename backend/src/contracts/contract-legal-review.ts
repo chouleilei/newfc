@@ -23,6 +23,7 @@ export const PROCUREMENT_TARGETS = [
   'goods',
   'service',
 ] as const;
+export type ProcurementTarget = (typeof PROCUREMENT_TARGETS)[number];
 export const PROCUREMENT_METHODS = [
   'public_tender',
   'invited_tender',
@@ -32,6 +33,7 @@ export const PROCUREMENT_METHODS = [
   'direct',
   'direct_reimburse',
 ] as const;
+export type ProcurementMethod = (typeof PROCUREMENT_METHODS)[number];
 /** 签约前法审快照计入的签订依据枚举（与履约/结算/签署授权等事后证据严格隔离，AC-CLM-05） */
 export const LEGAL_PRE_REVIEW_EVIDENCE_KINDS = [
   'procurement_scheme_approval',
@@ -226,6 +228,8 @@ export function procurementTier(
   method: string | null,
 ): ProcurementTier | null {
   if (!procurement) return 'non_procurement';
+  if (method === 'public_tender' || method === 'invited_tender')
+    return 'tier_1';
   if (!target) return null;
   if (method === 'direct_reimburse' && amount <= 3000000n)
     return 'exempt_small';

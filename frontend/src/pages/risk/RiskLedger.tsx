@@ -9,7 +9,7 @@ import {
 import dayjs from 'dayjs';
 import { can, download, errorText, getSession } from '../../api/client';
 import {
-  riskApi, type RiskCommand, type RiskEventDetailDto, type RiskEventDto, type RiskLevel, type RiskListQuery, type RiskRuleDto, type RiskStatus,
+  riskApi, type RiskCommand, type RiskEventDetailDto, type RiskEventDto, type RiskEvidenceStatus, type RiskLevel, type RiskListQuery, type RiskRuleDto, type RiskRuleScope, type RiskStatus,
   type RiskThresholdKind,
 } from '../../api/riskInvestment';
 import { Markdown } from '../../components/assistant/Markdown';
@@ -18,6 +18,17 @@ import { useUrlId } from '../../hooks/useUrlId';
 import { shortTime } from '../../utils/relativeTime';
 import { compact, Money, OrgSelect, Ratio, statusTag } from '../financeData/shared';
 import { RISK_ACTION_LABEL, RISK_LEVEL, RISK_SOURCE_LABEL, RISK_STATUS } from './shared';
+
+export const RULE_SCOPE_LABEL: Record<RiskRuleScope, { text: string; color: string }> = {
+  supervision_net_33: { text: '协同监督净版 33条', color: 'red' },
+  internal_control_18: { text: '内部扩展内控 18条', color: 'blue' },
+  domain_general: { text: '系统财务基础监控', color: 'default' },
+};
+export const EVIDENCE_STATUS_LABEL: Record<RiskEvidenceStatus, { text: string; color: string }> = {
+  confirmed_hit: { text: '确认违规命中', color: 'error' },
+  insufficient_evidence: { text: '证据待补核(历史容缺)', color: 'gold' },
+  suspected_clue: { text: '疑似拆单/异常线索', color: 'orange' },
+};
 
 /**
  * AC-F17 风险台账:扫描(规则命中 → 新建/再次命中/重开;误报只计次)→ 确认 → 整改 → 提交复核 → 他人复核通过/退回。
@@ -213,11 +224,22 @@ function EventsTab() {
   const status = (params.get('status') as RiskStatus | null) ?? undefined;
   const [level, setLevel] = useState<RiskLevel>();
   const [source, setSource] = useState<string>();
+  const [ruleScope, setRuleScope] = useState<RiskRuleScope>();
+  const [evidenceStatus, setEvidenceStatus] = useState<RiskEvidenceStatus>();
   const [orgId, setOrgId] = useState<number>();
   const [keyword, setKeyword] = useState('');
   const [openOnly, setOpenOnly] = useState(!status);
   const [openId, setOpenId] = useUrlId();
-  const query: Partial<RiskListQuery> = compact({ status, level, source: source as RiskListQuery['source'], orgId, keyword: keyword.trim(), open: openOnly && !status ? '1' as const : undefined });
+  const query: Partial<RiskListQuery> = compact({
+    status,
+    level,
+    source: source as RiskListQuery['source'],
+    ruleScope,
+    evidenceStatus,
+    orgId,
+    keyword: keyword.trim(),
+    open: openOnly && !status ? ('1' as const) : undefined,
+  });
   const events = useQuery({ queryKey: ['risk-events', query], queryFn: () => riskApi.events(query) });
   const summary = useQuery({ queryKey: ['risk-summary', orgId], queryFn: () => riskApi.summary(compact({ orgId })) });
   useAssistantDomainPage({ pageKey: 'risk', ready: !events.isLoading && !events.error, scope: { orgScopeId: orgId, riskId: openId ?? undefined }, view: { status, level, keyword } });
@@ -244,6 +266,24 @@ function EventsTab() {
         <Select allowClear placeholder="状态" style={{ width: 120 }} value={status} onChange={setStatus} options={STATUS_KEYS.map((k) => ({ value: k, label: RISK_STATUS[k].text }))} />
         <Select allowClear placeholder="等级" style={{ width: 100 }} value={level} onChange={setLevel} options={(['high', 'medium', 'low'] as const).map((k) => ({ value: k, label: RISK_LEVEL[k].text }))} />
         <Select allowClear placeholder="来源" style={{ width: 130 }} value={source} onChange={setSource} options={Object.entries(RISK_SOURCE_LABEL).map(([value, label]) => ({ value, label }))} />
+        <Select
+          aria-label="规则口径域"
+          allowClear
+          placeholder="规则口径域(52条)"
+          style={{ width: 180 }}
+          value={ruleScope}
+          onChange={setRuleScope}
+          options={(Object.entries(RULE_SCOPE_LABEL) as [RiskRuleScope, { text: string }][]).map(([value, m]) => ({ value, label: m.text }))}
+        />
+        <Select
+          aria-label="证据核验状态"
+          allowClear
+          placeholder="结论与证据状态"
+          style={{ width: 185 }}
+          value={evidenceStatus}
+          onChange={setEvidenceStatus}
+          options={(Object.entries(EVIDENCE_STATUS_LABEL) as [RiskEvidenceStatus, { text: string }][]).map(([value, m]) => ({ value, label: m.text }))}
+        />
         <OrgSelect value={orgId} onChange={setOrgId} />
         <Input.Search allowClear placeholder="标题/项目" style={{ width: 200 }} onSearch={setKeyword} />
         {!status && <Space><Switch checked={openOnly} onChange={setOpenOnly} size="small" />只看未关闭</Space>}
@@ -258,6 +298,15 @@ function EventsTab() {
             { title: '等级', dataIndex: 'level', width: 64, render: (v: RiskLevel) => statusTag(RISK_LEVEL, v) },
             { title: '风险', dataIndex: 'title', ellipsis: true },
             { title: '规则', dataIndex: 'ruleName', width: 150, ellipsis: true },
+            {
+              title: '结论/证据属性',
+              dataIndex: 'evidenceStatus',
+              width: 155,
+              render: (v?: RiskEvidenceStatus) => {
+                const meta = EVIDENCE_STATUS_LABEL[v ?? 'confirmed_hit'];
+                return <Tag color={meta.color}>{meta.text}</Tag>;
+              },
+            },
             { title: '状态', dataIndex: 'status', width: 86, render: (v: RiskStatus) => statusTag(RISK_STATUS, v) },
             { title: '组织', dataIndex: 'orgName', width: 110, ellipsis: true },
             { title: '项目', dataIndex: 'projectCode', width: 120, ellipsis: true, render: (v: string | null, r) => (v ? `${v} ${r.projectName ?? ''}` : '—') },
@@ -376,15 +425,86 @@ function RuleCreateModal({ open, rules, onClose }: { open: boolean; rules: RiskR
 function RulesTab() {
   const [editing, setEditing] = useState<RiskRuleDto | null>(null);
   const [creating, setCreating] = useState(false);
-  const q = useQuery({ queryKey: ['risk-rules'], queryFn: riskApi.rules });
+  const [ruleScope, setRuleScope] = useState<RiskRuleScope | undefined>();
+  const [domainPrefix, setDomainPrefix] = useState<'ALL' | 'PW' | 'CW' | 'OTHER'>('ALL');
+  const [keyword, setKeyword] = useState('');
+  const q = useQuery({ queryKey: ['risk-rules', ruleScope], queryFn: () => riskApi.rules({ ruleScope }) });
   const editable = can('risk:review') && !!getSession()?.user.allOrgs;
   if (q.error) return <QueryErrorResult title="规则加载失败" error={q.error} refetch={q.refetch} />;
+  const filteredRules = (q.data ?? []).filter((r) => {
+    if (domainPrefix === 'PW' && !r.code.startsWith('PW_')) return false;
+    if (domainPrefix === 'CW' && !r.code.startsWith('CW_')) return false;
+    if (domainPrefix === 'OTHER' && (r.code.startsWith('PW_') || r.code.startsWith('CW_'))) return false;
+    const kw = keyword.trim().toLowerCase();
+    if (!kw) return true;
+    return (
+      r.code.toLowerCase().includes(kw) ||
+      r.name.toLowerCase().includes(kw) ||
+      (r.policyRefCode ?? '').toLowerCase().includes(kw)
+    );
+  });
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-      {editable && <Button type="primary" onClick={() => setCreating(true)}>新增自定义规则</Button>}
-      <Table<RiskRuleDto> rowKey="code" size="small" loading={q.isLoading} dataSource={q.data ?? []} pagination={false} scroll={{ x: 1200 }} columns={[
-        { title: '编码', dataIndex: 'code', width: 220, render: (v: string, r) => <Space size={4}>{v}{!r.builtin && <Tag color="purple">自定义</Tag>}</Space> },
+      <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
+        <Space wrap>
+          <Select
+            aria-label="规则口径筛选"
+            allowClear
+            placeholder="全部口径 (含 52条招采与合同监管规则)"
+            style={{ width: 250 }}
+            value={ruleScope}
+            onChange={setRuleScope}
+            options={[
+              { value: 'supervision_net_33', label: '2026协同监督净版保留 (33条)' },
+              { value: 'internal_control_18', label: '内部扩展内控监测 (18条)' },
+              { value: 'domain_general', label: '系统财务与项目基础规则' },
+            ]}
+          />
+          <Select
+            aria-label="规则领域组"
+            value={domainPrefix}
+            onChange={setDomainPrefix}
+            style={{ width: 170 }}
+            options={[
+              { value: 'ALL', label: '全部规则编号' },
+              { value: 'PW', label: 'PW 采购监管 (20条)' },
+              { value: 'CW', label: 'CW 合同监管 (32条)' },
+              { value: 'OTHER', label: '其他领域规则' },
+            ]}
+          />
+          <Input.Search
+            allowClear
+            placeholder="搜索规则编码/名称/制度条款"
+            style={{ width: 220 }}
+            onSearch={setKeyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
+        </Space>
+        {editable && <Button type="primary" onClick={() => setCreating(true)}>新增自定义规则</Button>}
+      </Space>
+      <Table<RiskRuleDto> rowKey="code" size="small" loading={q.isLoading} dataSource={filteredRules} pagination={false} scroll={{ x: 1360 }} columns={[
+        {
+          title: '编码',
+          dataIndex: 'code',
+          width: 210,
+          render: (v: string, r) => (
+            <Space size={4} wrap>
+              <span>{v}</span>
+              {!r.builtin && <Tag color="purple">自定义</Tag>}
+              {r.policyRefCode && <Tag>{r.policyRefCode}</Tag>}
+            </Space>
+          ),
+        },
         { title: '名称', dataIndex: 'name', width: 200 },
+        {
+          title: '监管口径域',
+          dataIndex: 'ruleScope',
+          width: 165,
+          render: (s?: RiskRuleScope) => {
+            const meta = RULE_SCOPE_LABEL[s ?? 'domain_general'];
+            return <Tag color={meta.color}>{meta.text}</Tag>;
+          },
+        },
         { title: '来源', dataIndex: 'source', width: 100, render: (v: string) => RISK_SOURCE_LABEL[v] ?? v },
         { title: '等级', dataIndex: 'level', width: 70, render: (v: RiskLevel) => statusTag(RISK_LEVEL, v) },
         { title: '阈值', dataIndex: 'threshold', width: 150, render: (_: string | null, r) => (r.thresholdApplies ? <Space size={4}><Typography.Text type="secondary">{r.thresholdLabel}</Typography.Text><ThresholdCell rule={r} /></Space> : '—') },

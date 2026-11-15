@@ -77,6 +77,15 @@ export type WarrantyConclusion = (typeof WARRANTY_CONCLUSIONS)[number];
 
 export const DISPUTE_STAGES = ['negotiation', 'mediation', 'arbitration', 'litigation_1st', 'litigation_2nd', 'execution', 'closed'] as const;
 export type DisputeStage = (typeof DISPUTE_STAGES)[number];
+export const DISPUTE_STAGE_LABELS: Record<DisputeStage, string> = {
+  negotiation: '协商沟通',
+  mediation: '调解处理',
+  arbitration: '仲裁审理',
+  litigation_1st: '一审诉讼',
+  litigation_2nd: '二审/再审',
+  execution: '法院执行',
+  closed: '已结案',
+};
 
 export const PREFIX_ENTITY_STATUSES = ['active_legal', 'direct_unit', 'inherited_child', 'closed_history', 'external', 'ignore'] as const;
 export type PrefixEntityStatus = (typeof PREFIX_ENTITY_STATUSES)[number];
@@ -193,6 +202,10 @@ export const contractLifecycleFields = {
   summaryText: optionalText(2000),
   remark: optionalText(2000),
   planItemId: id.nullish(),
+  annualPlanAllocAmount: moneyString.nullish(),
+  budgetPoolAccountId: id.nullish(),
+  budgetPoolCapAmount: moneyString.nullish(),
+  procurementRecordId: id.nullish(),
   outOfPlanApprovedDate: date.nullish(),
   budgetType: z.enum(CONTRACT_BUDGET_TYPES).optional(),
   isEmergency: z.boolean().optional(),
@@ -204,6 +217,7 @@ export const contractLifecycleFields = {
   signingSubjectOrgId: id.nullish(),
   coManagedOrgId: id.nullish(),
   externalNoExempt: z.boolean().optional(),
+  isInternalGroupTx: z.boolean().optional(),
   counterpartyNames: optionalText(1000),
   undertakerName: optionalText(100),
   undertakerDept: optionalText(100),
@@ -262,6 +276,8 @@ export const contractChangeFilingRequest = z.object({
   disciplineFiledAt: date.nullish(),
   techReviewRepliedAt: date.nullish(),
   hasDispute: z.boolean().optional(),
+  adverseOccurredAt: date.nullish(),
+  adverseReportedAt: date.nullish(),
 });
 export type ContractChangeFilingRequest = z.infer<typeof contractChangeFilingRequest>;
 

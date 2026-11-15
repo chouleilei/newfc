@@ -9,7 +9,7 @@ import {
   ACQUISITION_METHOD_LABELS, BUDGET_TYPE_LABELS, CONTRACT_CURRENCIES, DECISION_METHOD_LABELS,
   DIRECTION_LABELS, FUNDING_SOURCE_LABELS, LEGAL_CATEGORIES, LEGAL_LABELS, MEETING_TYPE_LABELS,
   METHOD_LABELS, PARTY_ROLES, PRICING_MODE_LABELS, PROCUREMENT_METHODS, REPORT_CATEGORY_LABELS,
-  ROLE_LABELS, TENDER_BODY_LABELS, TERM_TYPE_LABELS, TIER_LABELS, parseMoneyToCentsPreview, procurementTierPreview,
+  ROLE_LABELS, TENDER_BODY_LABELS, TERM_TYPE_LABELS, TIER_LABELS, formatCentsPreview, parseMoneyToCentsPreview, procurementTierPreview,
 } from './contractOptions';
 import { CONTRACT_STAGE_ORDER } from './shared';
 
@@ -40,6 +40,12 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
     enabled: open,
     staleTime: 60_000,
   });
+  const allContracts = useQuery({
+    queryKey: ['contracts', 'parent-options', contract?.orgId ?? 'all'],
+    queryFn: () => contractApi.list(contract?.orgId ? { orgId: contract.orgId } : {}),
+    enabled: open,
+    staleTime: 60_000,
+  });
 
   const legalType = contract?.legalReviewEnabled ?? false;
   const isLegacyTolerant = contract?.migrationMode === 'legacy_tolerant';
@@ -57,6 +63,9 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   const direction = Form.useWatch('direction', form) ?? 'expense';
   const pricingMode = Form.useWatch('pricingMode', form) ?? 'lump_sum';
   const currency = Form.useWatch('currency', form) ?? '人民币';
+  const budgetType = Form.useWatch('budgetType', form) ?? 'single_listed';
+  const budgetPoolCapWatch = Form.useWatch('budgetPoolCapAmount', form) as string | undefined;
+  const annualPlanAllocWatch = Form.useWatch('annualPlanAllocAmount', form) as string | undefined;
   const fundingSource = Form.useWatch('fundingSource', form) ?? 'self_owned_other';
   const isEmergency = Form.useWatch('isEmergency', form);
   const procurement = Form.useWatch('isProcurement', form);
@@ -132,12 +141,34 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   const tierAmount = pricingMode === 'unit_price' && (amountCents === null || amountCents === 0n) && ceilingCents !== null ? ceilingCents : amountCents;
   const tier = tierAmount !== null && tierAmount >= 0n ? procurementTierPreview(procurement !== false, target ?? null, tierAmount, method ?? null) : null;
 
+  const poolCapCents =
+    budgetPoolCapWatch && budgetPoolCapWatch.trim()
+      ? parseMoneyToCentsPreview(budgetPoolCapWatch)
+      : (contract?.budgetPoolCapAmount ? parseMoneyToCentsPreview(contract.budgetPoolCapAmount) : null);
+  const poolUsedOtherCents = (() => {
+    const usedTotal = parseMoneyToCentsPreview(contract?.budgetPoolUsedAmount ?? '0.00') ?? 0n;
+    const selfOccupied = contract
+      ? (parseMoneyToCentsPreview(contract.annualPlanAllocAmount ?? contract.currentAmount) ?? 0n)
+      : 0n;
+    return usedTotal >= selfOccupied ? usedTotal - selfOccupied : 0n;
+  })();
+  const thisPoolOccupyCents =
+    (annualPlanAllocWatch && annualPlanAllocWatch.trim() ? parseMoneyToCentsPreview(annualPlanAllocWatch) : null) ??
+    (amountCents ?? 0n);
+  const poolTotalUsedPreviewCents = poolUsedOtherCents + (thisPoolOccupyCents ?? 0n);
+  const poolRemainingPreviewCents =
+    poolCapCents !== null
+      ? poolCapCents - poolTotalUsedPreviewCents
+      : (contract?.budgetPoolRemainingAmount != null ? parseMoneyToCentsPreview(contract.budgetPoolRemainingAmount) : null);
+
   const save = useMutation({
     mutationFn: (v: Record<string, unknown>) => {
       const body: Record<string, unknown> = {
         ...v,
         paymentCapRatio: v.paymentCapRatio || null,
         estimatedCeilingAmount: v.estimatedCeilingAmount || null,
+        annualPlanAllocAmount: v.annualPlanAllocAmount || null,
+        budgetPoolCapAmount: v.budgetType === 'lump_sum_pool' ? (v.budgetPoolCapAmount || null) : null,
         exchangeRate: v.currency === '人民币' ? null : (v.exchangeRate || null),
         bidAwardAmount: v.bidAwardAmount || null,
         warrantyRetentionRatio: v.hasWarranty ? (v.warrantyRetentionRatio || null) : null,
@@ -151,6 +182,7 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
         projectId: rest.projectId ?? null,
         supplierId: rest.supplierId ?? null,
         planItemId: rest.planItemId ?? null,
+        parentContractId: rest.parentContractId ?? null,
         signingSubjectOrgId: rest.signingSubjectOrgId ?? null,
         sourceIncomeContractId: rest.sourceIncomeContractId ?? null,
         expectedVersion: contract.version,
@@ -163,6 +195,10 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   const initialValues = contract ? {
     contractNo: contract.contractNo, name: contract.name, contractType: contract.contractType, orgId: contract.orgId,
     projectId: contract.projectId, supplierId: contract.supplierId, planItemId: contract.planItemId ?? null,
+    annualPlanAllocAmount: contract.annualPlanAllocAmount ?? '',
+    budgetPoolAccountId: contract.budgetPoolAccountId ?? null,
+    budgetPoolCapAmount: contract.budgetPoolCapAmount ?? '',
+    parentContractId: contract.parentContractId ?? null,
     signingSubjectOrgId: contract.signingSubjectOrgId ?? null,
     direction: contract.direction ?? 'expense', pricingMode: contract.pricingMode ?? 'lump_sum',
     unitPriceDesc: contract.unitPriceDesc ?? '', estimatedCeilingAmount: contract.estimatedCeilingAmount ?? '',
@@ -183,7 +219,7 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
     procurementMethodOther: contract.procurementMethodOther ?? '', isGovProcurement: contract.isGovProcurement ?? false,
     procurementPlanText: contract.procurementPlanText ?? '', procurementStartDate: contract.procurementStartDate ?? null,
     supplierConfirmDate: contract.supplierConfirmDate ?? null, bidAwardAmount: contract.bidAwardAmount ?? '',
-    responseDocsComplete: contract.responseDocsComplete ?? null, creditChecked: contract.creditChecked ?? null,
+    responseDocsComplete: Boolean(contract.responseDocsComplete), creditChecked: Boolean(contract.creditChecked),
     acquisitionMethod: contract.acquisitionMethod ?? null, acquisitionMethodOther: contract.acquisitionMethodOther ?? '',
     tenderBodyType: contract.tenderBodyType ?? null, consortiumMembers: contract.consortiumMembers ?? '',
     isImportant: contract.isImportant ?? false, isTripleMajor: contract.isTripleMajor ?? false,
@@ -203,6 +239,7 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
     reportCategory: 'other', budgetType: 'single_listed', fundingSource: 'self_owned_other', termType: 'unspecified',
     legalCategory: 'other', partyRole: 'buyer', signingEntityLevel: 'company', isProcurement: true, isImportant: false,
     isTripleMajor: false, isEmergency: false, hasWarranty: false, externalNoExempt: false,
+    responseDocsComplete: false, creditChecked: false,
   };
 
   const collapseItems = [
@@ -298,12 +335,60 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
                 placeholder="可选，绑定已导入综合计划明细"
                 options={(planItemsQ.data ?? []).map((it) => ({
                   value: it.id,
-                  label: `${it.itemName}${it.projectCode ? ` (${it.projectCode})` : ''}`,
+                  label: `${it.itemName}${it.projectCode ? ` (${it.projectCode})` : ''}${it.stableItemUid ? ` [${it.stableItemUid}]` : ''}`,
                 }))}
               />
             </Form.Item>
           </Col>
+          <Col span={8}>
+            <Form.Item name="annualPlanAllocAmount" label="本年度计划执行分配额(元)" rules={[nonNegMoneyRule]}>
+              <Input placeholder="跨年/框架合同当年占计划额(可空)" />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="parentContractId" label="主/关联合同">
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                loading={allContracts.isLoading}
+                placeholder="可选，绑定主合同或框架协议"
+                options={(allContracts.data ?? [])
+                  .filter((x) => x.status !== 'voided' && x.id !== contract?.id)
+                  .map((x) => ({ value: x.id, label: `${x.contractNo} · ${x.name}` }))}
+              />
+            </Form.Item>
+          </Col>
           <Col span={8}><Form.Item name="budgetType" label="立项计划口径"><Select options={Object.entries(BUDGET_TYPE_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>
+          {budgetType === 'lump_sum_pool' && (
+            <>
+              <Col span={8}>
+                <Form.Item name="budgetPoolCapAmount" label="包干总额池年度上限(元)" rules={[nonNegMoneyRule]}>
+                  <Input placeholder="留空按经营预算科目自动核定" />
+                </Form.Item>
+              </Col>
+              <Col span={24} style={{ marginBottom: 10 }}>
+                <Alert
+                  type={poolRemainingPreviewCents !== null && poolRemainingPreviewCents < 0n ? 'error' : 'info'}
+                  showIcon
+                  message={
+                    poolRemainingPreviewCents !== null && poolRemainingPreviewCents < 0n
+                      ? `生产经营总额包干池超限预警：超出可用额度 ${formatCentsPreview(-poolRemainingPreviewCents)} 元`
+                      : '生产经营总额包干池额度监控'
+                  }
+                  description={
+                    <span>
+                      包干池年额度：{poolCapCents !== null ? formatCentsPreview(poolCapCents) : (contract?.budgetPoolCapAmount ?? '待核定')} 元 ｜ 累计占用额：
+                      {formatCentsPreview(poolTotalUsedPreviewCents)} 元 ｜ 剩余可用额度：
+                      <strong style={poolRemainingPreviewCents !== null && poolRemainingPreviewCents < 0n ? { color: '#cf1322' } : undefined}>
+                        {poolRemainingPreviewCents !== null ? `${formatCentsPreview(poolRemainingPreviewCents)} 元` : '待核定'}
+                      </strong>
+                    </span>
+                  }
+                />
+              </Col>
+            </>
+          )}
           <Col span={8}><Form.Item name="fundingSource" label="资金来源"><Select options={Object.entries(FUNDING_SOURCE_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>
           {direction === 'expense' && fundingSource === 'income_contract' && (
             <Col span={16}>
@@ -373,10 +458,24 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
             <>
               <Col xs={24} sm={8}><Form.Item name="procurementTarget" label="采购对象"><Select disabled={amountLocked} allowClear options={[{ value: 'goods', label: '货物' }, { value: 'construction', label: '施工' }, { value: 'service', label: '服务' }]} /></Form.Item></Col>
               <Col xs={24} sm={8}><Form.Item name="procurementMethod" label="采购方式"><Select disabled={amountLocked} allowClear options={PROCUREMENT_METHODS.map((value) => ({ value, label: METHOD_LABELS[value] }))} /></Form.Item></Col>
+              {method === 'other' && (
+                <Col xs={24} sm={8}>
+                  <Form.Item name="procurementMethodOther" label="其他采购方式说明" rules={[{ required: true, whitespace: true, message: '请说明具体采购方式' }]}>
+                    <Input maxLength={200} />
+                  </Form.Item>
+                </Col>
+              )}
               <Col xs={24} sm={8}><Form.Item name="bidAwardAmount" label="审定中标金额(元)" rules={[nonNegMoneyRule]}><Input placeholder="可空" /></Form.Item></Col>
+              <Col xs={24} sm={8}><Form.Item name="procurementPlanText" label="采购计划文号/说明"><Input maxLength={500} placeholder="如 年度采购计划第XX项" /></Form.Item></Col>
               <Col xs={24} sm={8}>{dateField('开始实施采购日期', 'procurementStartDate')}</Col>
               <Col xs={24} sm={8}>{dateField('供应商确定日期', 'supplierConfirmDate')}</Col>
-              <Col xs={24} sm={8}><Form.Item name="isGovProcurement" label="是否政府采购" valuePropName="checked"><Checkbox>政府采购</Checkbox></Form.Item></Col>
+              <Col xs={24} sm={16}>
+                <Space wrap style={{ marginTop: 30 }}>
+                  <Form.Item name="isGovProcurement" valuePropName="checked" noStyle><Checkbox>政府采购</Checkbox></Form.Item>
+                  <Form.Item name="responseDocsComplete" valuePropName="checked" noStyle><Checkbox>响应文件齐备</Checkbox></Form.Item>
+                  <Form.Item name="creditChecked" valuePropName="checked" noStyle><Checkbox>信用中国/失信核查已通过</Checkbox></Form.Item>
+                </Space>
+              </Col>
             </>
           )}
           {direction === 'income' && (
@@ -400,7 +499,9 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
           <Col span={8}><Form.Item name="finalApproverTitle" label="最终审批人职务"><Input maxLength={100} /></Form.Item></Col>
           <Col span={8}><Form.Item name="deptReviewerName" label="部门审签人"><Input maxLength={100} /></Form.Item></Col>
           <Col span={8}><Form.Item name="relatedMgmtDepts" label="相关归口部门"><Input maxLength={500} /></Form.Item></Col>
+          <Col span={8}><Form.Item name="relatedMgmtReviewers" label="归口会签审查人"><Input maxLength={500} /></Form.Item></Col>
           <Col span={8}><Form.Item name="unitApproverName" label="单位审签领导"><Input maxLength={100} /></Form.Item></Col>
+          <Col span={8}><Form.Item name="unitApproverTitle" label="单位审签领导职务"><Input maxLength={100} /></Form.Item></Col>
         </Row>
       ),
     },

@@ -1,6 +1,6 @@
 /** 工作台业务概况契约(T-6,AC-F03)。 */
 
-export type DomainBlockKey = 'contract' | 'expense' | 'project_budget' | 'risk' | 'investment' | 'report';
+export type DomainBlockKey = 'plan' | 'contract' | 'expense' | 'project_budget' | 'risk' | 'investment' | 'report';
 
 export interface DomainMetricDto {
   label: string;

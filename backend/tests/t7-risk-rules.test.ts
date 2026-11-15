@@ -118,8 +118,9 @@ describe('T-7 风险规则补齐', () => {
     expect(by('EAS_BUDGET_DIFF')).toMatchObject({ eventKey: `EAS_BUDGET_DIFF:project:${p1}:eas_diff`, amount: '30000.00', metric: '0.300000' });
 
     // 金额阈值规范化;调高后再扫只标记未再命中
-    const rules = await json(get(base, admin, '/api/risk/rules')) as { code: string; version: number; thresholdKind: string | null; builtin: boolean }[];
-    expect(rules.filter((r) => r.builtin)).toHaveLength(30);
+    const rules = await json(get(base, admin, '/api/risk/rules')) as { code: string; version: number; thresholdKind: string | null; builtin: boolean; ruleScope?: string }[];
+    expect(rules.filter((r) => r.builtin && r.ruleScope === 'domain_general')).toHaveLength(30);
+    expect(rules.filter((r) => r.builtin)).toHaveLength(81);
     const sup = rules.find((r) => r.code === 'SUPPLIER_LARGE_PAYMENTS')!;
     expect(sup.thresholdKind).toBe('amount');
     const patch = (code: string, body: Record<string, unknown>) => fetchAs(admin, `${base}/api/risk/rules/${code}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });

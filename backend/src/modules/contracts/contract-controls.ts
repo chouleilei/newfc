@@ -9,7 +9,7 @@ const blocked = (code: string, message: string) => new AppError(code, message, 4
 
 /** 指定用途的依据同时核验合同归属与分类，不能把任意附件当作审批凭据。 */
 export function requireEvidence(db: DB, contractId: number, documentId: number | null | undefined, kinds: EvidenceKind[], changeId: number | null = null): number {
-  const d = documentId ? db.prepare('SELECT id, evidence_kind, change_id FROM ct_document WHERE id = ? AND contract_id = ?').get(documentId, contractId) as { id: number; evidence_kind: EvidenceKind; change_id: number | null } | undefined : undefined;
+  const d = documentId ? db.prepare('SELECT id, evidence_kind, change_id FROM ct_document WHERE id = ? AND contract_id = ? AND withdrawn_at IS NULL').get(documentId, contractId) as { id: number; evidence_kind: EvidenceKind; change_id: number | null } | undefined : undefined;
   if (!d || !kinds.includes(d.evidence_kind) || (d.change_id !== null && d.change_id !== changeId)) throw blocked('EVIDENCE_REQUIRED', `须选择本合同对应分类的依据附件（${kinds.join(' / ')}）`);
   return d.id;
 }

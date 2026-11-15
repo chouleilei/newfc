@@ -812,3 +812,29 @@ F01/F04/F07/F15/F16/F19/F23/F24；T-13.1～T-13.7（覆盖全部 11 项 P0 改�
   - 业务设置幂等初始化 `29` 项，`contract.prior_year_net_assets` 保持空值未伪造；前缀字典幂等写入 `84` 行（允许新签 `14` 行），`0` 错误。
   - `2` 份 16 表架构 `.xls` 综合计划工作簿均以 `0` 阻断错误导入（分别入库 `694` 与 `692` 行 `plan_item`、`1,496` 行 `plan_fact`）；`28` 份历史合同工作簿经五步归并管线实现 **100% 五维行去向闭合（`18,048 = 2,558 + 6,468 + 6,038 + 2,912 + 72`）**，正序与逆序输入 `planHash` SHA-256 完全一致，重放幂等。
 - **待业务侧输入边界（未编造生产真值）**：各法人正式审计上年净资产、基准日后 OA 补采合同、重号冲突人工裁决结论及候选法审范本正式审定转正，均按方案保留管理员页面/CLI 导入入口，不在代码或迁移脚本中预置生产猜测值。
+
+## T-14 第二阶段（P1）综合计划与预算合一下达、多部门会签、52 条监管规则与纠纷 17 列台账工程验收（2026-11-15，V74 待发布）
+
+F01/F04/F15/F16/F18/F19/F20/F21/F23；T-14（覆盖全部 8 项 P1 改造：GAP-04、06、07、08、10、14、15、19）；AC-T14-01～AC-T14-08、AC-X01/X02/X04/X07/X08/X10。全部研发、编译、单测、迁移演练与浏览器端到端回归均在独立工作树 `/root/newfc-dev`（分支 `feat/improvement-2026-11`）及显式隔离的临时 `NEWFC_DATA_DIR` 中使用 Node **24.22.1** 完成；未改动 `V1`～`V73` 任何已发布迁移字节，未触碰 `/root/newfc` 在线运行目录与 `/data/newfc-data/` 生产库。
+
+| 验收 ID | 工程与自动化验证证据 | 结论 |
+|---|---|---|
+| AC-T14-01 | 追加迁移 `V74` 幂等补齐 `ai_feature_binding` 且 `listBindings` 恒返全部 8 项 `AI_FEATURES`（含 `contract_legal_review`）；`SettingsAi` 支持单次超 5,000ms `degraded` 慢响应告警、3 样本探活、P50/P95 延迟与超时/回退诊断；本机回环按需 `/parse-pdf` 在写事务外提取分页块并命中 `ct_doc_parse_cache`；`t14-ai-binding-and-doc-parser.test.ts` 与 `SettingsAi.test.tsx` 通过 | 通过 |
+| AC-T14-02 | 空库初始化与非空 `V72 -> V73 -> V74` 链式升级均通过 `integrity_check = ok`、`foreign_key_check = 0` 且保留既有触发器；完成「创建周期 → 8 单元拆包 → 冻结快照发布 → 受限单位签收（`expectedVersion` 乐观锁防并发、跨单位越权 `404`）→ 6 类调整由服务端强制锁定 5 类 `approval_body`、异人复核生成修订新周期与修订预算版本」闭环；受限下属单位在 `/budget` 只读查看授权单元预算摘要，零全域写控件暴露；`t14-plan-issuance-workflow.test.ts`、`PlanIssuance.test.tsx`、`plan-issuance.spec.ts` 与 `scope-restricted.spec.ts` 通过 | 通过 |
+| AC-T14-03 | 二/三级法人按 `org.plan_issuance_root_id` 自动归并至一级下达单元并保留 `undertake_org_id` 双视角（归口单元视角 vs 实际承办视角）；`is_plan_excluded = 1` 主体不生成独立下达包而在合并总表调节项精确闭合（到分）；源表跨单位列公式错引被 `scanWorkbookCrossUnitFormulas` 以 `CROSS_UNIT_CELL_REF` 100% 阻断检出；`t14-plan-consolidation.test.ts` 通过 | 通过 |
+| AC-T14-04 | 落盘四层数值语义（源表缓存值、系统精确计算 `exact_calc_cents`、正式批复 `approved_cents`、两位万元展示值）；含税运维转不含税成本 `÷ 1.06` 全程走 `bigint` 定点计算（允差 `≤ 1n`）；管理费嵌套恒等式 `R17 === R18 + R19 + R20 + R21` 与目标责任书可控管理费 `R19 + R20` 按 `0.01万元 = 10000n` 步长（半步长 `≤ 5000n`）校验准确，失衡周期禁止发布；`t14-plan-tax-reconcile.test.ts` 通过 | 通过 |
+| AC-T14-05 | `renderDocx` 生成含规范 `<w:tbl>` 与 `<w:tblHeader/>` 跨页表头且确定性可复现的公文 `.docx` 及全集团 `.zip` 包（含下达通知、附表、目标责任书与 `.xlsx` 汇总底稿），兼容既有段落提取；标准报表 `plan_issuance_summary`、全局检索 `plan_item`（深链高亮 `/plan?batchId=...&itemId=...`）与首页待办按 `OrgScope` 穿透准确；`t14-plan-export-search-todo.test.ts` 与 `Search.test.ts` 通过 | 通过 |
+| AC-T14-06 | `ct_countersign` 支持 7 类归口部门自动匹配、可配置 `due_date`（`0` 天仅计历时 vs `N` 工作日超期告警）、金额/正文变更指纹自动置 `superseded` 并升轮次重签，跨部门越权代签返回 `403 COUNTERSIGN_DEPT_FORBIDDEN`；`lump_sum_pool` 生产经营总额包干池跨合同累计占用超上限在页面实时红字预警并在推进/增补时返回 `409 BUDGET_POOL_EXCEEDED`；`t14-countersign-lumpsum-pool.test.ts`、`ContractCountersign.test.tsx` 与 `contract-lifecycle.spec.ts` 通过 | 通过 |
+| AC-T14-07 | `1:N` 招采记录支持一标多签共享挂接、服务端权威重算 `procurement_tier`（公开/邀请招标一律按一级管理）与资深评委 `2/3` 比例、跨单位关联合同脱敏、`direct` 8 种法定情形与 `direct_reimburse` 小额比价分流、10+ 时间节点倒置提示及质疑投诉必填核验；完整落地采购 `PW_01`～`PW_20` 与合同 `CW_01`～`CW_32` 共 52 条制度规则（`supervision_net_33` 33 条 + `internal_control_18` 18 条，共享去重 1 条），新规前或历史容缺合同输出 `insufficient_evidence`，不利变更超 2 工作日迟报与月报 OA 提交核验准确；`t14-procurement-and-52-risk-rules.test.ts` 与 `ContractProcurementAndRisk.test.tsx` 通过 | 通过 |
+| AC-T14-08 | 纠纷台账补齐官方 17 列展示、日常紧凑/完整 17 列切换、4 类标准下拉检索、200 字案情简介提示及标准 17 列 `.xlsx` 导出；合同台账快捷任务队列与高级筛选同步驱动 `listPage` 与 `summary` KPI、支持白名单列排序、按币种独立渲染汇总行（严禁跨币种直接相加），支持关联补充协议上传与未引用草稿附件逻辑撤回（已引用证据 `409` 拦截）；`t14-contract-query-dispute-export.test.ts`、`ContractDispute17Cols.test.tsx` 与 `ledgerPagination.test.tsx` 通过 | 通过 |
+
+工程门禁与隔离实表黄金演练汇总（脱敏统计）：
+
+- **后端全量门禁**：`npx tsc --noEmit && npm run typecheck:test && npx vitest run` 零错误通过，**135 文件 / 1,162 项通过**。
+- **前端全量门禁**：`npx vitest run && npx tsc -b && npx vite build --outDir dist.verify --emptyOutDir` 零错误通过，**65 文件 / 517 项通过**。
+- **浏览器端到端（Playwright E2E 全量双配置）**：
+  - 法审与全生命周期配置（`playwright.contract-legal.config.ts`）：**14/14 全部通过（4.3m）**。
+  - 财务与全覆盖模拟双实例配置（`playwright.config.ts`，含新建 `plan-issuance.spec.ts` 与扩展 `scope-restricted.spec.ts`）：**101/101 全部通过（19.8m）**。
+- **临时库实表黄金演练（`/tmp` 隔离目录演练完毕后已清理）**：
+  - 非空 `V72 -> V73 -> V74` 升级后 `schema_migration = 74`、`integrity_check = ok`、`foreign_key_check = 0`。
+  - 导入组织种子与 16 表 `.xls` 综合计划源簿（`692` 项），自动拆分 **8 个一级下达单元包**（排除 `is_plan_excluded = 1` 主体 `1` 家）、绑定 **7 份目标责任书**（总部无责任书）、对应 **49 张逻辑附表**；集团合并营业总收入（扣除免发主体与 8 单元半入整 `1n` 次分位尾差归因）、合并利润总额（`0n` 差）、固定资产投资、安全生产投入、五项费用精确值与 `0.01万元` 步长批复值、可控管理费半步长进位、含税运维 `÷ 1.06` 剔税换算及跨单位公式错引 `CROSS_UNIT_CELL_REF` 拦截等 **13 项黄金断言 100% 通过**；全集团导出 `.zip` 含 **15 份规范 `<w:tbl>` + `<w:tblHeader/>` 公文 `.docx`** 与 **1 份汇总底稿 `.xlsx`**。

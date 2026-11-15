@@ -6,7 +6,7 @@ import {
   Alert, App as AntdApp, Button, Card, Col, Collapse, Drawer, Form, Input, InputNumber,
   Modal, Row, Segmented, Select, Space, Table, Tabs, Tag, Tooltip, Typography, Upload,
 } from 'antd';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { can, download, errorText } from '../../api/client';
 import {
   planApi,
@@ -23,6 +23,7 @@ import {
 import { QueryErrorResult } from '../../components/QueryErrorResult';
 import { shortTime } from '../../utils/relativeTime';
 import { defaultOrgId, lastPeriod, Money, OrgSelect, PeriodPicker, Ratio, usePrompt } from '../financeData/shared';
+import { PlanAdjustmentsTab, PlanCyclesTab, PlanPacksTab } from './PlanIssuanceTabs';
 import { BATCH_STATUS, RowErrors } from './shared';
 
 /**
@@ -205,7 +206,7 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
-function ItemsDrawer({ batch, onClose }: { batch: PlanBatchDto | null; onClose: () => void }) {
+function ItemsDrawer({ batch, highlightItemId, onClose }: { batch: PlanBatchDto | null; highlightItemId?: number | null; onClose: () => void }) {
   const [domain, setDomain] = useState<PlanSheetDomain>('investment_purchase');
   const [sheet, setSheet] = useState<PlanSheetCode>('investment');
   const sheetCountMap = useMemo(
@@ -219,6 +220,21 @@ function ItemsDrawer({ batch, onClose }: { batch: PlanBatchDto | null; onClose: 
     setSheet(firstNonEmpty);
     setDomain(domainOfSheet(firstNonEmpty));
   }, [batch?.id]);
+
+  const locateQ = useQuery({
+    queryKey: ['plan-items-locate', batch?.id, highlightItemId],
+    queryFn: () => planApi.items(batch!.id),
+    enabled: !!batch && highlightItemId != null,
+  });
+
+  useEffect(() => {
+    if (!locateQ.data || highlightItemId == null) return;
+    const found = locateQ.data.find((it) => it.id === highlightItemId);
+    if (found) {
+      setSheet(found.sheetCode);
+      setDomain(domainOfSheet(found.sheetCode));
+    }
+  }, [locateQ.data, highlightItemId]);
 
   const q = useQuery({ queryKey: ['plan-items', batch?.id, sheet], queryFn: () => planApi.items(batch!.id, sheet), enabled: !!batch });
   const domainSheets = SHEET_DOMAINS[domain];
@@ -270,6 +286,7 @@ function ItemsDrawer({ batch, onClose }: { batch: PlanBatchDto | null; onClose: 
       </Space>
       {q.error ? <QueryErrorResult title="行加载失败" error={q.error} refetch={q.refetch} /> : (
         <Table<PlanItemDto> rowKey="id" size="small" loading={q.isLoading} dataSource={q.data ?? []} pagination={{ pageSize: 50 }}
+          onRow={(r) => (highlightItemId === r.id ? { style: { backgroundColor: 'rgba(250, 173, 20, 0.16)' } } : {})}
           locale={{ emptyText: `当前工作表「${SHEET_LABEL[sheet]}」在本批次无数据行` }}
           columns={[
             { title: '行', dataIndex: 'rowNo', width: 60 },
@@ -279,7 +296,8 @@ function ItemsDrawer({ batch, onClose }: { batch: PlanBatchDto | null; onClose: 
               dataIndex: 'itemName',
               render: (v: string, r) => {
                 const node = r.itemType === 'detail' || r.itemType === 'leaf' ? v : <Typography.Text strong>{v}</Typography.Text>;
-                return r.projectId != null ? <Link to={`/projects/${r.projectId}`}>{node}</Link> : node;
+                const content = r.projectId != null ? <Link to={`/projects/${r.projectId}`}>{node}</Link> : node;
+                return highlightItemId === r.id ? <Space size={4}>{content}<Tag color="gold">检索定位</Tag></Space> : content;
               },
             },
             { title: '项目', dataIndex: 'projectCode', width: 110, render: (v: string | null) => v ?? '' },
@@ -328,6 +346,17 @@ function ItemsDrawer({ batch, onClose }: { batch: PlanBatchDto | null; onClose: 
 export default function PlanExecution() {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab');
+  const activeTab: 'cycles' | 'packs' | 'adjustments' | 'execution' =
+    rawTab === 'cycles' || rawTab === 'packs' || rawTab === 'adjustments' || rawTab === 'execution'
+      ? rawTab
+      : 'execution';
+  const urlStatus = searchParams.get('status') ?? undefined;
+  const highlightItemId = useMemo(() => {
+    const raw = searchParams.get('itemId');
+    return raw && /^\d+$/.test(raw) ? Number(raw) : null;
+  }, [searchParams]);
   const [prompt, holder] = usePrompt();
   const [year, setYear] = useState<number>(Number(lastPeriod().slice(0, 4)));
   const [asOfPeriod, setAsOf] = useState<string | undefined>();
@@ -378,8 +407,44 @@ export default function PlanExecution() {
     <div>
       {linkedBatch.error && <QueryErrorResult title="来源批次加载失败" error={linkedBatch.error} refetch={linkedBatch.refetch} />}
       {holder}
+      <Tabs
+        activeKey={activeTab}
+        onChange={(nextTab) => {
+          setSearchParams((prev) => {
+            const n = new URLSearchParams(prev);
+            n.set('tab', nextTab);
+            n.delete('status');
+            return n;
+          }, { replace: true });
+        }}
+        tabBarExtraContent={
+          <Space size={8}>
+            <span>年度：</span>
+            <InputNumber aria-label="计划年度" min={2000} max={2100} value={year} onChange={(v) => v && setYear(v)} style={{ width: 100 }} />
+          </Space>
+        }
+        items={[
+          {
+            key: 'cycles',
+            label: '下达周期与合一下达',
+            children: <PlanCyclesTab year={year} sheetLabels={SHEET_LABEL} />,
+          },
+          {
+            key: 'packs',
+            label: '本单位下达包与签收',
+            children: <PlanPacksTab year={year} initialStatus={activeTab === 'packs' ? urlStatus : undefined} />,
+          },
+          {
+            key: 'adjustments',
+            label: '计划与预算联动调整',
+            children: <PlanAdjustmentsTab year={year} initialStatus={activeTab === 'adjustments' ? urlStatus : undefined} sheetLabels={SHEET_LABEL} />,
+          },
+          {
+            key: 'execution',
+            label: '月度执行台账',
+            children: (
+              <div>
       <Space wrap style={{ marginBottom: 12 }}>
-        <InputNumber aria-label="计划年度" min={2000} max={2100} value={year} onChange={(v) => v && setYear(v)} style={{ width: 100 }} />
         <PeriodPicker value={period} onChange={setAsOf} placeholder="截至期间(缺省最新)" />
         <OrgSelect value={orgId} onChange={setOrgId} />
         <Select<PlanSheetCode>
@@ -497,8 +562,13 @@ export default function PlanExecution() {
             },
           ]} />
       )}
+              </div>
+            ),
+          },
+        ]}
+      />
       <ImportModal open={importing} onClose={() => setImporting(false)} />
-      <ItemsDrawer batch={viewing} onClose={() => setViewing(null)} />
+      <ItemsDrawer batch={viewing} highlightItemId={highlightItemId} onClose={() => setViewing(null)} />
     </div>
   );
 }

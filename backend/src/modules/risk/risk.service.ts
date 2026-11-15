@@ -30,13 +30,14 @@ import type { ChangeApprovalTier } from '../../contracts/project-contract';
 import type { FeasResultDto } from '../../contracts/investment-feasibility';
 import type { IcComparisonSummaryDto } from '../../contracts/investment-control';
 import {
-  RISK_ACTION_LABELS, RISK_LEVELS, RISK_STATUSES, type RiskActionDto, type RiskActionForm, type RiskCommand, type RiskEventDetailDto, type RiskEventDto,
-  type RiskLevel, type RiskListQuery, type RiskRuleCreate, type RiskRuleDto, type RiskRuleUpdate, type RiskScanDto, type RiskSource, type RiskStatus, type RiskSummaryDto,
+  RISK_ACTION_LABELS, RISK_LEVELS, RISK_RULE_SCOPES, RISK_STATUSES, type RiskActionDto, type RiskActionForm, type RiskCommand, type RiskEventDetailDto, type RiskEventDto,
+  type RiskEvidenceStatus, type RiskLevel, type RiskListQuery, type RiskRuleCreate, type RiskRuleDto, type RiskRuleScope, type RiskRuleUpdate, type RiskScanDto, type RiskSource, type RiskStatus, type RiskSummaryDto,
   type RiskThresholdKind, type RiskExplanationDto, type RiskChecklistDto, type RiskChecklistItemDto,
 } from '../../contracts/risk';
 import { rewriteTemplateNarrative } from '../../assistant/narrative';
 import { PROMPT_VERSION, RISK_EXPLAIN_REWRITE_TASK } from '../../assistant/prompts';
 import { riskExplainAiEnabled } from '../../assistant/feature-flags';
+import { SUPERVISION_52_DETECTORS } from './supervision-52-detectors';
 
 const nowIso = () => new Date().toISOString();
 const today = () => nowIso().slice(0, 10);
@@ -45,9 +46,10 @@ export { calendarDaysBetween, workingDaysBetween };
 
 /* ================= 规则 ================= */
 
-interface RuleRow {
+export interface RuleRow {
   code: string; name: string; source: RiskSource; detector: string; builtin: number; org_id: number | null; level: RiskLevel; threshold: string | null;
   enabled: number; suggestion: string; version: number; created_at: string | null; updated_at: string | null; org_name?: string | null;
+  rule_scope?: RiskRuleScope; policy_ref_code?: string; effective_from?: string | null;
 }
 
 /** 命中计算器:内置规则一对一;自定义规则复用计算器并可改阈值/等级/组织范围。 */
@@ -64,10 +66,16 @@ const ruleDto = (r: RuleRow): RiskRuleDto => {
     code: r.code, name: r.name, source: r.source, level: r.level, threshold: r.threshold, thresholdApplies: !!d?.thresholdKind, enabled: r.enabled === 1,
     suggestion: r.suggestion, version: r.version, updatedAt: r.updated_at, detector: r.detector, detectorName: d?.name ?? r.detector, builtin: r.builtin === 1,
     orgId: r.org_id, orgName: r.org_name ?? null, thresholdKind: d?.thresholdKind ?? null, thresholdLabel: d?.thresholdLabel ?? null,
+    ruleScope: r.rule_scope ?? 'domain_general',
+    policyRefCode: r.policy_ref_code ?? '',
+    effectiveFrom: r.effective_from ?? null,
   };
 };
 
-export function listRiskRules(db: DB): RiskRuleDto[] {
+export function listRiskRules(db: DB, q: { ruleScope?: RiskRuleScope } = {}): RiskRuleDto[] {
+  if (q.ruleScope && (RISK_RULE_SCOPES as readonly string[]).includes(q.ruleScope)) {
+    return (db.prepare(`${RULE_SELECT} WHERE r.rule_scope = ? ORDER BY r.source, r.builtin DESC, r.code`).all(q.ruleScope) as RuleRow[]).map(ruleDto);
+  }
   return (db.prepare(`${RULE_SELECT} ORDER BY r.source, r.builtin DESC, r.code`).all() as RuleRow[]).map(ruleDto);
 }
 
@@ -137,6 +145,7 @@ export function createRiskRule(db: DB, input: RiskRuleCreate): RiskRuleDto {
 export interface RiskHit {
   ruleCode: string; level: RiskLevel; subjectType: string; subjectId: number; sub?: string; orgId: number; projectId: number | null;
   title: string; description: string; amountCents: bigint | null; metric: string | null; evidence: Record<string, unknown>;
+  evidenceStatus?: RiskEvidenceStatus;
 }
 export const eventKeyOf = (h: Pick<RiskHit, 'ruleCode' | 'subjectType' | 'subjectId' | 'sub'>) =>
   `${h.ruleCode}:${h.subjectType}:${h.subjectId}${h.sub ? `:${h.sub}` : ''}`;
@@ -374,6 +383,7 @@ interface LifecycleContractRow {
   original_cents: bigint; approved_change_cents: bigint; estimated_ceiling_cents: bigint | null;
   paid_cents: bigint; received_cents: bigint; settled_net_cents: bigint;
   stage: string; status: string; source: string; direction: string; pricing_mode: string;
+  origin: string;
   legal_category: string; report_category: string; signing_entity_level: string;
   is_procurement: bigint; procurement_target: 'construction' | 'goods' | 'service' | null;
   procurement_method: string | null; procurement_tier: ProcurementTier | null;
@@ -388,13 +398,17 @@ interface LifecycleContractRow {
 function activeLifecycleContracts(db: DB): LifecycleContractRow[] {
   return db.prepare(`SELECT id, contract_no, name, org_id, project_id, supplier_id,
       original_cents, approved_change_cents, estimated_ceiling_cents, paid_cents, received_cents, settled_net_cents,
-      stage, status, source, direction, pricing_mode, legal_category, report_category, signing_entity_level,
+      stage, status, source, origin, direction, pricing_mode, legal_category, report_category, signing_entity_level,
       is_procurement, procurement_target, procurement_method, procurement_tier,
       is_emergency, emergency_start_date, budget_type, plan_item_id,
       sign_date, effective_date, procurement_start_date, supplier_confirm_date,
       term_type, term_start_date, term_end_date, undertaker_name, farmer_wage_account,
       distribution_status, company_filed_at, created_at, is_internal_group_tx
     FROM ct_contract WHERE status <> 'voided' ORDER BY id`).safeIntegers(true).all() as LifecycleContractRow[];
+}
+
+function isHistoricalLifecycleContract(c: { origin?: string; sign_date: string | null }): boolean {
+  return c.origin === 'legacy_migration' || (c.sign_date !== null && c.sign_date < '2026-06-25');
 }
 
 function contractSignBeforeProcurementHits(db: DB, rule: RuleRow): RiskHit[] {
@@ -423,6 +437,7 @@ function contractSignBeforeProcurementHits(db: DB, rule: RuleRow): RiskHit[] {
       description: `合同 ${c.contract_no} 存在采购合规风险：${reasons.join('；')}。`,
       amountCents: current > 0n ? current : c.estimated_ceiling_cents, metric: null,
       evidence: { contractId: Number(c.id), reasons },
+      evidenceStatus: isHistoricalLifecycleContract(c) ? 'insufficient_evidence' : 'confirmed_hit',
     });
   }
   return hits;
@@ -513,6 +528,7 @@ function contractDistributionOverdueHits(db: DB, rule: RuleRow): RiskHit[] {
       description: `合同 ${c.contract_no} 签署日 ${c.sign_date}（已过 ${wd} 个工作日）：${reasons.join('；')}。`,
       amountCents: null, metric: String(wd),
       evidence: { contractId: Number(c.id), signDate: c.sign_date, workingDays: wd, reasons },
+      evidenceStatus: isHistoricalLifecycleContract(c) ? 'insufficient_evidence' : 'confirmed_hit',
     });
   }
   return hits;
@@ -529,6 +545,7 @@ function contractUndertakerUnassignedHits(db: DB, rule: RuleRow): RiskHit[] {
         description: `在途合同 ${c.contract_no} 未登记当前承办人姓名，影响履约责任跟踪。`,
         amountCents: null, metric: null,
         evidence: { contractId: Number(c.id), stage: c.stage },
+        evidenceStatus: isHistoricalLifecycleContract(c) ? 'insufficient_evidence' : 'confirmed_hit',
       });
     }
   }
@@ -1026,6 +1043,7 @@ const DETECTORS: Record<string, Detector> = {
   EAS_PROJECT_CODE_MISSING: { name: '大额凭证缺少项目辅助核算', source: 'eas', thresholdKind: 'amount', thresholdLabel: '借方金额大于(元)', defaultThreshold: '100000', run: easProjectMissingHits },
   EAS_LONG_UNCLEARED: { name: '预付/暂估/挂账事项待清理', source: 'eas', thresholdKind: null, thresholdLabel: null, defaultThreshold: null, run: (db, r) => easUnclearedHits(db, r) },
   EAS_BUDGET_DIFF: { name: '项目预算执行与 EAS 入账差异', source: 'eas', thresholdKind: 'ratio', thresholdLabel: '差异率大于', defaultThreshold: '0.1', run: easBudgetDiffHits },
+  ...SUPERVISION_52_DETECTORS,
 };
 
 function thresholdValue(d: Detector, rule: RuleRow): bigint {
@@ -1048,8 +1066,18 @@ export function computeRiskHits(db: DB): RiskHit[] {
     }
     hits.push(...found);
   }
+  // PW_01 与 CW_02 共用采购等级自动判定逻辑，同一标的若已命中 PW_01 则不重复产生 CW_02 告警
+  const pw01Targets = new Set(
+    hits.filter((h) => h.ruleCode === 'PW_01').map((h) => `${h.subjectType}:${h.subjectId}`),
+  );
   const seen = new Set<string>();
-  return hits.filter((h) => { const k = eventKeyOf(h); if (seen.has(k)) return false; seen.add(k); return true; });
+  return hits.filter((h) => {
+    if (h.ruleCode === 'CW_02' && pw01Targets.has(`${h.subjectType}:${h.subjectId}`)) return false;
+    const k = eventKeyOf(h);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 /* ================= 扫描写入 ================= */
@@ -1079,12 +1107,13 @@ export function scanRisks(db: DB, input: { orgId?: number } = {}): RiskScanDto &
       const key = eventKeyOf(h);
       hitKeys.add(key);
       const amount = h.amountCents;
+      const evStatus: RiskEvidenceStatus = h.evidenceStatus ?? 'confirmed_hit';
       const ev = byKey.get(key) as { id: number; status: RiskStatus; version: number } | undefined;
       if (!ev) {
         const eid = Number(db.prepare(`INSERT INTO risk_event (event_key, rule_code, source, level, org_id, project_id, subject_type, subject_id, title, description, amount_cents, metric,
-            evidence_json, first_detected_at, last_detected_at, last_scan_id, created_at, updated_at)
-          VALUES (?, ?, (SELECT source FROM risk_rule WHERE code = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-          key, h.ruleCode, h.ruleCode, h.level, h.orgId, h.projectId, h.subjectType, h.subjectId, h.title, h.description, amount, h.metric, JSON.stringify(h.evidence),
+            evidence_json, evidence_status, first_detected_at, last_detected_at, last_scan_id, created_at, updated_at)
+          VALUES (?, ?, (SELECT source FROM risk_rule WHERE code = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          key, h.ruleCode, h.ruleCode, h.level, h.orgId, h.projectId, h.subjectType, h.subjectId, h.title, h.description, amount, h.metric, JSON.stringify(h.evidence), evStatus,
           now, now, scan, now, now).lastInsertRowid);
         addAction.run(eid, 'detect', null, 'open', h.description, scan, userId, now);
         counts.created++;
@@ -1097,10 +1126,10 @@ export function scanRisks(db: DB, input: { orgId?: number } = {}): RiskScanDto &
         continue;
       }
       const reopen = ev.status === 'closed';
-      db.prepare(`UPDATE risk_event SET level = ?, org_id = ?, project_id = ?, title = ?, description = ?, amount_cents = ?, metric = ?, evidence_json = ?,
+      db.prepare(`UPDATE risk_event SET level = ?, org_id = ?, project_id = ?, title = ?, description = ?, amount_cents = ?, metric = ?, evidence_json = ?, evidence_status = ?,
           occurrence_count = occurrence_count + 1, last_detected_at = ?, last_scan_id = ?, last_scan_hit = 1, updated_at = ?, version = version + 1
           ${reopen ? ", status = 'open', reopened_count = reopened_count + 1, closed_at = NULL, submitted_by_user_id = NULL, reviewed_by_user_id = NULL, rectify_note = NULL" : ''}
-        WHERE id = ?`).run(h.level, h.orgId, h.projectId, h.title, h.description, amount, h.metric, JSON.stringify(h.evidence), now, scan, now, ev.id);
+        WHERE id = ?`).run(h.level, h.orgId, h.projectId, h.title, h.description, amount, h.metric, JSON.stringify(h.evidence), evStatus, now, scan, now, ev.id);
       addAction.run(ev.id, reopen ? 'reopen' : 'redetect', ev.status, reopen ? 'open' : ev.status, h.description, scan, userId, now);
       if (reopen) counts.reopened++; else counts.updated++;
     }
@@ -1151,12 +1180,13 @@ export function listRiskScans(db: DB): RiskScanDto[] {
 interface EventRow {
   id: number; event_key: string; rule_code: string; source: RiskSource; level: RiskLevel; org_id: number; project_id: number | null; subject_type: string; subject_id: number;
   title: string; description: string; amount_cents: bigint | null; metric: string | null; evidence_json: string; status: RiskStatus; occurrence_count: number;
+  evidence_status?: RiskEvidenceStatus; rule_scope?: RiskRuleScope; policy_ref_code?: string;
   first_detected_at: string; last_detected_at: string; last_scan_id: number | null; last_scan_hit: number; handler_user_id: number | null; deadline: string | null;
   rectify_note: string | null; submitted_by_user_id: number | null; reviewed_by_user_id: number | null; closed_at: string | null; reopened_count: number;
   version: number; created_at: string; updated_at: string;
   rule_name: string; suggestion: string; org_name: string | null; project_code: string | null; project_name: string | null; handler_name: string | null;
 }
-const EVENT_SELECT = `SELECT e.*, r.name AS rule_name, r.suggestion, o.name AS org_name, p.code AS project_code, p.name AS project_name,
+const EVENT_SELECT = `SELECT e.*, r.name AS rule_name, r.suggestion, r.rule_scope, r.policy_ref_code, o.name AS org_name, p.code AS project_code, p.name AS project_name,
     COALESCE(u.display_name, u.username) AS handler_name
   FROM risk_event e JOIN risk_rule r ON r.code = e.rule_code LEFT JOIN org o ON o.id = e.org_id LEFT JOIN md_project p ON p.id = e.project_id
   LEFT JOIN app_user u ON u.id = e.handler_user_id`;
@@ -1175,6 +1205,9 @@ function eventDto(r: EventRow): RiskEventDto {
     id: r.id, eventKey: r.event_key, ruleCode: r.rule_code, ruleName: r.rule_name, source: r.source, level: r.level, orgId: r.org_id, orgName: r.org_name,
     projectId: r.project_id, projectCode: r.project_code, projectName: r.project_name, subjectType: r.subject_type, subjectId: r.subject_id,
     title: r.title, description: r.description, amount: centsToDecimalOrNull(r.amount_cents), metric: r.metric, evidence: JSON.parse(r.evidence_json) as Record<string, unknown>,
+    evidenceStatus: r.evidence_status ?? 'confirmed_hit',
+    ruleScope: r.rule_scope ?? 'domain_general',
+    policyRefCode: r.policy_ref_code ?? '',
     status: r.status, occurrenceCount: r.occurrence_count, firstDetectedAt: r.first_detected_at, lastDetectedAt: r.last_detected_at, lastScanId: r.last_scan_id,
     lastScanHit: r.last_scan_hit === 1, handlerUserId: r.handler_user_id, handlerName: r.handler_name, deadline: r.deadline, overdue: isOverdue(r),
     rectifyNote: r.rectify_note, submittedByUserId: r.submitted_by_user_id, reviewedByUserId: r.reviewed_by_user_id, closedAt: r.closed_at,
@@ -1199,6 +1232,8 @@ export function listRiskEvents(db: DB, q: RiskListQuery = {}): RiskEventDto[] {
   if (q.open) where.push("e.status NOT IN ('closed','false_positive')");
   if (q.level) { where.push('e.level = ?'); params.push(q.level); }
   if (q.source) { where.push('e.source = ?'); params.push(q.source); }
+  if (q.ruleScope) { where.push('r.rule_scope = ?'); params.push(q.ruleScope); }
+  if (q.evidenceStatus) { where.push('e.evidence_status = ?'); params.push(q.evidenceStatus); }
   if (q.ruleCode) { where.push('e.rule_code = ?'); params.push(q.ruleCode); }
   if (q.projectId) { where.push('e.project_id = ?'); params.push(q.projectId); }
   if (q.lastScanHit) { where.push('e.last_scan_hit = ?'); params.push(Number(q.lastScanHit)); }
@@ -1262,6 +1297,7 @@ const CAUSE_HINTS: Record<RiskSource, string[]> = {
   investment_control: ['设计变更、价格或工程量变化导致投资突破控制层级', '概算/预算/结算版本编制依据不一致'],
   feasibility: ['收入、成本、投资或融资参数假设偏乐观', '测算模型检查项未通过或参数不完整'],
   eas: ['凭证辅助核算登记不完整或与项目编码不一致', '往来款项未按合同与发票及时清理'],
+  expense: ['小额采购发票报账未上传书面比价依据', '经常性项目未集中履行采购程序或疑似拆单报账'],
 };
 
 /** 生成并保存一次风险解释:确定性模板 + 可选模型改写(数字/名称护栏);不改风险事实与状态。 */
@@ -1320,6 +1356,7 @@ function sourceRefs(db: DB, e: RiskEventDto): { label: string; path: string }[] 
       break;
     }
     case 'eas': refs.push({ label: 'EAS 工作台', path: '/eas' }); if (e.ruleCode === 'EAS_BUDGET_DIFF' || e.subjectType === 'project') refs.push({ label: '项目预算', path: '/project-budget' }); break;
+    case 'expense': refs.push({ label: '费用报销', path: '/expense-claims' }); break;
   }
   return refs;
 }
@@ -1333,7 +1370,7 @@ export function riskChecklist(db: DB, id: number): RiskChecklistDto {
   const missing: { key: string; label: string }[] = [];
   const contractId = typeof e.evidence.contractId === 'number' ? e.evidence.contractId : e.subjectType === 'contract' ? e.subjectId : null;
   if (contractId) {
-    const types = new Set((db.prepare('SELECT DISTINCT doc_type FROM ct_document WHERE contract_id = ?').all(contractId) as { doc_type: string }[]).map((d) => d.doc_type));
+    const types = new Set((db.prepare('SELECT DISTINCT doc_type FROM ct_document WHERE contract_id = ? AND withdrawn_at IS NULL').all(contractId) as { doc_type: string }[]).map((d) => d.doc_type));
     for (const t of ['signed', 'performance', 'invoice']) if (!types.has(t) && !(t === 'performance' && types.has('acceptance'))) missing.push({ key: `contract_${t}`, label: CONTRACT_DOC_LABELS[t] });
   }
   if (['rectifying', 'rectified'].includes(e.status) && !hasAttachment) missing.push({ key: 'rectify_attachment', label: '整改支撑材料(附件)' });
@@ -1348,6 +1385,7 @@ export function riskChecklist(db: DB, id: number): RiskChecklistDto {
     investment_control: { key: 'ic', question: '超限科目的变更依据、审批与责任是否已落实?', required: true, done: null, hint: '按对比快照逐科目核对概算/预算/结算依据。', refs },
     feasibility: { key: 'feas', question: '测算参数是否已复核,敏感性结果是否支持方案结论?', required: true, done: null, hint: '修正参数后重新测算,不得绕过模型检查。', refs },
     eas: { key: 'eas', question: '相关凭证的辅助核算与往来清理是否已完成?', required: true, done: null, hint: '在 EAS 中补录辅助核算或清理往来后重新导入当期数据。', refs },
+    expense: { key: 'expense', question: '采购类报销是否已补齐书面市场比价依据或按规定集中采购签约?', required: true, done: null, hint: '核查比价附件或转为正式采购合同归集。', refs },
   };
   items.push(sourceItem[e.source]);
   items.push({ key: 'rectify', question: '整改说明是否写明处理动作、完成时间与支撑材料?', required: true, done: e.rectifyNote ? hasAttachment : null, hint: hasAttachment ? '已上传整改材料。' : '提交复核前上传支撑材料。', refs: [] });

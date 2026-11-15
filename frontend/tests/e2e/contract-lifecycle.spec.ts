@@ -7,7 +7,7 @@ async function pickAntSelect(page: import('@playwright/test').Page, scope: impor
   const nameRe = new RegExp('^(\\*\\s*)?' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$');
   await scope.locator('.ant-select').filter({ has: page.getByRole('combobox', { name: nameRe }) }).first().click();
   const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last();
-  await dropdown.getByText(option, { exact: true }).first().click();
+  await dropdown.locator('.ant-select-item-option', { hasText: option }).first().click();
   await expect(dropdown).toBeHidden();
 }
 async function pickOrg(page: import('@playwright/test').Page, scope: import('@playwright/test').Locator | import('@playwright/test').Page, name: string) {
@@ -97,7 +97,7 @@ test.describe('T-10 合同全生命周期浏览器闭环 (AC-CLM-01～07)', () =
     await handoverDlg.getByLabel('新承办人姓名').fill('赵工');
     await handoverDlg.getByRole('button', { name: OK }).click();
     await expect(handoverDlg).toBeHidden();
-    await expect(drawer.getByText('赵工')).toBeVisible();
+    await expect(drawer.getByText('赵工').first()).toBeVisible();
 
     await drawer.getByRole('button', { name: /中\s*止/ }).click();
     const suspendDlg = page.getByRole('dialog', { name: '中止合同履行' });
@@ -311,13 +311,19 @@ test.describe('T-11 变更索赔四位一体、保函质保与纠纷浏览器闭
 
     await drawer.getByRole('button', { name: '登记纠纷 / 诉讼' }).click();
     const dDlg = page.getByRole('dialog', { name: '登记纠纷 / 诉讼仲裁（17 列台账）' });
-    await dDlg.getByLabel('诉讼 / 仲裁类型').fill('民事诉讼');
+    await pickAntSelect(page, dDlg, '诉讼类型', '民事诉讼');
+    await pickAntSelect(page, dDlg, '诉讼地位', '被告');
     await dDlg.getByLabel('案由').fill('工程质保争议');
     await dDlg.getByLabel('案号').fill(`(2026)湘07民初${stamp % 1000}号`);
     await dDlg.getByLabel('涉案金额(元)').fill('50000.00');
     await dDlg.getByRole('button', { name: OK }).click();
     await expect(dDlg).toBeHidden();
     await expect(drawer.getByText(`(2026)湘07民初${stamp % 1000}号`)).toBeVisible();
+
+    const disputeExportPromise = page.waitForEvent('download');
+    await drawer.getByRole('button', { name: /导出 17列纠纷台账/ }).click();
+    const disputeDownload = await disputeExportPromise;
+    expect(disputeDownload.suggestedFilename()).toMatch(/\.xlsx$/);
 
     // 退还保函并结案纠纷
     await drawer.getByRole('button', { name: /更\s*新/ }).first().click();
@@ -354,6 +360,7 @@ test.describe('T-12 报送预检导出、5 表月报与完结后履约评价浏�
     const created = await (await request.post('/api/contracts', {
       data: {
         ...signatories, contractNo: evalNo,
+        legalCategory: 'other',
         summaryText: '合成报送合同', fundingSourceDetail: '自有资金', entrustReason: '设备维保', decisionMethod: 'approval', finalApproverName: '王总', finalApproverTitle: '总经理',
         procurementMethod: 'inquiry', procurementPlanText: '年度计划', procurementStartDate: '2026-03-01', supplierConfirmDate: '2026-03-15', responseDocsComplete: true, creditChecked: true,
         undertakerName: '张工', deptReviewerName: '部门审核人', relatedMgmtDepts: '企管部', relatedMgmtReviewers: '归口审核人', unitApproverName: '王总', unitApproverTitle: '总经理', reportCategory: 'service', name: 'E2E 完结评价与报送合同', contractType: '服务', orgId,
@@ -418,5 +425,88 @@ test.describe('T-12 报送预检导出、5 表月报与完结后履约评价浏�
     await expect(evalDlg).toBeHidden();
     await expect(drawer.getByText('15 / 15')).toBeVisible();
     await expect(drawer.getByText('E2E 按期保质完成')).toBeVisible();
+  });
+});
+
+test.describe('T-14 多部门会签、总额包干池监控、1:N 招采台账与列表分币种联动汇总 (AC-T14-06～08)', () => {
+  test('包干池实时超限预警、发起多部门会签与录入意见、1:N 招采异议校验保存及列表分币种汇总行', async ({ page, request }) => {
+    const orgs = (await (await request.get('/api/org/tree')).json()) as { rows: { id: number; name: string }[] };
+    const orgId = orgs.rows.find((o) => o.name === '上海公司')!.id;
+    const stamp = Date.now();
+    const project = await (
+      await request.post('/api/master/projects', {
+        data: { code: `T14-P-${stamp}`, name: '示范闸门控制系统改造', orgId },
+      })
+    ).json();
+    const supplier = await (
+      await request.post('/api/master/suppliers', {
+        data: { code: `T14-S-${stamp}`, name: '示范自控成套设备公司', isInPool: true },
+      })
+    ).json();
+
+    await login(page);
+    await page.goto('/contracts');
+
+    // 1) 新建合同弹窗：切换「生产经营总额包干」验证实时超限红字告警，调高上限后保存
+    await page.getByRole('button', { name: '新建合同' }).click();
+    const dialog = page.getByRole('dialog', { name: '新建合同' });
+    const ctNo = `E2E-T14-${stamp}`;
+    await dialog.getByLabel('合同编号', { exact: true }).fill(ctNo);
+    await dialog.getByLabel('合同名称', { exact: true }).fill('示范闸门控制柜采购合同');
+    await pickOrg(page, dialog, '上海公司');
+    await dialog.getByLabel('合同类型', { exact: true }).fill('采购');
+    await dialog.getByLabel('原始金额(元)', { exact: true }).fill('600000.00');
+    await pickAntSelect(page, dialog, '项目', `示范闸门控制系统改造(${project.code})`);
+    await pickAntSelect(page, dialog, '主供应商 / 客户', `示范自控成套设备公司(${supplier.code})`);
+    await pickAntSelect(page, dialog, '立项计划口径', '生产经营总额包干');
+    await dialog.getByLabel('包干总额池年度上限(元)').fill('500000.00');
+    await expect(dialog.getByText(/生产经营总额包干池超限预警/)).toBeVisible();
+    await dialog.getByLabel('包干总额池年度上限(元)').fill('1000000.00');
+    await expect(dialog.getByText('生产经营总额包干池额度监控')).toBeVisible();
+    await dialog.getByRole('button', { name: OK }).click();
+    await expect(dialog).toBeHidden();
+
+    // 2) 详情抽屉：发起多部门会签并录入部门会签通过意见
+    const drawer = page.locator('.contract-detail-drawer');
+    await expect(drawer.getByText(ctNo)).toBeVisible();
+    const createdCt = (await (await request.get(`/api/contracts?keyword=${ctNo}`)).json())[0] as { id: number };
+    const sessionInfo = (await (await request.get('/api/auth/session')).json()) as { user: { id: number } };
+    await drawer.getByRole('tab', { name: /多部门会签/ }).click();
+    await drawer.getByRole('button', { name: '发起制度多部门会签' }).click();
+    await expect(drawer.getByText(/当前轮次第 1 轮/)).toBeVisible();
+    // 指派当前登录审查人为本轮部门审查人，使页面开放「录入会签结论」按钮（防止无部门归属越权代签）
+    await request.post(`/api/contracts/${createdCt.id}/countersigns`, {
+      data: {
+        assignedReviewers: {
+          CAIWU: sessionInfo.user.id,
+          QIGUAN: sessionInfo.user.id,
+        },
+      },
+    });
+    await page.reload();
+    await drawer.getByRole('tab', { name: /多部门会签/ }).click();
+    const signButtons = drawer.getByRole('button', { name: '录入会签结论' });
+    await expect(signButtons.first()).toBeVisible();
+    await signButtons.first().click();
+    const signDlg = page.getByRole('dialog', { name: /录入会签结论/ });
+    await signDlg.getByLabel('会签审查意见').fill('经审查资金安排与包干额度合规，同意会签');
+    await signDlg.getByRole('button', { name: '提交会签结论' }).click();
+    await expect(signDlg).toBeHidden();
+    await expect(drawer.getByText('同意通过').first()).toBeVisible();
+
+    // 3) 详情抽屉：进入「招采过程」页签，验证质疑投诉必填拦截与补填保存
+    await drawer.getByRole('tab', { name: /招采过程/ }).click();
+    await drawer.getByLabel('是否存在质疑/澄清/投诉/举报').click();
+    await drawer.getByRole('button', { name: '保存招采过程记录' }).click();
+    await expect(drawer.getByText('存在质疑或投诉时必须填写详述与处置情况')).toBeVisible();
+    await drawer.getByLabel(/质疑\/投诉事项及核查处置结论详述/).fill('供应商技术参数澄清已按期书面答复办结');
+    await drawer.getByRole('button', { name: '保存招采过程记录' }).click();
+    await expect(page.getByText('招采全过程记录已保存')).toBeVisible();
+
+    // 4) 关闭抽屉，验证列表筛选与分币种汇总行联动展示
+    await drawer.locator('.ant-drawer-close').click();
+    await page.getByPlaceholder('编号或名称').fill(ctNo);
+    await page.getByPlaceholder('编号或名称').press('Enter');
+    await expect(page.getByText(/当前筛选合计（人民币 · 1 份）/)).toBeVisible();
   });
 });

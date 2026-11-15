@@ -8,7 +8,7 @@ import type { ObjectStore } from '../files/object-store';
 import { sendAttachment, uploadName } from '../files/http';
 import { MAX_UPLOAD_BYTES } from '../io/import-limits';
 import { id as idSchema } from '../../contracts/common';
-import { riskActionForm, riskListQuery, riskRuleCreate, riskRuleUpdate, riskScanRequest } from '../../contracts/risk';
+import { RISK_RULE_SCOPES, riskActionForm, riskListQuery, riskRuleCreate, riskRuleUpdate, riskScanRequest, type RiskRuleScope } from '../../contracts/risk';
 import { formFields, queryFields } from '../project-budget/routes';
 import {
   actOnRisk, createRiskRule, explainRisk, getRiskEvent, getRiskScan, listRiskEvents, listRiskRules, listRiskScans, riskActionAttachment, riskChecklist, riskSummary,
@@ -30,7 +30,13 @@ const id = (v: unknown) => parseInput(idSchema, v);
 export function registerRiskRoutes(app: Express, db: () => DB, wrap: Wrap, store: () => ObjectStore): void {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
   const base = '/api/risk';
-  app.get(`${base}/rules`, wrap((_req, res) => { res.json(listRiskRules(db())); }));
+  app.get(`${base}/rules`, wrap((req, res) => {
+    const q = queryFields(req);
+    const ruleScope = q.ruleScope && (RISK_RULE_SCOPES as readonly string[]).includes(q.ruleScope)
+      ? (q.ruleScope as RiskRuleScope)
+      : undefined;
+    res.json(listRiskRules(db(), { ruleScope }));
+  }));
   app.post(`${base}/rules`, wrap((req, res) => { res.status(201).json(createRiskRule(db(), parseInput(riskRuleCreate, req.body ?? {}))); }));
   app.patch(`${base}/rules/:code`, wrap((req, res) => { res.json(updateRiskRule(db(), String(req.params.code), parseInput(riskRuleUpdate, req.body ?? {}))); }));
   app.get(`${base}/summary`, wrap((req, res) => {

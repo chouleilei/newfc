@@ -79,6 +79,7 @@ import { registerJobRoutes } from './modules/jobs/routes';
 import { registerCleaningRoutes } from './modules/io/cleaning/routes';
 import { MAX_UPLOAD_BYTES } from './modules/io/import-limits';
 import { assertNoFinanceOwnedConflicts } from './modules/finance-import/owned-scope';
+import { isLoopbackAddress, MAX_PDF_PARSE_BYTES, parsePdfBufferLocally } from './modules/contracts/local-pdf-parser';
 
 /** 数据库句柄:恢复备份后可整体替换连接 */
 class DbHolder implements backup.RestoreHandle {
@@ -259,6 +260,33 @@ export async function createApp(opts: ServerOptions) {
     const ok = Object.values(checks).every((c) => c.ok);
     res.status(ok ? 200 : 503).json({ ok, status: ok ? 'ready' : 'not_ready', checks });
   });
+
+  /* ============ 本机回环按需受限 PDF 解析端点(仅监听/放行 127.0.0.1/::1,写事务外执行) ============ */
+  const internalPdfUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_PDF_PARSE_BYTES },
+  });
+  const guardLoopbackPdfParser = (req: Request, res: Response, next: NextFunction) => {
+    if (!isLoopbackAddress(req.socket.remoteAddress)) {
+      res.status(403).json({ code: 'LOOPBACK_ONLY', message: '仅允许本机回环地址访问 PDF 解析适配器' });
+      return;
+    }
+    const expectedKey = getSetting<string | null>(db(), 'integration.pdf_parser_api_key');
+    if (expectedKey && req.headers.authorization !== `Bearer ${expectedKey}`) {
+      res.status(401).json({ code: 'UNAUTHORIZED', message: 'PDF 解析服务密钥不匹配' });
+      return;
+    }
+    next();
+  };
+  app.get('/api/internal/pdf-parser/health', guardLoopbackPdfParser, (_req, res) => {
+    res.json({ ok: true, status: 'ok', service: 'newfc-local-pdf-parser' });
+  });
+  app.post('/api/internal/pdf-parser/parse-pdf', guardLoopbackPdfParser, internalPdfUpload.single('file'), wrap(async (req, res) => {
+    const buf = req.file?.buffer;
+    if (!buf || buf.length === 0) throw Errors.validation('缺少上传的 PDF 文件');
+    const parsed = await parsePdfBufferLocally(buf);
+    res.json(parsed);
+  }));
 
   registerSessionAuth(app, db);
   // 认证通过后才解析普通 API 的大请求体，避免匿名请求占用 JSON 解析 CPU/内存。
@@ -685,12 +713,16 @@ export async function createApp(opts: ServerOptions) {
     res.status(201).json(budget.copyVersion(db(), Number(req.params.id), name, note, targetYear, growthRate));
   }));
   app.get('/api/versions/:id/summary', wrap((req, res) => {
-    const s = budget.versionSummary(db(), Number(req.params.id));
+    const versionId = positiveParam(req.params.id, '版本 ID');
+    const auth = currentAuth();
+    const scope = auth ? resolveOrgScope(db(), auth) : { all: true as const };
+    const s = budget.versionSummary(db(), versionId);
     // 类型合计:按叶子明细直接归类(与指标同口径,避免交叉矩阵重复计数)
     const accById = new Map(s.accRows.map((a) => [a.id, a]));
-    const entries = db()
-      .prepare('SELECT account_id, amount_cents FROM budget_entry WHERE version_id = ?')
-      .all(Number(req.params.id)) as { account_id: number; amount_cents: number }[];
+    const rawEntries = db()
+      .prepare('SELECT org_id, account_id, amount_cents FROM budget_entry WHERE version_id = ?')
+      .all(versionId) as { org_id: number; account_id: number; amount_cents: number }[];
+    const entries = scope.all ? rawEntries : rawEntries.filter((e) => orgInScope(scope, e.org_id));
     const totals = { income: 0, cost: 0, expense: 0 };
     for (const e of entries) {
       const t = accById.get(e.account_id)?.type;
@@ -723,9 +755,16 @@ export async function createApp(opts: ServerOptions) {
         }),
       totalsByAccountType: totals,
       cell: Object.fromEntries(
-        [...s.rollup.cell.entries()].map(([orgId, rowMap]) => [orgId, Object.fromEntries(rowMap)])
+        [...s.rollup.cell.entries()]
+          .filter(([orgId]) => scope.all || orgInScope(scope, orgId))
+          .map(([orgId, rowMap]) => [orgId, Object.fromEntries(rowMap)])
       ),
     });
+  }));
+  app.get('/api/versions/:id/unit-view', wrap((req, res) => {
+    const versionId = positiveParam(req.params.id, '版本 ID');
+    const orgId = optionalPositiveQueryInt(req.query.orgId, 'orgId');
+    res.json(budget.versionUnitView(db(), versionId, orgId));
   }));
 
   /* ============ 轻量测算模板 ============ */
@@ -890,8 +929,8 @@ export async function createApp(opts: ServerOptions) {
   }));
   app.post('/api/settings/ai-channels/:id/test', channelTestRateLimit, wrap(async (req, res) => {
     const id = positiveParam(req.params.id, 'id');
-    const result = await aiChannels.testChannel(db(), id);
-    writeLog(db(), 'settings.ai_channel.test', 'settings', '-', { channelId: id, status: result.status });
+    const result = await aiChannels.testChannel(db(), id, { samples: req.body?.samples });
+    writeLog(db(), 'settings.ai_channel.test', 'settings', '-', { channelId: id, status: result.status, sampleCount: result.sampleCount, p95LatencyMs: result.p95LatencyMs });
     res.json(result);
   }));
   app.get('/api/settings/ai-feature-bindings', wrap((_req, res) => res.json({ items: aiChannels.listBindings(db()) })));

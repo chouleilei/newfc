@@ -68,6 +68,26 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
   const actualTier = Form.useWatch('actualApprovalTier', form) as ChangeApprovalTier | undefined;
   const techAuditDocId = Form.useWatch('techSpecialAuditDocId', form) as number | undefined;
   const guarantorDocId = Form.useWatch('guarantorConsentDocumentId', form) as number | undefined;
+  const adverseOccurredWatch = Form.useWatch('adverseOccurredAt', form) as string | null | undefined;
+  const adverseReportedWatch = Form.useWatch('adverseReportedAt', form) as string | null | undefined;
+  const filingOccurredWatch = Form.useWatch('adverseOccurredAt', filingForm) as string | null | undefined;
+  const filingReportedWatch = Form.useWatch('adverseReportedAt', filingForm) as string | null | undefined;
+
+  const countWeekdays = (from?: string | null, to?: string | null) => {
+    if (!from || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return 0;
+    const start = dayjs(from).startOf('day');
+    const end = (to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? dayjs(to) : dayjs()).startOf('day');
+    if (!start.isValid() || !end.isValid() || !end.isAfter(start)) return 0;
+    let cur = start.add(1, 'day');
+    let n = 0;
+    while (!cur.isAfter(end)) {
+      if (cur.day() !== 0 && cur.day() !== 6) n++;
+      cur = cur.add(1, 'day');
+    }
+    return n;
+  };
+  const adverseOverdueCreate = countWeekdays(adverseOccurredWatch, adverseReportedWatch) > 2;
+  const adverseOverdueFiling = countWeekdays(filingOccurredWatch, filingReportedWatch) > 2;
 
   useEffect(() => {
     if (createOpen && (changeKind === 'suspend' || changeKind === 'terminate')) {
@@ -143,6 +163,8 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
       disciplineFiledAt: ch.disciplineFiledAt ?? null,
       techReviewRepliedAt: ch.techReviewRepliedAt ?? null,
       hasDispute: !!ch.hasDispute,
+      adverseOccurredAt: ch.adverseOccurredAt ?? null,
+      adverseReportedAt: ch.adverseReportedAt ?? null,
     });
   };
 
@@ -195,7 +217,10 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
                 <div>
                   {r.changeMatter && <div style={{ fontWeight: 500 }}>{r.changeMatter}</div>}
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.reason}</Typography.Text>
-                  {r.hasDispute && <div><Tag color="red">涉纠纷</Tag></div>}
+                  <div>
+                    {r.hasDispute && <Tag color="red">涉纠纷</Tag>}
+                    {r.adverseOverdue2Workdays && <Tag color="error">异常超2工作日上报</Tag>}
+                  </div>
                 </div>
               ),
             },
@@ -321,7 +346,7 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
             </Col>
             <Col span={12}>
               <Form.Item name="supplementNo" label="补充协议编号（法人单位内唯一）">
-                <Input maxLength={100} placeholder="如 LS-SG-001/2026-001(补1)" />
+                <Input maxLength={100} placeholder="如 HQ-SG-001/2026-001(补1)" />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -375,6 +400,21 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
                 <DatePicker style={{ width: '100%' }} />
               </Form.Item>
             </Col>
+            <Col span={8}>
+              <Form.Item name="adverseOccurredAt" label="不利变更/索赔/异常发生日" getValueProps={(v?: string) => ({ value: v ? dayjs(v) : null })} normalize={(d: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null)}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="adverseReportedAt" label="向归口部门异常上报日" getValueProps={(v?: string) => ({ value: v ? dayjs(v) : null })} normalize={(d: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null)}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            {adverseOverdueCreate && (
+              <Col span={24}>
+                <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="异常上报超期预警：不利变更/索赔发生至上报超过 2 个工作日（命中监管规则 CW-14）。" />
+              </Col>
+            )}
             <Col span={24}>
               <Form.Item name="hasDispute" valuePropName="checked"><Checkbox>本次变更已产生纠纷</Checkbox></Form.Item>
             </Col>
@@ -396,6 +436,8 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
             disciplineFiledAt: v.disciplineFiledAt || null,
             techReviewRepliedAt: v.techReviewRepliedAt || null,
             hasDispute: !!v.hasDispute,
+            adverseOccurredAt: v.adverseOccurredAt || null,
+            adverseReportedAt: v.adverseReportedAt || null,
           };
           await run.mutateAsync(() => contractApi.updateChangeFiling(contract.id, filingChangeId, body));
           setFilingChangeId(null);
@@ -409,6 +451,15 @@ export function ContractChangeTab({ contract, onChanged }: { contract: ContractD
           <Form.Item name="techReviewRepliedAt" label="技术归口审查反馈日期" getValueProps={(v?: string) => ({ value: v ? dayjs(v) : null })} normalize={(d: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null)}>
             <DatePicker style={{ width: '100%' }} />
           </Form.Item>
+          <Form.Item name="adverseOccurredAt" label="不利变更/异常发生日期" getValueProps={(v?: string) => ({ value: v ? dayjs(v) : null })} normalize={(d: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null)}>
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="adverseReportedAt" label="向归口部门异常上报日期" getValueProps={(v?: string) => ({ value: v ? dayjs(v) : null })} normalize={(d: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null)}>
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+          {adverseOverdueFiling && (
+            <Alert type="warning" showIcon style={{ marginBottom: 8 }} message="异常上报超过 2 个工作日，将触发 CW-14 合同异常迟报预警。" />
+          )}
           <Form.Item name="hasDispute" valuePropName="checked"><Checkbox>是否产生纠纷</Checkbox></Form.Item>
         </Form>
       </Modal>

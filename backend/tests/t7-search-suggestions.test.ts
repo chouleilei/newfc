@@ -17,7 +17,7 @@ describe('T-7 检索建议', () => {
 
     const all = await json(get(base, admin, '/api/search/suggestions'));
     expect(all.items).toEqual([]);
-    expect(all.types).toHaveLength(11);
+    expect(all.types).toHaveLength(12);
     expect(all.types[0]).toEqual({ type: 'project', label: '项目', hint: '按项目编码、名称、类型' });
 
     const s = await json(get(base, admin, `/api/search/suggestions?q=${encodeURIComponent('泵站')}`));

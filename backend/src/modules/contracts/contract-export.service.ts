@@ -186,7 +186,7 @@ export function preflightSupervisionExport(
       if (c.acquisition_method === 'tender' && !c.tender_body_type) missingFields.push('投标主体类型');
     }
 
-    const docs = db.prepare('SELECT doc_type, evidence_kind, change_id FROM ct_document WHERE contract_id = ?').all(c.id) as {
+    const docs = db.prepare('SELECT doc_type, evidence_kind, change_id FROM ct_document WHERE contract_id = ? AND withdrawn_at IS NULL').all(c.id) as {
       doc_type: string; evidence_kind: string | null; change_id: number | null;
     }[];
     const mainDocs = docs.filter((d) => !d.change_id);
@@ -463,7 +463,7 @@ export async function exportSupervisionPackageZip(
       folderEscapes.push({ kind: 'contract', rawNo: c.contract_no, folderName: cFolder });
     }
     const docs = db.prepare(`SELECT d.id, d.doc_type, d.evidence_kind, d.change_id, d.name, f.sha256, f.original_name, f.size_bytes
-      FROM ct_document d JOIN file_object f ON f.id = d.file_object_id WHERE d.contract_id = ? ORDER BY d.id DESC`)
+      FROM ct_document d JOIN file_object f ON f.id = d.file_object_id WHERE d.contract_id = ? AND d.withdrawn_at IS NULL ORDER BY d.id DESC`)
       .all(c.id) as { id: number; doc_type: string; evidence_kind: string | null; change_id: number | null; name: string; sha256: string; original_name: string; size_bytes: number }[];
 
     const rootDir = c.direction === 'expense' ? '支出合同附件' : '收入合同附件';

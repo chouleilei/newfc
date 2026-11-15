@@ -35,6 +35,87 @@ export interface AiFeatureBindingRow {
   updated_at: string;
 }
 
+export interface AiCallDiagnostics {
+  recentCalls: number;
+  okCalls: number;
+  errorCalls: number;
+  timeoutCalls: number;
+  timeoutRate: number;
+  fallbackCalls: number;
+  p50LatencyMs: number | null;
+  p95LatencyMs: number | null;
+}
+
+interface RawModelCallObs {
+  feature: string;
+  channel_name: string;
+  status: string;
+  error_type: string | null;
+  error_message: string | null;
+  fallback_used: number;
+  latency_ms: number;
+}
+
+function percentile(sortedAsc: number[], p: number): number | null {
+  if (sortedAsc.length === 0) return null;
+  const idx = Math.min(sortedAsc.length - 1, Math.max(0, Math.ceil((p / 100) * sortedAsc.length) - 1));
+  return sortedAsc[idx];
+}
+
+function buildDiagnostics(rows: RawModelCallObs[]): AiCallDiagnostics {
+  const recentCalls = rows.length;
+  if (recentCalls === 0) {
+    return {
+      recentCalls: 0,
+      okCalls: 0,
+      errorCalls: 0,
+      timeoutCalls: 0,
+      timeoutRate: 0,
+      fallbackCalls: 0,
+      p50LatencyMs: null,
+      p95LatencyMs: null,
+    };
+  }
+  let okCalls = 0;
+  let errorCalls = 0;
+  let timeoutCalls = 0;
+  let fallbackCalls = 0;
+  const latencies: number[] = [];
+  for (const r of rows) {
+    const succeeded = r.status === 'success' || r.status === 'ok';
+    if (succeeded) okCalls++;
+    else errorCalls++;
+    const isTimeout = r.status === 'timeout'
+      || r.error_type === 'timeout'
+      || /timeout|超时|abort/i.test(r.error_message ?? '');
+    if (!succeeded && isTimeout) timeoutCalls++;
+    if (r.fallback_used === 1) fallbackCalls++;
+    if (Number.isFinite(r.latency_ms) && r.latency_ms >= 0) latencies.push(Math.trunc(r.latency_ms));
+  }
+  latencies.sort((a, b) => a - b);
+  return {
+    recentCalls,
+    okCalls,
+    errorCalls,
+    timeoutCalls,
+    timeoutRate: Number((timeoutCalls / recentCalls).toFixed(4)),
+    fallbackCalls,
+    p50LatencyMs: percentile(latencies, 50),
+    p95LatencyMs: percentile(latencies, 95),
+  };
+}
+
+function loadRecentCallRows(db: DB, limit = 500): RawModelCallObs[] {
+  try {
+    return db.prepare(
+      `SELECT feature, channel_name, status, error_type, error_message, fallback_used, latency_ms
+       FROM ai_model_call ORDER BY id DESC LIMIT ?`,
+    ).all(limit) as RawModelCallObs[];
+  } catch {
+    return [];
+  }
+}
+
 /** 渠道校验:与 aiConfigurationIssue() 同款规则(URL 合法;https 或本机/可信内网 http)。 */
 export function channelConfigurationIssue(input: { baseUrl: string; apiKey?: string }): string | undefined {
   const baseUrl = input.baseUrl.trim();
@@ -61,6 +142,7 @@ export function maskApiKey(key: string): string {
 
 export function listChannels(db: DB) {
   const rows = db.prepare('SELECT * FROM ai_channel ORDER BY id').all() as AiChannelRow[];
+  const calls = loadRecentCallRows(db);
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -75,6 +157,7 @@ export function listChannels(db: DB) {
     lastTestLatencyMs: row.last_test_latency_ms,
     lastTestMessage: row.last_test_message,
     lastTestedAt: row.last_tested_at,
+    diagnostics: buildDiagnostics(calls.filter((c) => c.channel_name === row.name)),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -153,6 +236,7 @@ export function deleteChannel(db: DB, id: number): { id: number; affectedFeature
 export function listBindings(db: DB) {
   const rows = db.prepare('SELECT * FROM ai_feature_binding').all() as AiFeatureBindingRow[];
   const byFeature = new Map(rows.map((row) => [row.feature, row]));
+  const calls = loadRecentCallRows(db);
   return AI_FEATURES.map((feature) => {
     const row = byFeature.get(feature);
     return {
@@ -160,6 +244,7 @@ export function listBindings(db: DB) {
       primaryChannelId: row?.primary_channel_id ?? null,
       fallbackChannelId: row?.fallback_channel_id ?? null,
       updatedAt: row?.updated_at ?? null,
+      diagnostics: buildDiagnostics(calls.filter((c) => c.feature === feature)),
     };
   });
 }
@@ -198,69 +283,100 @@ export function saveBindings(db: DB, body: { bindings?: { feature: string; prima
  * 三态:ok(5 秒内合法响应)/ degraded(成功但超 5 秒,或 200 但缺 choices)/ fail(连接失败/超时/4xx/5xx/非法 JSON)。
  * 这是唯一允许用渠道 apiKey 出网的路径;请求体不带 key,服务端从库内取。
  */
-export async function testChannel(db: DB, id: number): Promise<{
+export async function testChannel(db: DB, id: number, opts?: { samples?: number }): Promise<{
   status: 'ok' | 'degraded' | 'fail';
   latencyMs: number;
   message: string;
+  sampleCount: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  sampleLatencies: number[];
 }> {
   const channel = getChannel(db, id);
-  const started = Date.now();
-  let status: 'ok' | 'degraded' | 'fail' = 'fail';
-  let message = '';
+  const sampleCount = Math.min(5, Math.max(1, Math.trunc(Number(opts?.samples ?? 1) || 1)));
   const endpoint = /\/chat\/completions$/i.test(channel.base_url.replace(/\/+$/, ''))
     ? channel.base_url.replace(/\/+$/, '')
     : `${channel.base_url.replace(/\/+$/, '')}/chat/completions`;
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (channel.api_key) headers.authorization = `Bearer ${channel.api_key}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.max(channel.timeout_ms, 10_000));
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ model: channel.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
-      signal: controller.signal,
-    });
-    const latencyMs = Date.now() - started;
-    if (!response.ok) {
-      const detail = (await response.text().catch(() => '')).slice(0, 200);
-      message = `HTTP ${response.status}${detail ? `: ${detail}` : ''}`;
-    } else {
-      let data: unknown;
-      try { data = await response.json(); } catch {
-        status = 'fail';
-        message = '返回了非法 JSON';
-        data = undefined;
-      }
-      if (data !== undefined) {
-        const hasChoices = Array.isArray((data as { choices?: unknown[] })?.choices);
-        if (!hasChoices) {
-          status = 'degraded';
-          message = 'HTTP 200 但载荷结构异常(缺 choices)';
-        } else if (latencyMs > 5_000) {
-          status = 'degraded';
-          message = `响应成功但超过 5 秒(${latencyMs}ms)`;
-        } else {
-          status = 'ok';
-          message = `连通正常(${latencyMs}ms)`;
+
+  const sampleLatencies: number[] = [];
+  const sampleStatuses: ('ok' | 'degraded' | 'fail')[] = [];
+  let lastMessage = '';
+
+  for (let i = 0; i < sampleCount; i++) {
+    const started = Date.now();
+    let oneStatus: 'ok' | 'degraded' | 'fail' = 'fail';
+    let oneMsg = '';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(channel.timeout_ms, 10_000));
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model: channel.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
+        signal: controller.signal,
+      });
+      const oneLatency = Date.now() - started;
+      sampleLatencies.push(oneLatency);
+      if (!response.ok) {
+        const detail = (await response.text().catch(() => '')).slice(0, 200);
+        oneMsg = `HTTP ${response.status}${detail ? `: ${detail}` : ''}`;
+      } else {
+        let data: unknown;
+        try { data = await response.json(); } catch {
+          oneStatus = 'fail';
+          oneMsg = '返回了非法 JSON';
+          data = undefined;
+        }
+        if (data !== undefined) {
+          const hasChoices = Array.isArray((data as { choices?: unknown[] })?.choices);
+          if (!hasChoices) {
+            oneStatus = 'degraded';
+            oneMsg = 'HTTP 200 但载荷结构异常(缺 choices)';
+          } else if (oneLatency > 5_000) {
+            oneStatus = 'degraded';
+            oneMsg = `响应成功但超过 5 秒(${oneLatency}ms)；建议配置备用渠道故障转移`;
+          } else {
+            oneStatus = 'ok';
+            oneMsg = `连通正常(${oneLatency}ms)`;
+          }
         }
       }
+    } catch (err) {
+      sampleLatencies.push(Date.now() - started);
+      oneMsg = (err as { name?: string })?.name === 'AbortError'
+        ? `请求超时(>${Math.max(channel.timeout_ms, 10_000)}ms)`
+        : `连接失败: ${err instanceof Error ? err.message : String(err)}`;
+      oneMsg = oneMsg.slice(0, 300);
+    } finally {
+      clearTimeout(timer);
     }
-  } catch (err) {
-    message = (err as { name?: string })?.name === 'AbortError'
-      ? `请求超时(>${Math.max(channel.timeout_ms, 10_000)}ms)`
-      : `连接失败: ${err instanceof Error ? err.message : String(err)}`;
-    message = message.slice(0, 300);
-  } finally {
-    clearTimeout(timer);
+    sampleStatuses.push(oneStatus);
+    lastMessage = oneMsg;
   }
-  const latencyMs = Date.now() - started;
+
+  const sorted = [...sampleLatencies].sort((a, b) => a - b);
+  const p50LatencyMs = percentile(sorted, 50) ?? 0;
+  const p95LatencyMs = percentile(sorted, 95) ?? p50LatencyMs;
+  const latencyMs = sampleCount === 1 ? (sampleLatencies[0] ?? 0) : p50LatencyMs;
+  const failCount = sampleStatuses.filter((s) => s === 'fail').length;
+  const degradedCount = sampleStatuses.filter((s) => s === 'degraded').length;
+  let status: 'ok' | 'degraded' | 'fail';
+  if (failCount === sampleCount) status = 'fail';
+  else if (failCount > 0 || degradedCount > 0) status = 'degraded';
+  else status = 'ok';
+
+  const message = sampleCount === 1
+    ? lastMessage.slice(0, 300)
+    : `${sampleCount}次探活 P50=${p50LatencyMs}ms / P95=${p95LatencyMs}ms（失败 ${failCount} 次）：${lastMessage}`.slice(0, 300);
+
   // 只写连通性测试结果列;updated_at 是「配置更新时间」,不能被一次测试污染
   // (listChannels 的消费方把 updated_at 当配置变更信号)。
   db.prepare(
     'UPDATE ai_channel SET last_test_status=?, last_test_latency_ms=?, last_test_message=?, last_tested_at=? WHERE id=?',
   ).run(status, latencyMs, message.slice(0, 300), new Date().toISOString(), id);
-  return { status, latencyMs, message: message.slice(0, 300) };
+  return { status, latencyMs, message: message.slice(0, 300), sampleCount, p50LatencyMs, p95LatencyMs, sampleLatencies };
 }
 
 /**

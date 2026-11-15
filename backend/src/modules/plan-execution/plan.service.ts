@@ -27,7 +27,7 @@ import {
   type PlanProjectProgressDto, type PlanProjectProgressListDto, type PlanQuery, type PlanRowStatus, type PlanSheetCode, type PlanSheetOverviewDto,
   type PlanSheetSummaryDto, type PlanUploadForm, type PlanWarningDto,
 } from '../../contracts/plan-execution';
-import { factValueText, fieldLabel, PLAN_FIELDS, parsePlanWorkbook, type ParsedPlanItem, type ParsedPlanSheet } from './plan.parse';
+import { factValueText, fieldLabel, PLAN_FIELDS, parsePlanWorkbook, type ParsedPlanItem, type ParsedPlanSheet, type UnitFormulaMatcher } from './plan.parse';
 
 const nowIso = () => new Date().toISOString();
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -179,13 +179,24 @@ export function buildDeterministicPlanItemKey(params: {
 
 async function parseAndResolve(db: DB, scope: OrgScope, content: Buffer, form: PlanUploadForm, fileName = 'plan.xlsx'): Promise<ResolvedPlan> {
   const { sheets: rawSheets, isLegacyXls } = await readPlanInputSheets(content, fileName);
-  const parsed = parsePlanWorkbook(rawSheets, form.year, planExtraAliases(db), { isLegacyXls });
-  const errors = [...parsed.errors];
-  const warnings = [...parsed.warnings];
   const projects = new Map((db.prepare('SELECT id, code, name, org_id, status FROM md_project').all() as { id: number; code: string; name: string; org_id: number; status: string }[]).map((p) => [p.code, p]));
   const allOrgs = db.prepare('SELECT id, parent_id, code, name, report_full_name, status FROM org ORDER BY sort_order, id').all() as {
     id: number; parent_id: number | null; code: string; name: string; report_full_name: string; status: string;
   }[];
+  const unitMatchers: UnitFormulaMatcher[] = allOrgs
+    .filter((o) => o.status === 'active' && o.parent_id !== null)
+    .map((o) => {
+      const short = o.name.replace(/(水电站|风电场|分公司|有限责任公司|有限公司|公司|电站)$/g, '').trim();
+      const leaf = o.report_full_name ? (o.report_full_name.split('/').pop()?.trim() ?? '') : '';
+      return {
+        key: o.code || String(o.id),
+        label: o.name,
+        tokens: [o.name, short, leaf, o.code].filter((t) => t && t.length >= 2),
+      };
+    });
+  const parsed = parsePlanWorkbook(rawSheets, form.year, planExtraAliases(db), { isLegacyXls, unitMatchers });
+  const errors = [...parsed.errors];
+  const warnings = [...parsed.warnings];
   const orgCodeById = new Map(allOrgs.map((o) => [o.id, o.code]));
   const rootOrg = allOrgs.find((o) => o.parent_id === null && o.status === 'active') ?? allOrgs.find((o) => o.status === 'active') ?? null;
 

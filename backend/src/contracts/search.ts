@@ -4,14 +4,14 @@ import { z } from 'zod';
 
 export const SEARCH_TYPES = [
   'project', 'supplier', 'contract', 'expense_claim', 'project_budget_batch',
-  'feasibility_project', 'investment_project', 'forecast_model', 'risk_event', 'analysis_report', 'budget_version',
+  'feasibility_project', 'investment_project', 'forecast_model', 'risk_event', 'analysis_report', 'budget_version', 'plan_item',
 ] as const;
 export type SearchType = typeof SEARCH_TYPES[number];
 
 export const SEARCH_TYPE_LABELS: Record<SearchType, string> = {
   project: '项目', supplier: '供应商', contract: '合同', expense_claim: '报销单', project_budget_batch: '项目预算批次',
   feasibility_project: '可行性项目', investment_project: '投资控制项目', forecast_model: '预测模型', risk_event: '风险事件',
-  analysis_report: '分析报告', budget_version: '经营预算版本',
+  analysis_report: '分析报告', budget_version: '经营预算版本', plan_item: '综合计划明细',
 };
 
 /** 检索建议里的类型说明:告诉用户每类按哪些字段匹配。 */
@@ -19,7 +19,7 @@ export const SEARCH_TYPE_HINTS: Record<SearchType, string> = {
   project: '按项目编码、名称、类型', supplier: '按供应商名称、编码、信用代码', contract: '按合同编号、名称、供应商',
   expense_claim: '按报销单号、申请人、事由', project_budget_batch: '按批次名称、期间', feasibility_project: '按项目编码、名称',
   investment_project: '按项目编码、名称', forecast_model: '按模型名称', risk_event: '按风险标题、项目、规则',
-  analysis_report: '按报告标题、编号', budget_version: '按版本名称、年度',
+  analysis_report: '分析报告', budget_version: '按版本名称、年度', plan_item: '按综合计划明细名称、项目编码、下达单元',
 };
 
 export const searchSuggestQuery = z.object({

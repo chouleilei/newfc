@@ -17,4 +17,5 @@ export const SEARCH_TYPE_OPTIONS: { value: SearchType; label: string }[] = [
   { value: 'feasibility_project', label: '可行性项目' }, { value: 'investment_project', label: '投资控制项目' },
   { value: 'forecast_model', label: '预测模型' }, { value: 'risk_event', label: '风险事件' },
   { value: 'analysis_report', label: '分析报告' }, { value: 'budget_version', label: '经营预算版本' },
+  { value: 'plan_item', label: '综合计划明细' },
 ];

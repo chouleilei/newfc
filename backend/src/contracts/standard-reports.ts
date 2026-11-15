@@ -4,11 +4,11 @@ import { STATEMENT_SCOPES } from './statements';
 
 /** AC-F19 标准报表:请求 schema 与响应类型。 */
 
-export const STD_REPORT_TYPES = ['budget_execution', 'statement_summary', 'eas_recon', 'contract_payment_ledger', 'risk_rectification_ledger', 'contract_monthly_pack'] as const;
+export const STD_REPORT_TYPES = ['budget_execution', 'statement_summary', 'eas_recon', 'contract_payment_ledger', 'risk_rectification_ledger', 'contract_monthly_pack', 'plan_issuance_summary'] as const;
 export type StdReportType = (typeof STD_REPORT_TYPES)[number];
 export const STD_REPORT_TYPE_LABELS: Record<StdReportType, string> = {
   budget_execution: '经营预算执行表', statement_summary: '财务报表摘要', eas_recon: 'EAS 对账结果表', contract_payment_ledger: '合同付款台账',
-  risk_rectification_ledger: '风险整改台账', contract_monthly_pack: '月度合同5表台账',
+  risk_rectification_ledger: '风险整改台账', contract_monthly_pack: '月度合同5表台账', plan_issuance_summary: '年度综合计划与预算下达汇总表',
 };
 
 /**
@@ -26,6 +26,7 @@ export const stdReportGenerate = z.discriminatedUnion('reportType', [
   z.object({ reportType: z.literal('contract_payment_ledger'), period, orgId: id.optional(), projectId: id.optional() }),
   z.object({ reportType: z.literal('risk_rectification_ledger'), period, orgId: id.optional(), includeClosed: z.boolean().optional() }),
   z.object({ reportType: z.literal('contract_monthly_pack'), period, orgId: id.optional() }),
+  z.object({ reportType: z.literal('plan_issuance_summary'), year: z.coerce.number().int().min(2000).max(2100), cycleId: id.optional(), orgId: id.optional() }),
 ]);
 export type StdReportGenerate = z.infer<typeof stdReportGenerate>;
 

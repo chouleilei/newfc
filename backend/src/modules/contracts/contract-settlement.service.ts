@@ -38,10 +38,10 @@ const FIFTY_WAN_CENTS = 50_000_000n;
 const FIVE_HUNDRED_WAN_CENTS = 500_000_000n;
 
 const hasDoc = (db: DB, contractId: number, ...docTypes: string[]) =>
-  !!db.prepare(`SELECT 1 FROM ct_document WHERE contract_id = ? AND doc_type IN (${docTypes.map(() => '?').join(',')}) LIMIT 1`).get(contractId, ...docTypes);
+  !!db.prepare(`SELECT 1 FROM ct_document WHERE contract_id = ? AND withdrawn_at IS NULL AND doc_type IN (${docTypes.map(() => '?').join(',')}) LIMIT 1`).get(contractId, ...docTypes);
 
 const hasEvidence = (db: DB, contractId: number, ...kinds: string[]) =>
-  !!db.prepare(`SELECT 1 FROM ct_document WHERE contract_id = ? AND evidence_kind IN (${kinds.map(() => '?').join(',')}) LIMIT 1`).get(contractId, ...kinds);
+  !!db.prepare(`SELECT 1 FROM ct_document WHERE contract_id = ? AND withdrawn_at IS NULL AND evidence_kind IN (${kinds.map(() => '?').join(',')}) LIMIT 1`).get(contractId, ...kinds);
 
 export function contractCapCents(c: ContractRow, withRatio = true): bigint | null {
   const base = c.pricing_mode === 'unit_price'
@@ -218,7 +218,7 @@ function assertPaymentApprovalTier(db: DB, c: ContractRow, amount: bigint, input
   const tier = input.approvalTier ?? null;
   const approverName = (input.approverName ?? '').trim();
   const approverTitle = (input.approverTitle ?? '').trim();
-  const fallback = input.evidenceDocumentId && db.prepare("SELECT id FROM ct_document WHERE id = ? AND contract_id = ? AND evidence_kind = 'payment_approval_form'").get(input.evidenceDocumentId, c.id) as { id: number } | undefined;
+  const fallback = input.evidenceDocumentId && db.prepare("SELECT id FROM ct_document WHERE id = ? AND contract_id = ? AND withdrawn_at IS NULL AND evidence_kind = 'payment_approval_form'").get(input.evidenceDocumentId, c.id) as { id: number } | undefined;
   const approvalDoc = input.approvalDocId ?? (fallback ? fallback.id : null);
   const rmbAmount = rmbCents(c, amount);
   const { minTier, large, netAssetFound } = evaluatePaymentTier(db, c, rmbAmount, input.plannedDate ?? null);

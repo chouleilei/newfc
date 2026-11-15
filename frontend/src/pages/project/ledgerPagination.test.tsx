@@ -6,8 +6,9 @@ import { App as AntdApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { setSession } from '../../api/client';
-import { projectBudgetApi, type PbBatchDto, type PbSummaryDto } from '../../api/projectContract';
+import { contractApi, projectBudgetApi, type ContractDetailDto, type ContractDto, type PbBatchDto, type PbSummaryDto } from '../../api/projectContract';
 import ProjectBudget from './ProjectBudget';
+import Contracts from './Contracts';
 
 let client: QueryClient;
 afterEach(() => { cleanup(); client?.clear(); setSession(null); vi.restoreAllMocks(); });
@@ -99,5 +100,172 @@ describe('预算批次分页与操作 AC-F09/F26', () => {
     const confirm = (await screen.findByText('激活批次 #9')).closest('.ant-modal-content') as HTMLElement;
     fireEvent.click(within(confirm).getByText(/^激\s*活$/).closest('button')!);
     await waitFor(() => expect(activate).toHaveBeenCalledWith(9, 77));
+  }, 30_000);
+});
+
+describe('合同台账全筛联动汇总、排序、分币种合计与草稿文档关联撤回 F-GAP-19', () => {
+  const sampleRow: ContractDto = {
+    id: 501,
+    contractNo: 'HQ-SG-01/2026-011',
+    name: '示范电站引水隧洞衬砌合同',
+    contractType: '施工',
+    orgId: 101,
+    orgName: '甲水电开发公司',
+    projectId: 12,
+    projectCode: 'PRJ-012',
+    projectName: '引水隧洞除险工程',
+    supplierId: 30,
+    supplierName: '丙水工建设集团',
+    originalAmount: '500000.00',
+    approvedChange: '50000.00',
+    currentAmount: '550000.00',
+    paidAmount: '200000.00',
+    paymentRate: '0.363636',
+    paymentCapRatio: null,
+    stage: 'approval',
+    status: 'active',
+    statusReason: null,
+    signDate: '2026-09-15',
+    effectiveDate: '2026-09-15',
+    source: 'manual',
+    version: 1,
+    pendingReviews: 1,
+    pendingChanges: 0,
+    openPayments: 0,
+    createdAt: '2026-09-15T00:00:00Z',
+    updatedAt: '2026-09-20T00:00:00Z',
+  };
+
+  it('切换快捷队列与高级筛选项时同步请求 listPage 与 summary，分币种渲染汇总行不跨币种相加，并支持文档 changeId 上传与撤回', async () => {
+    setSession({
+      authenticated: true,
+      csrfToken: 't-ct',
+      expiresAt: '',
+      user: {
+        id: 1,
+        username: 'admin',
+        displayName: '合同管理员',
+        permissions: ['contract:read', 'contract:write', 'contract:import'],
+        allOrgs: true,
+        orgIds: [],
+        mustChangePassword: false,
+      },
+    });
+
+    const listSpy = vi.spyOn(contractApi, 'listPage').mockResolvedValue({
+      items: [sampleRow],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+      totals: [
+        { currency: '人民币', count: 1, originalTotal: '500000.00', currentTotal: '550000.00', settledTotal: '300000.00', paidTotal: '200000.00', receivedTotal: '0.00' },
+        { currency: '美元', count: 1, originalTotal: '80000.00', currentTotal: '80000.00', settledTotal: '40000.00', paidTotal: '40000.00', receivedTotal: '0.00' },
+      ],
+    });
+    const summarySpy = vi.spyOn(contractApi, 'summary').mockResolvedValue({
+      count: 2,
+      byStatus: { active: 2, suspended: 0, closed: 0, terminated: 0, voided: 0 },
+      byStage: { initiation: 0, procurement: 0, drafting: 0, approval: 2, performance: 0, settlement: 0, warranty: 0, closed: 0 },
+      currentAmount: '550000.00',
+      paidAmount: '200000.00',
+      paymentRate: '0.363636',
+      foreignCurrencyCount: 1,
+      pending: { reviews: 1, changes: 0, payments: 0, unpaidApproved: 0 },
+    });
+
+    const detailMock: ContractDetailDto = {
+      ...sampleRow,
+      planItemName: '引水隧洞年度基建计划项',
+      annualPlanAllocAmount: '300000.00',
+      parentContractNo: 'HQ-KJ-01/2026-001',
+      creditChecked: true,
+      responseDocsComplete: true,
+      unitApproverName: '赵总',
+      unitApproverTitle: '总经理',
+      handovers: [
+        { id: 1, fromUndertaker: '孙工', toUndertaker: '钱工', toDept: '工程部', reason: '岗位轮换', leftPostDate: null, handoverDate: '2026-09-18', actor: '管理员', createdAt: '2026-09-18T00:00:00Z' },
+      ],
+      legalReviewEnabled: false,
+      nextStage: 'performance',
+      blockers: [],
+      documents: [
+        { id: 701, docType: 'change', name: '补充协议草稿.docx', fileSha256: 'sha', sizeBytes: 2048, uploadedBy: '钱工', uploadedAt: '2026-09-19T00:00:00Z', changeId: 301, changeSupplementNo: 'HQ-SG-01/2026-011(补1)', canWithdraw: true },
+      ],
+      reviews: [],
+      changes: [
+        { id: 301, delta: '50000.00', reason: '支护加固', supplementNo: 'HQ-SG-01/2026-011(补1)', evidenceDocumentId: 701, status: 'approved', submittedBy: '钱工', submittedAt: '2026-09-19T00:00:00Z', reviewedBy: '赵总', reviewedAt: '2026-09-19T01:00:00Z', comment: null, exceptionReason: null, selfReview: false },
+      ],
+      payments: [],
+      countersigns: [],
+      events: [],
+    };
+    vi.spyOn(contractApi, 'get').mockResolvedValue(detailMock);
+    const uploadSpy = vi.spyOn(contractApi, 'uploadDocument').mockResolvedValue(detailMock.documents[0]);
+    const withdrawSpy = vi.spyOn(contractApi, 'withdrawDocument').mockResolvedValue(detailMock);
+
+    client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(['org-tree'], { rows: [], tree: [] });
+    render(
+      <ConfigProvider locale={zhCN} theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={['/contracts']}>
+              <Contracts />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AntdApp>
+      </ConfigProvider>,
+    );
+
+    // 1. 验证分币种汇总行分别展示人民币与美元，不跨币种错加
+    expect(await screen.findByText('当前筛选合计（人民币 · 1 份）')).toBeTruthy();
+    expect(screen.getByText('当前筛选合计（美元 · 1 份）')).toBeTruthy();
+    expect(screen.getByText('台账导入').closest('button')).toBeTruthy();
+
+    // 2. 切换「待补录要素与盖章件」快捷队列，验证 listPage 与 summary 同步携带相同参数
+    fireEvent.click(screen.getByText('待补录要素与盖章件'));
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ migrationMode: 'legacy_tolerant', archiveStatus: 'collecting' }),
+      ),
+    );
+    await waitFor(() =>
+      expect(summarySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ migrationMode: 'legacy_tolerant', archiveStatus: 'collecting' }),
+      ),
+    );
+
+    // 3. 点击列表表头「签订日期」排序，验证 sortBy / sortDir 传参
+    const signDateHeader = screen.getAllByText('签订日期').map((el) => el.closest('th')).find(Boolean)!;
+    fireEvent.click(signDateHeader);
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ sortBy: 'signDate' }),
+      ),
+    );
+
+    // 4. 点击合同行打开详情抽屉，验证新增基础字段描述项、文档上传传 changeId 及撤回作废交互
+    fireEvent.click(await screen.findByText('示范电站引水隧洞衬砌合同'));
+    expect(await screen.findByText(/引水隧洞年度基建计划项（本年分配 300000.00 元）/)).toBeTruthy();
+    expect(screen.getByText('孙工 → 钱工 (2026-09-18)')).toBeTruthy();
+
+    const changeSelect = screen.getAllByLabelText('关联补充协议')[0];
+    fireEvent.mouseDown(changeSelect.closest('.ant-select')!.querySelector('.ant-select-selector')!);
+    const chOpt = await screen.findAllByText(/HQ-SG-01\/2026-011\(补1\) · 支护加固/);
+    fireEvent.click(chOpt[chOpt.length - 1]);
+
+    const fileInput = document.querySelector('.contract-detail-drawer input[type="file"]') as HTMLInputElement;
+    const docFile = new File(['demo'], '补充扫描件.pdf', { type: 'application/pdf' });
+    fireEvent.change(fileInput, { target: { files: [docFile] } });
+    await waitFor(() =>
+      expect(uploadSpy).toHaveBeenCalledWith(501, docFile, 'contract_text', undefined, undefined, 301),
+    );
+
+    fireEvent.click(screen.getByText('撤回作废').closest('button')!);
+    const confirmWithdrawSpan = await screen.findByText('确认撤回');
+    fireEvent.click(confirmWithdrawSpan.closest('button')!);
+    await waitFor(() =>
+      expect(withdrawSpy).toHaveBeenCalledWith(501, 701, '草稿未引用文档撤回作废'),
+    );
   }, 30_000);
 });

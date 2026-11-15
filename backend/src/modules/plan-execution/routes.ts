@@ -8,15 +8,45 @@ import type { ObjectStore } from '../files/object-store';
 import { memoryUpload, sendAttachment, uploadName } from '../files/http';
 import { id as idSchema } from '../../contracts/common';
 import { year as yearSchema } from '../../contracts/project-budget';
-import { PLAN_SHEETS, planActivateRequest, planQuery, planUploadForm, planVoidRequest, type PlanSheetCode } from '../../contracts/plan-execution';
+import {
+  PLAN_SHEETS,
+  planActivateRequest,
+  planAdjustmentCreateRequest,
+  planAdjustmentReviewRequest,
+  planIssuanceCycleCreateRequest,
+  planPackAcknowledgeRequest,
+  planQuery,
+  planReconcileRequest,
+  planUploadForm,
+  planVoidRequest,
+  type PlanSheetCode,
+} from '../../contracts/plan-execution';
 import { formFields, queryFields } from '../project-budget/routes';
 import {
   activatePlan, buildPlanTemplateWorkbook, exportPlanBatchWorkbook, getPlanBatch, importPlan, listPlanBatches,
   planItems, planOriginal, planOverview, planProjectProgress, previewPlan, voidPlan,
 } from './plan.service';
+import {
+  acknowledgeUnitPack,
+  createIssuanceCycle,
+  createPlanAdjustment,
+  exportCycleZip,
+  exportUnitPackDocx,
+  getIssuanceCycle,
+  getUnitPack,
+  listIssuanceCycles,
+  listPlanAdjustments,
+  listUnitPacks,
+  publishIssuanceCycle,
+  reconcileCycleTotals,
+  reviewPlanAdjustment,
+} from './plan-issuance.service';
 
 addRouteRules([
+  { method: 'GET', pattern: /^\/plan\/issuance\/cycles\/\d+\/export-zip$/, permission: 'plan:read', allOrgs: true },
   { method: 'GET', pattern: /^\/plan\//, permission: 'plan:read' },
+  { method: 'WRITE', pattern: /^\/plan\/issuance\/(cycles(\/\d+\/(reconcile|publish))?|adjustments\/\d+\/review)$/, permission: 'plan:write', allOrgs: true },
+  { method: 'WRITE', pattern: /^\/plan\/issuance\/(packs\/\d+\/acknowledge|adjustments)$/, permission: 'plan:write' },
   { method: 'WRITE', pattern: /^\/plan\/(preview|import|batches\/\d+\/(activate|void))$/, permission: 'plan:write' },
 ]);
 
@@ -65,4 +95,69 @@ export function registerPlanRoutes(app: Express, db: () => DB, wrap: Wrap, store
   app.post('/api/plan/batches/:id/void', wrap((req, res) => { res.json(voidPlan(db(), id(req.params.id), parseInput(planVoidRequest, req.body).reason)); }));
   app.get('/api/plan/overview', wrap((req, res) => { res.json(planOverview(db(), parseInput(planQuery, queryFields(req)))); }));
   app.get('/api/plan/projects', wrap((req, res) => { res.json(planProjectProgress(db(), parseInput(planQuery, queryFields(req)))); }));
+
+  /* ---------------- T-14 综合计划与预算合一下达、签收与调整 ---------------- */
+  app.get('/api/plan/issuance/cycles', wrap((req, res) => {
+    const q = queryFields(req);
+    res.json({
+      items: listIssuanceCycles(db(), {
+        year: q.year ? parseInput(yearSchema, q.year) : undefined,
+        status: q.status,
+      }),
+    });
+  }));
+  app.post('/api/plan/issuance/cycles', wrap((req, res) => {
+    res.status(201).json(createIssuanceCycle(db(), parseInput(planIssuanceCycleCreateRequest, req.body)));
+  }));
+  app.get('/api/plan/issuance/cycles/:id', wrap((req, res) => {
+    res.json(getIssuanceCycle(db(), id(req.params.id)));
+  }));
+  app.post('/api/plan/issuance/cycles/:id/reconcile', wrap((req, res) => {
+    res.json(reconcileCycleTotals(db(), id(req.params.id), parseInput(planReconcileRequest, req.body ?? {})));
+  }));
+  app.post('/api/plan/issuance/cycles/:id/publish', wrap((req, res) => {
+    res.json(publishIssuanceCycle(db(), id(req.params.id)));
+  }));
+  app.get('/api/plan/issuance/cycles/:id/export-zip', wrap(async (req, res) => {
+    const out = await exportCycleZip(db(), id(req.params.id));
+    sendAttachment(res, out.fileName, 'application/zip', out.buffer);
+  }));
+
+  app.get('/api/plan/issuance/packs', wrap((req, res) => {
+    const q = queryFields(req);
+    res.json({
+      items: listUnitPacks(db(), {
+        cycleId: q.cycleId ? id(q.cycleId) : undefined,
+        year: q.year ? parseInput(yearSchema, q.year) : undefined,
+        status: q.status,
+        view: q.view === 'undertake' ? 'undertake' : 'unit',
+      }),
+    });
+  }));
+  app.get('/api/plan/issuance/packs/:id', wrap((req, res) => {
+    res.json(getUnitPack(db(), id(req.params.id)));
+  }));
+  app.post('/api/plan/issuance/packs/:id/acknowledge', wrap((req, res) => {
+    res.json(acknowledgeUnitPack(db(), id(req.params.id), parseInput(planPackAcknowledgeRequest, req.body)));
+  }));
+  app.get('/api/plan/issuance/packs/:id/export-docx', wrap(async (req, res) => {
+    const out = await exportUnitPackDocx(db(), id(req.params.id));
+    sendAttachment(res, out.fileName, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', out.buffer);
+  }));
+
+  app.get('/api/plan/issuance/adjustments', wrap((req, res) => {
+    const q = queryFields(req);
+    res.json({
+      items: listPlanAdjustments(db(), {
+        cycleId: q.cycleId ? id(q.cycleId) : undefined,
+        status: q.status,
+      }),
+    });
+  }));
+  app.post('/api/plan/issuance/adjustments', wrap((req, res) => {
+    res.status(201).json(createPlanAdjustment(db(), parseInput(planAdjustmentCreateRequest, req.body)));
+  }));
+  app.post('/api/plan/issuance/adjustments/:id/review', wrap((req, res) => {
+    res.json(reviewPlanAdjustment(db(), id(req.params.id), parseInput(planAdjustmentReviewRequest, req.body)));
+  }));
 }

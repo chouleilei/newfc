@@ -1,7 +1,14 @@
 import { getSetting, workingCalendar } from '../settings/business-settings';
-import { assertContractFunding } from './contract-funding';
+import { assertBudgetPoolCap, assertContractFunding, computeBudgetPoolUsage } from './contract-funding';
 import { assertWarrantyReleased, contractHasWarranty, deriveContractSixDim, requireEvidence } from './contract-controls';
 import { validateNewContractNoWithPrefixMap } from './prefix-map.service';
+import {
+  computeCountersignBlockers,
+  decideContractCountersign,
+  listContractCountersigns,
+  syncContractCountersigns,
+} from './contract-countersign.service';
+import { getContractProcurement, saveContractProcurement } from './contract-procurement.service';
 import { legalAccess } from './legal-access';
 import { assertGuarantorConsent, CHANGE_TIER_RANK } from './contract-change.service';
 import { getContractEvaluation, getContractWarranty, listContractDisputes, listContractGuarantees } from './contract-safeguard.service';
@@ -25,7 +32,7 @@ import type { PageDto, PageQuery } from '../../contracts/common';
 import { AppError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalString, formatScaled, mulCents, parseDecimalToCents, parseScaled, ratioString, RATIO_SCALE } from '../../core/decimal';
-import { addCalendarDays, todayUtcDate, workingDayCutoffBefore } from '../../core/workdays';
+import { addCalendarDays, todayUtcDate, workingDayCutoffBefore, workingDaysBetween } from '../../core/workdays';
 import { writeLog } from '../audit/log';
 import { assertDistinctReviewer, isAdminUser } from '../security/review';
 import { currentOrgScope, notVisible, orgInScope, scopeFilterSql } from '../security/scope';
@@ -39,6 +46,8 @@ import {
   type ContractPaymentApprovalTier, type ContractPaymentType, type ContractPricingMode, type ContractReceiptDto, type ContractReportCategory,
   type ContractSettlementDto, type ContractTenderBodyType, type ContractTermType, type ContractUndertakerHandoverDto,
   type ContractCurrencyLineDto,
+  type ContractCurrencyTotalDto, type ContractPageDto, type ContractCountersignDecideRequest, type ContractCountersignDto,
+  type ProcurementRecordDto,
 } from '../../contracts/project-contract';
 
 const nowIso = () => new Date().toISOString();
@@ -66,6 +75,7 @@ export interface ContractRow {
   currency: string; exchange_rate_scaled: bigint | null; report_category: ContractReportCategory; summary_text: string; remark: string;
   out_of_plan_approved_date: string | null;
   plan_item_id: number | null; budget_type: ContractBudgetType; is_emergency: number; emergency_start_date: string | null;
+  annual_plan_alloc_cents: bigint | null; budget_pool_account_id: number | null; budget_pool_cap_cents: bigint | null;
   funding_source: ContractFundingSource; funding_source_detail: string; source_income_contract_id: number | null; parent_contract_id: number | null; external_no_exempt: number;
   counterparty_names: string; undertaker_name: string; undertaker_dept: string;
   our_signatory_name: string; our_signatory_title: string; our_signatory_is_legal_rep: number | null;
@@ -129,6 +139,7 @@ function normalizeRow(r: Record<string, unknown>): ContractRow {
   return {
     ...(r as unknown as ContractRow), id: Number(r.id), org_id: Number(r.org_id), project_id: n(r.project_id), supplier_id: n(r.supplier_id),
     plan_item_id: n(r.plan_item_id), source_income_contract_id: n(r.source_income_contract_id), parent_contract_id: n(r.parent_contract_id),
+    budget_pool_account_id: n(r.budget_pool_account_id),
     procurement_record_id: n(r.procurement_record_id),
     signing_org_id: n(r.signing_org_id), signing_subject_org_id: n(r.signing_subject_org_id),
     legal_entity_org_id: n(r.legal_entity_org_id), historical_legal_entity_org_id: n(r.historical_legal_entity_org_id),
@@ -186,6 +197,20 @@ function toDto(db: DB, c: ContractRow): ContractDto {
   const srcIncome = c.source_income_contract_id
     ? db.prepare('SELECT contract_no, name FROM ct_contract WHERE id = ?').get(c.source_income_contract_id) as { contract_no: string; name: string } | undefined
     : undefined;
+  const planItem = c.plan_item_id
+    ? (db.prepare('SELECT item_name FROM plan_item WHERE id = ?').get(c.plan_item_id) as { item_name: string } | undefined)
+    : undefined;
+  const parentCt = c.parent_contract_id
+    ? (db.prepare('SELECT contract_no FROM ct_contract WHERE id = ?').get(c.parent_contract_id) as { contract_no: string } | undefined)
+    : undefined;
+  const linkedProcCount = c.procurement_record_id
+    ? (
+        db
+          .prepare("SELECT COUNT(*) AS n FROM ct_contract WHERE procurement_record_id = ? AND status <> 'voided'")
+          .get(c.procurement_record_id) as { n: number }
+      ).n
+    : 0;
+  const poolUsage = computeBudgetPoolUsage(db, c, 0n);
   let missingFields: string[] = [];
   try {
     const parsedMissing = JSON.parse(c.missing_fields_json || '[]');
@@ -232,6 +257,20 @@ function toDto(db: DB, c: ContractRow): ContractDto {
     reportCategory: c.report_category, summaryText: c.summary_text, remark: c.remark,
     outOfPlanApprovedDate: c.out_of_plan_approved_date ?? null,
     planItemId: c.plan_item_id, budgetType: c.budget_type, isEmergency: !!c.is_emergency, emergencyStartDate: c.emergency_start_date,
+    planItemName: planItem?.item_name ?? null,
+    parentContractNo: parentCt?.contract_no ?? null,
+    annualPlanAllocAmount: c.annual_plan_alloc_cents == null ? null : centsToDecimalString(c.annual_plan_alloc_cents),
+    budgetPoolAccountId: c.budget_pool_account_id ?? null,
+    budgetPoolCapAmount:
+      poolUsage?.capCents != null
+        ? centsToDecimalString(poolUsage.capCents)
+        : c.budget_pool_cap_cents == null
+          ? null
+          : centsToDecimalString(c.budget_pool_cap_cents),
+    budgetPoolUsedAmount: poolUsage ? centsToDecimalString(poolUsage.totalUsedCents) : null,
+    budgetPoolRemainingAmount: poolUsage?.remainingCents != null ? centsToDecimalString(poolUsage.remainingCents) : null,
+    procurementRecordId: c.procurement_record_id ?? null,
+    linkedProcurementContractCount: linkedProcCount,
     fundingSource: c.funding_source, fundingSourceDetail: c.funding_source_detail,
     sourceIncomeContractId: c.source_income_contract_id, sourceIncomeContractNo: srcIncome?.contract_no ?? null, sourceIncomeContractName: srcIncome?.name ?? null,
     parentContractId: c.parent_contract_id, externalNoExempt: !!c.external_no_exempt,
@@ -308,9 +347,9 @@ export function nextStage(stage: ContractStage, hasWarranty = false): ContractSt
 }
 
 const hasDoc = (db: DB, contractId: number, ...types: ContractDocType[]) =>
-  !!db.prepare(`SELECT 1 FROM ct_document WHERE contract_id = ? AND doc_type IN (${types.map(() => '?').join(',')}) LIMIT 1`).get(contractId, ...types);
+  !!db.prepare(`SELECT 1 FROM ct_document WHERE contract_id = ? AND withdrawn_at IS NULL AND doc_type IN (${types.map(() => '?').join(',')}) LIMIT 1`).get(contractId, ...types);
 const hasEvidence = (db: DB, contractId: number, ...kinds: EvidenceKind[]) =>
-  !!db.prepare(`SELECT 1 FROM ct_document WHERE contract_id = ? AND evidence_kind IN (${kinds.map(() => '?').join(',')}) LIMIT 1`).get(contractId, ...kinds);
+  !!db.prepare(`SELECT 1 FROM ct_document WHERE contract_id = ? AND withdrawn_at IS NULL AND evidence_kind IN (${kinds.map(() => '?').join(',')}) LIMIT 1`).get(contractId, ...kinds);
 
 /** 离开当前阶段(推进到下一阶段)的阻断项。 */
 export function computeBlockers(db: DB, c: ContractRow): BlockerDto[] {
@@ -356,7 +395,7 @@ export function computeBlockers(db: DB, c: ContractRow): BlockerDto[] {
       break;
     case 'approval': {
       try { assertContractFunding(db, c); } catch (err) { if (!(err instanceof AppError)) throw err; add(err.code, err.message); }
-      const latestText = db.prepare("SELECT MAX(id) AS id FROM ct_document WHERE contract_id = ? AND doc_type = 'contract_text'").get(c.id) as { id: number | null };
+      const latestText = db.prepare("SELECT MAX(id) AS id FROM ct_document WHERE contract_id = ? AND doc_type = 'contract_text' AND withdrawn_at IS NULL").get(c.id) as { id: number | null };
       const approved = db.prepare("SELECT document_id,legal_run_id FROM ct_review WHERE contract_id = ? AND status = 'approved' ORDER BY id DESC LIMIT 1").get(c.id) as { document_id: number; legal_run_id: number|null } | undefined;
       if (!approved) add('REVIEW_APPROVED', '审批签署需合同审核通过');
       else if (latestText.id !== approved.document_id) add('REVIEW_OUTDATED', '合同正文在审核通过后有更新,需重新提交审核');
@@ -382,6 +421,9 @@ export function computeBlockers(db: DB, c: ContractRow): BlockerDto[] {
         add('COUNTERPARTY_SIGNATORY_AUTH_REQUIRED', '对方签署人非法定代表人，须上传对方《授权委托书》');
       }
       if (!hasDoc(db, c.id, 'signed')) add('SIGNED_DOC', '审批签署需上传签署件');
+      for (const csBlocker of computeCountersignBlockers(db, c)) {
+        add(csBlocker.code, csBlocker.message);
+      }
       break;
     }
     case 'performance':
@@ -448,10 +490,70 @@ function closureBlockers(db: DB, c: ContractRow): BlockerDto[] {
   return out;
 }
 
+function isDocumentReferenced(db: DB, contractId: number, docId: number): boolean {
+  const checks: [string, unknown[]][] = [
+    ['SELECT 1 FROM ct_review WHERE contract_id = ? AND document_id = ? LIMIT 1', [contractId, docId]],
+    [
+      'SELECT 1 FROM ct_change WHERE contract_id = ? AND (evidence_document_id = ? OR tech_special_audit_doc_id = ? OR out_of_plan_doc_id = ? OR guarantor_consent_doc_id = ?) LIMIT 1',
+      [contractId, docId, docId, docId, docId],
+    ],
+    [
+      'SELECT 1 FROM ct_settlement WHERE contract_id = ? AND evidence_document_id = ? LIMIT 1',
+      [contractId, docId],
+    ],
+    [
+      'SELECT 1 FROM ct_payment WHERE contract_id = ? AND (evidence_document_id = ? OR feasibility_doc_id = ? OR approval_doc_id = ? OR invoice_document_id = ?) LIMIT 1',
+      [contractId, docId, docId, docId, docId],
+    ],
+    ['SELECT 1 FROM ct_receipt WHERE contract_id = ? AND invoice_document_id = ? LIMIT 1', [contractId, docId]],
+    ['SELECT 1 FROM ct_warranty WHERE contract_id = ? AND visa_document_id = ? LIMIT 1', [contractId, docId]],
+    ['SELECT 1 FROM ct_guarantee WHERE contract_id = ? AND document_id = ? LIMIT 1', [contractId, docId]],
+  ];
+  return checks.some(([sql, params]) => !!db.prepare(sql).get(...params));
+}
+
 function documents(db: DB, contractId: number): ContractDocumentDto[] {
-  return (db.prepare(`SELECT d.*, f.sha256, f.size_bytes FROM ct_document d JOIN file_object f ON f.id = d.file_object_id WHERE d.contract_id = ? ORDER BY d.id`).all(contractId) as
-    { id: number; doc_type: ContractDocType; evidence_kind: EvidenceKind|null; change_id: number|null; name: string; sha256: string; size_bytes: number; uploaded_by_user_id: number | null; uploaded_at: string }[])
-    .map((d) => ({ id: d.id, evidenceKind:d.evidence_kind, changeId: d.change_id ?? null, docType: d.doc_type, name: d.name, fileSha256: d.sha256, sizeBytes: d.size_bytes, uploadedBy: userName(db, d.uploaded_by_user_id), uploadedAt: d.uploaded_at }));
+  const cRow = db.prepare('SELECT status FROM ct_contract WHERE id = ?').get(contractId) as { status: ContractStatus } | undefined;
+  const isActive = cRow?.status === 'active';
+  return (
+    db
+      .prepare(
+        `SELECT d.*, f.sha256, f.size_bytes, ch.supplement_no AS change_supplement_no
+         FROM ct_document d
+         JOIN file_object f ON f.id = d.file_object_id
+         LEFT JOIN ct_change ch ON ch.id = d.change_id
+         WHERE d.contract_id = ?
+         ORDER BY d.id`,
+      )
+      .all(contractId) as {
+      id: number;
+      doc_type: ContractDocType;
+      evidence_kind: EvidenceKind | null;
+      change_id: number | null;
+      change_supplement_no: string | null;
+      name: string;
+      sha256: string;
+      size_bytes: number;
+      uploaded_by_user_id: number | null;
+      uploaded_at: string;
+      withdrawn_at: string | null;
+      withdraw_reason: string;
+    }[]
+  ).map((d) => ({
+    id: d.id,
+    evidenceKind: d.evidence_kind,
+    changeId: d.change_id ?? null,
+    changeSupplementNo: d.change_supplement_no ?? null,
+    withdrawnAt: d.withdrawn_at ?? null,
+    withdrawReason: d.withdraw_reason || undefined,
+    canWithdraw: isActive && d.withdrawn_at === null && !isDocumentReferenced(db, contractId, d.id),
+    docType: d.doc_type,
+    name: d.name,
+    fileSha256: d.sha256,
+    sizeBytes: d.size_bytes,
+    uploadedBy: userName(db, d.uploaded_by_user_id),
+    uploadedAt: d.uploaded_at,
+  }));
 }
 
 type ReviewCols = { reviewed_by_user_id: number | null; reviewed_at: string | null; review_comment: string | null; exception_reason: string | null; self_review: number; submitted_by_user_id: number | null; submitted_at: string };
@@ -467,7 +569,11 @@ export function getContractDetail(db: DB, id: number): ContractDetailDto {
   const reviews = (db.prepare('SELECT * FROM ct_review WHERE contract_id = ? ORDER BY id').all(id) as (ReviewCols & { id: number; document_id: number; status: ContractReviewDto['status']; submit_note: string; legal_run_id: number|null; override_high_risk: number })[])
     .map((r) => ({ id: r.id, legalRunId:r.legal_run_id, overrideHighRisk:!!r.override_high_risk, documentId: r.document_id, documentName: docName.get(r.document_id) ?? '', status: r.status, note: r.submit_note, ...reviewPart(db, r) }));
   const changes = (db.prepare('SELECT * FROM ct_change WHERE contract_id = ? ORDER BY id').safeIntegers(true).all(id) as Record<string, unknown>[])
-    .map((r): ContractChangeDto => ({
+    .map((r): ContractChangeDto => {
+      const advOcc = (r.adverse_occurred_at as string | null | undefined) ?? null;
+      const advRep = (r.adverse_reported_at as string | null | undefined) ?? null;
+      const advDays = advOcc ? workingDaysBetween(advOcc, advRep ?? todayUtcDate(), workingCalendar(db)) : null;
+      return {
       ...reviewPart(db, { ...(r as unknown as ReviewCols), reviewed_by_user_id: num(r.reviewed_by_user_id), submitted_by_user_id: num(r.submitted_by_user_id), self_review: Number(r.self_review) }),
       id: Number(r.id), delta: centsToDecimalString(r.delta_cents as bigint), reason: String(r.reason),
       evidenceDocumentId: Number(r.evidence_document_id), status: r.status as ContractChangeDto['status'],
@@ -493,7 +599,11 @@ export function getContractDetail(db: DB, id: number): ContractDetailDto {
       outOfPlanDocId: num(r.out_of_plan_doc_id),
       guarantorConsentDocId: num(r.guarantor_consent_doc_id),
       disciplineFiledAt: (r.discipline_filed_at as string | null | undefined) ?? null,
-    }));
+      adverseOccurredAt: advOcc,
+      adverseReportedAt: advRep,
+      adverseOverdue2Workdays: advDays !== null && advDays > 2,
+      };
+    });
   const payments = (db.prepare('SELECT * FROM ct_payment WHERE contract_id = ? ORDER BY id').safeIntegers(true).all(id) as Record<string, unknown>[]).map((r): ContractPaymentDto => ({
     ...reviewPart(db, { ...(r as unknown as ReviewCols), reviewed_by_user_id: num(r.reviewed_by_user_id), submitted_by_user_id: num(r.submitted_by_user_id), self_review: Number(r.self_review) }),
     id: Number(r.id), kind: r.kind as ContractPaymentDto['kind'], nodeName: String(r.node_name), amount: centsToDecimalString(r.amount_cents as bigint),
@@ -529,7 +639,9 @@ export function getContractDetail(db: DB, id: number): ContractDetailDto {
   const warranty = getContractWarranty(db, id);
   const disputes = listContractDisputes(db, id);
   const evaluation = getContractEvaluation(db, id);
-  return { ...toDto(db, c), legalReviewEnabled: legalEnabled(db,c), nextStage: c.status === 'active' ? nextStage(c.stage, contractHasWarranty(db, c)) : null, blockers: computeBlockers(db, c), documents: docs, reviews, changes, settlements, payments, receipts, guarantees, warranty, disputes, handovers, evaluation, events };
+  const countersigns = listContractCountersigns(db, id);
+  const procurementRecord = getContractProcurement(db, c);
+  return { ...toDto(db, c), legalReviewEnabled: legalEnabled(db,c), nextStage: c.status === 'active' ? nextStage(c.stage, contractHasWarranty(db, c)) : null, blockers: computeBlockers(db, c), documents: docs, reviews, changes, settlements, payments, receipts, guarantees, warranty, disputes, handovers, evaluation, countersigns, procurementRecord, events };
 }
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 
@@ -569,11 +681,17 @@ function contractListFilter(db: DB, q: ContractListQuery) {
   if (q.direction) { where.push('direction = ?'); params.push(q.direction); }
   if (q.pricingMode) { where.push('pricing_mode = ?'); params.push(q.pricingMode); }
   if (q.archiveStatus) { where.push('archive_status = ?'); params.push(q.archiveStatus); }
+  if (q.legalCategory) { where.push('legal_category = ?'); params.push(q.legalCategory); }
+  if (q.procurementMethod) { where.push('procurement_method = ?'); params.push(q.procurementMethod); }
+  if (q.signDateFrom) { where.push('sign_date IS NOT NULL AND sign_date >= ?'); params.push(q.signDateFrom); }
+  if (q.signDateTo) { where.push('sign_date IS NOT NULL AND sign_date <= ?'); params.push(q.signDateTo); }
+  if (q.migrationMode) { where.push('migration_mode = ?'); params.push(q.migrationMode); }
   if (q.orgId) {
     where.push('org_id IN (WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT o.id FROM org o JOIN sub ON o.parent_id = sub.id) SELECT id FROM sub)');
     params.push(q.orgId);
   }
   if (q.projectId) { where.push('project_id = ?'); params.push(q.projectId); }
+  if (q.planItemId) { where.push('plan_item_id = ?'); params.push(q.planItemId); }
   if (q.keyword) { const k = `%${q.keyword.replace(/[%_]/g, '')}%`; where.push('(contract_no LIKE ? OR name LIKE ?)'); params.push(k, k); }
   if (q.todo) {
     const cond = todoCondition(db, q.todo);
@@ -583,36 +701,80 @@ function contractListFilter(db: DB, q: ContractListQuery) {
   return { clause: where.join(' AND '), params };
 }
 
+const ORDER_BY_WHITELIST: Record<string, string> = {
+  updated_at: 'updated_at',
+  sign_date: "COALESCE(sign_date, '')",
+  original_cents: 'original_cents',
+  contract_no: 'normalized_no',
+  updatedAt: 'updated_at',
+  signDate: "COALESCE(sign_date, '')",
+  originalAmount: 'original_cents',
+  currentAmount: '(original_cents + approved_change_cents)',
+  contractNo: 'normalized_no',
+};
+
+function contractOrderClause(q: ContractListQuery): string {
+  const col = q.sortBy && ORDER_BY_WHITELIST[q.sortBy] ? ORDER_BY_WHITELIST[q.sortBy] : 'updated_at';
+  const dir = q.sortDir === 'asc' ? 'ASC' : 'DESC';
+  return `${col} ${dir}, id DESC`;
+}
+
 export function listContracts(db: DB, q: ContractListQuery = {}): ContractDto[] {
   const { clause, params } = contractListFilter(db, q);
-  return (db.prepare(`SELECT * FROM ct_contract WHERE ${clause} ORDER BY updated_at DESC, id DESC LIMIT 500`).safeIntegers(true).all(...params) as Record<string, unknown>[])
+  const orderSql = contractOrderClause(q);
+  return (db.prepare(`SELECT * FROM ct_contract WHERE ${clause} ORDER BY ${orderSql} LIMIT 500`).safeIntegers(true).all(...params) as Record<string, unknown>[])
     .map((r) => toDto(db, normalizeRow(r)));
 }
 
-export function listContractsPage(db: DB, q: ContractListQuery & PageQuery): PageDto<ContractDto> {
+export function listContractsPage(db: DB, q: ContractListQuery & PageQuery): ContractPageDto {
   const { clause, params } = contractListFilter(db, q);
+  const orderSql = contractOrderClause(q);
   return db.transaction(() => {
     const { total } = db.prepare(`SELECT COUNT(*) AS total FROM ct_contract WHERE ${clause}`).get(...params) as { total: number };
     const page = Math.min(q.page, Math.max(1, Math.ceil(total / q.pageSize)));
-    const rows = db.prepare(`SELECT * FROM ct_contract WHERE ${clause} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`)
+    const rows = db.prepare(`SELECT * FROM ct_contract WHERE ${clause} ORDER BY ${orderSql} LIMIT ? OFFSET ?`)
       .safeIntegers(true).all(...params, q.pageSize, (page - 1) * q.pageSize) as Record<string, unknown>[];
-    return { items: rows.map((r) => toDto(db, normalizeRow(r))), total, page, pageSize: q.pageSize };
+    const currencyAggRows = db
+      .prepare(
+        `SELECT currency,
+                COUNT(*) AS cnt,
+                COALESCE(SUM(original_cents), 0) AS orig_sum,
+                COALESCE(SUM(original_cents + approved_change_cents), 0) AS cur_sum,
+                COALESCE(SUM(settled_net_cents), 0) AS set_sum,
+                COALESCE(SUM(paid_cents), 0) AS paid_sum,
+                COALESCE(SUM(received_cents), 0) AS rec_sum
+         FROM ct_contract
+         WHERE ${clause} AND status <> 'voided'
+         GROUP BY currency
+         ORDER BY CASE WHEN currency = '人民币' THEN 0 ELSE 1 END, currency ASC`,
+      )
+      .safeIntegers(true)
+      .all(...params) as {
+      currency: string;
+      cnt: bigint;
+      orig_sum: bigint;
+      cur_sum: bigint;
+      set_sum: bigint;
+      paid_sum: bigint;
+      rec_sum: bigint;
+    }[];
+    const totals: ContractCurrencyTotalDto[] = currencyAggRows.map((g) => ({
+      currency: g.currency,
+      count: Number(g.cnt),
+      originalTotal: centsToDecimalString(g.orig_sum),
+      currentTotal: centsToDecimalString(g.cur_sum),
+      settledTotal: centsToDecimalString(g.set_sum),
+      paidTotal: centsToDecimalString(g.paid_sum),
+      receivedTotal: centsToDecimalString(g.rec_sum),
+    }));
+    return { items: rows.map((r) => toDto(db, normalizeRow(r))), total, page, pageSize: q.pageSize, totals };
   })();
 }
 
 /** 范围内合同汇总(助手 contract_summary、工作台待办共用)。 */
-export function contractSummary(db: DB, q: { orgId?: number; projectId?: number } = {}): ContractSummaryDto {
-  const scope = currentOrgScope(db);
-  if (q.orgId && !orgInScope(scope, q.orgId)) throw notVisible('组织');
-  const sc = scopeFilterSql(scope, 'c.org_id');
-  const where = [sc.sql];
-  const params: unknown[] = [...sc.params];
-  if (q.orgId) {
-    where.push('c.org_id IN (WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT o.id FROM org o JOIN sub ON o.parent_id = sub.id) SELECT id FROM sub)');
-    params.push(q.orgId);
-  }
-  if (q.projectId) { where.push('c.project_id = ?'); params.push(q.projectId); }
-  const rows = db.prepare(`SELECT c.id, c.status, c.stage, c.direction, c.currency, c.original_cents, c.approved_change_cents, c.paid_cents, c.received_cents FROM ct_contract c WHERE ${where.join(' AND ')}`)
+export function contractSummary(db: DB, q: ContractListQuery = {}): ContractSummaryDto {
+  const { clause, params } = contractListFilter(db, q);
+  const rows = db.prepare(`SELECT id, status, stage, direction, currency, original_cents, approved_change_cents, paid_cents, received_cents FROM ct_contract WHERE ${clause}`)
     .safeIntegers(true).all(...params) as { id: bigint; status: ContractStatus; stage: ContractStage; direction: ContractDirection; currency: string; original_cents: bigint; approved_change_cents: bigint; paid_cents: bigint; received_cents: bigint }[];
   const byStatus = Object.fromEntries(CONTRACT_STATUSES.map((s) => [s, 0])) as Record<ContractStatus, number>;
   const byStage = Object.fromEntries(CONTRACT_STAGES.map((s) => [s, 0])) as Record<ContractStage, number>;
@@ -730,7 +892,8 @@ function assertLifecycleConsistency(db: DB, params: {
 const LIFECYCLE_COLUMN_SQL = [
   'direction', 'pricing_mode', 'unit_price_desc', 'estimated_ceiling_cents', 'currency', 'exchange_rate_scaled',
   'report_category', 'summary_text', 'remark', 'plan_item_id', 'budget_type', 'is_emergency', 'emergency_start_date',
-  'funding_source', 'funding_source_detail', 'source_income_contract_id', 'parent_contract_id', 'external_no_exempt',
+  'annual_plan_alloc_cents', 'budget_pool_account_id', 'budget_pool_cap_cents', 'procurement_record_id',
+  'funding_source', 'funding_source_detail', 'source_income_contract_id', 'parent_contract_id', 'external_no_exempt', 'is_internal_group_tx',
   'counterparty_names', 'undertaker_name', 'undertaker_dept', 'our_signatory_name', 'our_signatory_title', 'our_signatory_is_legal_rep',
   'counterparty_signatory_name', 'counterparty_signatory_title', 'counterparty_signatory_is_legal_rep',
   'entrust_reason', 'is_triple_major', 'decision_method', 'decision_method_other', 'meeting_type', 'meeting_type_other',
@@ -758,6 +921,8 @@ export function createContract(db: DB, input: ContractCreateRequest): ContractDe
   const pricingMode: ContractPricingMode = input.pricingMode ?? 'lump_sum';
   const estimatedCeiling = optCents(input.estimatedCeilingAmount, '估算上限金额');
   const bidAward = optCents(input.bidAwardAmount, '审定中标金额');
+  const annualPlanAlloc = optCents(input.annualPlanAllocAmount, '当年计划执行分配额');
+  const budgetPoolCap = optCents(input.budgetPoolCapAmount, '包干池年度上限');
   const exchangeRate = rateScaled(input.exchangeRate);
   const warrantyRatio = input.warrantyRetentionRatio == null ? null : parseScaled(input.warrantyRetentionRatio, RATIO_SCALE, { label: '质保金比例' });
   const fundingSource: ContractFundingSource = input.fundingSource ?? 'self_owned_other';
@@ -806,8 +971,10 @@ export function createContract(db: DB, input: ContractCreateRequest): ContractDe
     const lcVals: unknown[] = [
       direction, pricingMode, input.unitPriceDesc ?? '', estimatedCeiling, input.currency ?? '人民币', exchangeRate,
       reportCategory, input.summaryText ?? '', input.remark ?? '', input.planItemId ?? null, input.budgetType ?? 'single_listed',
-      input.isEmergency ? 1 : 0, input.emergencyStartDate ?? null, fundingSource, input.fundingSourceDetail ?? '',
-      input.sourceIncomeContractId ?? null, input.parentContractId ?? null, input.externalNoExempt ? 1 : 0,
+      input.isEmergency ? 1 : 0, input.emergencyStartDate ?? null,
+      annualPlanAlloc, input.budgetPoolAccountId ?? null, budgetPoolCap, input.procurementRecordId ?? null,
+      fundingSource, input.fundingSourceDetail ?? '',
+      input.sourceIncomeContractId ?? null, input.parentContractId ?? null, input.externalNoExempt ? 1 : 0, input.isInternalGroupTx ? 1 : 0,
       input.counterpartyNames ?? '', input.undertakerName ?? '', input.undertakerDept ?? '',
       input.ourSignatoryName ?? '', input.ourSignatoryTitle ?? '', input.ourSignatoryIsLegalRep == null ? null : (input.ourSignatoryIsLegalRep ? 1 : 0),
       input.counterpartySignatoryName ?? '', input.counterpartySignatoryTitle ?? '', input.counterpartySignatoryIsLegalRep == null ? null : (input.counterpartySignatoryIsLegalRep ? 1 : 0),
@@ -825,6 +992,8 @@ export function createContract(db: DB, input: ContractCreateRequest): ContractDe
     ];
     db.prepare(`UPDATE ct_contract SET ${LIFECYCLE_COLUMN_SQL.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...lcVals, newId);
     saveLegalMetadata(db, newId, { ...input, legalCategory: category, partyRole, signingEntityLevel }, original, estimatedCeiling);
+    const createdRow = readRow(db, newId)!;
+    syncContractCountersigns(db, createdRow);
     recordEvent(db, newId, 'create', { contractNo: input.contractNo.trim(), direction, pricingMode, originalAmount: centsToDecimalString(original) }, { to: 'initiation' });
     return newId;
   }).immediate();
@@ -915,6 +1084,16 @@ export function updateContract(db: DB, id: number, input: ContractUpdateRequest)
     if (input.remark !== undefined && input.remark !== c.remark) set('remark', input.remark, 'remark');
     optVal('out_of_plan_approved_date', input.outOfPlanApprovedDate, c.out_of_plan_approved_date, 'outOfPlanApprovedDate');
     optVal('plan_item_id', input.planItemId, c.plan_item_id, 'planItemId');
+    if (input.annualPlanAllocAmount !== undefined) {
+      const ap = optCents(input.annualPlanAllocAmount, '当年计划执行分配额');
+      if (String(ap) !== String(c.annual_plan_alloc_cents)) set('annual_plan_alloc_cents', ap, 'annualPlanAllocAmount');
+    }
+    optVal('budget_pool_account_id', input.budgetPoolAccountId, c.budget_pool_account_id, 'budgetPoolAccountId');
+    if (input.budgetPoolCapAmount !== undefined) {
+      const bpc = optCents(input.budgetPoolCapAmount, '包干池年度上限');
+      if (String(bpc) !== String(c.budget_pool_cap_cents)) set('budget_pool_cap_cents', bpc, 'budgetPoolCapAmount');
+    }
+    optVal('procurement_record_id', input.procurementRecordId, c.procurement_record_id, 'procurementRecordId');
     optVal('budget_type', input.budgetType, c.budget_type, 'budgetType');
     reqBool('is_emergency', input.isEmergency, c.is_emergency, 'isEmergency');
     optVal('emergency_start_date', input.emergencyStartDate, c.emergency_start_date, 'emergencyStartDate');
@@ -941,6 +1120,7 @@ export function updateContract(db: DB, id: number, input: ContractUpdateRequest)
       }
     }
     reqBool('external_no_exempt', input.externalNoExempt, c.external_no_exempt, 'externalNoExempt');
+    reqBool('is_internal_group_tx', input.isInternalGroupTx, c.is_internal_group_tx, 'isInternalGroupTx');
     if (input.counterpartyNames !== undefined && input.counterpartyNames !== c.counterparty_names) set('counterparty_names', input.counterpartyNames, 'counterpartyNames');
     if (input.undertakerName !== undefined && input.undertakerName !== c.undertaker_name) set('undertaker_name', input.undertakerName, 'undertakerName');
     if (input.undertakerDept !== undefined && input.undertakerDept !== c.undertaker_dept) set('undertaker_dept', input.undertakerDept, 'undertakerDept');
@@ -1011,8 +1191,18 @@ export function updateContract(db: DB, id: number, input: ContractUpdateRequest)
     });
     if (!sets.length&&!metadataChanged) return;
     saveLegalMetadata(db,id,input,nextOriginal,nextEstimated??null);
-    if(!sets.length) { bump(db,id); recordEvent(db,id,'update',{changed:legalKeys}); return; }
+    if(!sets.length) {
+      bump(db,id);
+      const updatedRow = readRow(db, id)!;
+      if (!early && updatedRow.stage !== 'approval') assertBudgetPoolCap(db, updatedRow);
+      syncContractCountersigns(db, updatedRow);
+      recordEvent(db,id,'update',{changed:legalKeys});
+      return;
+    }
     db.prepare(`UPDATE ct_contract SET ${sets.join(', ')}, version = version + 1, updated_at = ? WHERE id = ?`).run(...params, nowIso(), id);
+    const updatedRow = readRow(db, id)!;
+    if (!early && updatedRow.stage !== 'approval') assertBudgetPoolCap(db, updatedRow);
+    syncContractCountersigns(db, updatedRow);
     recordEvent(db, id, 'update', { changed: Object.keys(changed) });
   }).immediate();
   return getContractDetail(db, id);
@@ -1180,10 +1370,75 @@ export function addContractDocument(db: DB, store: ObjectStore, id: number, cont
     const newId = Number(db.prepare('INSERT INTO ct_document (contract_id, doc_type, file_object_id, name, uploaded_by_user_id, uploaded_at, evidence_kind, change_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, docType, file.id, (name || fileName).slice(0, 200), currentAuth()?.userId ?? null, nowIso(), evidenceKind ?? null, changeId ?? null).lastInsertRowid);
     bump(db, id);
+    if (docType === 'contract_text') {
+      syncContractCountersigns(db, readRow(db, id)!);
+    }
     recordEvent(db, id, 'document', { documentId: newId, docType, docTypeLabel: CONTRACT_DOC_TYPE_LABELS[docType], fileSha256: file.sha256, evidenceKind:evidenceKind??null, changeId: changeId ?? null });
     return newId;
   }).immediate();
   return documents(db, id).find((d) => d.id === docId)!;
+}
+
+export function withdrawContractDocument(db: DB, id: number, docId: number, reason: string): ContractDetailDto {
+  const trimmed = reason.trim();
+  if (trimmed.length < 2) throw new AppError('VALIDATION_FAILED', '请填写撤回作废原因', 400);
+  db.transaction(() => {
+    const c = visibleContract(db, id);
+    assertActive(c, '撤回草稿文档');
+    const d = db
+      .prepare('SELECT id, doc_type, name, withdrawn_at FROM ct_document WHERE id = ? AND contract_id = ?')
+      .get(docId, id) as { id: number; doc_type: ContractDocType; name: string; withdrawn_at: string | null } | undefined;
+    if (!d) throw notVisible('合同文档');
+    if (d.withdrawn_at !== null) throw conflict('DOCUMENT_ALREADY_WITHDRAWN', '该文档已撤回作废');
+    if (isDocumentReferenced(db, id, docId)) {
+      throw conflict('DOCUMENT_REFERENCED_IMMUTABLE', '该文档已被审核、变更、结算、付款或保函引用，属于正式审计证据，不可撤回');
+    }
+    const now = nowIso();
+    db.prepare(
+      'UPDATE ct_document SET withdrawn_at = ?, withdrawn_by_user_id = ?, withdraw_reason = ? WHERE id = ? AND contract_id = ?',
+    ).run(now, currentAuth()?.userId ?? null, trimmed, docId, id);
+    bump(db, id);
+    if (d.doc_type === 'contract_text') {
+      syncContractCountersigns(db, readRow(db, id)!);
+    }
+    recordEvent(db, id, 'document.withdraw', { documentId: docId, docType: d.doc_type, name: d.name, reason: trimmed });
+  }).immediate();
+  return getContractDetail(db, id);
+}
+
+export function triggerContractCountersigns(
+  db: DB,
+  id: number,
+  assignedReviewers?: Record<string, number | null>,
+): ContractCountersignDto[] {
+  const c = visibleContract(db, id);
+  assertActive(c, '发起部门会签');
+  return syncContractCountersigns(db, c, { force: true, assignedReviewers });
+}
+
+export function decideCountersignById(
+  db: DB,
+  contractId: number,
+  countersignId: number,
+  input: ContractCountersignDecideRequest,
+): ContractCountersignDto[] {
+  const c = readRow(db, contractId);
+  if (!c) throw notVisible('合同');
+  return decideContractCountersign(db, c, countersignId, input);
+}
+
+export function getContractProcurementDetail(db: DB, contractId: number): ProcurementRecordDto | null {
+  const c = visibleContract(db, contractId);
+  return getContractProcurement(db, c);
+}
+
+export function upsertContractProcurementDetail(
+  db: DB,
+  contractId: number,
+  body: Record<string, unknown>,
+): ProcurementRecordDto | null {
+  const c = visibleContract(db, contractId);
+  return saveContractProcurement(db, c, body);
 }
 
 export function contractDocumentContent(db: DB, store: ObjectStore, id: number, docId: number): { fileName: string; contentType: string; content: Buffer } {
@@ -1195,7 +1450,7 @@ export function contractDocumentContent(db: DB, store: ObjectStore, id: number, 
 }
 
 export function contractDoc(db: DB, contractId: number, docId: number): { id: number; doc_type: ContractDocType } {
-  const d = db.prepare('SELECT id, doc_type FROM ct_document WHERE id = ? AND contract_id = ?').get(docId, contractId) as { id: number; doc_type: ContractDocType } | undefined;
+  const d = db.prepare('SELECT id, doc_type FROM ct_document WHERE id = ? AND contract_id = ? AND withdrawn_at IS NULL').get(docId, contractId) as { id: number; doc_type: ContractDocType } | undefined;
   if (!d) throw notVisible('合同文档');
   return d;
 }
@@ -1209,7 +1464,7 @@ export function submitContractReview(db: DB, id: number, documentId: number, not
     if (c.stage !== 'approval') throw conflict('CONTRACT_STATE', '只能在「审批签署」阶段提交合同审核');
     const doc = contractDoc(db, id, documentId);
     if (doc.doc_type !== 'contract_text') throw new AppError('VALIDATION_FAILED', '合同审核须绑定合同正文文档', 400);
-    const latest = db.prepare("SELECT MAX(id) AS id FROM ct_document WHERE contract_id = ? AND doc_type = 'contract_text'").get(id) as { id: number };
+    const latest = db.prepare("SELECT MAX(id) AS id FROM ct_document WHERE contract_id = ? AND doc_type = 'contract_text' AND withdrawn_at IS NULL").get(id) as { id: number };
     if (latest.id !== documentId) throw new AppError('VALIDATION_FAILED', '只能提交最新的合同正文', 400);
     if (db.prepare("SELECT 1 FROM ct_review WHERE contract_id = ? AND status = 'submitted'").get(id)) throw conflict('CONTRACT_STATE', '已有待处理的合同审核');
     const rid = Number(db.prepare('INSERT INTO ct_review (contract_id, document_id, submit_note, submitted_by_user_id, submitted_at) VALUES (?, ?, ?, ?, ?)')

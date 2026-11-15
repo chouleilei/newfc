@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { id, period, reason, type MoneyString, type RatioString } from './common';
+import { expectedVersion, id, moneyString, optionalText, period, reason, type MoneyString, type RatioString } from './common';
 import { year, type RowErrorDto } from './project-budget';
 
 /** AC-F15 计划执行与形象进度:请求 schema 与响应类型。 */
@@ -99,7 +99,7 @@ export interface PlanFactDto {
 }
 
 export interface PlanWarningDto {
-  code: 'MISSING_PROJECT_CODE' | 'STALE_YEAR_HEADER' | 'PLACEHOLDER_SHEET_SKIPPED' | 'ZERO_PLACEHOLDER_ROW';
+  code: 'MISSING_PROJECT_CODE' | 'STALE_YEAR_HEADER' | 'PLACEHOLDER_SHEET_SKIPPED' | 'ZERO_PLACEHOLDER_ROW' | 'CROSS_UNIT_CELL_REF';
   sheet: string;
   row: number;
   message: string;
@@ -221,3 +221,315 @@ export interface PlanProjectProgressDto {
 }
 
 export interface PlanProjectProgressListDto { year: number; asOfPeriod: string | null; batch: PlanBatchDto | null; rows: PlanProjectProgressDto[]; notes: string[] }
+
+/* ---------------- T-14 计划与预算合一下达、稽核与调整契约 ---------------- */
+
+export const PLAN_ISSUANCE_STAGES = ['pre_arrangement', 'formal_draft', 'official', 'adjusted'] as const;
+export type PlanIssuanceStage = (typeof PLAN_ISSUANCE_STAGES)[number];
+export const PLAN_ISSUANCE_STAGE_LABELS: Record<PlanIssuanceStage, string> = {
+  pre_arrangement: '预安排',
+  formal_draft: '正式草案',
+  official: '正式下达',
+  adjusted: '年中调整修订',
+};
+
+export const PLAN_CYCLE_STATUSES = ['draft', 'published', 'superseded', 'archived'] as const;
+export type PlanCycleStatus = (typeof PLAN_CYCLE_STATUSES)[number];
+export const PLAN_CYCLE_STATUS_LABELS: Record<PlanCycleStatus, string> = {
+  draft: '草稿编校',
+  published: '已正式下达',
+  superseded: '已被修订替代',
+  archived: '已归档',
+};
+
+export const PLAN_PACK_SIGN_STATUSES = ['draft', 'issued', 'acknowledged', 'adjust_requested'] as const;
+export type PlanPackSignStatus = (typeof PLAN_PACK_SIGN_STATUSES)[number];
+export const PLAN_PACK_SIGN_STATUS_LABELS: Record<PlanPackSignStatus, string> = {
+  draft: '待下发',
+  issued: '待签收',
+  acknowledged: '已签收',
+  adjust_requested: '调整申请中',
+};
+
+export const PLAN_ADJUST_TYPES = [
+  'within_total_realloc',
+  'overall_target_change',
+  'unplanned_hq_or_station',
+  'unplanned_subsidiary_within_cap',
+  'unplanned_subsidiary_over_cap',
+  'emergency_retroactive',
+] as const;
+export type PlanAdjustType = (typeof PLAN_ADJUST_TYPES)[number];
+export const PLAN_ADJUST_TYPE_LABELS: Record<PlanAdjustType, string> = {
+  within_total_realloc: '总体指标内执行方案调剂',
+  overall_target_change: '新增产能/总收入/利润等总体指标调整',
+  unplanned_hq_or_station: '本部及直属电站计划外立项',
+  unplanned_subsidiary_within_cap: '分子公司年度专项控制目标内计划外项目',
+  unplanned_subsidiary_over_cap: '分子公司超年度专项控制目标计划外项目',
+  emergency_retroactive: '防汛/突发应急先开工后补立项',
+};
+
+export const PLAN_APPROVAL_BODIES = [
+  'gm_office',
+  'board_of_directors',
+  'joint_review_company',
+  'subsidiary_self_decision',
+  'company_approval',
+] as const;
+export type PlanApprovalBody = (typeof PLAN_APPROVAL_BODIES)[number];
+export const PLAN_APPROVAL_BODY_LABELS: Record<PlanApprovalBody, string> = {
+  gm_office: '总经理办公会审定',
+  board_of_directors: '党组前置/董事会批准',
+  joint_review_company: '专业与财务联合会审后报集团审批',
+  subsidiary_self_decision: '分子公司依制度自决并报备',
+  company_approval: '报集团公司审批',
+};
+
+export const PLAN_ADJ_VALUE_TYPES = ['amount_cents', 'scaled_int', 'rate_bp', 'text'] as const;
+export type PlanAdjustmentValueType = (typeof PLAN_ADJ_VALUE_TYPES)[number];
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式应为 YYYY-MM-DD');
+
+export const planIssuanceCycleCreateRequest = z.object({
+  year,
+  cycleCode: z.string().trim().min(2).max(64),
+  issuanceStage: z.enum(PLAN_ISSUANCE_STAGES).default('official'),
+  sourcePlanBatchId: id.nullish(),
+  sourceBudgetVersionId: id.nullish(),
+  decisionDocMeta: z.record(z.string(), z.unknown()).optional(),
+  issuedDate: isoDate.nullish(),
+  docNoPrefix: optionalText(64),
+});
+export type PlanIssuanceCycleCreateRequest = z.infer<typeof planIssuanceCycleCreateRequest>;
+
+export const planPackAcknowledgeRequest = z.object({
+  expectedVersion,
+  ackNote: optionalText(500),
+});
+export type PlanPackAcknowledgeRequest = z.infer<typeof planPackAcknowledgeRequest>;
+
+export const planAdjustmentLineInput = z.object({
+  planItemId: id.nullish(),
+  stableItemUid: optionalText(128),
+  targetSheetCode: z.enum(PLAN_SHEETS),
+  targetItemName: z.string().trim().min(1).max(200),
+  valueType: z.enum(PLAN_ADJ_VALUE_TYPES).default('amount_cents'),
+  scale: z.number().int().min(0).max(8).default(2),
+  unit: z.string().trim().max(32).default('元'),
+  beforeVal: z.string().trim().max(120).default('0'),
+  afterVal: z.string().trim().max(120).default('0'),
+  budgetAccountId: id.nullish(),
+  note: optionalText(500),
+});
+export type PlanAdjustmentLineInput = z.infer<typeof planAdjustmentLineInput>;
+
+export const planAdjustmentCreateRequest = z.object({
+  cycleId: id,
+  unitPackId: id,
+  adjustType: z.enum(PLAN_ADJUST_TYPES),
+  decisionDocNo: optionalText(120),
+  decisionAttachmentId: id.nullish(),
+  emergencyStartDate: isoDate.nullish(),
+  exceedsOverallTarget: z.boolean().optional(),
+  reason,
+  lines: z.array(planAdjustmentLineInput).min(1, '至少填写一条调整明细').max(200),
+});
+export type PlanAdjustmentCreateRequest = z.infer<typeof planAdjustmentCreateRequest>;
+
+export const planAdjustmentReviewRequest = z.object({
+  action: z.enum(['approve', 'reject']),
+  comment: optionalText(1000),
+  exceptionReason: optionalText(500),
+  decisionDocNo: optionalText(120),
+  decisionAttachmentId: id.nullish(),
+});
+export type PlanAdjustmentReviewRequest = z.infer<typeof planAdjustmentReviewRequest>;
+
+export interface PlanAttachmentSummaryDto {
+  attachmentNo: number;
+  title: string;
+  sheetCode: PlanSheetCode;
+  unitOfMeasure: string;
+  leafRowCount: number;
+  exactTotalAmount: MoneyString;
+  issuedTotalAmount: MoneyString;
+  diffReasonCode: string;
+  subEntities: string[];
+  undertakeDepts: string[];
+  rows: {
+    seqNo: string;
+    itemName: string;
+    unit: string;
+    amountOrValue: string;
+    undertakeOrgName: string | null;
+    note: string;
+  }[];
+}
+
+export interface PlanUnitPackDto {
+  id: number;
+  cycleId: number;
+  unitOrgId: number;
+  unitOrgCode: string;
+  unitOrgName: string;
+  docNo: string;
+  issuedDate: string | null;
+  attachmentCount: number;
+  hasResponsibilityLetter: boolean;
+  responsibilityLetterNo: string;
+  budgetVersionId: number | null;
+  signOffStatus: PlanPackSignStatus;
+  ackUserId: number | null;
+  ackUserName: string | null;
+  ackAt: string | null;
+  ackNote: string;
+  version: number;
+  mergedChildOrgs: { id: number; code: string; name: string }[];
+  metrics: {
+    operatingRevenue: MoneyString;
+    totalRevenue: MoneyString;
+    profitBeforeTax: MoneyString;
+    netProfit: MoneyString;
+    investmentTotal: MoneyString;
+    purchaseTotal: MoneyString;
+    maintenanceTotal: MoneyString;
+    safetyInputTotal: MoneyString;
+    fiveExpensesExact: MoneyString;
+    fiveExpensesIssued: MoneyString;
+    controllableMgmtFeeExact: MoneyString;
+    controllableMgmtFeeIssued: MoneyString;
+  };
+  attachments?: PlanAttachmentSummaryDto[];
+  undertakeItems?: {
+    itemId: number;
+    sheetCode: PlanSheetCode;
+    itemName: string;
+    ownerUnitOrgId: number;
+    ownerUnitOrgName: string;
+    undertakeOrgId: number;
+    undertakeOrgName: string;
+    approvedAmount: MoneyString;
+  }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanTaxCheckItemDto {
+  unitOrgId: number | null;
+  unitName: string;
+  kind: 'vat_maintenance' | 'mgmt_fee_nested' | 'controllable_mgmt_step' | 'cross_unit_formula' | 'consolidation_balance';
+  passed: boolean;
+  blocking: boolean;
+  planInclusiveAmount: MoneyString | null;
+  expectedBudgetExclAmount: MoneyString | null;
+  actualBudgetExclAmount: MoneyString | null;
+  diffAmount: MoneyString;
+  reasonCode: string;
+  message: string;
+}
+
+export interface PlanReconcileReportDto {
+  cycleId: number;
+  mode: 'strict_compile' | 'legacy_reconcile';
+  passed: boolean;
+  blockingCount: number;
+  warningCount: number;
+  vatRateBp: number;
+  consolidation: {
+    sum8UnitsOperatingRevenue: MoneyString;
+    excludedOrgsOperatingRevenue: MoneyString;
+    groupConsolidatedOperatingRevenue: MoneyString;
+    operatingRevenueSubCentDiff: MoneyString;
+    sum8UnitsProfitBeforeTax: MoneyString;
+    excludedOrgsProfitBeforeTax: MoneyString;
+    groupConsolidatedProfitBeforeTax: MoneyString;
+    profitDiff: MoneyString;
+    investmentTotal: MoneyString;
+    safetyInputTotal: MoneyString;
+    fiveExpensesExactTotal: MoneyString;
+    fiveExpensesIssuedTotal: MoneyString;
+    fiveExpensesStepDiff: MoneyString;
+    excludedOrgs: { orgId: number; orgCode: string; orgName: string; operatingRevenue: MoneyString; profitBeforeTax: MoneyString }[];
+  };
+  checks: PlanTaxCheckItemDto[];
+  crossUnitFormulaErrors: PlanWarningDto[];
+}
+
+export interface PlanIssuanceCycleDto {
+  id: number;
+  year: number;
+  cycleCode: string;
+  issuanceStage: PlanIssuanceStage;
+  sourcePlanBatchId: number | null;
+  sourceBudgetVersionId: number | null;
+  decisionDocMeta: Record<string, unknown>;
+  frozenSnapshot: Record<string, unknown>;
+  snapshotSha256: string;
+  status: PlanCycleStatus;
+  version: number;
+  unitPackCount: number;
+  acknowledgedCount: number;
+  excludedOrgs: { id: number; code: string; name: string }[];
+  packs?: PlanUnitPackDto[];
+  reconcileReport?: PlanReconcileReportDto | null;
+  createdByUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanAdjustmentLineDto {
+  id: number;
+  planItemId: number | null;
+  stableItemUid: string;
+  targetSheetCode: PlanSheetCode;
+  targetItemName: string;
+  valueType: PlanAdjustmentValueType;
+  scale: number;
+  unit: string;
+  beforeVal: string;
+  afterVal: string;
+  deltaVal: string;
+  beforeAmount: MoneyString;
+  afterAmount: MoneyString;
+  deltaAmount: MoneyString;
+  budgetAccountId: number | null;
+  note: string;
+}
+
+export interface PlanAdjustmentDto {
+  id: number;
+  cycleId: number;
+  cycleCode: string;
+  unitPackId: number;
+  unitOrgId: number;
+  unitOrgName: string;
+  adjustType: PlanAdjustType;
+  adjustTypeLabel: string;
+  approvalBody: PlanApprovalBody;
+  approvalBodyLabel: string;
+  decisionDocNo: string;
+  decisionAttachmentId: number | null;
+  emergencyStartDate: string | null;
+  emergencyOverdue5Workdays: boolean;
+  reason: string;
+  status: 'submitted' | 'approved' | 'rejected';
+  newCycleId: number | null;
+  submittedByUserId: number | null;
+  submittedByName: string | null;
+  submittedAt: string;
+  reviewedByUserId: number | null;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  reviewComment: string | null;
+  exceptionReason: string | null;
+  selfReview: boolean;
+  lines: PlanAdjustmentLineDto[];
+}
+
+export const planReconcileRequest = z.object({
+  mode: z.enum(['strict_compile', 'legacy_reconcile']).optional(),
+  vatRateBp: z.number().int().min(0).max(5000).optional(),
+  groupConsolidatedOperatingRevenue: moneyString.optional(),
+  groupConsolidatedProfitBeforeTax: moneyString.optional(),
+});
+export type PlanReconcileRequest = z.infer<typeof planReconcileRequest>;

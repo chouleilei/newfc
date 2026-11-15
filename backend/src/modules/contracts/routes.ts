@@ -21,6 +21,7 @@ import {
   contractChangeFilingRequest, contractReceiptCreateRequest, contractReceiptReceiveRequest, contractSettlementCreateRequest,
   contractDisputeCreateRequest, contractDisputeUpdateRequest, contractGuaranteeCreateRequest, contractGuaranteeUpdateRequest, contractWarrantyUpsertRequest,
   contractEvaluationRequest,
+  contractCountersignDecideRequest, contractDocumentWithdrawRequest, monthlyReportLogRequest, procurementRecordSaveRequest,
   contractPrefixMapCreateRequest, contractPrefixMapPatchRequest, CONTRACT_IMPORT_KINDS, PREFIX_ENTITY_STATUSES, SUPERVISION_EXPORT_PURPOSES,
   CHANGE_KINDS,
   type ChangeKind, type ContractImportKind, type PrefixEntityStatus, type SupervisionExportPurpose,
@@ -32,14 +33,21 @@ import {
   getContractDetail, listContracts, listContractsPage, reopenContract, submitContractReview, terminateContract,
   updateContract, voidContract,
   handoverUndertaker, resumeContract, suspendContract, updateContractArchiveStatus, updateContractDistribution,
+  withdrawContractDocument, triggerContractCountersigns, decideCountersignById,
+  getContractProcurementDetail, upsertContractProcurementDetail,
 } from './contract.service';
+import { listContractCountersigns } from './contract-countersign.service';
+import {
+  createProcurementRecord, getProcurementRecord, listMonthlyReportLogs, listProcurementRecords,
+  submitMonthlyReportLog, updateProcurementRecord,
+} from './contract-procurement.service';
 import { decideContractChange, previewContractChangeTier, submitContractChange, updateContractChangeFiling } from './contract-change.service';
 import {
   decideContractPayment, decideContractReceipt, decideContractSettlement, listContractReceipts, listContractSettlements,
   payContractPayment, previewContractPaymentTier, receiveContractReceipt, submitContractPayment, submitContractReceipt, submitContractSettlement,
 } from './contract-settlement.service';
 import {
-  createContractDispute, createContractGuarantee, getContractWarranty, listContractDisputes, listContractGuarantees,
+  createContractDispute, createContractGuarantee, exportContractDisputesXlsx, getContractWarranty, listContractDisputes, listContractGuarantees,
   updateContractDispute, updateContractGuarantee, upsertContractEvaluation, upsertContractWarranty,
 } from './contract-safeguard.service';
 import {
@@ -64,13 +72,16 @@ addRouteRules([
   { method: 'GET', pattern: /^\/contracts\/exports\/logs$/, permission: 'contract:read' },
   { method: 'WRITE', pattern: /^\/contracts\/exports\/supervision\/package$/, permission: 'analysis:export' },
   { method: 'GET', pattern: /^\/contracts\/supervision-portal\/(full|incremental)$/, permission: 'contract:read' },
+  { method: 'GET', pattern: /^\/procurement-records(\/\d+)?$/, permission: 'contract:read' },
+  { method: 'WRITE', pattern: /^\/procurement-records(\/\d+)?$/, permission: 'contract:write' },
+  { method: 'WRITE', pattern: /^\/contracts\/monthly-report-log$/, permission: 'contract:write' },
   { method: 'GET', pattern: /^\/contracts(\/|$)/, permission: 'contract:read' },
-  { method: 'WRITE', pattern: /^\/contracts\/\d+\/(reviews|changes|settlements|payments|receipts)\/\d+\/decide$/, permission: 'contract:review' },
+  { method: 'WRITE', pattern: /^\/contracts\/\d+\/(reviews|changes|settlements|payments|receipts|countersigns)\/\d+\/decide$/, permission: 'contract:review' },
   { method: 'WRITE', pattern: /^\/contracts\/\d+\/reopen$/, permission: 'contract:review' },
   { method: 'WRITE', pattern: /^\/contracts\/\d+\/archive-status$/, permission: 'contract:review' },
   { method: 'WRITE', pattern: /^\/contracts\/\d+\/evaluation$/, permission: 'contract:review' },
   { method: 'WRITE', pattern: /^\/contracts\/\d+\/warranty$/, permission: ['contract:write', 'contract:review'] },
-  { method: 'WRITE', pattern: /^\/contracts(\/\d+(\/(advance|terminate|void|suspend|resume|distribution|undertaker-handover|documents|reviews|changes|changes\/\d+\/filing|settlements|payments|payments\/\d+\/pay|receipts|receipts\/\d+\/receive|guarantees(\/\d+)?|disputes(\/\d+)?))?)?$/, permission: 'contract:write' },
+  { method: 'WRITE', pattern: /^\/contracts(\/\d+(\/(advance|terminate|void|suspend|resume|distribution|undertaker-handover|countersigns|procurement|documents(\/\d+\/withdraw)?|reviews|changes|changes\/\d+\/filing|settlements|payments|payments\/\d+\/pay|receipts|receipts\/\d+\/receive|guarantees(\/\d+)?|disputes(\/\d+)?))?)?$/, permission: 'contract:write' },
 ]);
 
 const id = (v: unknown) => parseInput(idSchema, v);
@@ -190,8 +201,45 @@ export function registerContractRoutes(app: Express, db: () => DB, wrap: Wrap, s
   app.get('/api/contracts', wrap((req, res) => { res.json(listContracts(db(), parseInput(contractListQuery, queryFields(req)))); }));
   app.get('/api/contracts/page', wrap((req, res) => { res.json(listContractsPage(db(), parseInput(contractPageQuery, req.query))); }));
   app.get('/api/contracts/summary', wrap((req, res) => {
+    res.json(contractSummary(db(), parseInput(contractListQuery, queryFields(req))));
+  }));
+  app.get('/api/contracts/disputes/export', wrap(async (req, res) => {
     const q = queryFields(req);
-    res.json(contractSummary(db(), { orgId: q.orgId ? id(q.orgId) : undefined, projectId: q.projectId ? id(q.projectId) : undefined }));
+    const out = await exportContractDisputesXlsx(db(), {
+      orgId: q.orgId ? id(q.orgId) : undefined,
+      contractId: q.contractId ? id(q.contractId) : undefined,
+      stage: q.stage,
+    });
+    sendAttachment(res, out.fileName, out.contentType, out.content);
+  }));
+  app.get('/api/contracts/monthly-report-logs', wrap((req, res) => {
+    const q = queryFields(req);
+    res.json(listMonthlyReportLogs(db(), {
+      orgId: q.orgId ? id(q.orgId) : undefined,
+      reportMonth: q.reportMonth,
+    }));
+  }));
+  app.post('/api/contracts/monthly-report-log', wrap((req, res) => {
+    res.status(201).json(submitMonthlyReportLog(db(), parseInput(monthlyReportLogRequest, req.body)));
+  }));
+
+  /* 独立 1:N 招采项目资源路由 */
+  app.get('/api/procurement-records', wrap((req, res) => {
+    const q = queryFields(req);
+    res.json(listProcurementRecords(db(), {
+      orgId: q.orgId ? id(q.orgId) : undefined,
+      keyword: q.keyword,
+      procurementMethod: q.procurementMethod,
+    }));
+  }));
+  app.post('/api/procurement-records', wrap((req, res) => {
+    res.status(201).json(createProcurementRecord(db(), parseInput(procurementRecordSaveRequest, req.body)));
+  }));
+  app.get('/api/procurement-records/:pid', wrap((req, res) => {
+    res.json(getProcurementRecord(db(), id(req.params.pid)));
+  }));
+  app.put('/api/procurement-records/:pid', wrap((req, res) => {
+    res.json(updateProcurementRecord(db(), id(req.params.pid), parseInput(procurementRecordSaveRequest, req.body)));
   }));
   app.get('/api/contracts/exports/monthly-ledger', wrap(async (req, res) => {
     const auth = currentAuth();
@@ -295,6 +343,33 @@ export function registerContractRoutes(app: Express, db: () => DB, wrap: Wrap, s
   app.get('/api/contracts/:id/documents/:docId/content', wrap((req, res) => {
     const f = contractDocumentContent(db(), store(), id(req.params.id), id(req.params.docId));
     sendAttachment(res, f.fileName, f.contentType, f.content);
+  }));
+  app.post('/api/contracts/:id/documents/:docId/withdraw', wrap((req, res) => {
+    const b = parseInput(contractDocumentWithdrawRequest, req.body);
+    res.json(withdrawContractDocument(db(), id(req.params.id), id(req.params.docId), b.reason));
+  }));
+  app.get('/api/contracts/:id/countersigns', wrap((req, res) => {
+    getContractDetail(db(), id(req.params.id));
+    res.json(listContractCountersigns(db(), id(req.params.id)));
+  }));
+  app.post('/api/contracts/:id/countersigns', wrap((req, res) => {
+    const body = (req.body ?? {}) as { assignedReviewers?: Record<string, number | null> };
+    res.status(201).json(triggerContractCountersigns(db(), id(req.params.id), body.assignedReviewers));
+  }));
+  app.post('/api/contracts/:id/countersigns/:cid/decide', wrap((req, res) => {
+    res.json(decideCountersignById(db(), id(req.params.id), id(req.params.cid), parseInput(contractCountersignDecideRequest, req.body)));
+  }));
+  app.get('/api/contracts/:id/procurement', wrap((req, res) => {
+    res.json(getContractProcurementDetail(db(), id(req.params.id)));
+  }));
+  app.put('/api/contracts/:id/procurement', wrap((req, res) => {
+    const raw = (req.body ?? {}) as Record<string, unknown>;
+    if ('linkProcurementRecordId' in raw && !('procurementTitle' in raw)) {
+      const linkSchema = z.object({ linkProcurementRecordId: idSchema.nullable() });
+      res.json(upsertContractProcurementDetail(db(), id(req.params.id), parseInput(linkSchema, raw)));
+      return;
+    }
+    res.json(upsertContractProcurementDetail(db(), id(req.params.id), parseInput(procurementRecordSaveRequest, raw)));
   }));
   app.post('/api/contracts/:id/reviews', wrap((req, res) => {
     const b = parseInput(contractReviewSubmitRequest, req.body);

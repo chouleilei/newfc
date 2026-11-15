@@ -166,6 +166,41 @@ export const DISPUTE_STAGE_LABELS: Record<DisputeStage, { text: string; color: s
   closed: { text: '已结案', color: 'success' },
 };
 
+export const DISPUTE_LITIGATION_TYPE_OPTIONS = [
+  { value: '民事诉讼', label: '民事诉讼' },
+  { value: '商事仲裁', label: '商事仲裁' },
+  { value: '行政复议', label: '行政复议' },
+  { value: '行政诉讼', label: '行政诉讼' },
+  { value: '劳动仲裁', label: '劳动仲裁' },
+  { value: '刑事附带民事', label: '刑事附带民事' },
+  { value: '执行案件', label: '执行案件' },
+  { value: '其他', label: '其他' },
+];
+
+export const DISPUTE_OUR_ROLE_OPTIONS = [
+  { value: '原告', label: '原告' },
+  { value: '被告', label: '被告' },
+  { value: '第三人', label: '第三人' },
+  { value: '申请人', label: '申请人' },
+  { value: '被申请人', label: '被申请人' },
+  { value: '上诉人', label: '上诉人' },
+  { value: '被上诉人', label: '被上诉人' },
+  { value: '申请执行人', label: '申请执行人' },
+  { value: '被执行人', label: '被执行人' },
+  { value: '其他', label: '其他' },
+];
+
+export const DISPUTE_JUDGMENT_RESULT_OPTIONS = [
+  { value: '胜诉', label: '胜诉' },
+  { value: '部分胜诉', label: '部分胜诉' },
+  { value: '败诉', label: '败诉' },
+  { value: '调解结案', label: '调解结案' },
+  { value: '和解撤诉', label: '和解撤诉' },
+  { value: '裁定驳回', label: '裁定驳回' },
+  { value: '审理中', label: '审理中' },
+  { value: '其他', label: '其他' },
+];
+
 export const EVALUATION_RECOMMENDATION_LABELS: Record<'preferred' | 'normal' | 'restricted' | 'blacklisted', { text: string; color: string }> = {
   preferred: { text: '优先选用', color: 'success' },
   normal: { text: '正常合作', color: 'processing' },
@@ -253,6 +288,7 @@ export function changeApprovalTierPreview(params: {
 
 export function procurementTierPreview(procurement: boolean, target: string | null, amount: bigint, method: string | null): ProcurementTier | null {
   if (!procurement) return 'non_procurement';
+  if (method === 'public_tender' || method === 'invited_tender') return 'tier_1';
   if (!target) return null;
   if (method === 'direct_reimburse' && amount <= 3000000n) return 'exempt_small';
   const limits = target === 'construction' ? [300000000n, 100000000n]

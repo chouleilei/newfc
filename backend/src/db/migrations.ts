@@ -1,6 +1,7 @@
 import { CONTRACT_LEGAL_SQL } from './migrations-contract-legal';
 import { CONTRACT_LIFECYCLE_V68_SQL, CONTRACT_LIFECYCLE_V69_SQL, CONTRACT_LIFECYCLE_V70_SQL, CONTRACT_LIFECYCLE_V71_SQL, CONTRACT_LIFECYCLE_V72_SQL } from './migrations-contract-lifecycle';
 import { P0_FOUNDATION_V73_SQL } from './migrations-p0-foundation';
+import { P1_ISSUANCE_RULES_V74_SQL } from './migrations-p1-issuance-rules';
 import { normalizeAssistantResponses } from './assistant-response-migration';
 import type { DB } from './connection';
 import { NEWFC_MIGRATIONS } from './migrations-newfc';
@@ -1395,6 +1396,7 @@ MIGRATIONS.push({ version: 70, name: 'contract_supervision_and_risk_rules', rebu
 MIGRATIONS.push({ version: 71, name: 'contract_mgmt_income_metrics', rebuild: true, sql: CONTRACT_LIFECYCLE_V71_SQL });
 MIGRATIONS.push({ version: 72, name: 'contract_lifecycle_review_controls', rebuild: true, sql: CONTRACT_LIFECYCLE_V72_SQL });
 MIGRATIONS.push({ version: 73, name: 'p0_org_plan16_contract_legacy_foundation', rebuild: true, sql: P0_FOUNDATION_V73_SQL });
+MIGRATIONS.push({ version: 74, name: 'p1_plan_issuance_countersign_52_rules', rebuild: true, sql: P1_ISSUANCE_RULES_V74_SQL });
 
 /**
  * V34 一次性导入:AI_BASE_URL 已配置且 ai_channel 为空时,把 env 配置落成名为

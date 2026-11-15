@@ -1,19 +1,28 @@
+import ExcelJS from 'exceljs';
 import { requireEvidence } from './contract-controls';
 import type { DB } from '../../db/connection';
 import { AppError } from '../../core/errors';
 import { currentAuth } from '../../core/request-context';
 import { centsToDecimalOrNull, centsToDecimalString, formatScaled, parseDecimalToCents, parseScaled, RATIO_SCALE } from '../../core/decimal';
-import { hasPermission, notVisible } from '../security/scope';
-import type {
-  ContractDetailDto, ContractDisputeCreateRequest, ContractDisputeDto, ContractDisputeUpdateRequest,
-  ContractGuaranteeCreateRequest, ContractGuaranteeDto, ContractGuaranteeUpdateRequest,
-  ContractWarrantyDto, ContractWarrantyUpsertRequest, DisputeStage, GuaranteeDirection, GuaranteeStatus, GuaranteeType, WarrantyConclusion,
-  ContractEvaluationDto, ContractEvaluationRequest, EvaluationRecommendation,
+import { writeLog } from '../audit/log';
+import { currentOrgScope, hasPermission, notVisible, orgInScope, scopeFilterSql } from '../security/scope';
+import {
+  DISPUTE_STAGE_LABELS,
+  type ContractDetailDto, type ContractDisputeCreateRequest, type ContractDisputeDto, type ContractDisputeUpdateRequest,
+  type ContractGuaranteeCreateRequest, type ContractGuaranteeDto, type ContractGuaranteeUpdateRequest,
+  type ContractWarrantyDto, type ContractWarrantyUpsertRequest, type DisputeStage, type GuaranteeDirection, type GuaranteeStatus, type GuaranteeType, type WarrantyConclusion,
+  type ContractEvaluationDto, type ContractEvaluationRequest, type EvaluationRecommendation,
 } from '../../contracts/project-contract';
 import { assertActive, bump, contractDoc, getContractDetail, recordEvent, visibleContract } from './contract.service';
 
 const nowIso = () => new Date().toISOString();
 const todayIso = () => nowIso().slice(0, 10);
+const shanghaiTodayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+const maxTodayIso = () => {
+  const u = todayIso();
+  const s = shanghaiTodayIso();
+  return s > u ? s : u;
+};
 const conflict = (code: string, message: string, details?: unknown) => new AppError(code, message, 409, undefined, details);
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const userName = (db: DB, id: number | null): string | null =>
@@ -171,7 +180,8 @@ export function upsertContractWarranty(db: DB, id: number, input: ContractWarran
     if (nextStart && nextEnd && nextStart > nextEnd) throw new AppError('VALIDATION_FAILED', '质保开始日期不能晚于结束日期', 400);
     if (conclusion === 'passed') {
       if (auth && !hasPermission(auth, 'contract:review')) throw new AppError('FORBIDDEN', '修改已通过的质保签证需要复核权限', 403);
-      if (!nextStart || !nextEnd || !inspectionDate || inspectionDate < nextEnd || nextEnd > todayIso() || inspectionDate > todayIso()) throw conflict('WARRANTY_NOT_EXPIRED', '质保期满验收须具备有效起止日期，验收日不得早于期满或晚于实际日期');
+      const latestToday = maxTodayIso();
+      if (!nextStart || !nextEnd || !inspectionDate || inspectionDate < nextEnd || nextEnd > latestToday || inspectionDate > latestToday) throw conflict('WARRANTY_NOT_EXPIRED', '质保期满验收须具备有效起止日期，验收日不得早于期满或晚于实际日期');
       requireEvidence(db, id, visaId == null ? null : Number(visaId), ['warranty_release_visa']);
       if (defects.some(d => !d.resolved)) throw conflict('WARRANTY_DEFECTS_OPEN', '须先处理全部质保缺陷');
     }
@@ -374,4 +384,108 @@ export function upsertContractEvaluation(db: DB, id: number, input: ContractEval
     });
   }).immediate();
   return getContractDetail(db, id);
+}
+
+/* ================= 诉讼/仲裁 17 列官方标准台账导出（GAP-19） ================= */
+
+export const DISPUTE_OFFICIAL_17_HEADERS = [
+  '序号',
+  '诉讼类型',
+  '案由',
+  '相对方及其诉讼地位',
+  '程序阶段',
+  '受理机构',
+  '案号',
+  '涉诉单位',
+  '诉讼地位',
+  '受理时间',
+  '案情简介',
+  '法律文书形式',
+  '结案时间',
+  '诉讼金额',
+  '裁判结果',
+  '单位实际获得或支付的金额',
+  '备注（代理律所及承办律师）',
+] as const;
+
+export async function exportContractDisputesXlsx(
+  db: DB,
+  q: { orgId?: number; contractId?: number; stage?: string } = {},
+): Promise<{ fileName: string; contentType: string; content: Buffer }> {
+  const scope = currentOrgScope(db);
+  if (q.orgId && !orgInScope(scope, q.orgId)) throw notVisible('组织');
+  const sc = scopeFilterSql(scope, 'c.org_id');
+  const where = [sc.sql, "c.status <> 'voided'"];
+  const params: unknown[] = [...sc.params];
+  if (q.orgId) {
+    where.push(
+      'c.org_id IN (WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT o.id FROM org o JOIN sub ON o.parent_id = sub.id) SELECT id FROM sub)',
+    );
+    params.push(q.orgId);
+  }
+  if (q.contractId) {
+    where.push('d.contract_id = ?');
+    params.push(q.contractId);
+  }
+  if (q.stage) {
+    where.push('d.stage = ?');
+    params.push(q.stage);
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT d.*, c.contract_no, c.name AS contract_name, o.name AS org_name
+       FROM ct_dispute d
+       JOIN ct_contract c ON c.id = d.contract_id
+       JOIN org o ON o.id = c.org_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY d.occurred_date DESC, d.id ASC`,
+    )
+    .safeIntegers(true)
+    .all(...params) as Record<string, unknown>[];
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('诉讼仲裁案件备案台账');
+  ws.addRow(['诉讼、仲裁等法律纠纷案件登记备案表']);
+  ws.mergeCells(1, 1, 1, DISPUTE_OFFICIAL_17_HEADERS.length);
+  ws.getCell(1, 1).font = { bold: true, size: 14 };
+  ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  const headerRow = ws.addRow([...DISPUTE_OFFICIAL_17_HEADERS]);
+  headerRow.font = { bold: true };
+
+  rows.forEach((r, index) => {
+    const dto = mapDispute(db, r);
+    ws.addRow([
+      index + 1,
+      dto.litigationType || '民事诉讼',
+      dto.causeOfAction,
+      dto.counterpartyAndRole,
+      DISPUTE_STAGE_LABELS[dto.stage] ?? dto.stage,
+      dto.institutionName,
+      dto.caseNo,
+      dto.involvedOrgName || String(r.org_name ?? ''),
+      dto.ourLitigationRole,
+      dto.acceptedDate ?? '',
+      dto.caseSummary,
+      dto.legalDocForm,
+      dto.closedDate ?? '',
+      dto.disputeAmount,
+      dto.judgmentResult,
+      dto.actualSettledAmount ?? '',
+      dto.lawFirmAndLawyer,
+    ]);
+  });
+
+  const buf = Buffer.from(await wb.xlsx.writeBuffer());
+  const fileName = `合同纠纷17列标准台账_${todayIso()}.xlsx`;
+  writeLog(db, 'contract.dispute.export', 'ct_dispute', q.contractId ?? 0, {
+    orgId: q.orgId ?? null,
+    rowCount: rows.length,
+  });
+  return {
+    fileName,
+    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    content: buf,
+  };
 }

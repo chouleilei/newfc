@@ -55,6 +55,7 @@ addRouteRules([
   // 经营预算
   R('GET', /^\/versions$/, 'budget:read'),
   R('GET', /^\/versions\/\d+$/, 'budget:read'),
+  R('GET', /^\/versions\/\d+\/(summary|unit-view)$/, 'budget:read'),
   R('GET', /^\/versions\/\d+\//, 'budget:read', true),
   R('WRITE', /^\/versions\/\d+\/(lock|set-current|archive)$/, 'budget:finalize', true),
   R('WRITE', /^\/versions(\/|$)/, 'budget:write', true),

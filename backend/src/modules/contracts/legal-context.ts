@@ -57,7 +57,7 @@ export function dateSequenceConflict(
 export function legalSigningDateConflict(db: DB, c: ContractRow): boolean {
   const parsed = db.prepare(`SELECT text_content FROM ct_doc_parse_cache WHERE file_sha256=(
     SELECT f.sha256 FROM ct_document d JOIN file_object f ON f.id=d.file_object_id
-    WHERE d.contract_id=? AND d.doc_type='contract_text' ORDER BY d.id DESC LIMIT 1
+    WHERE d.contract_id=? AND d.doc_type='contract_text' AND d.withdrawn_at IS NULL ORDER BY d.id DESC LIMIT 1
   ) ORDER BY id DESC LIMIT 1`).get(c.id) as { text_content: string } | undefined;
   return dateSequenceConflict(c, parsed?.text_content ?? '');
 }
@@ -70,7 +70,7 @@ export function legalSnapshot(
   if (auth) assertOrgVisible(db, auth, c.org_id, '合同');
   const doc = db
     .prepare(
-      "SELECT d.id,d.name,f.sha256,f.original_name FROM ct_document d JOIN file_object f ON f.id=d.file_object_id WHERE d.contract_id=? AND d.doc_type='contract_text' ORDER BY d.id DESC LIMIT 1",
+      "SELECT d.id,d.name,f.sha256,f.original_name FROM ct_document d JOIN file_object f ON f.id=d.file_object_id WHERE d.contract_id=? AND d.doc_type='contract_text' AND d.withdrawn_at IS NULL ORDER BY d.id DESC LIMIT 1",
     )
     .get(id) as
     | { id: number; name: string; sha256: string; original_name: string }
@@ -78,7 +78,7 @@ export function legalSnapshot(
   const preReviewPlaceholders = LEGAL_PRE_REVIEW_EVIDENCE_KINDS.map(() => '?').join(',');
   const evidence = db
     .prepare(
-      `SELECT d.evidence_kind,f.sha256 FROM ct_document d JOIN file_object f ON f.id=d.file_object_id WHERE d.contract_id=? AND d.evidence_kind IN (${preReviewPlaceholders}) AND d.id=(SELECT MAX(x.id) FROM ct_document x WHERE x.contract_id=d.contract_id AND x.evidence_kind=d.evidence_kind) ORDER BY d.evidence_kind`,
+      `SELECT d.evidence_kind,f.sha256 FROM ct_document d JOIN file_object f ON f.id=d.file_object_id WHERE d.contract_id=? AND d.withdrawn_at IS NULL AND d.evidence_kind IN (${preReviewPlaceholders}) AND d.id=(SELECT MAX(x.id) FROM ct_document x WHERE x.contract_id=d.contract_id AND x.withdrawn_at IS NULL AND x.evidence_kind=d.evidence_kind) ORDER BY d.evidence_kind`,
     )
     .all(id, ...LEGAL_PRE_REVIEW_EVIDENCE_KINDS) as { evidence_kind: string; sha256: string }[];
   const signingAmount = BigInt(c.original_cents);

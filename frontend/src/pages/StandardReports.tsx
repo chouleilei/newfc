@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App as AntdApp, Button, Collapse, Descriptions, Drawer, Form, InputNumber, Modal, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { can, download, errorText, getSession } from '../api/client';
 import { stdReportApi, type StdColumnDto, type StdReportDto, type StdReportGenerate, type StdReportListItemDto, type StdReportType } from '../api/financeData';
+import { planApi } from '../api/projectContract';
 import { QueryErrorResult } from '../components/QueryErrorResult';
 import { formatMoney, formatRatioPercent } from '../utils/decimal';
 import { shortTime } from '../utils/relativeTime';
@@ -13,7 +14,7 @@ import { compact, defaultOrgId, EXCEPTION_REASON_FIELD, lastPeriod, OrgSelect, P
 
 export const REPORT_TYPE_LABEL: Record<StdReportType, string> = {
   budget_execution: '经营预算执行表', statement_summary: '财务报表摘要', eas_recon: 'EAS 对账结果表', contract_payment_ledger: '合同付款台账',
-  risk_rectification_ledger: '风险整改台账', contract_monthly_pack: '月度合同5表台账',
+  risk_rectification_ledger: '风险整改台账', contract_monthly_pack: '月度合同5表台账', plan_issuance_summary: '年度综合计划与预算下达汇总表',
 };
 const SCOPE_OPTIONS = [{ value: 'consolidated', label: '合并' }, { value: 'parent', label: '母公司' }, { value: 'subsidiary', label: '子公司' }];
 
@@ -27,11 +28,18 @@ export function renderCell(col: StdColumnDto, v: string | number | null | undefi
 
 function GenerateModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: (r: StdReportDto) => void }) {
   const { message } = AntdApp.useApp();
-  const [form] = Form.useForm<{ reportType: StdReportType; year?: number; orgId?: number; period?: string; scope?: string; includeClosed?: boolean }>();
+  const [form] = Form.useForm<{ reportType: StdReportType; year?: number; cycleId?: number; orgId?: number; period?: string; scope?: string; includeClosed?: boolean }>();
   const type = Form.useWatch('reportType', form);
+  const yearWatch = Form.useWatch('year', form);
+  const cyclesQ = useQuery({
+    queryKey: ['plan-issuance-cycles-select', yearWatch],
+    queryFn: () => planApi.cycles({ year: yearWatch }),
+    enabled: open && type === 'plan_issuance_summary' && can('plan:read'),
+  });
   const gen = useMutation({
-    mutationFn: (v: { reportType: StdReportType; year?: number; orgId?: number; period?: string; scope?: string; includeClosed?: boolean }) => {
+    mutationFn: (v: { reportType: StdReportType; year?: number; cycleId?: number; orgId?: number; period?: string; scope?: string; includeClosed?: boolean }) => {
       const body = v.reportType === 'budget_execution' ? compact({ reportType: v.reportType, year: v.year, orgId: v.orgId })
+        : v.reportType === 'plan_issuance_summary' ? compact({ reportType: v.reportType, year: v.year, cycleId: v.cycleId, orgId: v.orgId })
         : v.reportType === 'statement_summary' ? compact({ reportType: v.reportType, orgId: v.orgId, period: v.period, scope: v.scope })
           : v.reportType === 'risk_rectification_ledger' ? compact({ reportType: v.reportType, orgId: v.orgId, period: v.period, includeClosed: v.includeClosed })
             : compact({ reportType: v.reportType, orgId: v.orgId, period: v.period });
@@ -42,20 +50,32 @@ function GenerateModal({ open, onClose, onDone }: { open: boolean; onClose: () =
     onError: (e) => message.error(errorText(e)),
   });
   const allOrgs = getSession()?.user.allOrgs ?? false;
+  const isYearBased = type === 'budget_execution' || type === 'plan_issuance_summary';
+  const optionalOrg = isYearBased || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger' || type === 'contract_monthly_pack';
   return (
     <Modal open={open} title="生成标准报表" onCancel={onClose} confirmLoading={gen.isPending} destroyOnClose onOk={() => form.validateFields().then((v) => gen.mutate(v))}>
       <Form form={form} layout="vertical" preserve={false} initialValues={{ reportType: 'budget_execution', year: new Date().getFullYear(), orgId: defaultOrgId(), period: lastPeriod(), scope: undefined }}>
         <Form.Item name="reportType" label="报表类型"><Select options={Object.entries(REPORT_TYPE_LABEL).map(([value, label]) => ({ value, label }))} /></Form.Item>
-        {type === 'budget_execution' && <Form.Item name="year" label="年度" rules={[{ required: true }]}><InputNumber min={1900} max={9999} style={{ width: 140 }} /></Form.Item>}
-        <Form.Item name="orgId" label={type === 'budget_execution' || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger' || type === 'contract_monthly_pack' ? `组织${allOrgs ? '(不选为全组织口径)' : ''}` : '组织'}
-          rules={(type === 'budget_execution' || type === 'contract_payment_ledger' || type === 'risk_rectification_ledger' || type === 'contract_monthly_pack') && allOrgs ? [] : [{ required: true, message: '请选择组织' }]}>
+        {isYearBased && <Form.Item name="year" label="年度" rules={[{ required: true }]}><InputNumber min={2000} max={2100} style={{ width: 140 }} /></Form.Item>}
+        {type === 'plan_issuance_summary' && (
+          <Form.Item name="cycleId" label="下达周期(缺省取最新已发布周期)">
+            <Select
+              allowClear
+              placeholder="自动选用最新下达周期"
+              options={(cyclesQ.data?.items ?? []).map((c) => ({ value: c.id, label: `${c.cycleCode} (${c.status})` }))}
+            />
+          </Form.Item>
+        )}
+        <Form.Item name="orgId" label={optionalOrg ? `组织${allOrgs ? '(不选为全组织口径)' : ''}` : '组织'}
+          rules={optionalOrg && allOrgs ? [] : [{ required: true, message: '请选择组织' }]}>
           <OrgSelect onChange={(v) => form.setFieldValue('orgId', v)} width={320} />
         </Form.Item>
-        {type !== 'budget_execution' && <Form.Item name="period" label="期间" rules={[{ required: true }]}><PeriodPicker onChange={(v) => form.setFieldValue('period', v)} allowClear={false} /></Form.Item>}
+        {!isYearBased && <Form.Item name="period" label="期间" rules={[{ required: true }]}><PeriodPicker onChange={(v) => form.setFieldValue('period', v)} allowClear={false} /></Form.Item>}
         {type === 'statement_summary' && <Form.Item name="scope" label="口径(缺省合并优先)"><Select allowClear options={SCOPE_OPTIONS} /></Form.Item>}
       </Form>
       <Typography.Text type="secondary">
         {type === 'budget_execution' ? '取该年当前采用预算与最新实际,复用执行分析口径。' : type === 'statement_summary' ? '取当前财报批次的语义指标与比率。'
+          : type === 'plan_issuance_summary' ? '冻结指定年度综合计划与经营预算合一下达各单元指标、签收状态与四层精度汇总快照。'
           : type === 'risk_rectification_ledger' ? '冻结风险等级、状态、处理人、期限、逾期与最近动作(缺省不含已关闭与误报)。'
           : type === 'contract_monthly_pack' ? '冻结当期合同5表月报核心台账快照(万元口径,不含作废合同)。'
           : type === 'contract_payment_ledger' ? '冻结合同阶段、当前金额、本期与累计已付、付款比例及合同版本(不含作废合同)。' : '取当前 EAS 对账集合的规则结果。'}

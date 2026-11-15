@@ -31,6 +31,8 @@ import {
 } from '../../contracts/standard-reports';
 import { buildMonthlyLedger, centsToWanString, queryScopedContracts } from '../contracts/contract-export-monthly';
 import { tryRmbCents } from '../contracts/contract-funding';
+import { getIssuanceCycle, listIssuanceCycles, listUnitPacks } from '../plan-execution/plan-issuance.service';
+import { PLAN_PACK_SIGN_STATUS_LABELS } from '../../contracts/plan-execution';
 
 const nowIso = () => new Date().toISOString();
 
@@ -369,6 +371,69 @@ function riskRectificationLedger(db: DB, input: Extract<StdReportGenerate, { rep
   };
 }
 
+function planIssuanceSummary(db: DB, input: Extract<StdReportGenerate, { reportType: 'plan_issuance_summary' }>): Frozen {
+  if (input.orgId) assertOrg(db, input.orgId);
+  else requireCurrentAllOrgs('年度综合计划与预算下达汇总表');
+
+  const cycles = listIssuanceCycles(db, { year: input.year });
+  const targetCycleId = input.cycleId ?? cycles.find((c) => c.status === 'published')?.id ?? cycles[0]?.id;
+  if (!targetCycleId) {
+    throw new AppError('PLAN_CYCLE_NOT_FOUND', `未找到 ${input.year} 年度综合计划下达周期`, 404);
+  }
+  const cycle = getIssuanceCycle(db, targetCycleId);
+  const packs = listUnitPacks(db, { cycleId: cycle.id }).filter((p) => !input.orgId || p.unitOrgId === input.orgId);
+  const scopeName = input.orgId ? orgName(db, input.orgId)! : '全组织';
+
+  return {
+    title: `${input.year}年度综合计划与预算下达汇总表 · ${cycle.cycleCode} · ${scopeName}`,
+    orgId: input.orgId ?? null,
+    period: String(input.year),
+    params: { year: input.year, cycleId: cycle.id, cycleCode: cycle.cycleCode, orgId: input.orgId ?? null },
+    columns: [
+      { key: 'unitCode', label: '下达单元编码', kind: 'text' },
+      { key: 'unitName', label: '下达单元名称', kind: 'text' },
+      { key: 'docNo', label: '发文字号', kind: 'text' },
+      { key: 'attachmentCount', label: '附表份数', kind: 'integer' },
+      { key: 'letterNo', label: '目标责任书编号', kind: 'text' },
+      { key: 'signStatus', label: '签收状态', kind: 'text' },
+      { key: 'operatingRevenue', label: '营业总收入', kind: 'money' },
+      { key: 'profitBeforeTax', label: '利润总额', kind: 'money' },
+      { key: 'investmentTotal', label: '固定资产投资', kind: 'money' },
+      { key: 'maintenanceTotal', label: '运行维护费(含税)', kind: 'money' },
+      { key: 'safetyInputTotal', label: '安全生产投入', kind: 'money' },
+      { key: 'fiveExpensesIssued', label: '五项费用批复值', kind: 'money' },
+      { key: 'controllableMgmtFeeIssued', label: '可控管理费批复值', kind: 'money' },
+    ],
+    rows: packs.map((p) => ({
+      unitCode: p.unitOrgCode,
+      unitName: p.unitOrgName,
+      docNo: p.docNo,
+      attachmentCount: p.attachmentCount,
+      letterNo: p.responsibilityLetterNo || '—',
+      signStatus: PLAN_PACK_SIGN_STATUS_LABELS[p.signOffStatus],
+      operatingRevenue: p.metrics.operatingRevenue,
+      profitBeforeTax: p.metrics.profitBeforeTax,
+      investmentTotal: p.metrics.investmentTotal,
+      maintenanceTotal: p.metrics.maintenanceTotal,
+      safetyInputTotal: p.metrics.safetyInputTotal,
+      fiveExpensesIssued: p.metrics.fiveExpensesIssued,
+      controllableMgmtFeeIssued: p.metrics.controllableMgmtFeeIssued,
+    })),
+    summary: [
+      { label: '周期编码', value: cycle.cycleCode },
+      { label: '下达单元包数', value: String(packs.length) },
+      { label: '已签收单元数', value: String(packs.filter((p) => p.signOffStatus === 'acknowledged').length) },
+      { label: '快照摘要哈希', value: cycle.snapshotSha256 || '草稿未冻结' },
+      { label: '组织范围', value: scopeName },
+    ],
+    sources: {
+      cycleId: cycle.id,
+      cycleVersion: cycle.version,
+      snapshotSha256: cycle.snapshotSha256,
+      packs: packs.map((p) => ({ id: p.id, version: p.version })),
+    },
+  };
+}
 /* ================= 生成 / 查询 / 复核 / 导出 ================= */
 
 interface ReportRow {
@@ -411,6 +476,7 @@ export function generateReport(db: DB, input: StdReportGenerate): StdReportDto {
     : input.reportType === 'eas_recon' ? easRecon(db, input)
     : input.reportType === 'contract_payment_ledger' ? contractPaymentLedger(db, input)
     : input.reportType === 'contract_monthly_pack' ? contractMonthlyPack(db, input)
+    : input.reportType === 'plan_issuance_summary' ? planIssuanceSummary(db, input)
     : riskRectificationLedger(db, input);
   const content = JSON.stringify({ columns: f.columns, rows: f.rows, summary: f.summary, sources: f.sources });
   const sha = crypto.createHash('sha256').update(content).digest('hex');

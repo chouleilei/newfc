@@ -76,3 +76,4 @@ dist.e2e/
 .t9-dist/
 dist.new/
 dist.old/
+dist.verify/

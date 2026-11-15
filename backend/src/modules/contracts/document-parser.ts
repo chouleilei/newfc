@@ -26,6 +26,7 @@ export interface Paragraph {
   table?: number;
   row?: number;
   cell?: number;
+  blocks?: unknown[];
 }
 export interface ParsedDocument {
   text: string;
@@ -436,11 +437,13 @@ export async function parseContractDocument(
       );
       if (body.pages.some((p, i) => p.pageNo !== i + 1))
         throw new Error('PDF_PAGE_GAP');
+      const totalBlocks = body.pages.reduce((sum, p) => sum + (Array.isArray(p.blocks) ? p.blocks.length : 0), 0);
       const paragraphs = body.pages.map((p, i) => ({
         index: i + 1,
         heading: '',
         text: p.text,
         page: p.pageNo,
+        ...(Array.isArray(p.blocks) && p.blocks.length > 0 ? { blocks: p.blocks } : {}),
       }));
       const text = paragraphs.map((p) => p.text).join('\n');
       if (text.length > 200000) throw new Error('PDF_LIMIT');
@@ -453,7 +456,11 @@ export async function parseContractDocument(
             ? 'degraded'
             : 'ok',
         findings: [],
-        stats: { characters: text.length, pages: paragraphs.length },
+        stats: {
+          characters: text.length,
+          pages: paragraphs.length,
+          ...(totalBlocks > 0 ? { blockCount: totalBlocks } : {}),
+        },
       };
     } catch {
       result = empty(

@@ -13,8 +13,24 @@ export const RISK_STATUS_LABELS: Record<RiskStatus, string> = {
 export const RISK_LEVELS = ['high', 'medium', 'low'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = { high: '高', medium: '中', low: '低' };
-export const RISK_SOURCES = ['project_budget', 'plan', 'contract', 'investment_control', 'feasibility', 'eas'] as const;
+export const RISK_SOURCES = ['project_budget', 'plan', 'contract', 'investment_control', 'feasibility', 'eas', 'expense'] as const;
 export type RiskSource = (typeof RISK_SOURCES)[number];
+
+export const RISK_RULE_SCOPES = ['supervision_net_33', 'internal_control_18', 'domain_general'] as const;
+export type RiskRuleScope = (typeof RISK_RULE_SCOPES)[number];
+export const RISK_RULE_SCOPE_LABELS: Record<RiskRuleScope, string> = {
+  supervision_net_33: '协同监督净版（33条）',
+  internal_control_18: '内部扩展内控（18条）',
+  domain_general: '财务与项目基础监控',
+};
+
+export const RISK_EVIDENCE_STATUSES = ['confirmed_hit', 'insufficient_evidence', 'suspected_clue'] as const;
+export type RiskEvidenceStatus = (typeof RISK_EVIDENCE_STATUSES)[number];
+export const RISK_EVIDENCE_STATUS_LABELS: Record<RiskEvidenceStatus, string> = {
+  confirmed_hit: '确认违规命中',
+  insufficient_evidence: '证据待补核（历史容缺）',
+  suspected_clue: '疑似拆单/异常线索',
+};
 
 /** 页面可发起的处理动作;detect/redetect/reopen/suppressed 只由扫描写入。 */
 export const RISK_COMMANDS = ['confirm', 'start', 'submit', 'approve', 'return', 'false_positive', 'comment'] as const;
@@ -30,6 +46,8 @@ export const riskListQuery = z.object({
   status: z.enum(RISK_STATUSES).optional(),
   level: z.enum(RISK_LEVELS).optional(),
   source: z.enum(RISK_SOURCES).optional(),
+  ruleScope: z.enum(RISK_RULE_SCOPES).optional(),
+  evidenceStatus: z.enum(RISK_EVIDENCE_STATUSES).optional(),
   ruleCode: z.string().trim().max(64).optional(),
   orgId: id.optional(),
   projectId: id.optional(),
@@ -85,6 +103,9 @@ export interface RiskRuleDto {
   /** 命中计算器;内置规则等于自身编码。 */
   detector: string; detectorName: string; builtin: boolean; orgId: number | null; orgName: string | null;
   thresholdKind: RiskThresholdKind | null; thresholdLabel: string | null;
+  ruleScope?: RiskRuleScope;
+  policyRefCode?: string;
+  effectiveFrom?: string | null;
 }
 
 /** 风险解释(确定性模板 + 可选模型改写,只追加)。 */
@@ -105,6 +126,9 @@ export interface RiskEventDto {
   id: number; eventKey: string; ruleCode: string; ruleName: string; source: RiskSource; level: RiskLevel; orgId: number; orgName: string | null;
   projectId: number | null; projectCode: string | null; projectName: string | null; subjectType: string; subjectId: number;
   title: string; description: string; amount: MoneyString | null; metric: string | null; evidence: Record<string, unknown>;
+  evidenceStatus?: RiskEvidenceStatus;
+  ruleScope?: RiskRuleScope;
+  policyRefCode?: string;
   status: RiskStatus; occurrenceCount: number; firstDetectedAt: string; lastDetectedAt: string; lastScanId: number | null; lastScanHit: boolean;
   handlerUserId: number | null; handlerName: string | null; deadline: string | null; overdue: boolean; rectifyNote: string | null;
   submittedByUserId: number | null; reviewedByUserId: number | null; closedAt: string | null; reopenedCount: number; version: number;
