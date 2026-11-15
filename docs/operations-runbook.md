@@ -70,6 +70,12 @@ curl -fsS http://127.0.0.1:3760/api/health/ready
 
 发布证据及源码归档位于`/data/newfc-data/releases/contract-lifecycle-v72-20261113-160211/`，迁移前完整V70备份为`pre-migrate-cli-budget-backup-2026-11-13-160545.sqlite`。已有页面需刷新；V72回退至V70时，先核对备份后写入，再使用该完整备份和`dist.old`中的匹配产物，不能只交换代码。
 
+### T-13～T-15 升级（V72→V75，待生产执行）
+
+`v0.3.0` 已于 2026-11-15 作为 GitHub 源码版本发布，生产尚未部署。上线时须从同一个 `v0.3.0` 标签构建前后端，先完成当前 V72 完整备份，再通过 `scripts/deploy.sh` 显式执行 V73（主数据底座与 16 表计划）、V74（合一下达、会签招采与监督预警）和 V75（报销拆单、EAS 遗留对账与受控草稿）。部署前按 [v0.3.0 发布摘要](public-release.md#验证) 重新确认全量门禁、双配置 E2E 和迁移恢复证据。
+
+升级后核验 `newfc.service`、本机/公网 live/ready、schema V75、迁移前备份完整性、数据库完整性与外键检查。V75 回退必须使用匹配的 V72 完整备份和旧代码产物，先核对上线后写入，不能只交换旧代码继续读取 V75 库。
+
 ## 代码回退
 
 `scripts/rollback.sh [--restore-backup <备份文件名>] [--accept-data-loss] [--no-restart]`（AC-X08）：

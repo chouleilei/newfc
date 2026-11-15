@@ -1,4 +1,4 @@
-newfc v0.2.0 — third-party runtime license notices
+newfc v0.3.0 — third-party runtime license notices
 Versions from the release package-lock.json files.
 
 ========================================================================

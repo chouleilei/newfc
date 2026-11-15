@@ -903,3 +903,27 @@ E2E_BACKEND_DIST=.review-final-dist E2E_FRONTEND_DIST=.e2e-dist \
 npx playwright test --config playwright.contract-legal.config.ts \
   --grep '八阶段质保闭环|P0: 16表' --workers=1 --trace=off
 ```
+
+## v0.3.0 公开源码发版前最终门禁（2026-11-15）
+
+F01/F04/F05/F07/F15/F16/F18/F19/F20/F21/F22/F23/F24/F25；T-13～T-15；AC-T13-01～11、AC-T14-01～08、AC-T15-01～05、AC-X04/X07/X10。用户批准将 `feat/improvement-2026-11` 快进合入 `main`，统一软件版本为 **0.3.0**、发布标签 **v0.3.0**，并明确本次只发布 GitHub 源码，不部署生产。
+
+合并后 `main` 基线为 `92873e2`，工作区干净，使用 Node **24.22.1** 和锁文件对应依赖进行最终一次性门禁：
+
+| 检查 | 实际结果 |
+|---|---|
+| 后端源码类型、测试类型 | `tsc --noEmit`、`npm run typecheck:test` 通过 |
+| 后端全量测试 | 144 文件 / 1186 项通过，耗时 1733.81 秒 |
+| 后端生产依赖审计 | 0 漏洞 |
+| 前端全量测试 | 67 文件 / 525 项通过，耗时 365.01 秒 |
+| 前端类型与隔离构建 | `tsc -b`、Vite `dist.verify` 构建通过 |
+| 前端生产依赖审计 | 0 漏洞 |
+| 主 Playwright 配置 | **103/103 通过（23.6m）** |
+| 法审/生命周期 Playwright 配置 | **14/14 通过（4.6m）** |
+| 测试实例清理 | 3761、3762、3764 均已停止 |
+
+首次后端类型检查因主工作区 `node_modules` 陈旧而失败：实际为 `zod@3.25.76` 且缺少 `xlsx`，锁文件要求 `zod@4.6.7` 和 `file:vendor/xlsx-0.20.3.tgz`。前后端执行 `npm ci` 后恢复锁文件依赖，随后完整门禁通过。主 E2E 首次启动时隔离后端位于 `/tmp`，因模块搜索路径未包含仓库依赖而无法加载 `express`；设置 `NODE_PATH=/root/newfc/backend/node_modules` 后完整通过。两项均为运行环境准备问题，未修改产品代码或测试断言。
+
+非失败警告仅包括 jsdom `getComputedStyle(..., pseudoElt)` 未实现、Rollup 对 Zod 源码注释位置的提示，以及 `NO_COLOR`/`FORCE_COLOR` 同时设置。源码、迁移和业务断言未因告警或重试改动。
+
+发版范围：前后端 `package.json`、锁文件、README、更新日志、计划与 specs 索引、验收记录、公开版摘要、来源记录、运维升级说明和第三方许可标题统一为 0.3.0；原 v0.2.0 公开摘要归档为 `docs/public-release-v0.2.0.md`。生产 `/data/newfc-data`、`newfc.service` 和 V72 运行库未操作。`AC-CLR-09` 正式历史业务证据及真实 OA/上级平台在线联调边界保持不变。
