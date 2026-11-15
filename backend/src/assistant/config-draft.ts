@@ -6,7 +6,7 @@ import type { DraftKind } from '../contracts/page-catalog';
 import { AppError, Errors } from '../core/errors';
 import { validateInput } from '../core/input';
 import { suggestNextContractNo } from '../modules/contracts/prefix-map.service';
-import { derivePlanApprovalBody } from '../modules/plan-execution/plan-issuance.service';
+import { resolvePlanAdjustmentApprovalBody } from '../modules/plan-execution/plan-issuance.service';
 import { PLAN_ADJUST_TYPES, PLAN_ADJUST_TYPE_LABELS, PLAN_APPROVAL_BODY_LABELS, type PlanAdjustType } from '../contracts/plan-execution';
 import { LEGAL_CATEGORIES, type LegalCategory } from '../contracts/contract-legal-review';
 import * as org from '../modules/org/org.service';
@@ -16,6 +16,8 @@ import * as calculation from '../modules/calculation/calculation.service';
 import * as template from '../modules/io/cleaning/template.service';
 import * as alias from '../modules/io/cleaning/alias.service';
 import * as sheet from '../modules/sheet/sheet.service';
+import { assertScopedDraftAccess } from './draft-scope';
+import { currentOrgScope, scopeFilterSql } from '../modules/security/scope';
 
 export interface ConfigDraftAnalysis {
   issues: string[];
@@ -33,6 +35,7 @@ export function analyzeContractDraftFields(db: DB, fields: Record<string, unknow
   explanation: string[];
   suggestedFields: Record<string, unknown>;
 } {
+  assertScopedDraftAccess(db, 'contract_draft', fields, null);
   const issues: string[] = [];
   const explanation: string[] = [];
   const suggestedFields: Record<string, unknown> = {};
@@ -108,13 +111,14 @@ export function analyzeContractDraftFields(db: DB, fields: Record<string, unknow
         suggestedFields.projectId = pi.project_id;
       }
       const planAmtRow = db.prepare(
-        `SELECT COALESCE(MAX(amount_cents), 0) AS plan_cents FROM plan_fact WHERE item_id = ? AND value_type = 'amount'`
+        `SELECT COALESCE(MAX(amount_cents), 0) AS plan_cents FROM plan_fact WHERE item_id = ? AND field_key = 'annual_plan' AND value_type = 'amount'`
       ).safeIntegers(true).get(pi.id) as { plan_cents: bigint };
-      const usedRow = db.prepare(
-        `SELECT COALESCE(SUM(original_cents + approved_change_cents), 0) AS used_cents FROM ct_contract WHERE plan_item_id = ? AND status <> 'voided' AND currency = '人民币'`
-      ).safeIntegers(true).get(pi.id) as { used_cents: bigint };
+      const scopeSql = scopeFilterSql(currentOrgScope(db), 'org_id');
+      const usedRows = db.prepare(
+        `SELECT original_cents, approved_change_cents FROM ct_contract WHERE plan_item_id = ? AND status <> 'voided' AND currency = '人民币' AND ${scopeSql.sql}`
+      ).safeIntegers(true).all(pi.id, ...scopeSql.params) as { original_cents: bigint; approved_change_cents: bigint }[];
       const planCents = BigInt(planAmtRow.plan_cents);
-      const usedCents = BigInt(usedRow.used_cents);
+      const usedCents = usedRows.reduce((sum, row) => sum + row.original_cents + row.approved_change_cents, 0n);
       if (planCents > 0n) {
         const remainCents = planCents - usedCents;
         explanation.push(
@@ -144,6 +148,7 @@ export function analyzePlanIssuanceDraftFields(db: DB, fields: Record<string, un
   explanation: string[];
   suggestedFields: Record<string, unknown>;
 } {
+  assertScopedDraftAccess(db, 'plan_issuance_draft', fields, null);
   const issues: string[] = [];
   const explanation: string[] = [];
   const suggestedFields: Record<string, unknown> = {};
@@ -167,7 +172,7 @@ export function analyzePlanIssuanceDraftFields(db: DB, fields: Record<string, un
           is_direct_station: number; plan_issuance_root_id: number | null; is_plan_excluded: number;
         } | undefined;
         if (orgRow) {
-          const approvalBody = derivePlanApprovalBody(orgRow as any, adjustType, Boolean(fields.exceedsOverallTarget));
+          const approvalBody = resolvePlanAdjustmentApprovalBody(db, { unitOrgId: orgRow.id, unitPackId: fields.unitPackId ? Number(fields.unitPackId) : undefined, cycleId: fields.cycleId ? Number(fields.cycleId) : undefined, adjustType, exceedsOverallTarget: Boolean(fields.exceedsOverallTarget), lines: Array.isArray(fields.lines) ? fields.lines as any : undefined });
           suggestedFields.approvalBody = approvalBody;
           suggestedFields.approvalBodyLabel = PLAN_APPROVAL_BODY_LABELS[approvalBody];
           suggestedFields.unitOrgId = orgRow.id;

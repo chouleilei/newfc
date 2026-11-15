@@ -1663,7 +1663,11 @@ export async function chat(
   if (fieldExplanation) pageFacts.push({ type: 'field_help', data: { formKind: backendCtx.focus!.kind === 'form_field' ? backendCtx.focus!.formKind : '', field: backendCtx.focus!.kind === 'form_field' ? backendCtx.focus!.field : '', explanation: fieldExplanation }, source: {} });
   const selectionPrefix = selectionData ? '当前选择（' + selectionData.mode + '）：已核验 ' + selectionData.count + ' 个对象。' + (selectionData.amount != null ? '选区金额 ' + selectionData.amount + ' 元。' : '') + (selectionData.unsaved ? '包含当前未保存修改。' : '') + (selectionData.truncated ? '详情显示前 30 项，汇总覆盖全部选择。' : '') + (selectionData.explanation ?? '') : '';
   const pagePrefix = [selectionPrefix, fieldExplanation ?? '', verificationFact ? summarizeVerificationFact(verificationFact) : '', draftImpact ? summarizeDraftImpact(draftImpact) : backendCtx.draft ? summarizeDraftValidation(backendCtx.draft) : ''].filter(Boolean).join('\n\n');
-  if (pageFacts.length) (digest as unknown as Record<string, unknown>).pageFacts = pageFacts;
+  // 表单预检可能包含未保存金额或无效枚举原文；模型只接收类型与数量摘要。
+  const safePageFacts = pageFacts.map((fact) => fact.type === 'draft_validation'
+    ? { ...fact, data: draftSummary(backendCtx.draft!) }
+    : fact);
+  if (safePageFacts.length) (digest as unknown as Record<string, unknown>).pageFacts = safePageFacts;
   if (pagePrefix) emitInChunks(`${pagePrefix}\n\n`, options.onToken);
   let facts: FactRecord[] = [];
   let text = '';
@@ -1843,12 +1847,19 @@ export async function chat(
   } satisfies Omit<AssistantChatResponse, 'conversationId'>;
   response.metrics.durationMs = Date.now() - startedAt;
   const timestamp = now();
+  const storedResponse = backendCtx.draft?.config ? {
+    ...response,
+    text: pagePrefix ? text.slice(pagePrefix.length).trimStart() : text,
+    facts: response.facts.map((fact) => fact.type === 'draft_validation'
+      ? { ...fact, data: draftSummary(backendCtx.draft!) } : fact),
+    contextTrace: { ...response.contextTrace, warnings: response.contextTrace.warnings.filter((warning) => !warning.startsWith('草稿校验：')) },
+  } : response;
   throwIfChatAborted(options.signal);
   if (conversationId === 0) conversationId = ensureConversation(db, undefined, message);
   db.transaction(() => {
     throwIfChatAborted(options.signal);
     db.prepare('INSERT INTO ai_message(conversation_id,role,content,response_json,model,created_at) VALUES(?,?,?,?,?,?)').run(conversationId, 'user', message, '{}', null, timestamp);
-    db.prepare('INSERT INTO ai_message(conversation_id,role,content,response_json,model,created_at) VALUES(?,?,?,?,?,?)').run(conversationId, 'assistant', text, JSON.stringify(response), modelName, timestamp);
+    db.prepare('INSERT INTO ai_message(conversation_id,role,content,response_json,model,created_at) VALUES(?,?,?,?,?,?)').run(conversationId, 'assistant', storedResponse.text, JSON.stringify(storedResponse), modelName, timestamp);
     db.prepare('UPDATE ai_conversation SET updated_at=? WHERE id=?').run(timestamp, conversationId);
     /**
      * 提问本身也入操作日志(不重复存正文，正文在 ai_message 里)。

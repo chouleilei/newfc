@@ -240,8 +240,8 @@ function assertOrg(db: DB, orgId: number): void {
 
 function assertContractVisible(db: DB, contractId: number | null | undefined): number | null {
   if (contractId === null || contractId === undefined) return null;
-  const row = db.prepare('SELECT id, org_id, stage FROM ct_contract WHERE id = ?').get(contractId) as { id: number; org_id: number; stage: string } | undefined;
-  if (!row || !orgInScope(currentOrgScope(db), row.org_id)) throw notVisible('关联合同');
+  const row = db.prepare('SELECT id, org_id, stage, status FROM ct_contract WHERE id = ?').get(contractId) as { id: number; org_id: number; stage: string; status: string } | undefined;
+  if (!row || row.status === 'voided' || !orgInScope(currentOrgScope(db), row.org_id)) throw notVisible('关联合同');
   return row.id;
 }
 

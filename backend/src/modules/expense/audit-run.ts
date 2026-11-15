@@ -16,6 +16,7 @@ import { centsToDecimalString } from '../../core/decimal';
 import { AppError } from '../../core/errors';
 import { writeLog } from '../audit/log';
 import { currentAuth } from '../../core/request-context';
+import { currentOrgScope, orgInScope } from '../security/scope';
 import { getSetting } from '../settings/business-settings';
 import { recognizeAttachment, type OcrConfig, type OcrText } from './ocr-client';
 import type { ObjectStore } from '../files/object-store';
@@ -114,7 +115,6 @@ export interface AuditInput {
 }
 
 const SPLIT_ELIGIBLE_TYPE_RE = /采购|维修|修缮|工程|设备|材料|物资|外包|劳务|租赁|印刷|耗材|软件|服务|备件|检测|维护/;
-const STATUTORY_UTILITY_EXEMPT_RE = /水电费|电费缴纳|水费缴纳|通信费|宽带费|代扣税费/;
 
 function daysBetweenDates(a: string, b: string): number | null {
   const ta = Date.parse(`${a}T00:00:00Z`);
@@ -123,7 +123,7 @@ function daysBetweenDates(a: string, b: string): number | null {
   return Math.round((tb - ta) / 86_400_000);
 }
 
-function detectClaimSplitCluster(db: DB, claim: ClaimRow, limitCents: bigint, windowDays: number): SplitClusterHit | null {
+export function detectClaimSplitCluster(db: DB, claim: ClaimRow, limitCents: bigint, windowDays: number): SplitClusterHit | null {
   if (claim.amount_cents <= 0n || claim.amount_cents > limitCents) return null;
   const normType = normalizeText(claim.expense_type);
   const isSplitCandidate = claim.is_procurement_expense === 1 || claim.contract_id !== null || SPLIT_ELIGIBLE_TYPE_RE.test(claim.expense_type);
@@ -144,10 +144,11 @@ function detectClaimSplitCluster(db: DB, claim: ClaimRow, limitCents: bigint, wi
      FROM ex_claim c
      LEFT JOIN ct_contract ct ON ct.id = c.contract_id
      WHERE c.org_id = ?
+       AND c.occurred_date >= date(?, ?) AND c.occurred_date <= date(?, ?)
        AND (c.id = ? OR c.status IN ('submitted','audited','reviewed','supplement'))
        AND (c.conclusion IS NULL OR c.conclusion <> 'reject')
        AND c.amount_cents > 0 AND c.amount_cents <= ?`
-  ).safeIntegers(true).all(claim.org_id, claim.id, limitCents) as {
+  ).safeIntegers(true).all(claim.org_id, claim.occurred_date, `${1 - windowDays} days`, claim.occurred_date, `${windowDays - 1} days`, claim.id, limitCents) as {
     id: bigint; claim_no: string; expense_type: string; amount_cents: bigint; occurred_date: string;
     contract_id: bigint | null; is_procurement_expense: bigint; supplier_id: bigint | null; counterparty_names: string | null;
   }[];
@@ -169,39 +170,43 @@ function detectClaimSplitCluster(db: DB, claim: ClaimRow, limitCents: bigint, wi
         claimNo: p.claim_no,
         date: p.occurred_date,
         cents: BigInt(p.amount_cents),
-        matchedGroup: sameSupplier || sameContract || sameType,
+        groups: [sameType ? `type:${normType}` : null, sameContract ? `contract:${claim.contract_id}` : null, sameSupplier ? supplierKey : null].filter((key): key is string => key !== null),
       };
     })
-    .filter((p) => p.matchedGroup)
+    .filter((p) => p.groups.length > 0)
     .filter((p) => {
       const diff = daysBetweenDates(p.date, claim.occurred_date);
-      return diff !== null && Math.abs(diff) <= windowDays;
+      return diff !== null && Math.abs(diff) < windowDays;
     });
 
   if (matched.length < 2) return null;
   matched.sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
 
-  // 取覆盖当前报销单且长度 <= windowDays 的最大累计连续自然日窗口
+  // 每个候选窗口必须共享同一分组键，不能混合“同类别”和“同供应商”的不相干单据。
   let bestWindow: typeof matched | null = null;
   let bestSum = 0n;
-  for (let i = 0; i < matched.length; i += 1) {
-    const startDate = matched[i].date;
-    const win = matched.filter((x) => {
-      const d = daysBetweenDates(startDate, x.date);
-      return d !== null && d >= 0 && d <= windowDays;
-    });
-    if (!win.some((x) => x.id === claim.id)) continue;
-    const sum = win.reduce((s, x) => s + x.cents, 0n);
-    if (win.length >= 2 && sum >= limitCents && sum > bestSum) {
-      bestWindow = win;
-      bestSum = sum;
+  let groupCategory = '';
+  const keys = [...new Set(matched.flatMap((p) => p.groups))].sort();
+  for (const group of keys) {
+    const peersInGroup = matched.filter((p) => p.groups.includes(group));
+    for (let i = 0; i < peersInGroup.length; i += 1) {
+      const win = peersInGroup.slice(i).filter((p) => {
+        const d = daysBetweenDates(peersInGroup[i].date, p.date);
+        return d !== null && d >= 0 && d < windowDays;
+      });
+      if (!win.some((p) => p.id === claim.id)) continue;
+      const sum = win.reduce((total, p) => total + p.cents, 0n);
+      if (win.length >= 2 && sum >= limitCents && sum > bestSum) {
+        bestWindow = win;
+        bestSum = sum;
+        groupCategory = group;
+      }
     }
   }
   if (!bestWindow) return null;
-
-  const claimIds = [...bestWindow.map((w) => w.id)].sort((a, b) => a - b);
-  const claimNos = bestWindow.map((w) => w.claimNo);
-  const groupCategory = supplierKey ?? (claim.contract_id !== null ? `contract:${claim.contract_id}` : `type:${normType}`);
+  const byId = [...bestWindow].sort((a, b) => a.id - b.id);
+  const claimIds = byId.map((w) => w.id);
+  const claimNos = byId.map((w) => w.claimNo);
   const fingerprint = createHash('sha256')
     .update(JSON.stringify({ orgId: claim.org_id, groupCategory, claimIds }))
     .digest('hex');
@@ -219,17 +224,27 @@ function detectClaimSplitCluster(db: DB, claim: ClaimRow, limitCents: bigint, wi
   };
 }
 
-function resolveLinkedContractComparisonRef(db: DB, contractId: number | null): string | null {
+export function resolveLinkedContractComparisonRef(db: DB, contractId: number | null): string | null {
   if (contractId === null) return null;
+  const contract = db.prepare('SELECT org_id, status FROM ct_contract WHERE id = ?').get(contractId) as { org_id: number; status: string } | undefined;
+  if (!contract || contract.status === 'voided' || !orgInScope(currentOrgScope(db), contract.org_id)) return null;
   const rec = db.prepare(
-    `SELECT pr.id, pr.procurement_method
+    `SELECT pr.id, pr.procurement_method, pr.comparison_quotes_json
      FROM ct_contract c JOIN ct_procurement_record pr ON pr.id = c.procurement_record_id
      WHERE c.id = ? LIMIT 1`
-  ).get(contractId) as { id: number; procurement_method: string | null } | undefined;
-  if (rec) return `关联合同采购记录 #${rec.id}(${rec.procurement_method ?? 'recorded'})`;
+  ).get(contractId) as { id: number; procurement_method: string | null; comparison_quotes_json: string } | undefined;
+  let hasQuotes = false;
+  if (rec) {
+    try {
+      const quotes: unknown = JSON.parse(rec.comparison_quotes_json);
+      hasQuotes = Array.isArray(quotes) && quotes.some((quote) => quote && typeof quote.vendorName === 'string' && quote.vendorName.trim() && typeof quote.quoteAmount === 'string' && /^\d+(?:\.\d{1,2})?$/.test(quote.quoteAmount));
+    } catch { /* 无效留痕不能作为比价证据。 */ }
+  }
+  if (rec && hasQuotes) return `关联合同采购记录 #${rec.id}(${rec.procurement_method ?? 'recorded'})`;
   const doc = db.prepare(
     `SELECT id, name FROM ct_document
-     WHERE contract_id = ? AND (doc_type = 'procurement' OR name LIKE '%比价%' OR name LIKE '%询价%')
+     WHERE contract_id = ? AND withdrawn_at IS NULL AND doc_type = 'procurement'
+       AND (name LIKE '%比价%' OR name LIKE '%询价%' OR name LIKE '%市场调研%' OR name LIKE '%三家报价%')
      ORDER BY id DESC LIMIT 1`
   ).get(contractId) as { id: number; name: string } | undefined;
   return doc ? `关联合同比价附件「${doc.name}」` : null;
@@ -241,8 +256,8 @@ function persistSplitAlertAndRiskClue(db: DB, claim: ClaimRow, cluster: SplitClu
   const userId = currentAuth()?.userId ?? null;
 
   if (hasRule && hasRule.enabled === 1) {
-    const subKey = `split_${cluster.normalizedCategory.replace(/[^a-zA-Z0-9_]/g, '_')}`;
-    const eventKey = `PW_14:ex_claim:${claim.id}:${subKey}`;
+    const subjectId = cluster.claimIds[0];
+    const eventKey = `PW_14:ex_claim:${subjectId}:split_${cluster.fingerprint.slice(0, 24)}`;
     const title = `${cluster.windowDays}日内同口径小额报账累计 ${centsToDecimalString(cluster.totalCents)} 元疑似拆单`;
     const description = `同一单位 ${cluster.windowStart} 至 ${cluster.windowEnd} 连续 ${cluster.windowDays} 日内发生 ${cluster.claimIds.length} 笔小额报销（${cluster.claimNos.join('、')}），累计 ${centsToDecimalString(cluster.totalCents)} 元已达 30,000.00 元限额，疑似拆单规避集中采购（§8.1.7 / PW_14）。`;
     const evidenceJson = JSON.stringify({
@@ -264,7 +279,7 @@ function persistSplitAlertAndRiskClue(db: DB, claim: ClaimRow, cluster: SplitClu
              first_detected_at, last_detected_at, created_at, updated_at
            ) VALUES (?, 'PW_14', ?, ?, ?, NULL, 'ex_claim', ?, ?, ?, ?, ?, ?, 'suspected_clue', ?, ?, ?, ?)`
         ).run(
-          eventKey, hasRule.source, hasRule.level, claim.org_id, claim.id,
+          eventKey, hasRule.source, hasRule.level, claim.org_id, subjectId,
           title, description, cluster.totalCents, String(cluster.claimIds.length), evidenceJson,
           now, now, now, now,
         ).lastInsertRowid
@@ -413,8 +428,7 @@ export function evaluateRules(input: AuditInput): { findings: DraftFinding[]; us
     claim.amount_cents > 0n &&
     claim.amount_cents <= limitCents &&
     compareAttachments.length === 0 &&
-    !input.linkedContractComparisonRef &&
-    !STATUTORY_UTILITY_EXEMPT_RE.test(claim.description)
+    !input.linkedContractComparisonRef
   ) {
     const sev: FindingSeverity = claim.amount_cents >= 1_000_000n && claim.contract_id === null ? 'high' : 'medium';
     add(
@@ -559,8 +573,6 @@ export async function runClaimAudit(db: DB, store: ObjectStore, claimId: number,
   handle?.step({ name: '模型语义建议', type: 'model', status: model.status === 'ok' ? 'success' : model.status === 'unavailable' ? 'skipped' : 'error', detail: model.status, elapsedMs: Date.now() - t1 });
   handle?.checkCancelled();
 
-  const findings = [...ocr.findings, ...rules.findings, ...model.findings];
-  const risk = riskLevelOf(findings);
   const policyRefs = [...new Map(rules.usedClauses.map((c) => [c.policy_id, { policyId: c.policy_id, code: c.policy_code, version: c.policy_version }])).values()];
 
   return db.transaction((): AuditRunResult => {
@@ -570,14 +582,20 @@ export async function runClaimAudit(db: DB, store: ObjectStore, claimId: number,
       return { runId: null, skipped: '报销单在审核期间已变化,本次运行不写入' };
     }
     const now = new Date().toISOString();
+    // 模型在事务外运行期间，其他报销单可能被驳回；落库前以最新有效单据重算客观证据。
+    const liveSplit = detectClaimSplitCluster(db, fresh, smallProcLimitCents, splitWindowDays);
+    const finalRules = evaluateRules({ ...input, claim: fresh, splitCluster: liveSplit,
+      linkedContractComparisonRef: resolveLinkedContractComparisonRef(db, fresh.contract_id) });
+    const findings = [...ocr.findings, ...finalRules.findings, ...model.findings];
+    const risk = riskLevelOf(findings);
     const runId = Number(db.prepare(`INSERT INTO ex_audit_run (claim_id, review_version, content_sha256, job_id, risk_level, ocr_status, model_status, policy_refs_json, created_by_user_id, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(claimId, reviewVersion, fresh.content_sha256, handle?.id ?? null, risk, ocr.status, model.status, JSON.stringify(policyRefs), currentAuth()?.userId ?? null, now).lastInsertRowid);
     const ins = db.prepare('INSERT INTO ex_finding (run_id, source, code, severity, message, evidence_json, clause_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
     for (const f of findings) ins.run(runId, f.source, f.code, f.severity, f.message, JSON.stringify(f.evidence), f.clauseId);
     if (fresh.status === 'submitted') db.prepare("UPDATE ex_claim SET status = 'audited', updated_at = ? WHERE id = ?").run(now, claimId);
-    if (splitCluster) {
-      persistSplitAlertAndRiskClue(db, fresh, splitCluster, now);
+    if (liveSplit) {
+      persistSplitAlertAndRiskClue(db, fresh, liveSplit, now);
     }
     writeLog(db, 'expense.claim.audit', 'ex_claim', claimId, {
       claimNo: fresh.claim_no, runId, jobId: handle?.id ?? null, riskLevel: risk, ocrStatus: ocr.status, modelStatus: model.status, findingCount: findings.length, policyRefs,

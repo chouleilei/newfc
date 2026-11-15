@@ -15,6 +15,7 @@ import { requirePermission } from '../modules/security/scope';
 import { getStatementBatch, statementItems, statementTrends } from '../modules/statements/statement.service';
 import { getProjectBudgetBatch, projectBudgetEntries } from '../modules/project-budget/project-budget.service';
 import { getPlanBatch, planItems } from '../modules/plan-execution/plan.service';
+import { planAdjustmentLineInput } from '../contracts/plan-execution';
 import { getBatch as getEasBatch, batchLines, listLocks, listCorrections, listAuxRequirements } from '../modules/eas/eas.service';
 import { responsibilityCenters } from '../modules/mgmt/center.service';
 import { listMetrics, analyze } from '../modules/mgmt/metric.service';
@@ -339,6 +340,7 @@ export const DOMAIN_TOOL_DEFINITIONS = defineTools({
       originalAmount: z.string().trim().max(40).optional(),
     }).strict(),
     execute: (db: DB, p: any) => {
+      permit('contract:read');
       const scope = currentOrgScope(db);
       if (!orgInScope(scope, p.orgId)) throw notVisible('组织');
       if (p.coManagedOrgId && !orgInScope(scope, p.coManagedOrgId)) throw notVisible('被统筹组织');
@@ -366,11 +368,14 @@ export const DOMAIN_TOOL_DEFINITIONS = defineTools({
       issuanceStage: z.enum(["pre_arrangement", "formal_draft", "official", "adjusted"]).optional(),
       unitOrgId: z.number().int().safe().min(1).optional(),
       unitPackId: z.number().int().safe().min(1).optional(),
+      cycleId: z.number().int().safe().min(1).optional(),
+      lines: z.array(planAdjustmentLineInput).max(200).optional(),
       adjustType: z.string().trim().max(60).optional(),
       exceedsOverallTarget: z.boolean().optional(),
       emergencyStartDate: z.string().trim().max(20).optional(),
     }).strict(),
     execute: (db: DB, p: any) => {
+      permit('plan:read');
       const scope = currentOrgScope(db);
       if (p.unitOrgId && !orgInScope(scope, p.unitOrgId)) throw notVisible('下达单位');
       if (p.unitPackId) {

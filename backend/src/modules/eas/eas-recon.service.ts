@@ -10,7 +10,7 @@ import { centsToDecimalString } from '../../core/decimal';
 import { currentAuth } from '../../core/request-context';
 import { writeLog } from '../audit/log';
 import { resolveEntity } from '../master/master.service';
-import { currentOrgScope, notVisible, orgInScope } from '../security/scope';
+import { currentOrgScope, notVisible, orgInScope, requirePermission } from '../security/scope';
 import {
   EAS_CONTRACT_RECON_CATEGORIES,
   type EasContractReconCategory,
@@ -108,8 +108,18 @@ export function listEasContractRecon(
   db: DB,
   q: { orgId: number; period: string; category?: EasContractReconCategory; unresolvedOnly?: boolean }
 ): EasContractReconDto {
+  if (currentAuth()) requirePermission(currentAuth(), 'eas:read');
   const org = assertVisibleOrg(db, q.orgId);
   const pEnd = periodEndDate(q.period);
+  const scope = currentOrgScope(db);
+  const projectVisible = (id: number) => {
+    const row = db.prepare('SELECT org_id FROM md_project WHERE id = ?').get(id) as { org_id: number } | undefined;
+    return Boolean(row && orgInScope(scope, row.org_id));
+  };
+  const resolveProject = (input: Parameters<typeof resolveEntity>[2]) => {
+    const match = resolveEntity(db, 'project', input);
+    return match.targetId !== null && !projectVisible(match.targetId) ? null : match;
+  };
 
   const activeBatches = db.prepare(
     `SELECT id, data_type FROM eas_batch WHERE org_id = ? AND period = ? AND status = 'active' AND is_current = 1`
@@ -203,7 +213,7 @@ export function listEasContractRecon(
     contract_id: Number(r.contract_id),
     contract_no: String(r.contract_no),
     contract_name: String(r.contract_name),
-    project_id: r.project_id == null ? null : Number(r.project_id),
+    project_id: r.project_id == null || !projectVisible(Number(r.project_id)) ? null : Number(r.project_id),
     supplier_id: r.supplier_id == null ? null : Number(r.supplier_id),
     counterparty_name: (r.counterparty_name as string | null) ?? null,
     end_date: (r.end_date as string | null) ?? null,
@@ -256,17 +266,18 @@ export function listEasContractRecon(
       ? resolveEntity(db, 'supplier', { name: wl.supplierName, sourceSystem: 'eas', asOf: pEnd, includeInactive: true })
       : null;
     const prjRes = wl.projectCode || wl.projectName
-      ? resolveEntity(db, 'project', { code: wl.projectCode ?? undefined, name: wl.projectName ?? undefined, sourceSystem: 'eas', asOf: pEnd, includeInactive: true })
+      ? resolveProject({ code: wl.projectCode ?? undefined, name: wl.projectName ?? undefined, sourceSystem: 'eas', asOf: pEnd, includeInactive: true })
       : null;
 
-    const specificMatches = overdueWarranties.filter(({ w }) =>
-      (supRes?.targetId && w.supplier_id === supRes.targetId) ||
-      (wl.supplierName && w.counterparty_name === wl.supplierName) ||
-      (prjRes?.targetId && w.project_id === prjRes.targetId)
-    );
-    const matchedList = specificMatches.length > 0
-      ? specificMatches
-      : (!wl.supplierName && !wl.projectCode ? overdueWarranties : []);
+    const matchedList = overdueWarranties.filter(({ w }) => {
+      const hasSupplier = Boolean(wl.supplierName);
+      const hasProject = Boolean(wl.projectCode || wl.projectName);
+      const supplierMatches = (supRes?.targetId && w.supplier_id === supRes.targetId) ||
+        (wl.supplierName && w.counterparty_name === wl.supplierName);
+      const projectMatches = prjRes?.targetId && w.project_id === prjRes.targetId;
+      // 不能仅凭单位科目总余额给所有到期合同分摊相同金额，也不能忽略已明确的项目/客商冲突。
+      return (hasSupplier || hasProject) && (!hasSupplier || supplierMatches) && (!hasProject || projectMatches);
+    });
 
     for (const { w, overdueDays, anchor, releasedStillOnBook } of matchedList) {
       const projectRow = w.project_id
@@ -367,7 +378,7 @@ export function listEasContractRecon(
         accountName: nc.accountName,
         projectCode: nc.projectCode,
         projectName: nc.projectName,
-        projectId: linkedCt?.project_id ?? null,
+        projectId: linkedCt?.project_id && projectVisible(linkedCt.project_id) ? linkedCt.project_id : null,
         supplierName: nc.supplierName,
         supplierId: supRes.targetId ?? null,
         contractId: linkedCt?.id ?? null,
@@ -428,7 +439,7 @@ export function listEasContractRecon(
 
   for (const cip of cipCandidates) {
     const prjRes = cip.projectCode || cip.projectName
-      ? resolveEntity(db, 'project', {
+      ? resolveProject({
           code: cip.projectCode ?? undefined,
           name: cip.projectName ?? undefined,
           sourceSystem: 'eas',
@@ -438,7 +449,7 @@ export function listEasContractRecon(
       : null;
     const mdProjectId = prjRes?.targetId ?? null;
     const icRow = mdProjectId !== null
-      ? (db.prepare('SELECT id, status FROM ic_project WHERE md_project_id = ?').get(mdProjectId) as { id: number; status: 'active' | 'archived' } | undefined)
+      ? (db.prepare('SELECT id, status FROM ic_project WHERE md_project_id = ? AND org_id = ?').get(mdProjectId, q.orgId) as { id: number; status: 'active' | 'archived' } | undefined)
       : undefined;
     const settledVer = icRow
       ? (db.prepare(
@@ -524,6 +535,7 @@ export function listEasContractRecon(
 }
 
 export function upsertEasContractReconNote(db: DB, input: EasContractReconNoteRequest): EasReconNoteDto {
+  if (currentAuth()) requirePermission(currentAuth(), 'eas:import');
   assertVisibleOrg(db, input.orgId);
   const userId = currentAuth()?.userId ?? null;
   const now = nowIso();

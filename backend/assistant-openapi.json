@@ -8454,6 +8454,103 @@
               "minimum": 1,
               "maximum": 9007199254740991
             },
+            "cycleId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "lines": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "planItemId": {
+                    "nullable": true,
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
+                    "maximum": 9007199254740991
+                  },
+                  "stableItemUid": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "targetSheetCode": {
+                    "type": "string",
+                    "enum": [
+                      "investment",
+                      "investment_tech_renovation",
+                      "investment_info",
+                      "investment_other",
+                      "purchase",
+                      "pre_work",
+                      "capacity_add",
+                      "tech_renovation_exp",
+                      "maintenance",
+                      "safety_input",
+                      "five_expenses",
+                      "mgmt_fee",
+                      "mfg_fee",
+                      "annual_kpi",
+                      "profit_budget",
+                      "responsibility_kpi"
+                    ]
+                  },
+                  "targetItemName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "valueType": {
+                    "default": "amount_cents",
+                    "type": "string",
+                    "enum": [
+                      "amount_cents",
+                      "scaled_int",
+                      "rate_bp",
+                      "text"
+                    ]
+                  },
+                  "scale": {
+                    "default": 2,
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "unit": {
+                    "default": "元",
+                    "type": "string",
+                    "maxLength": 32
+                  },
+                  "beforeVal": {
+                    "default": "0",
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "afterVal": {
+                    "default": "0",
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "budgetAccountId": {
+                    "nullable": true,
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
+                    "maximum": 9007199254740991
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "targetSheetCode",
+                  "targetItemName"
+                ]
+              }
+            },
             "adjustType": {
               "type": "string",
               "maxLength": 60

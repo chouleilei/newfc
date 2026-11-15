@@ -227,6 +227,21 @@ describe('T-15 / GAP-21 项目全景双向直联与智能助手 UX-26 受控草�
     expect(String(draftFact.data.analysis.suggestedFields.contractNo)).toMatch(/^GRP-[A-Z]{2}-001\/\d{4}-001$/);
     expect(draftFact.data.analysis.issues.join(' ')).toContain('超出关联计划项剩余额度');
 
+    // 无效枚举也可能包含未保存私密文本：当次页面可见诊断，模型与会话持久化只留摘要。
+    const invalidDraft = await post(base, shScoped, '/api/assistant/chat', {
+      message: '核对未保存字段格式',
+      pageContext: {
+        schemaVersion: 2, snapshotId: randomUUID(), pageKey: 'contracts', routeInstanceId: randomUUID(), contextVersion: 1,
+        draft: { kind: 'contract_draft', base: { operation: 'create', clientKey: 'private-invalid-field' },
+          changes: { orgId: sh, legalCategory: clientSecret, originalAmount: '123456.78' } },
+      },
+    });
+    expect(invalidDraft.status).toBe(200);
+    expect(outboundBodies.join('\n')).not.toContain(clientSecret);
+    const storedMessages = db.prepare('SELECT content, response_json FROM ai_message').all();
+    expect(JSON.stringify(storedMessages)).not.toContain(clientSecret);
+    expect(JSON.stringify(storedMessages)).not.toContain('123456.78');
+
     // 验证私密未保存字段绝未外发到模型，且数据库 ct_contract 零新增行！
     expect(outboundBodies.join('\n')).not.toContain(clientSecret);
     const afterCtCount = (db.prepare('SELECT COUNT(*) AS c FROM ct_contract').get() as { c: number }).c;
@@ -251,7 +266,7 @@ describe('T-15 / GAP-21 项目全景双向直联与智能助手 UX-26 受控草�
     expect(crossOrgRes.status).toBe(403);
     expect((await json(crossOrgRes)).code).toBe('SCOPE_RESTRICTED');
 
-    // 3) plan_issuance_draft：子公司额度内计划外调整 -> subsidiary_self_decision；应急调整缺日期告警；零写库
+    // 3) plan_issuance_draft：未提供可核实年度上限的子公司调整保守走 company_approval；应急调整缺日期告警；零写库
     const beforeAdjCount = (db.prepare('SELECT COUNT(*) AS c FROM plan_adjustment').get() as { c: number }).c;
     const planChatRes = await post(base, shScoped, '/api/assistant/chat', {
       message: '请核验当前计划调整草稿的法定审批主体',
@@ -277,7 +292,7 @@ describe('T-15 / GAP-21 项目全景双向直联与智能助手 UX-26 受控草�
     const planChatBody = await json(planChatRes);
     const planFact = planChatBody.facts.find((f: any) => f.type === 'draft_validation');
     expect(planFact.data.analysis.suggestedFields).toMatchObject({
-      approvalBody: 'subsidiary_self_decision',
+      approvalBody: 'company_approval',
       unitOrgId: sh,
     });
 
