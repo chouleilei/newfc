@@ -10,7 +10,7 @@
 import * as XLSX from 'xlsx';
 import { Errors } from '../../core/errors';
 import { MAX_IMPORT_ROWS, MAX_UPLOAD_BYTES, MAX_WORKBOOK_SHEETS } from './import-limits';
-import type { FormulaCellRef, MatrixRow, ReadSheet } from './table-reader';
+import type { FormulaCellRef, MatrixRow, ReadSheet, WorkbookReadOptions } from './table-reader';
 
 export const OLE2_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -49,6 +49,7 @@ export function readXlsWorkbookSheets(
   content: Buffer,
   maxRows = MAX_IMPORT_ROWS,
   maxWorksheets = MAX_WORKBOOK_SHEETS,
+  opts?: WorkbookReadOptions,
 ): ReadSheet[] {
   if (!content.length) throw Errors.validation('上传文件为空');
   if (content.length > MAX_UPLOAD_BYTES) {
@@ -97,23 +98,33 @@ export function readXlsWorkbookSheets(
     const totalCols = Math.min(range.e.c - range.s.c + 1, 256);
     const rows: MatrixRow[] = [];
     const formulas: FormulaCellRef[] = [];
-    for (let r = range.s.r; r <= range.e.r; r++) {
-      const cells: string[] = [];
-      let hasNonEmpty = false;
-      for (let offset = 0; offset < totalCols; offset++) {
-        const addr = XLSX.utils.encode_cell({ r, c: range.s.c + offset });
-        const cell = Object.prototype.hasOwnProperty.call(ws, addr) ? (ws[addr] as XLSX.CellObject) : undefined;
-        if (cell?.f && typeof cell.f === 'string') {
-          formulas.push({ rowNo: r + 1, colIndex: offset, address: addr, formula: cell.f });
+    // 按实际单元格遍历，避免稀疏 !ref 扩大为数百万次空网格扫描。
+    const rowCells = new Map<number, Map<number, string>>();
+    for (const addr of Object.keys(ws)) {
+        if (!/^[A-Z]+[1-9]\d*$/.test(addr)) continue;
+        const position = XLSX.utils.decode_cell(addr);
+        const r = position.r; const offset = position.c - range.s.c;
+        if (r < range.s.r || r > range.e.r || offset < 0 || offset >= totalCols) continue;
+        const cell = ws[addr] as XLSX.CellObject;
+        if ((cell?.f && typeof cell.f === 'string') || cell?.t === 'e') {
+          const cacheIssue = cell.t === 'e' ? 'error_value' : cell.v == null ? 'missing_cache' : undefined;
+          formulas.push({ rowNo: r + 1, colIndex: offset, address: addr, formula: cell.f ?? '', ...(cacheIssue ? { cacheIssue } : {}) });
+          if (cacheIssue) {
+            const message = `公式单元格 ${rawName}!${addr} ${cell.t === 'e' ? '计算错误' : '缺少缓存计算值'}`;
+            if (!opts?.allowUncachedFormulas) throw Errors.validation(message);
+            opts.warnings?.push(message);
+          }
         }
         const text = formatXlsCell(cell);
-        if (text !== '') hasNonEmpty = true;
-        cells.push(text);
-      }
-      if (!hasNonEmpty) continue;
+        if (text === '') continue;
+        const entries = rowCells.get(r) ?? new Map<number, string>();
+        entries.set(offset, text); rowCells.set(r, entries);
+    }
+    for (const [r, entries] of [...rowCells].sort(([a], [b]) => a - b)) {
       if (rows.length >= maxRows + 50) {
         throw Errors.validation(`工作表“${rawName}”非空行数超过安全上限 ${maxRows} 行`);
       }
+      const cells = Array.from({ length: totalCols }, (_, offset) => entries.get(offset) ?? '');
       rows.push({ rowNo: r + 1, cells });
     }
     out.push({ name: rawName.trim(), hidden, rows, ...(formulas.length > 0 ? { formulas } : {}) });

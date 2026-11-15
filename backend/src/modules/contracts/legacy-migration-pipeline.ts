@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import type { DB } from '../../db/connection';
 import { AppError } from '../../core/errors';
+import { currentAuth } from '../../core/request-context';
+import { currentOrgScope } from '../security/scope';
 import { centsToDecimalString } from '../../core/decimal';
 import { MAX_IMPORT_ROWS, MAX_LEGACY_SHEETS } from '../io/import-limits';
 import { normalizeHeaderText, readTable, readWorkbookSheets, type ReadSheet } from '../io/table-reader';
@@ -25,6 +27,13 @@ import { deriveContractSixDim } from './contract-controls';
 import { matchContractPrefix, resolveCanonicalPrefixForOrg } from './prefix-map.service';
 
 export const LEGACY_PIPELINE_VERSION = 'v73.1.0';
+
+function assertMigrationAccess(db: DB): void {
+  const auth = currentAuth();
+  if ((auth && !(auth.permissions.has('contract:migrate') || (auth.permissions.has('master:write') && auth.allOrgs))) || !currentOrgScope(db).all) {
+    throw new AppError('FORBIDDEN', '历史容缺迁移需要专有权限 contract:migrate 及全集团组织范围', 403);
+  }
+}
 
 export interface LegacyWorkbookInput {
   inventoryId?: string;
@@ -668,6 +677,7 @@ export async function computeLegacyMigrationPlan(
   db: DB,
   workbooks: LegacyWorkbookInput[],
 ): Promise<LegacyPipelinePlan> {
+  assertMigrationAccess(db);
   const blockedPatterns = listExternalBlockedPatterns(db);
   const orgHelper = buildOrgResolver(db);
   const warnings: string[] = [];
@@ -1927,6 +1937,7 @@ export function commitLegacyMigrationPlan(
   plan: LegacyPipelinePlan,
   opts: { importId?: number | null; userId?: number | null } = {},
 ): { created: number; updated: number; unchanged: number; contractIds: number[]; writeLockMs: number } {
+  assertMigrationAccess(db);
   if (!plan.reconciliation.closed) {
     throw new AppError('RECONCILIATION_UNCLOSED', '五维行去向对账未闭合，拒绝提交入库', 422, undefined, plan.reconciliation);
   }

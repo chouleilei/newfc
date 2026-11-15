@@ -56,7 +56,7 @@ interface ResolvedPlan {
 async function readPlanInputSheets(content: Buffer, fileName = 'plan.xlsx'): Promise<{ sheets: ReadSheet[]; isLegacyXls: boolean }> {
   if (!content.length) throw Errors.validation('上传文件为空');
   if (isOle2Buffer(content)) {
-    return { sheets: await readWorkbookSheets(content, MAX_IMPORT_ROWS, MAX_WORKBOOK_SHEETS), isLegacyXls: true };
+    return { sheets: await readWorkbookSheets(content, MAX_IMPORT_ROWS, MAX_WORKBOOK_SHEETS, { allowUncachedFormulas: true }), isLegacyXls: true };
   }
   if (fileName.toLowerCase().endsWith('.csv') || (content[0] !== 0x50 && content[1] !== 0x4b)) {
     // 仅当确实是合法 UTF-8 CSV 文本且非 ZIP (.xlsx) 时按单表 CSV 读取
@@ -74,7 +74,8 @@ async function readPlanInputSheets(content: Buffer, fileName = 'plan.xlsx'): Pro
       return { sheets: [{ name: baseName, hidden: false, rows }], isLegacyXls: false };
     }
   }
-  return { sheets: await readWorkbookSheets(content, MAX_IMPORT_ROWS, MAX_WORKBOOK_SHEETS), isLegacyXls: false };
+  // 计划解析器按实际映射字段校验公式缓存；辅助列错误只提示，正式取数列仍严格阻断。
+  return { sheets: await readWorkbookSheets(content, MAX_IMPORT_ROWS, MAX_WORKBOOK_SHEETS, { allowUncachedFormulas: true }), isLegacyXls: false };
 }
 
 function resolveOrgFlexible(

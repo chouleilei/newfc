@@ -90,7 +90,7 @@ function normalizeHeader(value: string): string {
 }
 
 export interface MatrixRow { rowNo: number; cells: string[] }
-export interface FormulaCellRef { rowNo: number; colIndex: number; address: string; formula: string }
+export interface FormulaCellRef { rowNo: number; colIndex: number; address: string; formula: string; cacheIssue?: 'missing_cache' | 'error_value' }
 export interface ReadSheet { name: string; hidden: boolean; rows: MatrixRow[]; formulas?: FormulaCellRef[] }
 /** 表头定位:缺省取第一个非空行;给出 isHeader 时在前 within 行内找第一行满足条件的行(模板常有标题/单位行)。 */
 export interface HeaderLocator {
@@ -172,12 +172,17 @@ function sheetMatrixWithFormulas(sheet: ExcelJS.Worksheet, opts?: WorkbookReadOp
     const entries: [number, string][] = [];
     row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
       if (colNumber > 512) return;
-      if (cell.value && typeof cell.value === 'object' && 'formula' in cell.value && typeof cell.value.formula === 'string') {
+      const value = cell.value;
+      if (value && typeof value === 'object' && ('formula' in value || 'sharedFormula' in value || 'error' in value)) {
+        const formula = cell.formula ?? '';
+        const result = 'error' in value ? value : (value as ExcelJS.CellFormulaValue).result;
+        const cacheIssue = result == null ? 'missing_cache' : typeof result === 'object' && 'error' in result ? 'error_value' : undefined;
         formulas.push({
           rowNo,
           colIndex: colNumber - 1,
           address: cell.address,
-          formula: cell.value.formula,
+          formula,
+          ...(cacheIssue ? { cacheIssue } : {}),
         });
       }
       const txt = cellText(cell, opts);
@@ -202,7 +207,7 @@ export async function readWorkbookSheets(
 ): Promise<ReadSheet[]> {
   if (!content.length) throw Errors.validation('上传文件为空');
   if (isOle2Buffer(content)) {
-    return readXlsWorkbookSheets(content, maxRows, maxWorksheets);
+    return readXlsWorkbookSheets(content, maxRows, maxWorksheets, opts);
   }
   const wb = await loadWorkbook(content, maxRows, maxWorksheets);
   return wb.worksheets.map((ws) => {

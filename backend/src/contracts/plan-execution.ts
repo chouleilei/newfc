@@ -99,7 +99,7 @@ export interface PlanFactDto {
 }
 
 export interface PlanWarningDto {
-  code: 'MISSING_PROJECT_CODE' | 'STALE_YEAR_HEADER' | 'PLACEHOLDER_SHEET_SKIPPED' | 'ZERO_PLACEHOLDER_ROW' | 'CROSS_UNIT_CELL_REF';
+  code: 'MISSING_PROJECT_CODE' | 'STALE_YEAR_HEADER' | 'PLACEHOLDER_SHEET_SKIPPED' | 'ZERO_PLACEHOLDER_ROW' | 'CROSS_UNIT_CELL_REF' | 'FORMULA_CACHE_ISSUE';
   sheet: string;
   row: number;
   message: string;
@@ -299,6 +299,7 @@ export const planIssuanceCycleCreateRequest = z.object({
   decisionDocMeta: z.record(z.string(), z.unknown()).optional(),
   issuedDate: isoDate.nullish(),
   docNoPrefix: optionalText(64),
+  annualSpecialCaps: z.array(z.object({ unitOrgId: id, sheetCode: z.enum(PLAN_SHEETS), amount: z.string().trim().regex(/^\d+(?:\.\d{1,2})?$/) })).max(128).optional(),
 });
 export type PlanIssuanceCycleCreateRequest = z.infer<typeof planIssuanceCycleCreateRequest>;
 

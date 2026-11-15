@@ -414,7 +414,11 @@ export function parsePlanWorkbook(
 ): ParsedPlanWorkbook {
   const errors: RowError[] = [];
   const crossFormulaWarnings = scanWorkbookCrossUnitFormulas(sheets, opts.unitMatchers ?? []);
-  const warnings: PlanWarningDto[] = [...crossFormulaWarnings];
+  const sourceWarnings: PlanWarningDto[] = [...crossFormulaWarnings, ...sheets.flatMap((s) => (s.formulas ?? [])
+    .filter((f) => f.cacheIssue)
+    .map((f): PlanWarningDto => ({ code: 'FORMULA_CACHE_ISSUE', sheet: s.name, row: f.rowNo,
+      message: `单元格 ${s.name}!${f.address} ${f.cacheIssue === 'missing_cache' ? '缺少公式缓存' : '缓存为错误值'}；用于计划取数时阻断，未映射的辅助列仅提示` })))];
+  const warnings: PlanWarningDto[] = [...sourceWarnings];
   const out: ParsedPlanSheet[] = [];
   const ignored: string[] = [];
   const seen = new Set<PlanSheetCode>();
@@ -526,6 +530,13 @@ export function parsePlanWorkbook(
       }
       return { def: f, header };
     }).filter((f) => f.header);
+    const usedColumns = new Set([...Object.values(idCol), unitMeasureHeader, ...fieldCols.map((f) => f.header)]
+      .filter((h): h is string => h !== null).map((h) => colIndex.get(normalizeHeaderText(h))));
+    const cacheIssuesByRow = new Map<number, NonNullable<ReadSheet['formulas']>>();
+    for (const f of sheet.formulas ?? []) if (f.cacheIssue && usedColumns.has(f.colIndex)) {
+      const row = cacheIssuesByRow.get(f.rowNo) ?? [];
+      row.push(f); cacheIssuesByRow.set(f.rowNo, row);
+    }
 
     // 预扫描点分序号父行（如 seq="2" 后紧跟 "2.1"，则 "2" 为分类汇总行，防止与子明细重复加总）
     const parentSeqRowNos = new Set<number>();
@@ -550,6 +561,11 @@ export function parsePlanWorkbook(
       const name = v(idCol.name);
       const seqNo = v(idCol.seq).trim();
       const rowErr = (field: string, message: string) => errors.push({ row: r.rowNo, field: `${label}·${field}`, message });
+      const cacheIssues = cacheIssuesByRow.get(r.rowNo) ?? [];
+      if (cacheIssues.length) {
+        for (const f of cacheIssues) rowErr(f.address, f.cacheIssue === 'missing_cache' ? '计划取数单元格缺少公式缓存，请重新计算保存' : '计划取数单元格缓存为错误值，请修正后上传');
+        continue;
+      }
       if (!name) {
         if (seenFooterTotal) continue;
         if (fieldCols.some((f) => v(f.header)) || v(idCol.projectCode)) rowErr('名称', '名称为空');
@@ -666,7 +682,7 @@ export function parsePlanWorkbook(
       }
 
       const pathStr = itemType === 'category' ? categories.slice(0, -1).join('/') : categories.join('/');
-      for (const cw of crossFormulaWarnings) {
+      for (const cw of sourceWarnings) {
         if (cw.sheet === sheet.name && cw.row === r.rowNo) {
           rowWarnings.push(cw);
         }
