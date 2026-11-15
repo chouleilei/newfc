@@ -15,6 +15,7 @@ import {
   parseDecimalToCents,
   parseScaled,
   roundHalfUpStep,
+  roundHalfUpDiv,
   toCentsBig,
 } from '../../core/decimal';
 import { currentAuth } from '../../core/request-context';
@@ -23,12 +24,15 @@ import { writeLog } from '../audit/log';
 import { renderDocx, type RenderDoc, type RenderSection } from '../analysis-reports/render';
 import { workingCalendar } from '../settings/business-settings';
 import { assertDistinctReviewer } from '../security/review';
+import { parseInput } from '../../core/validate';
 import { currentOrgScope, orgInScope, requireAllOrgs, type OrgScope } from '../security/scope';
 import {
   PLAN_ADJUST_TYPE_LABELS,
   PLAN_APPROVAL_BODY_LABELS,
   PLAN_ISSUANCE_STAGE_LABELS,
   PLAN_SHEET_LABELS,
+  PLAN_SHEETS,
+  planIssuanceCycleCreateRequest,
   type PlanAdjustmentCreateRequest,
   type PlanAdjustmentDto,
   type PlanAdjustmentLineDto,
@@ -56,6 +60,10 @@ import {
 
 const nowIso = () => new Date().toISOString();
 const FIXED_ZIP_DATE = new Date('2000-01-01T00:00:00Z');
+/** 公文金额：整数分 -> 两位小数万元，只按 10000 分步长舍入一次。 */
+function issuedWanText(cents: bigint): string {
+  return formatScaled(roundHalfUpStep(cents, WAN_2DEC_STEP_CENTS) / WAN_2DEC_STEP_CENTS, 2);
+}
 
 interface OrgMetaRow {
   id: number;
@@ -122,6 +130,8 @@ interface PlanItemDbRow {
   undertake_org_id: number | null;
   item_key: string;
   stable_item_uid: string;
+  parent_item_key: string;
+  estimate_subitem: string;
   cost_nature: string;
   funding_channel: string;
   submitted_cents: bigint | number | null;
@@ -300,6 +310,10 @@ function buildPackSummaries(
 ): Map<number, PackSummaryStored> {
   const orgById = new Map(allOrgs.map((o) => [o.id, o]));
   const { items, annualCentsByItem } = loadBatchItemsAndAnnualPlan(db, planBatchId);
+  const annualFacts = new Map((planBatchId === null ? [] : db.prepare(`
+    SELECT item_id, value_type, scaled_value, text_value FROM plan_fact WHERE batch_id = ? AND field_key = 'annual_plan'
+  `).safeIntegers(true).all(planBatchId) as { item_id: bigint; value_type: string; scaled_value: bigint | null; text_value: string | null }[])
+    .map((fact) => [Number(fact.item_id), fact]));
 
   const budgetEntries = budgetVersionId !== null
     ? (db.prepare(`
@@ -422,6 +436,8 @@ function buildPackSummaries(
           const tableRows = rows.map((r, rIdx) => {
             const idNum = Number(r.id);
             const amt = annualCentsByItem.get(idNum) ?? 0n;
+            const fact = annualFacts.get(idNum);
+            const isAmount = !fact || fact.value_type === 'amount';
             exactSum += amt;
             const rowOrg = r.org_id !== null ? orgById.get(Number(r.org_id)) : undefined;
             const undOrg = r.undertake_org_id !== null ? orgById.get(Number(r.undertake_org_id)) : undefined;
@@ -430,8 +446,8 @@ function buildPackSummaries(
             return {
               seqNo: r.seq_no || String(rIdx + 1),
               itemName: r.item_name,
-              unit: '万元',
-              amountOrValue: centsToDecimalString(amt),
+              unit: isAmount ? '万元' : fact.value_type === 'quantity' ? '数量（原表口径）' : fact.value_type === 'ratio' ? '比率' : '文本',
+              amountOrValue: isAmount ? issuedWanText(amt) : fact.value_type === 'text' ? fact.text_value ?? '' : formatScaled(fact.scaled_value ?? 0n, fact.value_type === 'quantity' ? 4 : 6, false),
               undertakeOrgName: undOrg?.name ?? rowOrg?.name ?? null,
               note: r.cost_nature || '',
             };
@@ -441,7 +457,7 @@ function buildPackSummaries(
             attachmentNo: idx + 1,
             title: `${u.name}${PLAN_SHEET_LABELS[sheetCode]}`,
             sheetCode,
-            unitOfMeasure: '万元',
+            unitOfMeasure: tableRows.every((r) => r.unit === '万元') ? '万元' : '按行量纲',
             leafRowCount: rows.length,
             exactTotalAmount: centsToDecimalString(exactSum),
             issuedTotalAmount: centsToDecimalString(issuedSum),
@@ -595,7 +611,24 @@ export function createIssuanceCycle(db: DB, input: PlanIssuanceCycleCreateReques
   const unitOrgs = listIssuanceTargetUnits(allOrgs, rootOrg.id, itemOrgIds);
   if (unitOrgs.length === 0) throw Errors.validation('没有符合下达条件的有效一级单元');
 
-  const decisionMeta = input.decisionDocMeta ?? {};
+  const decisionMeta = { ...(input.decisionDocMeta ?? {}) };
+  if (input.annualSpecialCaps) decisionMeta.annualSpecialCaps = input.annualSpecialCaps;
+  if (decisionMeta.annualSpecialCaps !== undefined) {
+    decisionMeta.annualSpecialCaps = parseInput(planIssuanceCycleCreateRequest.shape.annualSpecialCaps, decisionMeta.annualSpecialCaps) ?? [];
+    const keys = new Set<string>();
+    for (const raw of decisionMeta.annualSpecialCaps as NonNullable<PlanIssuanceCycleCreateRequest['annualSpecialCaps']>) {
+      const cap = raw as { unitOrgId: number; sheetCode: PlanSheetCode; amount: string };
+      if (!unitOrgs.some((o) => o.id === cap.unitOrgId) || !PLAN_SHEETS.includes(cap.sheetCode) || typeof cap.amount !== 'string' || parseDecimalToCents(cap.amount) < 0n) throw Errors.validation('年度专项上限的单位、工作表或金额无效');
+      const key = `${cap.unitOrgId}:${cap.sheetCode}`;
+      if (keys.has(key)) throw Errors.validation('同一单位工作表不能重复配置年度专项上限');
+      keys.add(key);
+    }
+  }
+  if (decisionMeta.unitAttachments !== undefined) {
+    const allowed = new Set(unitOrgs.flatMap((o) => [o.code,String(o.id)]));
+    if (typeof decisionMeta.unitAttachments !== 'object' || decisionMeta.unitAttachments === null || Array.isArray(decisionMeta.unitAttachments) ||
+        Object.keys(decisionMeta.unitAttachments).some((key) => !allowed.has(key))) throw Errors.validation('正式附表单位映射不属于本周期下达单元，请核对单位编码或ID');
+  }
   const packSummaries = buildPackSummaries(db, unitOrgs, allOrgs, rootOrg.id, sourceBatchId, sourceBudgetId, decisionMeta);
   const now = nowIso();
   const prefix = (input.docNoPrefix || '综计发').trim();
@@ -678,11 +711,9 @@ export function listIssuanceCycles(db: DB, q: { year?: number; status?: string }
       return packs.some((p) => orgInScope(scope, p.unit_org_id));
     })
     .map((c) => {
-      const packStats = db.prepare(`
-        SELECT COUNT(*) AS total,
-               SUM(CASE WHEN sign_off_status = 'acknowledged' THEN 1 ELSE 0 END) AS acked
-        FROM plan_issuance_unit_pack WHERE cycle_id = ?
-      `).get(c.id) as { total: number; acked: number | null };
+      const visiblePacks = (db.prepare('SELECT unit_org_id, sign_off_status FROM plan_issuance_unit_pack WHERE cycle_id = ?')
+        .all(c.id) as { unit_org_id: number; sign_off_status: string }[])
+        .filter((p) => orgInScope(scope, p.unit_org_id));
       return {
         id: c.id,
         year: c.year,
@@ -690,13 +721,13 @@ export function listIssuanceCycles(db: DB, q: { year?: number; status?: string }
         issuanceStage: c.issuance_stage,
         sourcePlanBatchId: c.source_plan_batch_id,
         sourceBudgetVersionId: c.source_budget_version_id,
-        decisionDocMeta: JSON.parse(c.decision_doc_meta || '{}') as Record<string, unknown>,
-        frozenSnapshot: JSON.parse(c.frozen_snapshot_json || '{}') as Record<string, unknown>,
+        decisionDocMeta: scope.all ? JSON.parse(c.decision_doc_meta || '{}') as Record<string, unknown> : {},
+        frozenSnapshot: scope.all ? JSON.parse(c.frozen_snapshot_json || '{}') as Record<string, unknown> : {},
         snapshotSha256: c.snapshot_sha256,
         status: c.status,
         version: c.version,
-        unitPackCount: packStats.total,
-        acknowledgedCount: packStats.acked ?? 0,
+        unitPackCount: visiblePacks.length,
+        acknowledgedCount: visiblePacks.filter((p) => p.sign_off_status === 'acknowledged').length,
         excludedOrgs: scope.all ? excludedOrgs : [],
         createdByUserId: c.created_by_user_id,
         createdAt: c.created_at,
@@ -708,6 +739,7 @@ export function listIssuanceCycles(db: DB, q: { year?: number; status?: string }
 export function getIssuanceCycle(db: DB, cycleId: number): PlanIssuanceCycleDto {
   const scope = currentOrgScope(db);
   const c = getCycleRowOrThrow(db, cycleId);
+  if (!scope.all && c.status === 'draft') throw Errors.notFound('综合计划下达周期不存在');
   const allOrgs = loadAllOrgs(db);
   const orgById = new Map(allOrgs.map((o) => [o.id, o]));
   const rawPacks = db.prepare('SELECT * FROM plan_issuance_unit_pack WHERE cycle_id = ? ORDER BY id').all(c.id) as PackRow[];
@@ -722,7 +754,7 @@ export function getIssuanceCycle(db: DB, cycleId: number): PlanIssuanceCycleDto 
     issuanceStage: c.issuance_stage,
     sourcePlanBatchId: c.source_plan_batch_id,
     sourceBudgetVersionId: c.source_budget_version_id,
-    decisionDocMeta: JSON.parse(c.decision_doc_meta || '{}') as Record<string, unknown>,
+    decisionDocMeta: scope.all ? JSON.parse(c.decision_doc_meta || '{}') as Record<string, unknown> : {},
     frozenSnapshot: scope.all ? (JSON.parse(c.frozen_snapshot_json || '{}') as Record<string, unknown>) : {},
     snapshotSha256: c.snapshot_sha256,
     status: c.status,
@@ -743,6 +775,8 @@ export function reconcileCycleTotals(
   cycleId: number,
   req: PlanReconcileRequest = {},
 ): PlanReconcileReportDto {
+  const auth = currentAuth();
+  if (auth) requireAllOrgs(auth, '核对集团综合计划下达总额');
   const c = getCycleRowOrThrow(db, cycleId);
   const meta = JSON.parse(c.decision_doc_meta || '{}') as Record<string, unknown>;
   const mode: 'strict_compile' | 'legacy_reconcile' = req.mode
@@ -997,11 +1031,20 @@ export function reconcileCycleTotals(
 export function publishIssuanceCycle(db: DB, cycleId: number): PlanIssuanceCycleDto {
   const auth = currentAuth();
   if (auth) requireAllOrgs(auth, '发布综合计划与预算合一下达周期');
-
+  return db.transaction(() => {
   const c = getCycleRowOrThrow(db, cycleId);
   if (c.status !== 'draft') {
     throw new AppError('CYCLE_INVALID_STATE', `当前周期状态为 ${c.status}，不可重复发布`, 409);
   }
+
+  // 编校后预算和组织可能变化，必须按发布时事实重编单元包并在同一事务内稽核、冻结。
+  const orgs = loadAllOrgs(db);
+  const rootId = orgs.find((o) => o.parent_id === null && o.status === 'active')?.id ?? null;
+  const unitRows = db.prepare('SELECT unit_org_id FROM plan_issuance_unit_pack WHERE cycle_id = ?').all(cycleId) as { unit_org_id: number }[];
+  const unitIds = new Set(unitRows.map((p) => p.unit_org_id));
+  const summaries = buildPackSummaries(db, orgs.filter((o) => unitIds.has(o.id)), orgs, rootId, c.source_plan_batch_id, c.source_budget_version_id, JSON.parse(c.decision_doc_meta || '{}'));
+  for (const [unitId, summary] of summaries) db.prepare('UPDATE plan_issuance_unit_pack SET pack_summary_json = ?, attachment_count = ? WHERE cycle_id = ? AND unit_org_id = ?')
+    .run(JSON.stringify(summary), summary.attachments.length, cycleId, unitId);
 
   const report = reconcileCycleTotals(db, cycleId);
   if (!report.passed) {
@@ -1065,6 +1108,7 @@ export function publishIssuanceCycle(db: DB, cycleId: number): PlanIssuanceCycle
   }).immediate();
 
   return getIssuanceCycle(db, cycleId);
+  }).immediate();
 }
 
 export function listUnitPacks(
@@ -1186,6 +1230,37 @@ export function derivePlanApprovalBody(
   return isHqOrDirectStation ? 'joint_review_company' : 'company_approval';
 }
 
+/** 页面、受控草稿共用：只有冻结周期中的正式专项上限能支持子公司自行决策。 */
+export function resolvePlanAdjustmentApprovalBody(db: DB, input: {
+  unitOrgId: number; unitPackId?: number; cycleId?: number; adjustType: PlanAdjustType;
+  exceedsOverallTarget?: boolean; lines?: PlanAdjustmentCreateRequest['lines'];
+}): PlanApprovalBody {
+  const unitOrg = loadAllOrgs(db).find((org) => org.id === input.unitOrgId);
+  if (!unitOrg || !orgInScope(currentOrgScope(db), unitOrg.id)) throw Errors.notFound('申请单位不存在');
+  const lines = input.lines ?? [];
+  const parsedLines = lines.map(parseAdjustmentLineValues);
+  const changesCoreTarget = lines.some((line, index) =>
+    ['annual_kpi', 'profit_budget', 'responsibility_kpi'].includes(line.targetSheetCode) && parsedLines[index].beforeVal !== parsedLines[index].afterVal);
+  let body = derivePlanApprovalBody(unitOrg, input.adjustType, Boolean(input.exceedsOverallTarget) || changesCoreTarget);
+  if (body !== 'subsidiary_self_decision') return body;
+  if (!input.unitPackId || !lines.length) return 'company_approval';
+  const pack = getPackRowScopedOrThrow(db, input.unitPackId, currentOrgScope(db));
+  const cycle = getCycleRowOrThrow(db, pack.cycle_id);
+  if (pack.unit_org_id !== input.unitOrgId || (input.cycleId && cycle.id !== input.cycleId)) throw Errors.validation('申请单位与下达周期/单元包不一致');
+  const meta = JSON.parse(cycle.decision_doc_meta || '{}') as Record<string, unknown>;
+  const caps = (Array.isArray(meta.annualSpecialCaps) ? meta.annualSpecialCaps : []) as { unitOrgId: number; sheetCode: PlanSheetCode; amount: string }[];
+  const summary = JSON.parse(pack.pack_summary_json || '{}') as PackSummaryStored;
+  const withinCap = cycle.status === 'published' && lines.every((line) => {
+    const cap = caps.find((c) => c.unitOrgId === pack.unit_org_id && c.sheetCode === line.targetSheetCode);
+    if (!cap || line.valueType !== 'amount_cents') return false;
+    const beforeTotal = (summary.attachments ?? []).filter((a) => a.sheetCode === line.targetSheetCode)
+      .reduce((sum, a) => sum + parseDecimalToCents(a.issuedTotalAmount), 0n);
+    const delta = lines.reduce((sum, l, i) => sum + (l.targetSheetCode === line.targetSheetCode ? parsedLines[i].deltaCents : 0n), 0n);
+    return beforeTotal + delta <= parseDecimalToCents(cap.amount);
+  });
+  return withinCap ? 'subsidiary_self_decision' : 'company_approval';
+}
+
 function parseAdjustmentLineValues(line: PlanAdjustmentCreateRequest['lines'][number]): {
   beforeVal: string;
   afterVal: string;
@@ -1208,7 +1283,8 @@ function parseAdjustmentLineValues(line: PlanAdjustmentCreateRequest['lines'][nu
     };
   }
   if (line.valueType === 'scaled_int' || line.valueType === 'rate_bp') {
-    const sc = line.valueType === 'rate_bp' ? 4 : line.scale;
+    // 与 plan_fact 的固定精度一致，客户端 scale 不得改变原计划的量纲精度。
+    const sc = line.valueType === 'rate_bp' ? 6 : 4;
     const b = parseScaled(line.beforeVal || '0', sc);
     const a = parseScaled(line.afterVal || '0', sc);
     const d = a - b;
@@ -1321,8 +1397,55 @@ export function createPlanAdjustment(db: DB, input: PlanAdjustmentCreateRequest)
   `).get(pack.unit_org_id) as OrgMetaRow | undefined;
   if (!unitOrg) throw Errors.notFound('组织不存在');
 
-  const approvalBody = derivePlanApprovalBody(unitOrg, input.adjustType, Boolean(input.exceedsOverallTarget));
-  const parsedLines = input.lines.map(parseAdjustmentLineValues);
+  const allOrgs = loadAllOrgs(db);
+  const orgById = new Map(allOrgs.map((o) => [o.id, o]));
+  const rootId = allOrgs.find((o) => o.parent_id === null && o.status === 'active')?.id ?? null;
+  const seenItems = new Set<number>();
+  const normalizedLines = input.lines.map((line) => {
+    let item: PlanItemDbRow | undefined;
+    if (line.planItemId) {
+      item = db.prepare('SELECT * FROM plan_item WHERE id = ?').safeIntegers(true).get(line.planItemId) as unknown as PlanItemDbRow | undefined;
+      if (!item || Number(item.batch_id) !== cycle.source_plan_batch_id ||
+          resolveIssuanceUnitOrgId(item.org_id === null ? null : Number(item.org_id), orgById, rootId) !== pack.unit_org_id ||
+          (item.org_id !== null && !orgInScope(scope, Number(item.org_id)))) {
+        throw Errors.notFound('申请单位当前周期的计划明细不存在');
+      }
+      if (item.sheet_code !== line.targetSheetCode) throw Errors.validation('调整工作表与关联计划明细不一致');
+    } else if (cycle.source_plan_batch_id !== null) {
+      const matches = (db.prepare('SELECT * FROM plan_item WHERE batch_id = ? AND sheet_code = ? AND item_name = ?')
+        .safeIntegers(true).all(cycle.source_plan_batch_id, line.targetSheetCode, line.targetItemName) as unknown as PlanItemDbRow[])
+        .filter((pi) => resolveIssuanceUnitOrgId(pi.org_id === null ? null : Number(pi.org_id), orgById, rootId) === pack.unit_org_id &&
+          (pi.org_id === null || orgInScope(scope, Number(pi.org_id))));
+      if (matches.length > 1) throw Errors.validation('同名计划明细不唯一，请明确关联 planItemId');
+      item = matches[0];
+    }
+    if (item) {
+      const itemId = Number(item.id);
+      if (seenItems.has(itemId)) throw Errors.validation('一份申请不能重复调整同一计划明细');
+      seenItems.add(itemId);
+      if (line.stableItemUid && line.stableItemUid !== item.stable_item_uid) throw Errors.validation('计划明细稳定标识不匹配');
+      const fact = db.prepare("SELECT value_type, amount_cents, scaled_value, text_value FROM plan_fact WHERE item_id = ? AND field_key = 'annual_plan'")
+        .safeIntegers(true).get(itemId) as { value_type: string; amount_cents: bigint | null; scaled_value: bigint | null; text_value: string | null } | undefined;
+      const expectedType = { amount_cents: 'amount', scaled_int: 'quantity', rate_bp: 'ratio', text: 'text' }[line.valueType];
+      if (fact && fact.value_type !== expectedType) throw Errors.validation('调整量纲与原计划明细不一致');
+      const currentVal = line.valueType === 'amount_cents'
+        ? centsToDecimalString(toCentsBig(item.approved_cents ?? fact?.amount_cents ?? 0n))
+        : line.valueType === 'text' ? fact?.text_value ?? ''
+          : formatScaled(fact?.scaled_value ?? 0n, line.valueType === 'scaled_int' ? 4 : 6, false);
+      const compareScale = line.valueType === 'amount_cents' ? 2 : line.valueType === 'scaled_int' ? 4 : 6;
+      const sameBefore = line.valueType === 'text' ? line.beforeVal === currentVal
+        : parseScaled(line.beforeVal || '0', compareScale) === parseScaled(currentVal, compareScale);
+      if (!sameBefore) throw new AppError('ADJUSTMENT_BASELINE_STALE', '调整前值与原周期计划明细不一致，请重新核对', 409);
+      return { ...line, targetItemName: item.item_name, planItemId: itemId, stableItemUid: item.stable_item_uid };
+    }
+    if (line.stableItemUid) throw Errors.validation('新增明细不能引用未匹配的稳定标识');
+    if (line.valueType === 'text' ? !['', '0'].includes(line.beforeVal) : parseScaled(line.beforeVal || '0', line.valueType === 'amount_cents' ? 2 : line.scale) !== 0n) {
+      throw Errors.validation('新增计划明细的调整前值必须为零；调整既有项目请关联计划明细或填写原项目名称');
+    }
+    return line;
+  });
+  const parsedLines = normalizedLines.map(parseAdjustmentLineValues);
+  const approvalBody = resolvePlanAdjustmentApprovalBody(db, { ...input, unitOrgId: unitOrg.id, lines: normalizedLines });
   const now = nowIso();
 
   const adjId = db.transaction(() => {
@@ -1345,7 +1468,7 @@ export function createPlanAdjustment(db: DB, input: PlanAdjustmentCreateRequest)
       now,
     );
     const aid = Number(res.lastInsertRowid);
-    input.lines.forEach((l, idx) => {
+    normalizedLines.forEach((l, idx) => {
       const pv = parsedLines[idx];
       let stableUid = (l.stableItemUid ?? '').trim();
       if (!stableUid && l.planItemId) {
@@ -1365,7 +1488,7 @@ export function createPlanAdjustment(db: DB, input: PlanAdjustmentCreateRequest)
         l.targetSheetCode,
         l.targetItemName,
         l.valueType,
-        l.scale,
+        l.valueType === 'amount_cents' ? 2 : l.valueType === 'scaled_int' ? 4 : l.valueType === 'rate_bp' ? 6 : 0,
         l.unit,
         pv.beforeVal,
         pv.afterVal,
@@ -1452,6 +1575,9 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
     }
 
     const oldCycle = getCycleRowOrThrow(db, Number(adj.cycle_id));
+    if (oldCycle.status !== 'published') {
+      throw new AppError('ADJUSTMENT_STALE', '原下达周期已被修订或归档，请基于最新周期重新申请', 409);
+    }
     const adjPack = db.prepare('SELECT * FROM plan_issuance_unit_pack WHERE id = ?').get(Number(adj.unit_pack_id)) as PackRow;
     const lines = db.prepare('SELECT * FROM plan_adjustment_line WHERE adjustment_id = ? ORDER BY id').safeIntegers(true).all(adjustmentId) as unknown as Record<string, unknown>[];
 
@@ -1501,8 +1627,8 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
               batch_id, sheet_code, row_no, seq_no, item_name, item_type, path,
               project_id, org_id, undertake_org_id, item_key, stable_item_uid,
               cost_nature, funding_channel, submitted_cents, exact_calc_cents,
-              approved_cents, rounding_rule, diff_reason_code, warnings_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              approved_cents, rounding_rule, diff_reason_code, warnings_json, parent_item_key, estimate_subitem
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).safeIntegers(true).run(
             newPlanBatchId,
             it.sheet_code,
@@ -1524,13 +1650,20 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
             it.rounding_rule,
             it.diff_reason_code,
             it.warnings_json,
+            it.parent_item_key,
+            it.estimate_subitem,
           );
           const newItemId = Number(iRes.lastInsertRowid);
           const srcFacts = db.prepare('SELECT * FROM plan_fact WHERE item_id = ?').safeIntegers(true).all(oldId) as unknown as Record<string, unknown>[];
           for (const f of srcFacts) {
-            const nextAmt = matchLine && matchLine.value_type === 'amount_cents' && f.field_key === 'annual_plan'
+            const isAdjusted = matchLine && f.field_key === 'annual_plan';
+            const nextAmt = isAdjusted && matchLine.value_type === 'amount_cents'
               ? toCentsBig(matchLine.after_cents as bigint | number)
               : (f.amount_cents as bigint | number | null);
+            const nextScaled = isAdjusted && ['scaled_int', 'rate_bp'].includes(String(matchLine.value_type))
+              ? parseScaled(String(matchLine.after_val), matchLine.value_type === 'scaled_int' ? 4 : 6)
+              : f.scaled_value;
+            const nextText = isAdjusted && matchLine.value_type === 'text' ? matchLine.after_val : f.text_value;
             db.prepare(`
               INSERT INTO plan_fact (batch_id, item_id, field_key, measure, value_type, amount_cents, scaled_value, text_value, source_cell)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1541,8 +1674,8 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
               f.measure,
               f.value_type,
               nextAmt,
-              f.scaled_value,
-              f.text_value,
+              nextScaled,
+              nextText,
               f.source_cell,
             );
           }
@@ -1573,12 +1706,14 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
             afterCents,
             afterCents,
           );
-          if (l.value_type === 'amount_cents') {
-            db.prepare(`
-              INSERT INTO plan_fact (batch_id, item_id, field_key, measure, value_type, amount_cents, scaled_value, text_value, source_cell)
-              VALUES (?, ?, 'annual_plan', 'annual_plan', 'amount', ?, NULL, NULL, 'ADJ')
-            `).safeIntegers(true).run(newPlanBatchId, Number(iRes.lastInsertRowid), afterCents);
-          }
+          const factType = { amount_cents: 'amount', scaled_int: 'quantity', rate_bp: 'ratio', text: 'text' }[String(l.value_type)];
+          db.prepare(`
+            INSERT INTO plan_fact (batch_id, item_id, field_key, measure, value_type, amount_cents, scaled_value, text_value, source_cell)
+            VALUES (?, ?, 'annual_plan', 'annual_plan', ?, ?, ?, ?, 'ADJ')
+          `).safeIntegers(true).run(newPlanBatchId, Number(iRes.lastInsertRowid), factType,
+            l.value_type === 'amount_cents' ? afterCents : null,
+            ['scaled_int', 'rate_bp'].includes(String(l.value_type)) ? parseScaled(String(l.after_val), l.value_type === 'scaled_int' ? 4 : 6) : null,
+            l.value_type === 'text' ? l.after_val : null);
         }
         if (addedItems > 0) {
           db.prepare('UPDATE plan_batch SET item_count = item_count + ?, fact_count = fact_count + ? WHERE id = ?')
@@ -1617,12 +1752,20 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
 
         for (const l of lines) {
           if (l.budget_account_id !== null && l.value_type === 'amount_cents') {
-            const deltaNum = centsToSafeNumber(toCentsBig(l.delta_cents as bigint | number), '预算联动调整额');
+            const account = db.prepare('SELECT type FROM account WHERE id = ?').get(Number(l.budget_account_id)) as { type: string } | undefined;
+            if (!account) throw Errors.validation('预算联动科目不存在');
+            const cycleMeta = JSON.parse(oldCycle.decision_doc_meta || '{}') as Record<string, unknown>;
+            const vatBp = BigInt(typeof cycleMeta.vatRateBp === 'number' ? cycleMeta.vatRateBp : DEFAULT_MAINTENANCE_VAT_BP);
+            const budgetDelta = l.target_sheet_code === 'maintenance'
+              ? roundHalfUpDiv(toCentsBig(l.after_cents as bigint | number) * 10000n, 10000n + vatBp) - roundHalfUpDiv(toCentsBig(l.before_cents as bigint | number) * 10000n, 10000n + vatBp)
+              : toCentsBig(l.delta_cents as bigint | number);
             const existingEntry = db.prepare('SELECT amount_cents FROM budget_entry WHERE version_id = ? AND org_id = ? AND account_id = ?')
-              .get(newBudgetVersionId, adjPack.unit_org_id, Number(l.budget_account_id)) as { amount_cents: number } | undefined;
+              .safeIntegers(true).get(newBudgetVersionId, adjPack.unit_org_id, Number(l.budget_account_id)) as { amount_cents: bigint } | undefined;
+            const directionSign = ['cost', 'expense'].includes(account.type) && (!existingEntry || existingEntry.amount_cents < 0n) ? -1n : 1n;
+            const deltaNum = centsToSafeNumber(budgetDelta * directionSign, '预算联动调整额');
             if (existingEntry) {
               db.prepare('UPDATE budget_entry SET amount_cents = ?, updated_at = ? WHERE version_id = ? AND org_id = ? AND account_id = ?')
-                .run(existingEntry.amount_cents + deltaNum, now, newBudgetVersionId, adjPack.unit_org_id, Number(l.budget_account_id));
+                .run(centsToSafeNumber(existingEntry.amount_cents + BigInt(deltaNum), '调整后预算额'), now, newBudgetVersionId, adjPack.unit_org_id, Number(l.budget_account_id));
             } else {
               db.prepare(`
                 INSERT INTO budget_entry (version_id, org_id, account_id, amount_cents, quantity, formula, note, updated_at)
@@ -1641,7 +1784,82 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
     const revCount = (db.prepare(`SELECT COUNT(*) AS n FROM plan_issuance_cycle WHERE cycle_code LIKE ?`).get(`${baseCode}-ADJ-%`) as { n: number }).n + 1;
     const newCycleCode = `${baseCode}-ADJ-${revCount}`;
     const oldMeta = JSON.parse(oldCycle.decision_doc_meta || '{}') as Record<string, unknown>;
-    const newMeta = { ...oldMeta, adjustedFromCycleId: oldCycle.id, adjustmentId, decisionDocNo: finalDocNo };
+    const newMeta: Record<string, unknown> = { ...oldMeta, adjustedFromCycleId: oldCycle.id, adjustmentId, decisionDocNo: finalDocNo };
+    // 正式公文导入的附表也必须随修订更新，不能继续复用旧冻结值。
+    const overrides = newMeta.unitAttachments as Record<string, PlanAttachmentSummaryDto[]> | undefined;
+    const unitCode = (db.prepare('SELECT code FROM org WHERE id = ?').get(adjPack.unit_org_id) as { code: string }).code;
+    const sourceAttachments = overrides?.[unitCode] ?? overrides?.[String(adjPack.unit_org_id)];
+    if (sourceAttachments) {
+      const nameKey = (text: string) => text.replace(/\s+/g, '');
+      for (const line of lines) {
+        const matches = sourceAttachments.filter((a) => a.sheetCode === line.target_sheet_code);
+        if (matches.length > 1) throw Errors.validation('同一工作表存在多份历史附表，请先核对来源');
+        let attachment = matches[0];
+        if (!attachment) {
+          attachment = { attachmentNo:sourceAttachments.length+1, title:String(line.target_item_name), sheetCode:line.target_sheet_code as PlanSheetCode,
+            unitOfMeasure:line.value_type === 'amount_cents' ? '万元' : '按行量纲', leafRowCount:0, exactTotalAmount:'0.00', issuedTotalAmount:'0.00', diffReasonCode:'', subEntities:[], undertakeDepts:[], rows:[] };
+          sourceAttachments.push(attachment);
+        }
+        const matchingRows = attachment.rows.filter((r) => nameKey(r.itemName) === nameKey(String(line.target_item_name)));
+        if (matchingRows.length > 1) throw Errors.validation('正式附表中同名明细不唯一，请先核对来源');
+        const row = matchingRows[0];
+        if (!row && !['','0','0.00'].includes(String(line.before_val))) throw Errors.validation('正式附表找不到调整原项，不能沿用旧冻结值');
+        if (row) {
+          const raw = row.amountOrValue.replace(/\s+/g, '');
+          const before = String(line.before_val);
+          const equal = line.value_type === 'amount_cents'
+            ? parseScaled(raw, row.unit === '万元' ? 6 : 2) === toCentsBig(line.before_cents as bigint | number)
+            : line.value_type === 'text' ? raw === before.replace(/\s+/g, '')
+              : parseScaled(raw.replace(/%$/, ''), line.value_type === 'scaled_int' ? 4 : 6) === parseScaled(before, line.value_type === 'scaled_int' ? 4 : 6) * (row.unit === '%' || raw.endsWith('%') ? 100n : 1n);
+          if (!equal) throw new AppError('ADJUSTMENT_BASELINE_STALE', '正式附表原值与调整基线不一致，请重新核对', 409);
+          row.amountOrValue = line.value_type === 'amount_cents'
+            ? formatScaled(toCentsBig(line.after_cents as bigint | number), row.unit === '万元' ? 6 : 2, false)
+            : line.value_type === 'rate_bp' && (row.unit === '%' || raw.endsWith('%'))
+              ? formatScaled(parseScaled(String(line.after_val), 6) * 100n, 6, false)
+              : String(line.after_val);
+        } else attachment.rows.push({ seqNo:String(attachment.rows.length+1), itemName:String(line.target_item_name), unit:line.value_type === 'amount_cents' ? '万元' : String(line.unit),
+          amountOrValue:line.value_type === 'amount_cents' ? formatScaled(toCentsBig(line.after_cents as bigint | number),6,false) : String(line.after_val), undertakeOrgName:null, note:'修订新增' });
+        if (!row) attachment.leafRowCount++;
+        if (line.value_type === 'amount_cents') {
+          const delta = toCentsBig(line.delta_cents as bigint | number);
+          const exactAmount = centsToDecimalString(parseDecimalToCents(attachment.exactTotalAmount)+delta);
+          const issuedAmount = centsToDecimalString(parseDecimalToCents(attachment.issuedTotalAmount)+delta);
+          parseDecimalToCents(exactAmount); parseDecimalToCents(issuedAmount);
+          attachment.exactTotalAmount = exactAmount;
+          attachment.issuedTotalAmount = issuedAmount;
+        }
+      }
+    }
+    const metricOverrides = newMeta.unitMetrics as Record<string, Record<string, unknown>> | undefined;
+    const metrics = metricOverrides?.[unitCode] ?? metricOverrides?.[String(adjPack.unit_org_id)];
+    if (metrics) {
+      const add = (key:string,delta:bigint) => {
+        if (typeof metrics[key] === 'string') {
+          const value = centsToDecimalString(parseDecimalToCents(metrics[key] as string)+delta);
+          parseDecimalToCents(value); metrics[key]=value;
+        }
+      };
+      for (const line of lines) if (line.value_type === 'amount_cents') {
+        const delta=toCentsBig(line.delta_cents as bigint | number);
+        const sheet=String(line.target_sheet_code); const name=String(line.target_item_name).replace(/\s+/g,'');
+        const keys:Record<string,string[]>={purchase:['purchaseTotal','investmentTotal'],investment:['investmentTotal'],investment_tech_renovation:['investmentTotal'],investment_info:['investmentTotal'],investment_other:['investmentTotal'],maintenance:['maintenanceTotal'],safety_input:['safetyInputTotal'],five_expenses:['fiveExpensesExact','controllableMgmtFeeExact']};
+        for (const key of keys[sheet] ?? []) add(key,delta);
+        if (sheet === 'profit_budget') {
+          if (/营业总收入/.test(name)) { metrics.operatingRevenue=centsToDecimalString(toCentsBig(line.after_cents as bigint | number)); add('totalRevenue',delta); }
+          else if (/营业外收入/.test(name)) add('totalRevenue',delta);
+          else if (/利润总额/.test(name)) metrics.profitBeforeTax=centsToDecimalString(toCentsBig(line.after_cents as bigint | number));
+          else if (/净利润/.test(name)) metrics.netProfit=centsToDecimalString(toCentsBig(line.after_cents as bigint | number));
+        }
+        if (sheet === 'annual_kpi') {
+          if (name === '固定资产投资') metrics.investmentTotal=centsToDecimalString(toCentsBig(line.after_cents as bigint | number));
+          if (name === '总收入') metrics.totalRevenue=centsToDecimalString(toCentsBig(line.after_cents as bigint | number));
+        }
+        if (['mgmt_fee','mfg_fee'].includes(sheet) && /可控.*其他|其他.*可控/.test(name)) add('controllableMgmtFeeExact',delta);
+      }
+      for (const [exact,issued] of [['fiveExpensesExact','fiveExpensesIssued'],['controllableMgmtFeeExact','controllableMgmtFeeIssued']]) {
+        if (typeof metrics[exact] === 'string') metrics[issued]=centsToDecimalString(roundHalfUpStep(parseDecimalToCents(metrics[exact] as string),WAN_2DEC_STEP_CENTS));
+      }
+    }
 
     const allOrgs = loadAllOrgs(db);
     const rootOrg = allOrgs.find((o) => o.parent_id === null && o.status === 'active') ?? allOrgs[0];
@@ -1710,6 +1928,15 @@ export function reviewPlanAdjustment(db: DB, adjustmentId: number, input: PlanAd
       );
     }
 
+    const revisedReport = reconcileCycleTotals(db, newCycleId);
+    if (!revisedReport.passed) throw new AppError('PLAN_RECONCILE_BLOCKED', '修订周期存在勾稽失衡，未批准或写入任何修订结果', 409, undefined, revisedReport);
+    const frozenPacks = (db.prepare('SELECT unit_org_id, pack_summary_json FROM plan_issuance_unit_pack WHERE cycle_id = ? ORDER BY id')
+      .all(newCycleId) as { unit_org_id: number; pack_summary_json: string }[])
+      .map((p) => ({ unitOrgId: p.unit_org_id, summarySha256: crypto.createHash('sha256').update(p.pack_summary_json).digest('hex') }));
+    const finalSnapshot = JSON.stringify({ ...newSnapObj, reconcileConsolidation: revisedReport.consolidation, vatRateBp: revisedReport.vatRateBp, packs: frozenPacks });
+    db.prepare('UPDATE plan_issuance_cycle SET frozen_snapshot_json = ?, snapshot_sha256 = ? WHERE id = ?')
+      .run(finalSnapshot, crypto.createHash('sha256').update(finalSnapshot).digest('hex'), newCycleId);
+
     db.prepare(`
       UPDATE plan_adjustment
       SET status = 'approved', decision_doc_no = ?, decision_attachment_id = ?,
@@ -1770,7 +1997,7 @@ function buildNoticeRenderDoc(cycle: CycleRow, pack: PlanUnitPackDto, issuerName
       r.undertakeOrgName ?? pack.unitOrgName,
       r.note,
     ]);
-    rows.push(['合计', `${att.title}合计`, att.unitOfMeasure, att.issuedTotalAmount, '', att.diffReasonCode]);
+    rows.push(['合计', `${att.title}合计`, att.unitOfMeasure, att.unitOfMeasure === '万元' ? issuedWanText(parseDecimalToCents(att.issuedTotalAmount)) : '—', '', att.diffReasonCode]);
     sections.push({
       title: `附表${att.attachmentNo}：${att.title}`,
       body: `共 ${att.leafRowCount} 项明细，计量单位：${att.unitOfMeasure}。`,

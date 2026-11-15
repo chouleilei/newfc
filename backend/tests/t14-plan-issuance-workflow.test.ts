@@ -134,6 +134,7 @@ describe('T-GAP-06 / AC-T14-02 V72→V73→V74 迁移与综合计划 8 单元合
       sourcePlanBatchId: impBatch.id,
       sourceBudgetVersionId: bvId,
       issuedDate: '2026-03-10',
+      annualSpecialCaps: [{ unitOrgId: subDId, sheetCode: 'maintenance', amount: '700000.00' }],
     });
     expect(cycleRes.status).toBe(201);
     const cycle = await json(cycleRes);
@@ -179,6 +180,27 @@ describe('T-GAP-06 / AC-T14-02 V72→V73→V74 迁移与综合计划 8 单元合
       ackNote: '越权签收测试',
     });
     expect(crossAck.status).toBe(404);
+
+    // 独立复核：列表和详情都不得泄露集团冻结快照、其他单位包统计或未发布草稿。
+    const scopedCycles = await json(get(base, hubAUser.session, '/api/plan/issuance/cycles'));
+    const scopedCycle = scopedCycles.items.find((c: any) => c.id === cycle.id);
+    expect(scopedCycle.frozenSnapshot).toEqual({});
+    expect(scopedCycle.unitPackCount).toBe(1);
+    const draft = await json(post(base, admin, '/api/plan/issuance/cycles', {
+      year: 2026, cycleCode: 'PRIVATE-DRAFT', sourcePlanBatchId: impBatch.id,
+    }));
+    expect((await get(base, hubAUser.session, `/api/plan/issuance/cycles/${draft.id}`)).status).toBe(404);
+
+    // 申请包不能成为修改其他单位明细的通行证，旧批次、重复明细也必须先拒绝。
+    const foreignItem = db.prepare('SELECT id, stable_item_uid FROM plan_item WHERE batch_id = ? AND org_id = ? LIMIT 1')
+      .get(impBatch.id, subDId) as { id: number; stable_item_uid: string };
+    const ownItem = db.prepare('SELECT id, stable_item_uid FROM plan_item WHERE batch_id = ? AND org_id = ? LIMIT 1')
+      .get(impBatch.id, hubAId) as { id: number; stable_item_uid: string };
+    const crossLine = { planItemId: foreignItem.id, targetSheetCode: 'purchase', targetItemName: '越权调整', beforeVal: '800000.00', afterVal: '900000.00' };
+    const adjustmentBase = { cycleId: cycle.id, unitPackId: hubAPack.id, adjustType: 'within_total_realloc', reason: '独立复核反例' };
+    expect((await post(base, hubAUser.session, '/api/plan/issuance/adjustments', { ...adjustmentBase, lines: [crossLine] })).status).toBe(404);
+    const ownLine = { ...crossLine, planItemId: ownItem.id, beforeVal: '1200000.00', afterVal: '1300000.00' };
+    expect((await post(base, hubAUser.session, '/api/plan/issuance/adjustments', { ...adjustmentBase, lines: [ownLine, ownLine] })).status).toBe(400);
 
     // 受限用户可只读查看本单位经营预算明细（/unit-view），但调用全域定稿 /lock 返回 403
     const unitBv = await json(get(base, hubAUser.session, `/api/versions/${bvId}/unit-view`));
@@ -247,8 +269,8 @@ describe('T-GAP-06 / AC-T14-02 V72→V73→V74 迁移与综合计划 8 单元合
             valueType: 'amount_cents',
             scale: 2,
             unit: '元',
-            beforeVal: '1060000.00',
-            afterVal: '1166000.00',
+            beforeVal: '0.00',
+            afterVal: '106000.00',
             budgetAccountId: accMaint,
           },
         ],
@@ -261,6 +283,17 @@ describe('T-GAP-06 / AC-T14-02 V72→V73→V74 迁移与综合计划 8 单元合
       }
       if (!firstAdjId) firstAdjId = body.id;
     }
+    // 客户端自报“额度内”不能覆盖冻结上限；核心目标变更也不能通过 false 标志降级。
+    const overCap = await json(post(base, subDUser.session, '/api/plan/issuance/adjustments', {
+      cycleId: cycle.id, unitPackId: subDPack.id, adjustType: 'unplanned_subsidiary_within_cap', reason: '上限反例',
+      lines: [{ targetSheetCode: 'maintenance', targetItemName: '新增超限专项', beforeVal: '0', afterVal: '200000.00' }],
+    }));
+    expect(overCap.approvalBody).toBe('company_approval');
+    const coreTarget = await json(post(base, subDUser.session, '/api/plan/issuance/adjustments', {
+      cycleId: cycle.id, unitPackId: subDPack.id, adjustType: 'unplanned_subsidiary_within_cap', exceedsOverallTarget: false, reason: '核心目标反例',
+      lines: [{ targetSheetCode: 'annual_kpi', targetItemName: '新增经营核心指标', beforeVal: '0', afterVal: '100000.00' }],
+    }));
+    expect(coreTarget.approvalBody).toBe('board_of_directors');
 
     // 提交人自审无例外说明拦截；异人复核批准后自动生成修订新周期与修订预算版本，原周期置 superseded 但冻结快照不变
     const adminSelfAdj = await json(
@@ -304,5 +337,12 @@ describe('T-GAP-06 / AC-T14-02 V72→V73→V74 迁移与综合计划 8 单元合
     const newCycle = await json(get(base, admin, `/api/plan/issuance/cycles/${revApproved.newCycleId}`));
     expect(newCycle.issuanceStage).toBe('adjusted');
     expect(newCycle.sourceBudgetVersionId).not.toBe(bvId);
+    expect(newCycle.reconcileReport.passed).toBe(true);
+    expect(db.prepare('SELECT amount_cents FROM budget_entry WHERE version_id = ? AND org_id = ? AND account_id = ?').safeIntegers(true).get(newCycle.sourceBudgetVersionId, hubAId, accMaint)).toEqual({ amount_cents: 110000000n });
+    // 同一旧周期的第二份在途申请不能再次批准并覆盖已派生的新周期。
+    const staleReview = await post(base, reviewerUser.session, `/api/plan/issuance/adjustments/${adminSelfAdj.id}/review`, {
+      action: 'approve', decisionDocNo: '旧周期重复审批',
+    });
+    expect(staleReview.status).toBe(409);
   });
 });
