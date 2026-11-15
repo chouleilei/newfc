@@ -69,4 +69,3 @@ export function assertScopedDraftAccess(db: DB, kind: DraftKind, fields: Record<
     }
   }
 }
-

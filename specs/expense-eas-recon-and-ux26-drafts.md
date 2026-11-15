@@ -1,6 +1,6 @@
 # 报销小额比价拆单预警、EAS 遗留对账、全景互跳与受控草稿设计（T-15 / 阶段三 P2）
 
-状态：**立项实施（独立工作树 `feat/improvement-2026-11`，目标 schema V75）**。本文是阶段三（P2：`GAP-20`、`GAP-21`）唯一维护的领域契约与验收规范，衔接 [T-13 主数据与历史容缺底座](foundation-and-legacy-migration.md)、[T-14 计划下达与 52 条规则](plan-issuance-and-supervision-rules.md)、[智能合同法审设计](contract-legal-review.md) 与 [AI 页面上下文与草稿契约](ai.md)。所有规范文本、代码与公共单测夹具均严格执行零实名、零信用代码、零涉密财务原值脱敏约束。
+状态：**工程实现与八类合成配对回归已完成；独立复核与工程复验见验收记录，AC-CLR-09 正式历史法审业务验收仍待真实意见与人工标注（独立工作树 `feat/improvement-2026-11`，schema V75）**。本文是阶段三（P2：`GAP-20`、`GAP-21`）唯一维护的领域契约与验收规范，衔接 [T-13 主数据与历史容缺底座](foundation-and-legacy-migration.md)、[T-14 计划下达与 52 条规则](plan-issuance-and-supervision-rules.md)、[智能合同法审设计](contract-legal-review.md) 与 [AI 页面上下文与草稿契约](ai.md)。所有规范文本、代码与公共单测夹具均严格执行零实名、零信用代码、零涉密财务原值脱敏约束。
 
 ---
 
@@ -21,13 +21,13 @@
 严格遵守只追加原则，**不修改 `V1`～`V74` 任何字节**。新增 `V75`（`v75_expense_split_eas_recon_and_ux26_drafts`）：
 
 1. **`ex_split_alert_log`（报销小额拆单监测追溯日志表）**
-   - 列：`id`、`org_id`（外键 `org(id)`）、`normalized_category`（规范化费用类型或供应方分组键）、`supplier_or_payee`（可空文本）、`window_days`（正整数，默认 `30`）、`anchor_date`（`YYYY-MM-DD`）、`claim_ids_json`（命中报销单 ID 升序 JSON 数组）、`claim_nos_json`（命中单号 JSON 数组）、`claim_count`（`>= 2`）、`total_cents`（`INTEGER NOT NULL`，`>= 3000000`）、`risk_event_id`（可空外键 `risk_event(id) ON DELETE SET NULL`）、`fingerprint`（`UNIQUE`，按组织 + 分组键 + 命中单 ID 集合计算，幂等去重）、`detected_at`、`updated_at`。
+   - 列：`id`、`org_id`（外键 `org(id)`）、`normalized_category`（规范化费用类型或供应方分组键）、`supplier_or_payee`（可空文本）、`window_days`（正整数，默认 `30`）、`anchor_date`（`YYYY-MM-DD`）、`claim_ids_json`（命中报销单 ID 升序 JSON 数组）、`claim_nos_json`（命中单号 JSON 数组）、`claim_count`（`>= 2`）、`total_cents`（`INTEGER NOT NULL`，`>= 0`；业务层按当前配置门槛校验，默认 `3000000`，兼容调整门槛）、`risk_event_id`（可空外键 `risk_event(id) ON DELETE SET NULL`）、`fingerprint`（`UNIQUE`，按组织 + 分组键 + 命中单 ID 集合计算，幂等去重）、`detected_at`、`updated_at`。
    - 索引：`idx_ex_split_alert_org(org_id, anchor_date DESC)`。
 2. **`eas_recon_note`（EAS 合同质保金/往来/在建工程遗留财务核对备注表）**
    - 列：`id`、`org_id`（外键 `org(id)`）、`period`（`YYYY-MM`）、`category`（`CHECK (category IN ('warranty_2241_overdue','supplier_negative_balance','cip_1604_legacy'))`）、`target_key`（稳定业务目标键，如 `2241:CT-12`、`neg:220201:SUP-A`、`1604:PRJ-01:160401`）、`recon_status`（`CHECK (recon_status IN ('pending','to_writeoff','explained_normal','resolved'))`）、`voucher_ref`（凭证追溯号，默认 `''`）、`note`（财务核对结论与处理说明）、`updated_by_user_id`（外键 `app_user(id) ON DELETE SET NULL`）、`created_at`、`updated_at`。
    - 唯一约束：`UNIQUE(org_id, period, target_key)`；索引：`idx_eas_recon_note_lookup(org_id, period, category, recon_status)`。
    - **事实隔离铁律**：`eas_voucher_line`、`eas_balance_line`、`eas_aux_line` 继续受不可变触发器保护，任何核对说明只写入 `eas_recon_note` 并记录 `operation_log`，绝不篡改 EAS 原始导入行。
-3. **业务配置参数种子（`business_setting` `INSERT OR IGNORE`）**
+3. **业务配置参数默认值（`BUSINESS_SETTINGS` 同源定义，显式设置初始化 CLI 可幂等写入 `business_setting`；V75 SQL 不改写已有参数）**
    - `expense.split_window_days`：默认 `'30'`（连续自然日窗口，`1`～`365`）；
    - `expense.small_procurement_limit_cents`：默认 `'3000000'`（`30,000.00` 元整数分）。
 4. **助手受控草稿存储契约说明**
@@ -41,12 +41,12 @@
 
 1. **服务端权威比价附件计数（`price_compare_doc_count`）**：
    - 严禁信任客户端传入的附件数量。每当 `addClaimAttachment` 或草稿附件变更执行时，服务端扫描该报销单全部 `ex_attachment`，凡 `kind_hint = 'price_comparison'` 或规范化 `name`/`kind_hint` 命中 `比价|询价|市场调研|三家报价` 关键词者计入 `price_compare_doc_count` 并回写 `ex_claim`。
-   - 若报销单绑定了有效合同 `contract_id`，且该合同已关联具备有效比价记录的 `ct_procurement_record` 或 `procurement` 类文档，审核规则在证据链中一并引用说明。
+   - 普通事由关键词不能作为已核实豁免；只有实际有效的比价证据可以免除提示。空招采记录、普通招采文档及已撤回材料不算比价证据。若报销单绑定了有效合同 `contract_id`，且该合同已关联具备有效比价记录的 `ct_procurement_record` 或 `procurement` 类文档，审核规则在证据链中一并引用说明。
 2. **规则 `EXP_SMALL_PROC_NO_COMPARISON`（对应制度采购条款 §8.1.7 与 `PW_13`）**：
    - 触发条件：`is_procurement_expense = 1`，`amount_cents <= 3_000_000n`（或配置的 `expense.small_procurement_limit_cents`），且 `price_compare_doc_count < 1`，同时单据说明未标注经核实的经常性水电通信缴费等法定豁免凭据。
    - 审核输出：在 `ex_finding` 生成 `severity = 'medium'`（单笔 `>= 1_000_000n` 即 1 万元以上且无合同、无比价时升为 `'high'`）规则发现，提示补传书面市场比价报告。
 3. **规则 `EXP_SPLIT_BELOW_30K`（对应制度 §8.1.7 末句、§11.3 与 `PW_14`）**：
-   - 统计口径：同一 `org_id` 下，排除已驳回（`conclusion = 'reject'`）及草稿未提交前的无效废单（审核运行时纳入当前送审单与同组织非驳回历史已提交/已审/已复核报销单），按「相同规范化 `expense_type`」或「同一关联 `contract_id`/供应商编码」分组，在滚动 `W`（默认 `30`）个自然日窗口内：
+   - 统计口径：同一 `org_id` 下，排除已驳回（`conclusion = 'reject'`）及草稿未提交前的无效废单（审核运行时纳入当前送审单与同组织非驳回历史已提交/已审/已复核报销单），按「相同规范化 `expense_type`」或「同一关联 `contract_id`/供应商编码」分组，在滚动 `W`（默认 `30`）个自然日窗口内（含首尾共 W 天，日期差 `< W`；各组分别统计，禁止混合不同分组键凑数）：
      - 每笔单据满足 `0n < amount_cents <= limit_cents`（单笔未超 `30,000.00` 元门槛，其中采购类或同费用科目高频小额单）；
      - 窗口内笔数 `>= 2` 且累计金额 `sum(amount_cents) >= limit_cents`（`bigint` 精确累加）。
    - 联动动作：
@@ -95,6 +95,8 @@
 ### 3.5 `AC-CLR-09` 多类别合同配对法审回归规范
 
 建立覆盖 **8 类脱敏业务合同样本**的自动化配对回归套件（`backend/tests/t15-legal-regression-ac-clr-09.test.ts` 与离线评估脚本扩展）：
+
+**工程与业务证据边界**：当前套件为程序构造的八类合成样本与受控模型响应，只证明预设规则及候选/正式范本门禁；不能替代 [AC-CLR-09 历史样本验收](contract-legal-review.md#7-后续验收标准) 所需的正式法审意见、逐条漏检/误报标注与建议采纳评价。业务结论须用 `evaluate-contract-legal.ts --paired-manifest` 显式输入匿名配对标注复算，合成样本不能计入历史覆盖；缺证据或有红线漏检时退出码为 `2`。
 
 1. **8 类样本覆盖矩阵**：
    - 类别 1：货物采购（`goods_procurement`）— 缺陷稿（过期《合同法》依据、付款比例和 ≠ 100%、缺违约上限、未填占位符）vs 修订合规稿；

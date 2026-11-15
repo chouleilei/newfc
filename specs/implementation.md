@@ -979,13 +979,13 @@ T-2 实施要点：
 
 ## T-15：报销小额比价拆单预警、EAS遗留对账、全景互跳与受控草稿（阶段三 P2）
 
-状态：**已完成工程实现、双配置 E2E 回归与全链路迁移恢复演练（独立工作树 `feat/improvement-2026-11`，schema V75，待合入发布）**。领域模型、金额与事实隔离边界、接口权限契约、受控草稿防直写规则及 `AC-T15-01`～`AC-T15-05`（含 `AC-CLR-09`）唯一维护于 [T-15 领域细设计](expense-eas-recon-and-ux26-drafts.md)，验收证据见 [T-15 验收记录](../docs/acceptance-records.md)。
+状态：**已完成工程实现、双配置 E2E 回归与全链路迁移恢复演练；AC-CLR-09 完整业务样本验收待补齐（独立工作树 `feat/improvement-2026-11`，schema V75，待合入发布）**。领域模型、金额与事实隔离边界、接口权限契约、受控草稿防直写规则及 `AC-T15-01`～`AC-T15-05`（含 `AC-CLR-09`）唯一维护于 [T-15 领域细设计](expense-eas-recon-and-ux26-drafts.md)，验收证据见 [T-15 验收记录](../docs/acceptance-records.md)。
 
 ### 交付单元与依赖顺序
 
-1. **T-15.1（`V75` 迁移与契约层）**：追加 `V75` 数据库迁移（`ex_split_alert_log`、`eas_recon_note` 及拆单窗口业务参数种子），更新 `contracts/expense.ts`、`contracts/eas.ts`、`contracts/project-profile.ts`、`contracts/page-catalog.ts`、`contracts/config-fields.ts`、`contracts/assistant.ts` 与 `assistant-openapi.json`。
+1. **T-15.1（`V75` 迁移与契约层）**：追加 `V75` 数据库迁移（`ex_split_alert_log`、`eas_recon_note`），在同源 `BUSINESS_SETTINGS` 注册拆单窗口与金额门槛默认值，更新 `contracts/expense.ts`、`contracts/eas.ts`、`contracts/project-profile.ts`、`contracts/page-catalog.ts`、`contracts/config-fields.ts`、`contracts/assistant.ts` 与 `assistant-openapi.json`。
 2. **T-15.2（`GAP-20` 报销比价拆单与 EAS 遗留对账）**：实现报销单合同挂接、比价附件服务端自动重算、`EXP_SMALL_PROC_NO_COMPARISON` 与 `EXP_SPLIT_BELOW_30K`（联动 `PW_14` 客观线索）；实现 `GET /api/eas/contract-recon` 与 `POST /api/eas/contract-recon/notes` 三类遗留异常核销对账；完成 `ExpenseClaims` 与 `EasWorkspace` 第 5 页签改造。
-3. **T-15.3（`GAP-21` 全景直联、`UX-26` 受控草稿与 `AC-CLR-09` 法审配对回归）**：升级 `ProjectProfile` 与 `RiskLedger` 双向穿透过滤；实现 `'contract_draft'` 与 `'plan_issuance_draft'` 助手受控预填建议（只写表单不直写数据库）；完成 8 类脱敏合同样本法审配对真值回归与离线评估更新。
+3. **T-15.3（`GAP-21` 全景直联、`UX-26` 受控草稿与 `AC-CLR-09` 法审配对回归）**：升级 `ProjectProfile` 与 `RiskLedger` 双向穿透过滤；实现 `'contract_draft'` 与 `'plan_issuance_draft'` 助手受控预填建议（只写表单不直写数据库）；完成 8 类合成合同工程配对回归与离线评估更新；正式历史法审意见、逐条法律标注与采纳评价仍待业务证据，详见独立验收报告。
 4. **T-15.4（P2 与全阶段总验收门禁）**：在 `/root/newfc-dev` 跑通前后端全量门禁、`npm audit --omit=dev`、双配置 Playwright E2E（含 `cross-domain.spec.ts`、`assistant-domains.spec.ts`）、`V72 -> V73 -> V74 -> V75` 空库与非空库升级回退演练及全仓库新增行脱敏扫描。
 
 ## 后续领域细设计格式

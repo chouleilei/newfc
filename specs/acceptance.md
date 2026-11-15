@@ -1,6 +1,6 @@
 # 验收规范
 
-状态（2026-11-13）：T-0～T-8、T-10～T-12 已实现、验收并发布；T-9 工程验证及生产发布完成（AC-CLR-09 完整业务样本验收待补齐）；生产 schema 为 V70。对应功能范围见[需求](requirements.md)，阶段见[实施任务](implementation.md)。
+状态（2026-11-15）：T-0～T-8、T-10～T-12 已实现、验收并发布，当前生产基线为 v0.2.0 / V72；T-13～T-15（V73～V75）在独立开发工作树完成工程实现，独立复验见[验收记录](../docs/acceptance-records.md)。T-9 工程验证及生产发布完成，AC-CLR-09 正式历史业务样本验收仍待补齐。对应功能范围见[需求](requirements.md)，阶段见[实施任务](implementation.md)。
 
 T-8 专项 AC-T8-01～16 已通过，逐项证据及实际门禁结果见 [阶段验收记录](../docs/acceptance-records.md#t-84t-86--阶段完成2026-10-03)；下方维护验收条件，生产发布见 [发布记录](../docs/acceptance-records.md#t-8-生产发布2026-10-03)。
 
@@ -87,7 +87,7 @@ T-8 专项 AC-T8-01～16 已通过，逐项证据及实际门禁结果见 [阶�
 
 专项验收编号为 `AC-CLR-01`～`AC-CLR-10`（关联 `AC-F16`、`AC-X03`～`AC-X08`、`AC-X10`），各编号通过条件与历史样本评估边界唯一维护于 [智能合同法审一期设计](contract-legal-review.md#7-后续验收标准)，工程检查清单见 [T-9 开发详细计划](contract-legal-review-plan.md#7-验收核对清单对应-ac-clr-01--ac-clr-10)。
 
-AC-CLR-01～08 的已验证场景与边界见 [工程验收记录](../docs/acceptance-records.md#t-9-智能合同法审一期2026-11-12)；AC-CLR-10 的正式部署、备份及线上就绪证据见 [生产发布记录](../docs/acceptance-records.md#t-9-生产发布2026-11-12)。`AC-CLR-09` 8 大业务类别脱敏合同「缺陷初稿 vs 法审修订稿」配对回归已在 T-15（`AC-T15-05`）补齐并通过，详见 [历史样本评估](../docs/contract-legal-sample-evaluation.md) 与 [T-15 验收记录](../docs/acceptance-records.md)。
+AC-CLR-01～08 的已验证场景与边界见 [工程验收记录](../docs/acceptance-records.md#t-9-智能合同法审一期2026-11-12)；AC-CLR-10 的正式部署、备份及线上就绪证据见 [生产发布记录](../docs/acceptance-records.md#t-9-生产发布2026-11-12)。`AC-CLR-09` 关联的 8 类合成工程回归已在 T-15（`AC-T15-05`）通过；正式历史法审意见配对、逐条标注及采纳评价仍未完成，不能用合成回归代替。独立复核更正见 [复核报告](../docs/improvement-acceptance-review-2026-11-15.md)，历史结果详见 [历史样本评估](../docs/contract-legal-sample-evaluation.md) 与 [T-15 验收记录](../docs/acceptance-records.md)。
 
 ## T-10 ～ T-12 合同全生命周期与监督报送专项验收（已验收）
 

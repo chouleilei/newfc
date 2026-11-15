@@ -9,6 +9,7 @@
 1. **综合计划与预算合一下达及修订表簇（4 张新表）**：
    - `plan_issuance_cycle`：记录年度 `year`、唯一周期编码 `cycle_code`、下达阶段 `issuance_stage`（`pre_arrangement | formal_draft | official | adjusted`）、关联计划批次 `source_plan_batch_id`、关联经营预算版本 `source_budget_version_id`、决策纪要元数据 `decision_doc_meta`、发布冻结快照 `frozen_snapshot_json` 与哈希 `snapshot_sha256`、状态 `status`（`draft | published | superseded | archived`）及乐观锁 `version`；
    - `plan_issuance_unit_pack`：按 `(cycle_id, unit_org_id)` 唯一拆分各一级下达单元包（标准结构覆盖 8 个下达单元、合计 49 张逻辑附表，向非总部的 7 家基层经营单元绑定经营管理目标责任书），记录发文字号 `doc_no`、成文日期 `issued_date`、附表数 `attachment_count`、责任书标志 `has_responsibility_letter` 与编号 `responsibility_letter_no`、关联预算版本 `budget_version_id`、签收状态 `sign_off_status`（`draft | issued | acknowledged | adjust_requested`）、签收人/时间/备注与乐观锁 `version`；
+   - 历史复盘须同时提供完整正式下达公文；16 表源工作簿未涵盖的分单位预算不能凭空补表。`scripts/compile-plan-issuance-sources.ts --manifest <CSV> --documents <DOC/DOCX目录> --unit-map <单位映射JSON> --output <私密JSON>` 离线编译清单与原件，受限解析后核对逻辑表数、连续编号、明细与源 SHA-256，单位映射显式声明清单单位码到实际组织 ID/编码，创建周期时拒绝未知映射；输出 `unitAttachments` 和 `issuanceSourceDocuments` 供管理员核对后传入 `decisionDocMeta`；无业务库写入。调整时对冻结附表原值再次核对并同步更新，源项缺失或同名不唯一时原子拒绝批准。
    - `plan_adjustment`：记录年中调整与计划外立项申请，支持 6 类 `adjust_type`（`within_total_realloc | overall_target_change | unplanned_hq_or_station | unplanned_subsidiary_within_cap | unplanned_subsidiary_over_cap | emergency_retroactive`）及由服务端强制派生的 5 类法定审定机构 `approval_body`（`gm_office | board_of_directors | joint_review_company | subsidiary_self_decision | company_approval`），含决策文号 `decision_doc_no`、决策附件 `decision_attachment_id`、应急开工日期 `emergency_start_date`、审批后生成的新周期 `new_cycle_id`、异人复核与例外自审审计字段；
    - `plan_adjustment_line`：支持多量纲调整行，字段含 `plan_item_id`、`stable_item_uid`、`target_sheet_code`、`target_item_name`、`value_type`（`amount_cents | scaled_int | rate_bp | text`）、`scale`、`unit`、`before_val`、`after_val`、`delta_val`、`before_cents`、`after_cents`、`delta_cents`、`budget_account_id` 与说明。
 2. **标准冻结报表类型扩展（`std_report` 重建）**：
@@ -55,6 +56,9 @@
      - `unplanned_subsidiary_within_cap` → `subsidiary_self_decision`（非直属电站分子公司且未超年度专项控制上限）；
      - `unplanned_subsidiary_over_cap` → `company_approval`（分子公司超专项控制上限；若突破集团总体指标则自动升格 `board_of_directors`）；
      - `emergency_retroactive` → 按承办组织类型与是否超限自动派生上述对应审批机构，必填 `emergency_start_date`，自开工逾 **5 个工作日**未补立项双向标红预警；
+   - 创建周期可登记 `annualSpecialCaps: [{ unitOrgId, sheetCode, amount }]`（元字符串），只允许全组织管理员为实际下达单元配置，随周期元数据冻结。子公司“额度内”必须由服务端按冻结上限、原包工作表总额与本次增量核实；未配置或超限一律转 `company_approval`。核心指标表（`annual_kpi`、`profit_budget`、`responsibility_kpi`）明细变化自动提级董事会，客户端 `false` 标志不能降级。
+   - 申请明细须属于原周期批次及申请单元，原值与原周期事实精确一致；同项重复、跨单位/跨批次及伪造稳定标识均拒绝。未传 ID 时仅按本单元工作表和项目名称唯一匹配；无法匹配的新增项原值须为零。金额、数量、比率及文本调整分别落入新 `plan_fact`，金额固定 2 位、数量 4 位、比率 6 位小数，与原计划事实一致，服务端规范化 `scale`，超精度拒绝；保留原行稳定标识、父项与概算子项；已被修订的周期禁止再次批准在途旧申请。
+   - 发布时按最新预算/组织事实重编草稿包，在同一短事务稽核并冻结；调整批准同样复验勾稽，失衡整批回滚。运维金额联动预算按同源税率剔税，继承预算金额读为 `bigint` 后检查安全整数范围再写入，禁止累加后溢出。
    - 调整复核强制 `submitted_by_user_id !== reviewed_by_user_id`（`self_review = 1` 仅在填写 `exception_reason` 时豁免异人校验，绝不豁免 `decision_doc_no` / `decision_attachment_id`）；批准后在单事务内生成新修订周期（原周期置 `'superseded'`）、新计划批次与修订预算版本，严禁原地覆写已签收包。
 2. **结构化多部门会签与包干池总额控制（`GAP-14`）**：
    - 服务端按合同类别、标的属性、金额与预算类型自动派生应会签职能部门并计算 `doc_fingerprint`；会签决定接口除校验 `contract:review` 外，强制校验操作人隶属对应会签部门组织或等于 `assigned_reviewer_user_id`；
@@ -73,7 +77,7 @@
 | 领域 | 路由与方法 | 权限与组织范围 | 关键契约说明 |
 |---|---|---|---|
 | 计划合一下达 | `GET/POST /api/plan/issuance/cycles`、`GET /api/plan/issuance/cycles/:id`、`POST .../reconcile`、`POST .../publish`、`GET .../export-zip` | 查看 `plan:read`；创建/发布/全包导出 `plan:write` 或 `plan:read` + `allOrgs` | 创建 8 单元拆包、运行合并与 `/1.06` 及五项费用稽核、冻结快照发布、一键打包 `.docx` 通知/附表/责任书 + `.xlsx` 底稿 |
-| 分单位签收与导出 | `GET /api/plan/issuance/packs`、`GET /api/plan/issuance/packs/:id`、`POST .../acknowledge`、`GET .../export-docx` | `plan:read` / `plan:write` + `OrgScope` | 受限用户仅见授权组织包（越权返回 `404`）；签收传 `expectedVersion`；公文 `.docx` 生成规范 `<w:tbl>` 跨页重复表头表格 |
+| 分单位签收与导出 | `GET /api/plan/issuance/packs`、`GET /api/plan/issuance/packs/:id`、`POST .../acknowledge`、`GET .../export-docx` | `plan:read` / `plan:write` + `OrgScope` | 受限用户仅见授权组织包（越权返回 `404`）；签收传 `expectedVersion`；公文 `.docx` 生成规范 `<w:tbl>` 跨页重复表头表格；附表万元值按 `10000n` 分步长换算一次，数量/比率/文本保留自身量纲 |
 | 计划年中调整 | `GET/POST /api/plan/issuance/adjustments`、`POST /api/plan/issuance/adjustments/:id/review` | 申报 `plan:write` + `OrgScope`；复核 `plan:write` + `allOrgs` | 服务端强制计算 `approvalBody`；批准后单事务派生新周期与修订预算版本 |
 | 本单位预算只读视图 | `GET /api/versions/:id/summary`、`GET /api/versions/:id/unit-view` | `budget:read` + `OrgScope` | 放行非 `allOrgs` 用户读取授权组织预算摘要与明细，保持版本锁定/切换/建版 `allOrgs: true` |
 | 检索/报表/待办 | `GET /api/search?types=plan_item`、`POST /api/standard-reports` (`plan_issuance_summary`)、`GET /api/dashboard/todos` | `plan:read` / `report:read` + `OrgScope` | 全局搜索深链定位 `/plan?batchId=...&itemId=...`；工作台统计 `plan_issuance_ack` 与 `plan_adjustment_review` |

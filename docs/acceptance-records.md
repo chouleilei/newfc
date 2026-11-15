@@ -845,11 +845,13 @@ F05/F07/F15/F16/F20/F22/F25；T-15.1～T-15.4（`GAP-20`、`GAP-21` 及 `AC-CLR-
 
 | 验收 ID | 验收结论与关键证据 | 结果 |
 |---|---|---|
-| AC-T15-01 | 报销单支持挂接同范围合同（`contractId`）与标记采购类报销（`isProcurement`）；服务端在材料增删与提交审核时按 `material_type = 'comparison_quote'` 权威重算 `comparison_doc_count`（忽略客户端伪造值）；`≤ 30,000.00` 元（`expense.small_procurement_limit_cents = 3000000`）采购报销无书面比价命中 `EXP_SMALL_PROC_NO_COMPARISON`；同组织同类别（优先按供应商归一化键、次选科目编码）滚动 `30` 日（`expense.split_window_days = 30`）多笔小额累计 `≥ 30,000.00` 元命中 `EXP_SPLIT_BELOW_30K`、幂等写入 `ex_split_alert_log` 并联动 `PW_14` 疑似连续拆单线索；`ExpenseClaims.tsx` 实时展示 §8.1.7 比价提示与拆单预警标签；`t15-expense-split-and-eas-recon.test.ts`、`ExpenseClaims.test.tsx` 与 `cross-domain.spec.ts` 通过 | 通过 |
-| AC-T15-02 | `GET /api/eas/contract-recon` 按当前激活 EAS 数据集（`eas_period_current`）与 `OrgScope` 精确识别三类遗留异常：`deposit_2241_overdue`（`2241*` 质保金余额 `> 0n` 且质保期满已签证超 30 天未清）、`ap_negative_balance`（`2202*`/`2241*` 期末借方净额 `> 0n` 往来异常负余额）、`cip_1604_legacy`（`1604*` 在建工程期末借方净额 `> 0n` 且关联项目已确认结算/决算归档或本期零发生静止挂账）；`POST /api/eas/contract-recon/notes`（需 `eas:import` 权限）幂等写入 `eas_recon_note` 并记录 `operation_log`，原始 `eas_balance_line`/`eas_voucher_line`/`eas_aux_balance` 零改动；`EasWorkspace.tsx` 第 5 页签支持分类筛选、穿透跳转与核对说明登记；`t15-expense-split-and-eas-recon.test.ts`、`EasContractRecon.test.tsx` 与 `cross-domain.spec.ts` 通过 | 通过 |
+| AC-T15-01 | 报销单支持挂接同范围合同（`contractId`）与标记采购类报销（`isProcurementExpense`）；服务端在材料增删与提交审核时按 `kind_hint = 'price_comparison'` 或比价/询价材料名称权威重算 `price_compare_doc_count` / DTO `priceCompareDocCount`（忽略客户端伪造值）；`≤ 30,000.00` 元（`expense.small_procurement_limit_cents = 3000000`）采购报销无书面比价命中 `EXP_SMALL_PROC_NO_COMPARISON`；同组织同类别组或同供应商组分别滚动 `30` 日（日期跨度小于 30 天）（`expense.split_window_days = 30`）多笔小额累计 `≥ 30,000.00` 元命中 `EXP_SPLIT_BELOW_30K`、幂等写入 `ex_split_alert_log` 并联动 `PW_14` 疑似连续拆单线索；`ExpenseClaims.tsx` 实时展示 §8.1.7 比价提示与拆单预警标签；`t15-expense-split-and-eas-recon.test.ts`、`ExpenseClaims.test.tsx` 与 `cross-domain.spec.ts` 通过 | 通过 |
+| AC-T15-02 | `GET /api/eas/contract-recon` 按当前激活 EAS 数据集（`eas_period_current`）与 `OrgScope` 精确识别三类遗留异常：`warranty_2241_overdue`（`2241*` 质保金余额 `> 0n` 且质保期满已签证超 30 天未清）、`supplier_negative_balance`（`2202*`/`2241*` 期末借方净额 `> 0n` 往来异常负余额）、`cip_1604_legacy`（`1604*` 在建工程期末借方净额 `> 0n` 且关联项目已确认结算/决算归档或本期零发生静止挂账）；`POST /api/eas/contract-recon/notes`（需 `eas:import` 权限）幂等写入 `eas_recon_note` 并记录 `operation_log`，原始 `eas_balance_line`/`eas_voucher_line`/`eas_aux_line` 零改动；`EasWorkspace.tsx` 第 5 页签支持分类筛选、穿透跳转与核对说明登记；`t15-expense-split-and-eas-recon.test.ts`、`EasContractRecon.test.tsx` 与 `cross-domain.spec.ts` 通过 | 通过 |
 | AC-T15-03 | `getProjectProfile` 扩展返回综合计划项挂接合同份数 `linkedContractCount` 与人民币精确累计金额 `linkedContractAmount`（`bigint` 分汇总）、合同行 `planItemId`/`planItemName` 及风险行关联合同标识；`ProjectProfile.tsx` 点击计划卡片挂接合同信息直接切至「合同付款」页签并按 `planItemId` 过滤（支持一键清除筛选与直跳合同台账），风险页签与 `RiskLedger.tsx` 列表最右侧「关联跳转」列及详情抽屉支持一键穿透项目全景（`/projects/:id`）与合同详情（`/contracts?id=:id`），且保留整行点击打开风险抽屉交互；权限裁剪与 `OrgScope` 一致；`t15-profile-assistant-ux26.test.ts`、`ProjectProfile.test.tsx`、`risk-investment.spec.ts` 与 `cross-domain.spec.ts` 通过 | 通过 |
 | AC-T15-04 | `DraftKind` 扩展 `'contract_draft'`（绑定 `contracts`）与 `'plan_issuance_draft'`（绑定 `plan`），同步更新 `PAGE_CATALOG`、`CONFIG_FIELD_HELP` 与 `assistant-openapi.json`；服务端确定性预检按 `OrgScope` 校验组织/计划项范围（越权组织立即拦截），基于 `ct_prefix_org_map` 与计划项/调整类型派生安全结构化 `suggestedFields`（建议合同号、预算类别、默认会签部门、审批层级与制度依据），未保存表单私密文本不出网；`ContractBaseFormModal.tsx` 与 `PlanIssuanceTabs.tsx` 点击「填入助手建议草稿」仅通过内存回调回填前端 `Form` 并展示「助手建议草稿 · 待人工确认」标签，人工提交前数据库零写入；`t15-profile-assistant-ux26.test.ts`、`domainContext.test.tsx` 与 `assistant-domains.spec.ts` 通过 | 通过 |
-| AC-T15-05 | 完成 `AC-CLR-09` 覆盖 **8 大业务合同类别**（货物采购、大中型工程施工、小型基建工程、技术服务、一般综合服务、运行维护服务、收入销售合同、行政移交/重大特殊协议）的 100% 1:1 脱敏「缺陷初稿 vs 法审修订稿」自动化配对回归：数据库迁移零自动转正范本；范本为 `'candidate'` 时合规稿严格输出 `manual_review`（含 `TEMPLATE_CANDIDATE_UNCONFIRMED`）；经授权显式 `promote` 为 `'official'` 后，7 类标准合同缺陷稿预设红线 100% 召回拦截、修订合规稿输出 `pass`，第 8 类无标准范本重大特殊协议追踪 `3/3 -> 0/3 -> 1/3` 差异且补齐前置件后保持 `manual_review`（不误放 `pass`）；同步更新 [历史样本评估](contract-legal-sample-evaluation.md)；`t15-legal-regression-ac-clr-09.test.ts` 通过 | 通过 |
+| AC-T15-05 | **独立复核更正：以下为程序构造的合成工程回归，不构成正式历史业务验收。** 覆盖 **8 大业务合同类别**（货物采购、大中型工程施工、小型基建工程、技术服务、一般综合服务、运行维护服务、收入销售合同、行政移交/重大特殊协议）的 100% 1:1 脱敏「缺陷初稿 vs 法审修订稿」自动化配对回归：数据库迁移零自动转正范本；范本为 `'candidate'` 时合规稿严格输出 `manual_review`（含 `TEMPLATE_CANDIDATE_UNCONFIRMED`）；经授权显式 `promote` 为 `'official'` 后，7 类标准合同缺陷稿预设红线 100% 召回拦截、修订合规稿输出 `pass`，第 8 类无标准范本重大特殊协议追踪 `3/3 -> 0/3 -> 1/3` 差异且补齐前置件后保持 `manual_review`（不误放 `pass`）；同步更新 [历史样本评估](contract-legal-sample-evaluation.md)；`t15-legal-regression-ac-clr-09.test.ts` 通过；材料目录只有一条律师三版链，缺完整八类正式法审意见、逐条标注及采纳评价 | 工程回归通过；正式业务验收未完成 |
+
+**独立复核说明（2026-11-15）**：本节保留 `9ec3756` 前的阶段工程记录；新发现反例、修补与最新复验结论以本文末尾“独立验收与修补复验”及[专项报告](improvement-acceptance-review-2026-11-15.md)为准，原“全部业务验收完成”结论撤回。
 
 全项目总验收门禁与全链路迁移演练汇总（`V72 -> V73 -> V74 -> V75`）：
 
@@ -863,3 +865,41 @@ F05/F07/F15/F16/F20/F22/F25；T-15.1～T-15.4（`GAP-20`、`GAP-21` 及 `AC-CLR-
   - 空库 `0 -> V75`：一次性顺序执行全部 `75` 个版本耗时 `2,006 ms`，建立 `173` 张业务表（含 `ex_split_alert_log`、`eas_recon_note`），登记 `31` 项业务参数，自动转正 `'official'` 范本数为 `0`，`PRAGMA integrity_check = ok`、`PRAGMA foreign_key_check = 0`。
   - 非空 `V72` 库升级、回退与在线恢复：在含组织、项目、供应商、合同、报销单、文件对象、EAS 三表批次与风险事件的 `V72` 库上先执行 `createBackup`（`manifest.schemaVersion = 72`），再升级 `V73 -> V74 -> V75` 耗时 `607 ms`，二次重放幂等跳过（`0` 迁移），`.safeIntegers(true)` 校验既有 `BigInt` 分金额无损且 `eas_recon_note` 读写正常；离线备份文件级回退验证版本精确回到 `72` 且完整性 `ok`；在线调用 `restoreBackup` 恢复 `V72` 备份包后自动补齐迁移 `[73, 74, 75]` 至 `finalVersion = 75`，`integrity_check = ok`、`foreign_key_check = 0`。
 - **全仓库脱敏扫描**：对比 `v0.2.0` 全部新增改动行执行机构/单位/外部实体/项目/合同实名、统一社会信用代码及涉密原始金额正则扫描，命中 **0 处**。
+
+
+## T-13～T-15 独立验收与修补复验（2026-11-15，V75 待发布）
+
+复核基线为 `feat/improvement-2026-11` 的 `9ec3756`，覆盖 F01/F04/F05/F07/F15/F16/F18/F19/F20/F21/F22/F23/F24/F25、`AC-T13-01～11`、`AC-T14-01～08`、`AC-T15-01～05` 及金额、权限、事务、助手隐私和迁移恢复。完整问题与修补对应关系见 [独立验收报告](improvement-acceptance-review-2026-11-15.md) 的 IR-01～IR-14；本节覆盖先前记录中与反例冲突的“全部完成”结论。工程可修补缺口已直接修补，`AC-CLR-09` 正式历史业务验收仍未完成。
+
+本轮使用 Node **24.22.1**、内存库与可丢弃测试目录；主项目文档仅作只读材料参考。生产代码、数据库、服务与 `main` 分支未操作，V1～V75 迁移定义与起始提交字节完全一致。
+
+### 实际受控材料复验
+
+- 用户要求直接寻找项目现有文件；开发工作树无原件，主项目受控文档目录中找到实际台账、计划、正式下达公文和法审脱敏样本。原件、源金额和单位实名未复制到源码或本记录。
+- **28 本历史台账**：`18,048 = 2,558 + 6,468 + 6,038 + 2,912 + 72` 五维行去向闭合；实际创建 **6,110** 条（6,038 主合同 + 72 冲突/凭证线索），正/逆序 `planHash` 一致；重放新增 **0**、更新 **0**、不变 **6,110**。
+- **两份原始 XLS 计划**：分别导入 **694 / 692** 项、各 **1,496** 条事实。辅助测算列有既存错误缓存，显示告警；实际取数列缺缓存或错误值仍阻断。没有修改原件或把缺缓存当零。
+- **8 份正式下达公文**：受限 DOC 解析后，与清单逐份核对得到 **49 张附表、1,203 行表格内容**，金额保持源单位；清单单位码通过显式映射绑定真实下达单位。新增离线编译脚本输出完整 `unitAttachments`、有源值的 `unitMetrics` 及原文 SHA-256，管理员核对后通过既有创建周期接口冻结。仅凭 16 表工作簿自动生成的 29 表不能冒称完整 49 表。
+- **完整下达与导出**：最终 **8 个单位包 / 49 张附表 / 7 份责任书**；本次配置的 **17 项稽核、0 阻断**，导出 **15 份 DOCX + 1 份 XLSX**，每份 DOCX 含 `<w:tbl>` 和重复表头。该检查证明本次输入的编译、冻结、导出和配置稽核，不将未输入的独立集团合并报表真值算作已核验。临时库 `integrity_check = ok`、外键错误 **0**。
+- **法审原件核对**：存在 8 份脱敏文本与一份签章意见载体样式；索引明确只有 06～08 一条律师三版链，01～05 没有完整正式意见配对。离线复验文字差异仍为 **3/0/1**，不能据此计算八类正式法审召回率或建议采纳率。新增配对标注工具对八组合成输入报告历史覆盖 **0/8**，退出码 **2**，防止误计业务验收。
+
+### 最终工程门禁
+
+- **后端类型与构建**：`npx tsc --noEmit`、`npm run typecheck:test`、独立 `.review-final-dist` 构建通过。
+- **后端全量与补验**：全量 142 文件 / 1,180 项中，140 文件、1,178 项当次通过；两项新增测试当次失败；全量运行期间相关夹具与解析源码仍有修补，该次结果不作为最终源码的一次全量零失败证明。修正后 10 文件 / 25 项专项通过，最后正式附表与多量纲补验 2 文件 / 7 项通过。包括新增公文编译器在内，去重覆盖 **143 文件 / 1,182 项**；不是一次全量零失败的记录。
+- **迁移与恢复**：新增临时库测试再次验证 `V72 -> V73 -> V74 -> V75`、旧触发器、完整性与外键、`9007199254740993n` 分金额无损、备份回退及在线恢复自动补迁移 `[73,74,75]`；空库初始化保持候选范本不自动转正。
+- **前端单测**：新增交互用例前全量 **67 文件 / 522 项通过**；随后针对最终下达界面与助手上下文，`npx vitest run src/pages/project/PlanIssuance.test.tsx src/pages/project/PlanExecution.test.tsx src/assistant/domainContext.test.tsx --maxWorkers=1 --reporter=verbose` **3 文件 / 12 项通过**（含 3 项新增业务用例），去重覆盖 **67 文件 / 525 项**。早期时限失败可在原用例单独执行时复现；CPU 采样定位到 JSDOM 样式解析与全页可访问名遍历，改为按文案及弹窗范围定位并独立清理样式注册，未增加原时限或削弱权限/禁用/精确参数断言。
+- **前端类型与构建**：最终产品源码的 `npx tsc -b`、独立生产构建通过，最终浏览器静态目录为 `.e2e-dist`；测试辅助改为引用实际页面标签后，三项新增交互用例再次通过，最终 `npx tsc -b` 零错误通过。浏览器补验结果见后文。
+- **依赖与脱敏**：前后端 `npm audit --omit=dev` 各 **0 漏洞**；本轮新增内容对照受控组织实名/简称/信用代码及凭据模式扫描，命中 **0**，`git diff --check` 通过。
+
+- **浏览器全量与补验**：首次主配置 **100/103**、法审配置 **12/14** 通过，其余 5 个配置用例触及原有 120 秒总时限。待前端定位完成后串行补验，保持产品代码、业务断言及 120 秒时限不变，仅关闭 trace 诊断录制。主配置 3 项补验 **全部通过（4.0m）**，单项为下达完整流程 **44.4s**、16 表/历史合同/保函/付款完整流程 **1.1m**、预算附注九项交互 **1.2m**。法审配置两项补验 **全部通过（2.5m）**，八阶段合同闭环 **1.1m**、16 表/合同长流程 **59.0s**。本轮全量加补验去重覆盖主配置 **103/103**、法审配置 **14/14**，合计 **117 个配置用例**；不是一次全量零失败的记录。
+
+浏览器补验命令（`frontend`，Node 24.22.1）：
+
+```bash
+E2E_BACKEND_DIST=.review-final-dist E2E_FRONTEND_DIST=.e2e-dist \
+  npx playwright test tests/e2e/plan-issuance.spec.ts \
+  tests/e2e/project-contract.spec.ts tests/e2e/deep-functional-audit.spec.ts \
+  --grep '创建周期|P0: 16表|预算附注历史九项交互验收' --workers=1 --trace=off
+npx playwright test --config playwright.contract-legal.config.ts \
+  --grep '八阶段质保闭环|P0: 16表' --workers=1 --trace=off
+```
