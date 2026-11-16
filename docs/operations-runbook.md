@@ -76,6 +76,12 @@ curl -fsS http://127.0.0.1:3760/api/health/ready
 
 迁移前备份为 `pre-migrate-cli-budget-backup-2026-11-15-230512.sqlite`，清单 V72、SHA-256 和完整性核验通过，外键错误 0。服务于 23:05:13 CST 启动，`NRestarts=0`；本机/公网 live/ready 均 200、schema V75，登录页 200、未登录业务接口 401，当前库 `integrity_check=ok` 且外键错误 0。V75 回退必须使用上述匹配的 V72 完整备份和 `dist.old` 旧代码产物，先核对上线后写入，不能只交换旧代码继续读取 V75 库。
 
+### v0.3.1 合同交互完善更新（2026-11-16，V75）
+
+`v0.3.1` 仅包含合同全生命周期界面与查询筛选优化，无新增数据库迁移（schema 保持 `V75`）。生产通过 `NEWFC_ROOT=/root/newfc NEWFC_DATA_DIR=/data/newfc-data NEWFC_SERVICE=newfc.service NEWFC_PORT=3760 scripts/deploy.sh` 完成后端 144 文件 / 1187 项及前端 67 文件 / 526 项全量单测、构建、幂等迁移/种子检查与服务替换（`legal-seed-cli.js` 返回 `{"policies":0,"templates":0}`）。
+
+服务于 2026-11-16 09:08:15 CST 启动（`MainPID=3062005`，`NRestarts=0`），本机与公网 live/ready 均 200、schema V75，登录页 200、未登录 `/api/dashboard` 401，当前库 `integrity_check=ok`、`foreign_key_check=[]`。上一版 `v0.3.0` 产物保留在 `dist.old`（同为 `V75` schema，如需回退至 `v0.3.0` 可直接执行 `scripts/rollback.sh` 互换产物）。
+
 ## 代码回退
 
 `scripts/rollback.sh [--restore-backup <备份文件名>] [--accept-data-loss] [--no-restart]`（AC-X08）：

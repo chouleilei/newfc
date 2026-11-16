@@ -39,7 +39,15 @@ export function workbenchTodos(db: DB): { items: TodoItem[] } {
     items.push({ key: 'plan_adjustment_review', label: '待复核综合计划调整', count: pendingAdj, path: '/plan?tab=adjustments&status=submitted' });
   }
   if (can('contract:review')) {
-    items.push({ key: 'contract_review', label: '待审核合同', count: countContracts('ct_review x', "x.status = 'submitted'"), path: '/contracts?todo=review' });
+    const pendingReviewOrCountersign = (db.prepare(`
+      SELECT COUNT(*) AS n FROM ct_contract c
+      WHERE c.status = 'active' AND ${ct.sql}
+        AND (
+          EXISTS (SELECT 1 FROM ct_review x WHERE x.contract_id = c.id AND x.status = 'submitted')
+          OR EXISTS (SELECT 1 FROM ct_countersign cs WHERE cs.contract_id = c.id AND cs.status = 'pending')
+        )
+    `).get(...ct.params) as { n: number }).n;
+    items.push({ key: 'contract_review', label: '待审核/会签合同', count: pendingReviewOrCountersign, path: '/contracts?queue=review&todo=review_or_countersign' });
     items.push({ key: 'contract_change', label: '待复核合同变更', count: countContracts('ct_change x', "x.status = 'submitted'"), path: '/contracts?todo=change' });
     items.push({ key: 'contract_settlement_review', label: '待复核结算单', count: countContracts('ct_settlement x', "x.status = 'submitted'"), path: '/contracts?todo=settlement' });
     items.push({ key: 'contract_payment_review', label: '待复核付款申请', count: countContracts('ct_payment x', "x.status = 'submitted'"), path: '/contracts?todo=payment' });

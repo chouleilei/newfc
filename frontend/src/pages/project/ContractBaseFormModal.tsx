@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { Alert, App as AntdApp, Button, Checkbox, Col, Collapse, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Space, Tag } from 'antd';
+import { Alert, App as AntdApp, Button, Checkbox, Col, Collapse, DatePicker, Form, Input, InputNumber, Modal, Row, Select, Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { api, errorText } from '../../api/client';
 import { contractApi, planApi, type ContractDetailDto } from '../../api/projectContract';
@@ -13,7 +13,18 @@ import {
   METHOD_LABELS, PARTY_ROLES, PRICING_MODE_LABELS, PROCUREMENT_METHODS, REPORT_CATEGORY_LABELS,
   ROLE_LABELS, TENDER_BODY_LABELS, TERM_TYPE_LABELS, TIER_LABELS, formatCentsPreview, parseMoneyToCentsPreview, procurementTierPreview,
 } from './contractOptions';
-import { CONTRACT_STAGE_ORDER } from './shared';
+import { CONTRACT_STAGE_LABELS, CONTRACT_STAGE_ORDER } from './shared';
+
+export type ContractFormSectionKey = 'base' | 'party' | 'decision' | 'term';
+
+function defaultActiveSections(stage?: string): ContractFormSectionKey[] {
+  if (!stage) return ['base'];
+  if (stage === 'initiation') return ['base'];
+  if (stage === 'procurement') return ['base', 'decision'];
+  if (stage === 'drafting') return ['base', 'party', 'term'];
+  if (stage === 'approval') return ['base', 'party', 'decision', 'term'];
+  return ['base', 'party', 'decision', 'term'];
+}
 
 interface MasterOption { id: number; code: string | null; name: string }
 function useMasterOptions(kind: 'projects' | 'suppliers', enabled: boolean) {
@@ -31,10 +42,23 @@ const requiredNonNegMoneyRule = { pattern: /^\d{1,13}(\.\d{1,2})?$/, message: '�
 const nonNegMoneyRule = { pattern: /^(\d{1,13}(\.\d{1,2})?)?$/, message: '须为非负金额(最多 2 位小数)' };
 const ratioRule = { pattern: /^(0(\.\d{1,6})?|1(\.0{1,6})?)?$/, message: '0～1 的小数(最多 6 位)' };
 
-export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { open: boolean; contract?: ContractDetailDto; onClose: () => void; onSaved: (c: ContractDetailDto) => void }) {
+export function ContractBaseFormModal({
+  open,
+  contract,
+  focusSection,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  contract?: ContractDetailDto;
+  focusSection?: ContractFormSectionKey | null;
+  onClose: () => void;
+  onSaved: (c: ContractDetailDto) => void;
+}) {
   const { message } = AntdApp.useApp();
   const [form] = Form.useForm();
   const [assistantDraftApplied, setAssistantDraftApplied] = useState(false);
+  const [activeSections, setActiveSections] = useState<string[]>(() => defaultActiveSections(contract?.stage));
   const projects = useMasterOptions('projects', open);
   const suppliers = useMasterOptions('suppliers', open);
   const incomeContracts = useQuery({
@@ -84,8 +108,17 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   const hasWarranty = Form.useWatch('hasWarranty', form);
 
   useEffect(() => {
-    if (!open) setAssistantDraftApplied(false);
-  }, [open, contract?.id]);
+    if (!open) {
+      setAssistantDraftApplied(false);
+      return;
+    }
+    const baseKeys = defaultActiveSections(contract?.stage);
+    if (focusSection && !baseKeys.includes(focusSection)) {
+      setActiveSections([...baseKeys, focusSection]);
+    } else {
+      setActiveSections(baseKeys);
+    }
+  }, [open, contract?.id, contract?.stage, focusSection]);
 
   useAssistantDraft(
     open,
@@ -487,6 +520,15 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
           <Col span={8}><Form.Item name="isEmergency" label="应急项目" valuePropName="checked"><Checkbox>属于应急/抢险抢修</Checkbox></Form.Item></Col>
           {isEmergency && <Col span={8}>{dateField('应急开工日期', 'emergencyStartDate')}</Col>}
           <Col span={8}>{dateField('超预算审批日期', 'outOfPlanApprovedDate')}</Col>
+          {(budgetType === 'emergency_unplanned' || isEmergency) && (
+            <Col span={24} style={{ marginBottom: 8 }}>
+              <Alert
+                type="warning"
+                showIcon
+                message="计划外 / 应急项目立项衔接提示：按制度须在应急开工 5 个工作日内完成综合计划补立项审批（可在左侧导航「综合计划 → 计划与预算联动调整」办理）。"
+              />
+            </Col>
+          )}
           <Col span={24}><Form.Item name="summaryText" label="合同主要内容摘录"><Input.TextArea rows={2} maxLength={2000} /></Form.Item></Col>
         </Row>
       ),
@@ -575,7 +617,14 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
           <Col span={24}>
             <Alert style={{ marginBottom: 12 }} type="info"
               message={'系统采购层级：' + (tier ? TIER_LABELS[tier] : '请填写采购对象与金额')}
-              description={procurement === false ? '非采购需公司批准文件；销售合同需相对方书面邀约。' : (tier === 'tier_1' || tier === 'tier_2') ? '请上传采购方案审批、定标审批、中标/成交通知书及评审报告。' : '三级采购需定标审批；直接报账适用性及重要合同材料另行核验。'} />
+              description={
+                (procurement === false
+                  ? '非采购需公司批准文件；销售合同需相对方书面邀约。'
+                  : tier === 'tier_1' || tier === 'tier_2'
+                    ? '请上传采购方案审批、定标审批、中标/成交通知书及评审报告。'
+                    : '三级采购需定标审批；直接报账适用性及重要合同材料另行核验。') +
+                '（完整评标专家、比价明细或 1:N 多合同共享招采档案可在合同详情「招采过程」页签集中维护）'
+              } />
           </Col>
           <Col span={8}><Form.Item name="decisionMethod" label="决策方式"><Select allowClear options={Object.entries(DECISION_METHOD_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>
           {decisionMethod === 'meeting' && <Col span={8}><Form.Item name="meetingType" label="会议类型"><Select allowClear options={Object.entries(MEETING_TYPE_LABELS).map(([value, label]) => ({ value, label }))} /></Form.Item></Col>}
@@ -625,10 +674,36 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
   return (
     <Modal open={open} title={contract ? '编辑合同 ' + contract.contractNo : '新建合同'} width={900} onCancel={onClose} destroyOnClose confirmLoading={save.isPending}
       styles={{ body: { maxHeight: '72vh', overflowY: 'auto' } }}
-      onOk={() => form.validateFields().then((v) => save.mutate(v), () => {})}>
-      <Space wrap style={{ marginBottom: 8 }}>
-        <ConfigFormAssistant kind="contract_draft" form={form} />
-        {assistantDraftApplied && <Tag color="processing">助手建议草稿 · 待人工确认</Tag>}
+      onOk={() =>
+        form.validateFields().then(
+          (v) => save.mutate(v),
+          () => setActiveSections(['base', 'party', 'decision', 'term']),
+        )
+      }>
+      <Space wrap style={{ marginBottom: 8, justifyContent: 'space-between', width: '100%' }}>
+        <Space wrap>
+          <ConfigFormAssistant kind="contract_draft" form={form} />
+          {assistantDraftApplied && <Tag color="processing">助手建议草稿 · 待人工确认</Tag>}
+          {!contract ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              新建合同默认进入「需求立项」阶段，当前仅需填妥第一节立项要素，招采、签署与验收信息可随阶段逐步补齐。
+            </Typography.Text>
+          ) : (
+            <Tag>{`当前阶段：${CONTRACT_STAGE_LABELS[contract.stage] ?? contract.stage}`}</Tag>
+          )}
+        </Space>
+        <Button
+          size="small"
+          type="link"
+          style={{ paddingInline: 0 }}
+          onClick={() =>
+            setActiveSections((prev) =>
+              prev.length === 4 ? defaultActiveSections(contract?.stage) : ['base', 'party', 'decision', 'term'],
+            )
+          }
+        >
+          {activeSections.length === 4 ? '按阶段精简收起' : '展开全部四组要素'}
+        </Button>
       </Space>
       {isLegacyTolerant && contract && (
         <Alert
@@ -658,7 +733,11 @@ export function ContractBaseFormModal({ open, contract, onClose, onSaved }: { op
         />
       )}
       <Form form={form} layout="vertical" preserve={false} initialValues={initialValues}>
-        <Collapse defaultActiveKey={['base', 'party', 'decision', 'term']} items={collapseItems} />
+        <Collapse
+          activeKey={activeSections}
+          onChange={(keys) => setActiveSections(Array.isArray(keys) ? keys : [keys])}
+          items={collapseItems}
+        />
       </Form>
     </Modal>
   );

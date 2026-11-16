@@ -1,5 +1,14 @@
 # 版本记录
 
+## 0.3.1（2026-11-16）
+
+- 在 v0.3.0 / V75 基础上完成合同全生命周期界面与查询交互优化（无新增数据库迁移，schema 保持 V75）。
+- 需求立项与八阶段视图：`Contracts` 顶部新增全生命周期八阶段漏斗条（含「需求立项」`initiation`）支持直接点击筛选；详情抽屉展示八阶段 `Steps`、签署分发/档案归档正交状态标签及需求立项摘要（附 `/plan?tab=adjustments` 跳转入口）。
+- 分阶段填报与阻断就地办理：`ContractBaseFormModal` 按合同所处阶段默认折叠非当前重点分组，支持 `focusSection` 定位聚焦与计划外/应急补立项提示；抽屉阻断提示支持一键跳转对应表单分组、预设 6 类常用附件上传、切换会签/结算/变更/担保页签或触发档案核验。
+- 待办与线索精准联动：后端补齐 `pendingCountersigns`、`summary.pending` 细分待办（含 `countersigns`/`settlements`/`receipts`/`distributions`/`guaranteeWarranty`）、`todo=countersign|review_or_countersign` 及 `legacyFilter=clue`（重号冲突/借方凭证线索/合成编号/冲回）；工作台 `contract_review` 合并统计待审核与待会签合同，页面待办标签支持点击过滤，筛选栏收敛高频条件并支持展开高级筛选与一键重置。
+- 监督闭环与供应商评价呈现：新增可展开 `ContractSupervisionOverviewBar` 展示 `supervisionPortalFull` 同源统计；签署后默认折叠智能法审面板；`ContractExportModal` 预检表支持点击直达合同抽屉补录；已关闭未评价合同提示去登记评价；`MasterEntities` 供应商列表新增「合同履约评价」列展示最新等级与次数。
+- 验证与部署：使用 Node 24.22.1 通过后端 `tsc --noEmit`、`npm run typecheck:test`、144 文件 / 1187 项单测，前端 67 文件 / 526 项单测与 `tsc -b`/Vite 生产构建，前后端 `npm audit --omit=dev` 均为 0 漏洞；生产于 2026-11-16 09:08:15 CST 通过 `scripts/deploy.sh` 部署上线，本机/公网健康、权限与数据库完整性核验通过（完整浏览器 E2E 未在本补丁单独重跑，最近全量 117 项记录见 v0.3.0）。详细边界见 [公开版验收摘要](docs/public-release.md)。
+
 ## 0.3.0（2026-11-15）
 
 - 汇总 T-13～T-15，公开源码覆盖 T-0～T-15，数据库 schema 为 V75；软件版本与迁移编号分别管理。
@@ -7,7 +16,7 @@
 - T-14：追加 V74，完成综合计划 8 单元 49 表合一下达、冻结签收、6 类调整、多部门会签、1:N 招采、52 条监督预警及纠纷 17 列台账。
 - T-15：追加 V75，完成报销小额采购比价/拆单预警、EAS 遗留异常对账、项目全景与风险双向穿透及 `UX-26` 受控草稿；八类合同配对只作为合成工程回归。
 - 本轮在最终 `main` 基线上一次性通过后端 144 文件 / 1186 项、前端 67 文件 / 525 项及双配置 Playwright 117 项；生产运行依赖审计前后端均为 0 漏洞。
-- GitHub 发布源码和脱敏合成资料；生产于 2026-11-15 23:05:13 CST 升级至 v0.3.0 / V75，迁移前 V72 备份、本机/公网健康及数据库完整性核验通过，发布证据归档于 `/data/newfc-data/releases/newfc-v0.3.0-20261115-230513/`。AC-CLR-09 正式历史业务验收与真实 OA/上级平台在线联调仍待完成。详细边界见 [公开版验收摘要](docs/public-release.md)。
+- GitHub 发布源码和脱敏合成资料；生产于 2026-11-15 23:05:13 CST 升级至 v0.3.0 / V75，迁移前 V72 备份、本机/公网健康及数据库完整性核验通过，发布证据归档于 `/data/newfc-data/releases/newfc-v0.3.0-20261115-230513/`。AC-CLR-09 正式历史业务验收与真实 OA/上级平台在线联调仍待完成。详细边界见 [v0.3.0 公开版验收摘要](docs/public-release-v0.3.0.md)。
 
 ## 0.2.0（2026-11-14）
 

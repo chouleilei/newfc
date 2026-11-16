@@ -125,7 +125,18 @@ export const contractPaymentRequest = z.object({
 export type ContractPaymentRequest = z.infer<typeof contractPaymentRequest>;
 export const contractPayRequest = z.object({ paidDate: date, voucherNo: optionalText(64), invoiceDocumentId: id });
 export type ContractPayRequest = z.infer<typeof contractPayRequest>;
-export const CONTRACT_TODOS = ['review', 'change', 'payment', 'pay', 'settlement', 'receipt', 'distribution', 'guarantee_warranty'] as const;
+export const CONTRACT_TODOS = [
+  'review',
+  'countersign',
+  'review_or_countersign',
+  'change',
+  'payment',
+  'pay',
+  'settlement',
+  'receipt',
+  'distribution',
+  'guarantee_warranty',
+] as const;
 export type ContractTodo = (typeof CONTRACT_TODOS)[number];
 export const CONTRACT_SORT_FIELDS = [
   'updated_at',
@@ -151,6 +162,7 @@ export const contractListQuery = z.object({
   signDateFrom: date.optional(),
   signDateTo: date.optional(),
   migrationMode: z.enum(['normal', 'legacy_tolerant']).optional(),
+  legacyFilter: z.enum(['clue']).optional(),
   sortBy: z.enum(CONTRACT_SORT_FIELDS).optional(),
   sortDir: z.enum(CONTRACT_SORT_DIRS).optional(),
   keyword: z.string().trim().max(100).optional(),
@@ -417,6 +429,7 @@ export interface ContractDto extends Partial<LegalMetadata>, Partial<ContractLif
   source: 'manual' | 'import';
   version: number;
   pendingReviews: number;
+  pendingCountersigns?: number;
   pendingChanges: number;
   openPayments: number;
   pendingSettlements?: number;
@@ -500,7 +513,17 @@ export interface ContractSummaryDto {
   receivedAmount?: MoneyString;
   receiptRate?: RatioString;
   foreignCurrencyCount?: number;
-  pending: { reviews: number; changes: number; payments: number; unpaidApproved: number };
+  pending: {
+    reviews: number;
+    countersigns?: number;
+    changes: number;
+    settlements?: number;
+    payments: number;
+    unpaidApproved: number;
+    receipts?: number;
+    distributions?: number;
+    guaranteeWarranty?: number;
+  };
 }
 
 /* ---------------- 合同导入 ---------------- */

@@ -44,7 +44,15 @@ export const ATTACHMENT_SLOT_LABELS: Record<string, string> = {
   invoice: '发票或收付款凭据',
 };
 
-export function ContractExportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ContractExportModal({
+  open,
+  onClose,
+  onOpenContract,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onOpenContract?: (contractId: number) => void;
+}) {
   const { message } = AntdApp.useApp();
   const qc = useQueryClient();
   const [period, setPeriod] = useState<string>(dayjs().format('YYYY-MM'));
@@ -191,7 +199,27 @@ export function ContractExportModal({ open, onClose }: { open: boolean; onClose:
                   dataSource={pf?.items ?? []}
                   pagination={{ pageSize: 8 }}
                   columns={[
-                    { title: '合同编号', dataIndex: 'contractNo', width: 150 },
+                    {
+                      title: '合同编号',
+                      dataIndex: 'contractNo',
+                      width: 155,
+                      render: (v: string, r) =>
+                        onOpenContract ? (
+                          <Button
+                            type="link"
+                            size="small"
+                            style={{ padding: 0, height: 'auto' }}
+                            onClick={() => {
+                              onClose();
+                              onOpenContract(r.contractId);
+                            }}
+                          >
+                            {v}
+                          </Button>
+                        ) : (
+                          v
+                        ),
+                    },
                     { title: '合同名称', dataIndex: 'name', ellipsis: true },
                     { title: '方向', dataIndex: 'direction', width: 70, render: (v) => (v === 'income' ? <Tag color="green">收入</Tag> : <Tag>支出</Tag>) },
                     { title: '预检', dataIndex: 'ready', width: 80, render: (ok: boolean) => (ok ? <Tag color="success">就绪</Tag> : <Tag color="error">缺项</Tag>) },
@@ -228,6 +256,28 @@ export function ContractExportModal({ open, onClose }: { open: boolean; onClose:
                         </Space>
                       ),
                     },
+                    ...(onOpenContract
+                      ? [
+                          {
+                            title: '操作',
+                            key: 'locate',
+                            width: 90,
+                            render: (_: unknown, r: SupervisionPreflightItemDto) => (
+                              <Button
+                                size="small"
+                                type={r.ready ? 'link' : 'primary'}
+                                ghost={!r.ready}
+                                onClick={() => {
+                                  onClose();
+                                  onOpenContract(r.contractId);
+                                }}
+                              >
+                                {r.ready ? '查看' : '去补录'}
+                              </Button>
+                            ),
+                          },
+                        ]
+                      : []),
                   ]}
                 />
               </Space>

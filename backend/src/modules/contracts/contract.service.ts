@@ -231,11 +231,12 @@ function toDto(db: DB, c: ContractRow): ContractDto {
   );
   const counts = db.prepare(`SELECT
       (SELECT COUNT(*) FROM ct_review WHERE contract_id = ? AND status = 'submitted') AS reviews,
+      (SELECT COUNT(*) FROM ct_countersign WHERE contract_id = ? AND status = 'pending') AS countersigns,
       (SELECT COUNT(*) FROM ct_change WHERE contract_id = ? AND status = 'submitted') AS changes,
       (SELECT COUNT(*) FROM ct_payment WHERE contract_id = ? AND status IN ('submitted','approved')) AS payments,
       (SELECT COUNT(*) FROM ct_settlement WHERE contract_id = ? AND status = 'submitted') AS settlements,
-      (SELECT COUNT(*) FROM ct_receipt WHERE contract_id = ? AND status IN ('submitted','approved')) AS receipts`).get(c.id, c.id, c.id, c.id, c.id) as {
-        reviews: number; changes: number; payments: number; settlements: number; receipts: number;
+      (SELECT COUNT(*) FROM ct_receipt WHERE contract_id = ? AND status IN ('submitted','approved')) AS receipts`).get(c.id, c.id, c.id, c.id, c.id, c.id) as {
+        reviews: number; countersigns: number; changes: number; payments: number; settlements: number; receipts: number;
       };
   const current = currentCents(c);
   const tierAmount = c.pricing_mode === 'unit_price' && BigInt(c.original_cents) === 0n && c.estimated_ceiling_cents != null
@@ -249,7 +250,7 @@ function toDto(db: DB, c: ContractRow): ContractDto {
     paidAmount: centsToDecimalString(c.paid_cents), paymentRate: ratioString(c.paid_cents, current),
     paymentCapRatio: c.payment_cap_ratio_scaled === null ? null : formatScaled(c.payment_cap_ratio_scaled, RATIO_SCALE),
     stage: c.stage, status: c.status, statusReason: c.status_reason, signDate: c.sign_date, effectiveDate: c.effective_date, source: c.source, version: c.version,
-    pendingReviews: counts.reviews, pendingChanges: counts.changes, openPayments: counts.payments, createdAt: c.created_at, updatedAt: c.updated_at,
+    pendingReviews: counts.reviews, pendingCountersigns: counts.countersigns, pendingChanges: counts.changes, openPayments: counts.payments, createdAt: c.created_at, updatedAt: c.updated_at,
     pendingSettlements: counts.settlements, openReceipts: counts.receipts,
     direction: c.direction, pricingMode: c.pricing_mode, unitPriceDesc: c.unit_price_desc,
     estimatedCeilingAmount: c.estimated_ceiling_cents === null ? null : centsToDecimalString(c.estimated_ceiling_cents),
@@ -654,6 +655,11 @@ function todoCondition(db: DB, todo: ContractTodo): { sql: string; params: unkno
   const today = todayUtcDate();
   switch (todo) {
     case 'review': return { sql: "EXISTS (SELECT 1 FROM ct_review x WHERE x.contract_id = ct_contract.id AND x.status = 'submitted')", params: [] };
+    case 'countersign': return { sql: "EXISTS (SELECT 1 FROM ct_countersign cs WHERE cs.contract_id = ct_contract.id AND cs.status = 'pending')", params: [] };
+    case 'review_or_countersign': return {
+      sql: "(EXISTS (SELECT 1 FROM ct_review x WHERE x.contract_id = ct_contract.id AND x.status = 'submitted') OR EXISTS (SELECT 1 FROM ct_countersign cs WHERE cs.contract_id = ct_contract.id AND cs.status = 'pending'))",
+      params: [],
+    };
     case 'change': return { sql: "EXISTS (SELECT 1 FROM ct_change x WHERE x.contract_id = ct_contract.id AND x.status = 'submitted')", params: [] };
     case 'payment': return { sql: "EXISTS (SELECT 1 FROM ct_payment x WHERE x.contract_id = ct_contract.id AND x.status = 'submitted')", params: [] };
     case 'pay': return { sql: "EXISTS (SELECT 1 FROM ct_payment x WHERE x.contract_id = ct_contract.id AND x.status = 'approved')", params: [] };
@@ -686,6 +692,9 @@ function contractListFilter(db: DB, q: ContractListQuery) {
   if (q.signDateFrom) { where.push('sign_date IS NOT NULL AND sign_date >= ?'); params.push(q.signDateFrom); }
   if (q.signDateTo) { where.push('sign_date IS NOT NULL AND sign_date <= ?'); params.push(q.signDateTo); }
   if (q.migrationMode) { where.push('migration_mode = ?'); params.push(q.migrationMode); }
+  if (q.legacyFilter === 'clue') {
+    where.push("migration_mode = 'legacy_tolerant' AND (duplicate_conflict_group <> '' OR amount_fact_source IN ('voucher_debit_clue','unverified_forecast') OR synthetic_no_flag = 1 OR is_reversal = 1)");
+  }
   if (q.orgId) {
     where.push('org_id IN (WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT o.id FROM org o JOIN sub ON o.parent_id = sub.id) SELECT id FROM sub)');
     params.push(q.orgId);
@@ -789,13 +798,31 @@ export function contractSummary(db: DB, q: ContractListQuery = {}): ContractSumm
     }
   }
   const ids = rows.map((r) => Number(r.id));
-  const pending = { reviews: 0, changes: 0, payments: 0, unpaidApproved: 0 };
+  const pending = {
+    reviews: 0,
+    countersigns: 0,
+    changes: 0,
+    settlements: 0,
+    payments: 0,
+    unpaidApproved: 0,
+    receipts: 0,
+    distributions: 0,
+    guaranteeWarranty: 0,
+  };
   if (ids.length) {
     const inIds = `(${ids.map(() => '?').join(',')})`;
+    const today = todayUtcDate();
+    const distCutoff = workingDayCutoffBefore(today, 10, workingCalendar(db));
+    const guaranteeDeadline = addCalendarDays(today, 30)!;
     pending.reviews = (db.prepare(`SELECT COUNT(*) AS n FROM ct_review WHERE status = 'submitted' AND contract_id IN ${inIds}`).get(...ids) as { n: number }).n;
+    pending.countersigns = (db.prepare(`SELECT COUNT(DISTINCT contract_id) AS n FROM ct_countersign csg JOIN ct_contract cc ON cc.id = csg.contract_id WHERE cc.status = 'active' AND csg.status = 'pending' AND csg.contract_id IN ${inIds}`).get(...ids) as { n: number }).n;
     pending.changes = (db.prepare(`SELECT COUNT(*) AS n FROM ct_change WHERE status = 'submitted' AND contract_id IN ${inIds}`).get(...ids) as { n: number }).n;
+    pending.settlements = (db.prepare(`SELECT COUNT(*) AS n FROM ct_settlement WHERE status = 'submitted' AND contract_id IN ${inIds}`).get(...ids) as { n: number }).n;
     pending.payments = (db.prepare(`SELECT COUNT(*) AS n FROM ct_payment WHERE status = 'submitted' AND contract_id IN ${inIds}`).get(...ids) as { n: number }).n;
     pending.unpaidApproved = (db.prepare(`SELECT COUNT(*) AS n FROM ct_payment WHERE status = 'approved' AND contract_id IN ${inIds}`).get(...ids) as { n: number }).n;
+    pending.receipts = (db.prepare(`SELECT COUNT(*) AS n FROM ct_receipt WHERE status IN ('submitted','approved') AND contract_id IN ${inIds}`).get(...ids) as { n: number }).n;
+    pending.distributions = (db.prepare(`SELECT COUNT(*) AS n FROM ct_contract WHERE status = 'active' AND sign_date IS NOT NULL AND sign_date <= ? AND distribution_status = 'pending' AND id IN ${inIds}`).get(distCutoff, ...ids) as { n: number }).n;
+    pending.guaranteeWarranty = (db.prepare(`SELECT COUNT(*) AS n FROM ct_contract WHERE status = 'active' AND id IN ${inIds} AND (EXISTS (SELECT 1 FROM ct_guarantee g WHERE g.contract_id = ct_contract.id AND g.status = 'active' AND g.expiry_date IS NOT NULL AND g.expiry_date <= ?) OR (ct_contract.has_warranty = 1 AND ct_contract.stage = 'warranty' AND NOT EXISTS (SELECT 1 FROM ct_warranty w WHERE w.contract_id = ct_contract.id AND w.inspection_conclusion = 'passed' AND w.visa_document_id IS NOT NULL) AND EXISTS (SELECT 1 FROM ct_warranty w2 WHERE w2.contract_id = ct_contract.id AND w2.end_date IS NOT NULL AND w2.end_date <= ?)))`).get(...ids, guaranteeDeadline, today) as { n: number }).n;
   }
   return {
     count: rows.length, byStatus, byStage,

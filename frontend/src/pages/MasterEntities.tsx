@@ -216,6 +216,31 @@ function SuppliersTab({ initialKeyword = '' }: { initialKeyword?: string }) {
                 <Tag>非库内</Tag>
               ),
           },
+          {
+            title: '合同履约评价',
+            key: 'evals',
+            width: 160,
+            render: (_, s) => {
+              const evals = s.evaluations ?? [];
+              if (evals.length === 0) return <Typography.Text type="secondary">暂无评价</Typography.Text>;
+              const latest = evals[0];
+              const recMap: Record<string, { text: string; color: string }> = {
+                preferred: { text: '优选', color: 'success' },
+                normal: { text: '正常', color: 'processing' },
+                restricted: { text: '限制', color: 'warning' },
+                blacklisted: { text: '禁用', color: 'error' },
+              };
+              const meta = recMap[latest.recommendation] ?? { text: latest.recommendation, color: 'default' };
+              return (
+                <Space size={4} wrap>
+                  <Tag color={meta.color}>{meta.text}</Tag>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {evals.length} 次
+                  </Typography.Text>
+                </Space>
+              );
+            },
+          },
           { title: '状态', dataIndex: 'status', width: 80, render: statusTag },
           ...(writable ? [{
             title: '操作', width: 120,

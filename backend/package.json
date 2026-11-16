@@ -1,6 +1,6 @@
 {
   "name": "newfc-backend",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "newfc 水利财务分析 - 后端",
   "private": true,
   "main": "dist/index.js",

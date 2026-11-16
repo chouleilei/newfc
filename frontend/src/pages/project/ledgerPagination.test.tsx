@@ -268,4 +268,168 @@ describe('合同台账全筛联动汇总、排序、分币种合计与草稿文�
       expect(withdrawSpy).toHaveBeenCalledWith(501, 701, '草稿未引用文档撤回作废'),
     );
   }, 30_000);
+
+  it('全生命周期 8 阶段漏斗点击筛选、会签/线索队列精准传参、监督概览面板、阻断项一键就地办理与报送预检直达补录', async () => {
+    setSession({
+      authenticated: true,
+      csrfToken: 't-clm-ux',
+      expiresAt: '',
+      user: {
+        id: 1,
+        username: 'admin',
+        displayName: '合同管理员',
+        permissions: ['contract:read', 'contract:write', 'contract:review', 'analysis:export'],
+        allOrgs: true,
+        orgIds: [],
+        mustChangePassword: false,
+      },
+    });
+
+    const listSpy = vi.spyOn(contractApi, 'listPage').mockResolvedValue({
+      items: [{ ...sampleRow, id: 601, stage: 'initiation', pendingCountersigns: 2 }],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      totals: [],
+    });
+    vi.spyOn(contractApi, 'summary').mockResolvedValue({
+      count: 3,
+      byStatus: { active: 3, suspended: 0, closed: 0, terminated: 0, voided: 0 },
+      byStage: { initiation: 1, procurement: 0, drafting: 0, approval: 2, performance: 0, settlement: 0, warranty: 0, closed: 0 },
+      currentAmount: '550000.00',
+      paidAmount: '200000.00',
+      paymentRate: '0.363636',
+      pending: { reviews: 0, countersigns: 2, changes: 0, payments: 0, unpaidApproved: 0 },
+    });
+    const portalSpy = vi.spyOn(contractApi, 'supervisionPortalFull').mockResolvedValue({
+      generatedAt: '2026-11-16T00:00:00Z',
+      mode: 'full',
+      since: null,
+      nextSince: null,
+      nextCursorId: null,
+      summary: {
+        totalContracts: 10,
+        expenseCount: 8,
+        incomeCount: 2,
+        totalSignedAmount: '3200000.00',
+        totalSettledAmount: '1500000.00',
+        totalPaidAmount: '1200000.00',
+        totalReceivedAmount: '400000.00',
+        totalApprovedChangeAmount: '50000.00',
+        constructionSummary: { count: 3, contractAmount: '2000000.00', settledAmount: '900000.00', paidAmount: '800000.00' },
+        procurementDistribution: {
+          tier1Count: 2,
+          tier2Count: 3,
+          tier3Count: 3,
+          directCount: 1,
+          directRatio: '0.125000',
+          inquiryCount: 4,
+          inquiryRatio: '0.500000',
+        },
+        riskStats: { totalAlerts: 5, rectifiedClosedAlerts: 4 },
+      },
+      items: [],
+    });
+    vi.spyOn(contractApi, 'preflightSupervision').mockResolvedValue({
+      period: '2026-11',
+      scopeMode: 'all_active',
+      exportPurpose: 'supervision_submit',
+      totalCount: 1,
+      readyCount: 0,
+      incompleteCount: 1,
+      items: [
+        {
+          contractId: 601,
+          contractNo: 'HQ-SG-01/2026-011',
+          name: '示范电站引水隧洞衬砌合同',
+          direction: 'expense',
+          ready: false,
+          missingFields: ['ourSignatoryName'],
+          missingAttachments: ['our_signatory_auth'],
+          warnings: [],
+        },
+      ],
+    });
+    vi.spyOn(contractApi, 'supervisionExportLogs').mockResolvedValue([]);
+    vi.spyOn(contractApi, 'monthlyReportLogs').mockResolvedValue([]);
+
+    const detail601: ContractDetailDto = {
+      ...sampleRow,
+      id: 601,
+      stage: 'approval',
+      legalReviewEnabled: false,
+      nextStage: 'performance',
+      blockers: [
+        { code: 'OUR_SIGNATORY_AUTH_REQUIRED', message: '我方签署人非法定代表人，须上传我方《授权委托书》' },
+      ],
+      documents: [],
+      reviews: [],
+      changes: [],
+      payments: [],
+      countersigns: [],
+      events: [],
+    };
+    const getSpy = vi.spyOn(contractApi, 'get').mockResolvedValue(detail601);
+    const uploadSpy = vi.spyOn(contractApi, 'uploadDocument').mockResolvedValue({
+      id: 901,
+      docType: 'authorization',
+      evidenceKind: 'our_signatory_auth',
+      name: '授权书.pdf',
+      fileSha256: 'sha901',
+      sizeBytes: 1024,
+      uploadedBy: '合同管理员',
+      uploadedAt: '2026-11-16T00:00:00Z',
+    });
+
+    client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(['org-tree'], { rows: [], tree: [] });
+    render(
+      <ConfigProvider locale={zhCN} theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <QueryClientProvider client={client}>
+            <MemoryRouter initialEntries={['/contracts']}>
+              <Contracts />
+            </MemoryRouter>
+          </QueryClientProvider>
+        </AntdApp>
+      </ConfigProvider>,
+    );
+
+    // 1. 顶部 8 阶段漏斗点击「1. 需求立项」按阶段筛选
+    const stageBtn = await screen.findByText('1. 需求立项');
+    fireEvent.click(stageBtn.closest('button')!);
+    await waitFor(() => expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ stage: 'initiation' })));
+
+    // 2. 「待我会签·复核」与「重号与凭证线索待核」精准传参
+    fireEvent.click(screen.getByText('待我会签·复核'));
+    await waitFor(() => expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ todo: 'review_or_countersign' })));
+    fireEvent.click(screen.getByText('重号与凭证线索待核'));
+    await waitFor(() =>
+      expect(listSpy).toHaveBeenCalledWith(expect.objectContaining({ migrationMode: 'legacy_tolerant', legacyFilter: 'clue' })),
+    );
+
+    // 3. 展开「协同监督概览」渲染采购分布与预警闭环
+    fireEvent.click(screen.getByText('协同监督概览'));
+    expect(await screen.findByText('纪巡财审协同监督统计概览')).toBeTruthy();
+    expect(portalSpy).toHaveBeenCalled();
+    expect(await screen.findByText('一级采购 2')).toBeTruthy();
+
+    // 4. 打开报送导出弹窗，点击预检缺项行「去补录」直接跳转打开合同 #601 详情抽屉
+    fireEvent.click(screen.getByText('报送导出 (月报 / 纪巡财审)'));
+    const fixBtn = await screen.findByText('去补录');
+    fireEvent.click(fixBtn.closest('button')!);
+    await waitFor(() => expect(getSpy).toHaveBeenCalledWith(601));
+
+    // 5. 抽屉展示全生命周期 Steps，点击阻断项「去上传我方授权书」自动预设文档类型+签订依据分类
+    expect(await screen.findByText('全生命周期进度')).toBeTruthy();
+    const authQuickBtn = await screen.findByText('去上传我方授权书');
+    fireEvent.click(authQuickBtn.closest('button')!);
+
+    const fileInput = document.querySelector('.contract-detail-drawer input[type="file"]') as HTMLInputElement;
+    const authFile = new File(['auth'], '我方授权书.pdf', { type: 'application/pdf' });
+    fireEvent.change(fileInput, { target: { files: [authFile] } });
+    await waitFor(() =>
+      expect(uploadSpy).toHaveBeenCalledWith(601, authFile, 'authorization', undefined, 'our_signatory_auth', undefined),
+    );
+  }, 35_000);
 });

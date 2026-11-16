@@ -195,4 +195,99 @@ describe('T-GAP-19 / AC-T14-08 合同全筛选与 summary 联动、分币种汇�
     });
     expect(withdrawRefFail.status).toBe(409);
   });
+
+  it('待我会签·复核（todo=review_or_countersign / countersign）与重号凭证线索（legacyFilter=clue）筛选及汇总待办严格同源', async () => {
+    const { base, db, admin, fx } = await boot('newfc-t14-cs-clue-');
+    const orgId = fx.orgIds.shanghai;
+    const supplierId = await createSupplier(base, admin, 'S-CS-01', '合成自动化系统集成公司');
+
+    const c1 = await json(
+      post(base, admin, '/api/contracts', {
+        contractNo: 'GRP-SJ-001/2026-0001',
+        externalNoExempt: true,
+        name: '监控系统升级技术改造合同',
+        direction: 'expense',
+        contractType: '技术服务',
+        legalCategory: 'tech_service',
+        orgId,
+        supplierId,
+        budgetType: 'lump_sum_pool',
+        originalAmount: '600000.00',
+        isProcurement: true,
+        procurementTarget: 'service',
+        procurementMethod: 'public_tender',
+        ...SIGNATORIES,
+      }),
+    );
+    expect(c1.id).toBeGreaterThan(0);
+    // 显式发起多部门会签（此时无 ct_review 提交，但有待会签部门）
+    const csRes = await post(base, admin, `/api/contracts/${c1.id}/countersigns`, {});
+    expect(csRes.status).toBe(201);
+    const csRows = await json(csRes);
+    expect(csRows.length).toBeGreaterThan(0);
+
+    const summaryAll = await json(get(base, admin, '/api/contracts/summary'));
+    expect(summaryAll.pending.countersigns).toBe(1);
+    expect(summaryAll.pending.reviews).toBe(0);
+
+    const pageCsOnly = await json(get(base, admin, '/api/contracts/page?todo=countersign'));
+    expect(pageCsOnly.total).toBe(1);
+    expect(pageCsOnly.items[0].id).toBe(c1.id);
+    expect(pageCsOnly.items[0].pendingCountersigns).toBe(csRows.length);
+
+    const pageMerged = await json(get(base, admin, '/api/contracts/page?todo=review_or_countersign'));
+    expect(pageMerged.total).toBe(1);
+    expect(pageMerged.items[0].id).toBe(c1.id);
+
+    const todos = (await json(get(base, admin, '/api/dashboard/todos'))).items as { key: string; count: number; path: string }[];
+    expect(todos.find((t) => t.key === 'contract_review')).toMatchObject({
+      count: 1,
+      path: '/contracts?queue=review&todo=review_or_countersign',
+    });
+
+    // 构造两条历史容缺合同：一条仅普通容缺，另一条含重号冲突组线索
+    const cPlainLegacy = await json(
+      post(base, admin, '/api/contracts', {
+        contractNo: 'MIG-PLAIN-2024-01',
+        externalNoExempt: true,
+        name: '历史普通容缺待补盖章件合同',
+        direction: 'expense',
+        contractType: '服务',
+        legalCategory: 'other',
+        orgId,
+        supplierId,
+        budgetType: 'lump_sum_pool',
+        originalAmount: '50000.00',
+        ...SIGNATORIES,
+      }),
+    );
+    const cClueLegacy = await json(
+      post(base, admin, '/api/contracts', {
+        contractNo: 'MIG-CLUE-2024-02',
+        externalNoExempt: true,
+        name: '历史重号与凭证线索待核合同',
+        direction: 'expense',
+        contractType: '服务',
+        legalCategory: 'other',
+        orgId,
+        supplierId,
+        budgetType: 'lump_sum_pool',
+        originalAmount: '80000.00',
+        ...SIGNATORIES,
+      }),
+    );
+    db.prepare("UPDATE ct_contract SET origin = 'legacy_migration', migration_mode = 'legacy_tolerant' WHERE id IN (?, ?)").run(
+      cPlainLegacy.id,
+      cClueLegacy.id,
+    );
+    db.prepare("UPDATE ct_contract SET duplicate_conflict_group = 'DUP-GRP-01', synthetic_no_flag = 1 WHERE id = ?").run(
+      cClueLegacy.id,
+    );
+
+    const cluePage = await json(get(base, admin, '/api/contracts/page?migrationMode=legacy_tolerant&legacyFilter=clue'));
+    const clueSum = await json(get(base, admin, '/api/contracts/summary?migrationMode=legacy_tolerant&legacyFilter=clue'));
+    expect(cluePage.total).toBe(1);
+    expect(cluePage.items[0].id).toBe(cClueLegacy.id);
+    expect(clueSum.count).toBe(1);
+  });
 });

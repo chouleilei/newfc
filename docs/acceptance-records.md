@@ -942,3 +942,15 @@ F20/F23/F25；T-13～T-15；AC-T13-01～11、AC-T14-01～08、AC-T15-01～05、A
 - 证据归档：`/data/newfc-data/releases/newfc-v0.3.0-20261115-230513/`，包含 `release-manifest.json`、`production-verification.json`、`release-summary.md`、`deploy.log`、`deploy-exit-code` 和 `source.tar.gz`；源码归档 SHA-256 `c626b49caca2c6380ef07580af9f77a3dc113dbfb0da68d3b35e2a6d7171a5da`。
 
 回退边界：V75 生产库不可由旧 V72 代码直接读取；必须使用上述迁移前完整备份与 `dist.old`，先按滚动脚本核对备份后写入。真实 OA/上级平台在线联调及 `AC-CLR-09` 正式历史业务评价仍未执行。
+
+## v0.3.1 合同全生命周期交互优化与生产部署（2026-11-16，V75）
+
+F04/F07/F16/F17/F19/F20；T-10～T-12、T-14；AC-CLM-01～14、AC-T14-06/08、AC-X08/X10。在 `v0.3.0` 基础上围绕合同全生命周期界面直观性与待办筛选精准度完成 7 项前端交互及对应后端查询/汇总增强（无新增 schema 迁移，数据库保持 `V75`），并完成生产部署与验证。
+
+- 核心改动：`Contracts` 顶部新增八阶段（含「需求立项」）漏斗条、可点击待办与会签计数、折叠高级筛选与重置按钮、以及 `ContractSupervisionOverviewBar`；抽屉新增八阶段 `Steps` 与签署分发/档案归档状态标签、需求立项摘要、阻断项就地快捷处理（`renderBlockerAction`）、默认折叠签署后法审面板、快捷附件预设及已关闭未评价履约评价引导；`ContractBaseFormModal` 按阶段默认折叠分组并支持 `focusSection` 定位；`ContractExportModal` 预检表支持点击直达合同抽屉；`MasterEntities` 供应商表新增「合同履约评价」列；后端补齐 `todo=countersign|review_or_countersign`、`legacyFilter=clue`、`pendingCountersigns`、`summary.pending` 细分计数及工作台 `contract_review` 合并口径，并新增前后端单测。
+- 类型与安全门禁：Node 24.22.1 下 `git diff --check` 通过，后端 `npm run typecheck:test` 与 `tsc --noEmit` 通过，前后端 `npm audit --omit=dev` 均返回 0 漏洞。
+- 生产部署：`NEWFC_ROOT=/root/newfc NEWFC_DATA_DIR=/data/newfc-data NEWFC_SERVICE=newfc.service NEWFC_PORT=3760 scripts/deploy.sh` 退出码 0，日志保留于 `/tmp/newfc-v031-deploy.log`。
+- 门禁与构建：后端全量 Vitest **144 文件 / 1187 项通过**（950.65s），前端全量 Vitest **67 文件 / 526 项通过**（422.49s）；`tsc -b` 与 Vite 隔离构建成功（39.80s）。
+- 迁移与服务：`migrate-cli.js` 确认已是最新 schema `V75`，`legal-seed-cli.js` 幂等返回 `{"policies":0,"templates":0}`；`newfc.service` active/running，MainPID `3062005`，NRestarts=0，启动于 2026-11-16 09:08:15 CST，上一版 `v0.3.0` 保留在 `dist.old`。
+- 健康、权限与完整性：本机及 `https://newfc.tangdalei.com` 的 live/ready 均 200（schema V75）；`/login` 返回 200，未登录 `/api/dashboard` 返回 401；线上首页 SHA-256 `58a0b5039e0c92fca58100db1d63ec3435ffbadbd81130229876c69cc05a17a9` 与 `frontend/dist/index.html` 一致；当前库 `PRAGMA integrity_check = ok`、`foreign_key_check = []`、最高迁移版本 75；近 10 分钟 warning 级日志为空。
+- 边界说明：本补丁未单独重跑 Playwright 全量浏览器 E2E（最近全量 117 项通过基线见 `v0.3.0` 记录）；`AC-CLR-09` 正式历史业务评价与真实 OA/上级平台在线联调边界保持不变。

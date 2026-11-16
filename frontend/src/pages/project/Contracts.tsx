@@ -1,30 +1,32 @@
 import { ContractLegalPanel } from './ContractLegalPanel';
 import { ContractLegalCatalog } from './ContractLegalCatalog';
-import { ContractBaseFormModal } from './ContractBaseFormModal';
+import { ContractBaseFormModal, type ContractFormSectionKey } from './ContractBaseFormModal';
 import { ContractSettlementTab } from './ContractSettlementTab';
 import { ContractChangeTab } from './ContractChangeTab';
 import { ContractSafeguardTab } from './ContractSafeguardTab';
 import { ContractCountersignTab } from './ContractCountersignTab';
 import { ContractProcurementTab } from './ContractProcurementTab';
 import { ContractExportModal } from './ContractExportModal';
+import { ContractSupervisionOverviewBar } from './ContractSupervisionOverviewBar';
 import type { EvidenceKind, LegalCategory, ProcurementMethod } from '@contracts/contract-legal-review';
 import {
-  ARCHIVE_STATUS_LABELS, DIRECTION_LABELS, DISTRIBUTION_STATUS_LABELS, EVIDENCE_KINDS, EVIDENCE_LABELS,
+  ARCHIVE_STATUS_LABELS, BUDGET_TYPE_LABELS, DIRECTION_LABELS, DISTRIBUTION_STATUS_LABELS, EVIDENCE_KINDS, EVIDENCE_LABELS,
+  FUNDING_SOURCE_LABELS,
   LEGAL_CATEGORIES, LEGAL_LABELS, METHOD_LABELS, PRICING_MODE_LABELS, PROCUREMENT_METHODS,
 } from './contractOptions';
 import { useAssistantDomainPage } from '../../assistant/contextHooks';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { positiveQueryNumber, useListSearchParams } from '../../hooks/useListSearchParams';
 import {
-  Alert, App as AntdApp, Badge, Button, Card, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Popconfirm, Row, Segmented, Select, Space, Table, Tabs, Tag, Timeline, Tooltip, Typography, Upload,
+  Alert, App as AntdApp, Badge, Button, Card, Collapse, Col, DatePicker, Descriptions, Drawer, Empty, Form, Input, Modal, Popconfirm, Row, Segmented, Select, Space, Steps, Table, Tabs, Tag, Timeline, Tooltip, Typography, Upload,
 } from 'antd';
 import type { SorterResult } from 'antd/es/table/interface';
 import dayjs from 'dayjs';
 import { can, download, errorText } from '../../api/client';
 import {
-  contractApi, type ContractArchiveStatus, type ContractDetailDto, type ContractDirection, type ContractDocType,
+  contractApi, type BlockerDto, type ContractArchiveStatus, type ContractDetailDto, type ContractDirection, type ContractDocType,
   type ContractDto, type ContractListQuery, type ContractPricingMode, type ContractSortDir, type ContractSortField,
   type ContractStage, type ContractStatus, type ContractTodo,
 } from '../../api/projectContract';
@@ -39,8 +41,25 @@ import { CONTRACT_DOC_TYPE_LABELS, CONTRACT_STAGE_LABELS, CONTRACT_STAGE_ORDER, 
  */
 
 export const TODO_LABEL: Record<ContractTodo, string> = {
-  review: '待审核合同', change: '待复核变更', payment: '待复核付款', pay: '已批准待支付',
+  review: '待审核合同',
+  countersign: '待多部门会签',
+  review_or_countersign: '待审核 / 多部门会签',
+  change: '待复核变更', payment: '待复核付款', pay: '已批准待支付',
   settlement: '待复核结算单', receipt: '待处理收款', distribution: '签署超 10 工作日待分发', guarantee_warranty: '30 天内到期保函/待签证质保',
+};
+
+const DOC_UPLOAD_PRESETS: { label: string; docType: ContractDocType; evidenceKind?: EvidenceKind }[] = [
+  { label: '合同正文', docType: 'contract_text' },
+  { label: '已盖章签署件', docType: 'signed' },
+  { label: '招采定标依据', docType: 'procurement', evidenceKind: 'bid_award_approval' },
+  { label: '我方签署授权书', docType: 'authorization', evidenceKind: 'our_signatory_auth' },
+  { label: '对方签署授权书', docType: 'authorization', evidenceKind: 'counterparty_signatory_auth' },
+  { label: '履约/验收单', docType: 'acceptance' },
+];
+
+const DEFAULT_EVIDENCE_BY_DOCTYPE: Partial<Record<ContractDocType, EvidenceKind>> = {
+  authorization: 'our_signatory_auth',
+  qualification: 'supplier_qualification',
 };
 
 const datePickerItemProps = {
@@ -53,6 +72,8 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
   const qc = useQueryClient();
   const [prompt, holder] = usePrompt();
   const [editing, setEditing] = useState(false);
+  const [editFocusSection, setEditFocusSection] = useState<ContractFormSectionKey | null>(null);
+  const [activeTab, setActiveTab] = useState<string>('docs');
   const [opModalKind, setOpModalKind] = useState<'distribution' | 'archive' | 'handover' | null>(null);
   const [opForm] = Form.useForm();
   const [evidenceKind,setEvidenceKind]=useState<EvidenceKind>();
@@ -62,6 +83,8 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
     setDocType('contract_text');
     setEvidenceKind(undefined);
     setDocChangeId(undefined);
+    setActiveTab('docs');
+    setEditFocusSection(null);
   }, [id]);
   const q = useQuery({ queryKey: ['contract', id], queryFn: () => contractApi.get(id!), enabled: id != null });
   const c = q.data;
@@ -127,6 +150,86 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
     opForm.setFieldsValue({ toUndertaker: '', toDept: '', handoverDate: dayjs().format('YYYY-MM-DD'), leftPostDate: null, reason: '' });
     setOpModalKind('handover');
   };
+
+  const openEditWithFocus = (section: ContractFormSectionKey | null = null) => {
+    setEditFocusSection(section);
+    setEditing(true);
+  };
+
+  const presetDocUpload = (nextDocType: ContractDocType, nextEvidence?: EvidenceKind) => {
+    setActiveTab('docs');
+    setDocType(nextDocType);
+    setEvidenceKind(nextEvidence);
+  };
+
+  const renderBlockerAction = (b: BlockerDto) => {
+    if (!c) return null;
+    if (writable && ['PROJECT_REQUIRED', 'TYPE_REQUIRED', 'SOURCE_INCOME_REQUIRED', 'AMOUNT_REQUIRED', 'BID_AWARD_EXCEEDED', 'UNIT_PRICE_DESC_REQUIRED'].includes(b.code)) {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => openEditWithFocus('base')}>去填写立项/金额要素</Button>;
+    }
+    if (writable && ['SUPPLIER_REQUIRED', 'DIRECT_STATION_INCOME_ENTITY', 'OUR_SIGNATORY_REQUIRED', 'COUNTERPARTY_SIGNATORY_REQUIRED'].includes(b.code)) {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => openEditWithFocus('party')}>去完善主体与签署人</Button>;
+    }
+    if (writable && ['PROCUREMENT_DATE_CONFLICT'].includes(b.code)) {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => openEditWithFocus('decision')}>去核对招采/决策信息</Button>;
+    }
+    if (writable && ['SIGN_DATE', 'DATE_SEQUENCE_CONFLICT', 'TERM_DATES_INVALID', 'TERM_CONDITION_REQUIRED', 'DELIVERABLE_NOT_SUBMITTED', 'FINAL_ACCEPTANCE_REQUIRED'].includes(b.code)) {
+      if (b.code === 'FINAL_ACCEPTANCE_REQUIRED' && !c.documents.some((d) => d.docType === 'acceptance' && !d.withdrawnAt)) {
+        return (
+          <Space size={8}>
+            <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => presetDocUpload('acceptance')}>先传验收文件</Button>
+            <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => openEditWithFocus('term')}>勾选最终验收</Button>
+          </Space>
+        );
+      }
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => openEditWithFocus('term')}>去填写期限/签署与验收</Button>;
+    }
+    if (can('contract:write') && b.code === 'PROCUREMENT_DOC') {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => presetDocUpload('procurement', 'bid_award_approval')}>去上传招采文件</Button>;
+    }
+    if (can('contract:write') && b.code === 'CONTRACT_TEXT_DOC') {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => presetDocUpload('contract_text')}>去上传合同正文</Button>;
+    }
+    if (can('contract:write') && b.code === 'SIGNED_DOC') {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => presetDocUpload('signed')}>去上传盖章签署件</Button>;
+    }
+    if (can('contract:write') && b.code === 'OUR_SIGNATORY_AUTH_REQUIRED') {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => presetDocUpload('authorization', 'our_signatory_auth')}>去上传我方授权书</Button>;
+    }
+    if (can('contract:write') && b.code === 'COUNTERPARTY_SIGNATORY_AUTH_REQUIRED') {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => presetDocUpload('authorization', 'counterparty_signatory_auth')}>去上传对方授权书</Button>;
+    }
+    if (can('contract:write') && b.code === 'PERFORMANCE_DOC') {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => presetDocUpload('performance')}>去上传履约记录</Button>;
+    }
+    if (can('contract:write') && b.code === 'ACCEPTANCE_DOC') {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => presetDocUpload('acceptance')}>去上传验收文件</Button>;
+    }
+    if (['REVIEW_APPROVED', 'REVIEW_OUTDATED'].includes(b.code)) {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => setActiveTab(c.reviews.some((r) => r.status === 'submitted') ? 'reviews' : 'docs')}>去提交/复核合同审核</Button>;
+    }
+    if (['COUNTERSIGN_PENDING', 'COUNTERSIGN_OUTDATED', 'COUNTERSIGN_RETURNED'].includes(b.code)) {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => setActiveTab('countersigns')}>前往多部门会签</Button>;
+    }
+    if (['FINAL_SETTLEMENT_REQUIRED', 'OPEN_SETTLEMENTS', 'OPEN_PAYMENTS', 'OPEN_RECEIPTS', 'CONTRACT_NOT_CLEARED', 'OVERPAID'].includes(b.code)) {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => setActiveTab('settlement')}>前往结算与收付</Button>;
+    }
+    if (b.code === 'OPEN_CHANGES') {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => setActiveTab('changes')}>前往变更与索赔</Button>;
+    }
+    if (['ACTIVE_GUARANTEES_UNRETURNED', 'OPEN_DISPUTES', 'WARRANTY_RETENTION_MISMATCH'].includes(b.code) || b.code.startsWith('WARRANTY_')) {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={() => setActiveTab('safeguard')}>前往担保·质保·纠纷</Button>;
+    }
+    if (reviewer && ['CONTRACT_ARCHIVE_INCOMPLETE', 'ARCHIVE_TRANSFER_REQUIRED'].includes(b.code)) {
+      return <Button size="small" type="link" style={{ padding: 0, height: 'auto' }} onClick={updateArchive}>办理档案核验/移交</Button>;
+    }
+    return null;
+  };
+
+  const stageIdx = c ? Math.max(0, CONTRACT_STAGE_ORDER.indexOf(c.stage as (typeof CONTRACT_STAGE_ORDER)[number])) : 0;
+  const postSigningStage = c ? CONTRACT_STAGE_ORDER.indexOf(c.stage as (typeof CONTRACT_STAGE_ORDER)[number]) > CONTRACT_STAGE_ORDER.indexOf('approval') : false;
+  const hasLegalBlock = c ? Boolean(c.legalReviewEnabled || ((c as unknown as { legalReviews?: unknown[] }).legalReviews?.length ?? 0) > 0) : false;
+
   const flowCols = <T extends { status: string; submittedBy: string | null; submittedAt: string; reviewedBy: string | null; comment: string | null; exceptionReason: string | null; selfReview: boolean }>() => [
     { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => statusTag(FLOW_STATUS, v) },
     { title: '提交', key: 'sub', width: 150, render: (_: unknown, r: T) => <span>{r.submittedBy ?? '—'} · {shortTime(r.submittedAt)}</span> },
@@ -141,7 +244,7 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
     <Drawer rootClassName="contract-detail-drawer" open={id != null} onClose={onClose} width={1080} destroyOnClose title={c ? `${c.contractNo} · ${c.name}` : '合同'}
       extra={c && (
         <Space wrap>
-          {writable && <Button onClick={() => setEditing(true)}>编辑</Button>}
+          {writable && <Button onClick={() => openEditWithFocus(null)}>编辑</Button>}
           {writable && c.nextStage && (
             <Button type="primary" disabled={c.blockers.length > 0} onClick={() => modal.confirm({
               title: `推进到「${CONTRACT_STAGE_LABELS[c.nextStage!]}」?`, content: c.nextStage === 'closed' ? '履约完结后合同关闭,不能再写入。' : undefined,
@@ -161,6 +264,67 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
       {holder}
       {q.error ? <QueryErrorResult title="合同加载失败" error={q.error} refetch={q.refetch} /> : c && (
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          {/* 全生命周期 8 阶段进度轨道与正交管理状态 */}
+          <Card size="small" styles={{ body: { padding: '12px 16px' } }} style={{ background: 'var(--newfc-bg-subtle)' }}>
+            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+              <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space size={8} wrap>
+                  <Typography.Text strong>全生命周期进度</Typography.Text>
+                  {statusTag(CONTRACT_STATUS, c.status)}
+                  {c.statusReason && <Typography.Text type="secondary">（{c.statusReason}）</Typography.Text>}
+                </Space>
+                <Space size={6} wrap>
+                  <Tag color={c.distributionStatus === 'completed' ? 'success' : 'gold'}>
+                    签署分发：{DISTRIBUTION_STATUS_LABELS[c.distributionStatus ?? 'pending']}
+                  </Tag>
+                  <Tag color={c.archiveStatus === 'transferred' ? 'success' : c.archiveStatus === 'checked' ? 'processing' : 'default'}>
+                    档案归档：{ARCHIVE_STATUS_LABELS[c.archiveStatus ?? 'collecting']}
+                  </Tag>
+                </Space>
+              </Space>
+              <div style={{ overflowX: 'auto', paddingBottom: 2 }}>
+                <Steps
+                  size="small"
+                  current={stageIdx}
+                  status={c.status === 'terminated' || c.status === 'voided' ? 'error' : c.stage === 'closed' ? 'finish' : 'process'}
+                  items={CONTRACT_STAGE_ORDER.map((s, idx) => {
+                    const skipWarranty = s === 'warranty' && !c.hasWarranty && c.stage !== 'warranty';
+                    return {
+                      key: s,
+                      title: CONTRACT_STAGE_LABELS[s],
+                      description: skipWarranty ? '无质保跳过' : idx === stageIdx && c.stage !== 'closed' ? '当前阶段' : undefined,
+                    };
+                  })}
+                />
+              </div>
+              {c.stage === 'initiation' && (
+                <div style={{ fontSize: 12, color: 'var(--newfc-text-secondary)' }}>
+                  需求立项摘要：口径「{BUDGET_TYPE_LABELS[c.budgetType ?? 'single_listed']}」 · 资金来源「
+                  {FUNDING_SOURCE_LABELS[c.fundingSource ?? 'self_owned_other']}」
+                  {c.isEmergency ? ` · 应急项目（开工日 ${c.emergencyStartDate ?? '待填'}）` : ''}
+                  {!c.planItemId && c.direction === 'expense' && (
+                    <span>
+                      {' '}· 如需计划外立项或应急补立项，可前往 <Link to="/plan?tab=adjustments">综合计划联动调整</Link>
+                    </span>
+                  )}
+                </div>
+              )}
+            </Space>
+          </Card>
+
+          {c.status === 'closed' && !c.evaluation && (
+            <Alert
+              type="info"
+              showIcon
+              message="合同已完成履约完结，尚未登记供应商履约后评价（《采购管理办法》13.2 联动供应商库）"
+              action={
+                <Button size="small" type="primary" ghost onClick={() => setActiveTab('safeguard')}>
+                  去登记履约评价
+                </Button>
+              }
+            />
+          )}
+
           {c.migrationMode === 'legacy_tolerant' && (
             <Alert
               type="warning"
@@ -175,15 +339,54 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
               description={`实际签约主体：${c.signingOrgName || c.orgName} ｜ 法定法人统计口径：${c.legalEntityOrgName || c.orgName}${(c.missingFields?.length ?? 0) > 0 ? ` ｜ 待补录缺口：${c.missingFields!.join('、')}` : ''}`}
             />
           )}
-          {Boolean(c.legalReviewEnabled || ((c as unknown as { legalReviews?: unknown[] }).legalReviews?.length ?? 0) > 0) ? (
-            <ContractLegalPanel key={c.id} contract={c} onChanged={()=>refresh()}/>
+          {hasLegalBlock ? (
+            postSigningStage ? (
+              <Collapse
+                size="small"
+                items={[
+                  {
+                    key: 'legal-history',
+                    label: '签约前智能法审档案（已进入履约后阶段，点击展开历史法审记录）',
+                    children: <ContractLegalPanel key={c.id} contract={c} onChanged={() => refresh()} />,
+                  },
+                ]}
+              />
+            ) : (
+              <ContractLegalPanel key={c.id} contract={c} onChanged={() => refresh()} />
+            )
           ) : (
-            <Alert
-              type="info"
-              showIcon
-              message="当前合同类别未纳入强制智能法审范围（可按内部一般流程审核或由法务配置扩展纳管类别）。"
-            />
+            !postSigningStage && (
+              <Alert
+                type="info"
+                showIcon
+                message="当前合同类别未纳入强制智能法审范围（可按内部一般流程审核或由法务配置扩展纳管类别）。"
+              />
+            )
           )}
+
+          {c.status === 'active' && c.nextStage && (c.blockers.length ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={`推进到「${CONTRACT_STAGE_LABELS[c.nextStage]}」前还需完成以下 ${c.blockers.length} 项门禁：`}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {c.blockers.map((b) => {
+                    const act = renderBlockerAction(b);
+                    return (
+                      <li key={b.code} style={{ marginBottom: 4 }}>
+                        <Space size={8} wrap>
+                          <span>{b.message}</span>
+                          {act}
+                        </Space>
+                      </li>
+                    );
+                  })}
+                </ul>
+              }
+            />
+          ) : <Alert type="success" showIcon message={`已满足推进到「${CONTRACT_STAGE_LABELS[c.nextStage]}」的条件`} />)}
+
           <Descriptions size="small" column={{xs:1,sm:2,lg:3}} bordered>
             <Descriptions.Item label="组织">{c.orgName}</Descriptions.Item>
             <Descriptions.Item label="项目">{c.projectName ? `${c.projectName}(${c.projectCode})` : '—'}</Descriptions.Item>
@@ -228,44 +431,70 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
                 : '无交接记录'}
             </Descriptions.Item>
           </Descriptions>
-          {c.status === 'active' && c.nextStage && (c.blockers.length ? (
-            <Alert type="warning" showIcon message={`推进到「${CONTRACT_STAGE_LABELS[c.nextStage]}」前还需:`}
-              description={<ul style={{ margin: 0, paddingLeft: 18 }}>{c.blockers.map((b) => <li key={b.code}>{b.message}</li>)}</ul>} />
-          ) : <Alert type="success" showIcon message={`已满足推进到「${CONTRACT_STAGE_LABELS[c.nextStage]}」的条件`} />)}
-          <Tabs items={[
+          <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
             {
               key: 'docs', label: `文档 ${c.documents.length}`, children: (
                 <>
                   {can('contract:write') && ['active','suspended'].includes(c.status) && (
-                    <Space wrap style={{ marginBottom: 8 }}>
-                      <Select aria-label="文档类型" value={docType} onChange={(value) => { setDocType(value); setEvidenceKind(undefined); }} style={{ width: 140 }} options={Object.entries(CONTRACT_DOC_TYPE_LABELS).map(([value, label]) => ({ value, label }))} />
-                      <Select aria-label="签订依据分类" value={evidenceKind} allowClear placeholder="签订依据分类（可选）" style={{width:230}} onChange={setEvidenceKind} options={EVIDENCE_KINDS.map(value=>({value,label:EVIDENCE_LABELS[value]}))}/>
-                      <Select
-                        aria-label="关联补充协议"
-                        value={docChangeId}
-                        allowClear
-                        placeholder="关联补充协议（可选）"
-                        style={{ width: 200 }}
-                        onChange={setDocChangeId}
-                        options={c.changes.map((ch) => ({
-                          value: ch.id,
-                          label: `${ch.supplementNo ?? `变更#${ch.id}`} · ${ch.reason}`,
-                        }))}
-                      />
-                      <Upload accept=".docx,.pdf,.doc,.png,.jpg,.jpeg,.wps" showUploadList={false} beforeUpload={(f) => {
-                        run.mutate(async () => {
-                          const document = await contractApi.uploadDocument(c.id, f, docType, undefined, evidenceKind, docChangeId);
-                          setEvidenceKind(undefined);
-                          setDocChangeId(undefined);
-                          return document;
-                        });
-                        return false;
-                      }}>
-                        <Button icon={<i className="ri-upload-2-line" aria-hidden />}>上传文档</Button>
-                      </Upload>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        支持 .docx、.pdf 及老版 .doc 合同正文（.doc 将在后台转码后纳入法审）
-                      </Typography.Text>
+                    <Space direction="vertical" size={6} style={{ width: '100%', marginBottom: 8 }}>
+                      <Space size={[4, 4]} wrap>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>快捷上传用途：</Typography.Text>
+                        {DOC_UPLOAD_PRESETS.map((p) => {
+                          const active = docType === p.docType && evidenceKind === p.evidenceKind;
+                          return (
+                            <Tag
+                              key={p.label}
+                              color={active ? 'processing' : undefined}
+                              style={{ cursor: 'pointer', userSelect: 'none' }}
+                              onClick={() => {
+                                setDocType(p.docType);
+                                setEvidenceKind(p.evidenceKind);
+                              }}
+                            >
+                              {p.label}
+                            </Tag>
+                          );
+                        })}
+                      </Space>
+                      <Space wrap>
+                        <Select
+                          aria-label="文档类型"
+                          value={docType}
+                          onChange={(value) => {
+                            setDocType(value);
+                            setEvidenceKind(DEFAULT_EVIDENCE_BY_DOCTYPE[value]);
+                          }}
+                          style={{ width: 140 }}
+                          options={Object.entries(CONTRACT_DOC_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
+                        />
+                        <Select aria-label="签订依据分类" value={evidenceKind} allowClear placeholder="签订依据分类（可选）" style={{width:230}} onChange={setEvidenceKind} options={EVIDENCE_KINDS.map(value=>({value,label:EVIDENCE_LABELS[value]}))}/>
+                        <Select
+                          aria-label="关联补充协议"
+                          value={docChangeId}
+                          allowClear
+                          placeholder="关联补充协议（可选）"
+                          style={{ width: 200 }}
+                          onChange={setDocChangeId}
+                          options={c.changes.map((ch) => ({
+                            value: ch.id,
+                            label: `${ch.supplementNo ?? `变更#${ch.id}`} · ${ch.reason}`,
+                          }))}
+                        />
+                        <Upload accept=".docx,.pdf,.doc,.png,.jpg,.jpeg,.wps" showUploadList={false} beforeUpload={(f) => {
+                          run.mutate(async () => {
+                            const document = await contractApi.uploadDocument(c.id, f, docType, undefined, evidenceKind, docChangeId);
+                            setEvidenceKind(undefined);
+                            setDocChangeId(undefined);
+                            return document;
+                          });
+                          return false;
+                        }}>
+                          <Button icon={<i className="ri-upload-2-line" aria-hidden />}>上传文档</Button>
+                        </Upload>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          支持 .docx、.pdf 及老版 .doc 合同正文（.doc 将在后台转码后纳入法审）
+                        </Typography.Text>
+                      </Space>
                     </Space>
                   )}
                   <Table rowKey="id" size="small" pagination={false} dataSource={c.documents}
@@ -321,13 +550,18 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
             },
             {
               key: 'reviews', label: `审核 ${c.reviews.length}`, children: (
-                <Table rowKey="id" size="small" pagination={false} dataSource={c.reviews}
-                  columns={[
-                    { title: '文档', dataIndex: 'documentName', ellipsis: true },
-                    { title: '说明', dataIndex: 'note', ellipsis: true },
-                    ...flowCols<ContractDetailDto['reviews'][number]>(),
-                    { title: '', key: 'op', width: 80, render: (_, r) => (reviewer && r.status === 'submitted' ? <Button size="small" type="primary" onClick={() => void decide('review', r.id)}>复核</Button> : null) },
-                  ]} />
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    审批签署闭环顺序：① 在「文档」上传合同正文并运行签约前智能法审 → ② 在「多部门会签」完成职能部门会签 → ③ 提交并完成本表正式审核 → ④ 上传已盖章签署件并填写签订日期。
+                  </Typography.Text>
+                  <Table rowKey="id" size="small" pagination={false} dataSource={c.reviews}
+                    columns={[
+                      { title: '文档', dataIndex: 'documentName', ellipsis: true },
+                      { title: '说明', dataIndex: 'note', ellipsis: true },
+                      ...flowCols<ContractDetailDto['reviews'][number]>(),
+                      { title: '', key: 'op', width: 80, render: (_, r) => (reviewer && r.status === 'submitted' ? <Button size="small" type="primary" onClick={() => void decide('review', r.id)}>复核</Button> : null) },
+                    ]} />
+                </Space>
               ),
             },
             {
@@ -470,7 +704,18 @@ function ContractDrawer({ id, onClose }: { id: number | null; onClose: () => voi
           )}
         </Form>
       </Modal>
-      {c && <ContractBaseFormModal open={editing} contract={c} onClose={() => setEditing(false)} onSaved={(d) => refresh(d)} />}
+      {c && (
+        <ContractBaseFormModal
+          open={editing}
+          contract={c}
+          focusSection={editFocusSection}
+          onClose={() => {
+            setEditing(false);
+            setEditFocusSection(null);
+          }}
+          onSaved={(d) => refresh(d)}
+        />
+      )}
     </Drawer>
   );
 }
@@ -489,6 +734,7 @@ export default function Contracts() {
   const signDateFrom = params.get('signDateFrom') || undefined;
   const signDateTo = params.get('signDateTo') || undefined;
   const migrationMode = (params.get('migrationMode') || undefined) as 'normal' | 'legacy_tolerant' | undefined;
+  const legacyFilter = (params.get('legacyFilter') || undefined) as 'clue' | undefined;
   const projectId = positiveQueryNumber(params.get('projectId'));
   const planItemId = positiveQueryNumber(params.get('planItemId'));
   const sortBy = (params.get('sortBy') || undefined) as ContractSortField | undefined;
@@ -499,6 +745,14 @@ export default function Contracts() {
   const [catalogOpen,setCatalogOpen]=useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [supervisionOverviewOpen, setSupervisionOverviewOpen] = useState(false);
+  const hasAdvancedFilter = Boolean(
+    pricingMode || archiveStatus || legalCategory || procurementMethod || signDateFrom || signDateTo || migrationMode || legacyFilter || projectId || planItemId,
+  );
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(hasAdvancedFilter);
+  useEffect(() => {
+    if (hasAdvancedFilter) setMoreFiltersOpen(true);
+  }, [hasAdvancedFilter]);
   const openId = params.get('id') ? Number(params.get('id')) : null;
   const setOpenId = (id: number | null) => setParams((p) => { const n = new URLSearchParams(p); if (id == null) n.delete('id'); else n.set('id', String(id)); return n; }, { replace: true });
   const todoValid = todo && todo in TODO_LABEL ? todo : undefined;
@@ -513,6 +767,7 @@ export default function Contracts() {
     signDateFrom,
     signDateTo,
     migrationMode,
+    legacyFilter,
     orgId,
     projectId,
     planItemId,
@@ -530,8 +785,17 @@ export default function Contracts() {
   });
   useAssistantDomainPage({ pageKey: 'contracts', ready: !list.isLoading && !list.error, scope: { orgScopeId: orgId, contractId: openId ?? undefined }, view: { status, keyword, todo, stage, direction, pricingMode, archiveStatus } });
   const s = summary.data;
+  const hasAnyFilter = Boolean(
+    status || stage || direction || orgId || keyword || todoValid || hasAdvancedFilter || queueParam !== 'all',
+  );
   const sortOrderOf = (field: ContractSortField) =>
     sortBy === field ? (sortDir === 'asc' ? 'ascend' : sortDir === 'desc' ? 'descend' : null) : null;
+  const toggleTodoFilter = (nextTodo: ContractTodo) => {
+    update({
+      todo: todoValid === nextTodo ? undefined : nextTodo,
+      queue: undefined,
+    });
+  };
   return (
     <div>
       {s && (
@@ -542,9 +806,27 @@ export default function Contracts() {
             <Col xs={12} md={5}><Typography.Text type="secondary" style={{ fontSize: 12 }}>支出已付</Typography.Text><div className="kpi-value" style={{ fontSize: 20 }}><Money value={s.paidAmount} /></div></Col>
             <Col xs={12} md={4}><Typography.Text type="secondary" style={{ fontSize: 12 }}>付款比例</Typography.Text><div className="kpi-value" style={{ fontSize: 20 }}>{s.paymentRate == null ? '—' : <Ratio value={s.paymentRate} />}</div></Col>
             <Col xs={24} md={6}>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>待办</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>待办（点击直接筛选）</Typography.Text>
               <div><Space size={4} wrap>
-                <Tag>审核 {s.pending.reviews}</Tag><Tag>变更 {s.pending.changes}</Tag><Tag>付款 {s.pending.payments}</Tag><Tag>待支付 {s.pending.unpaidApproved}</Tag>
+                <Tag color={todoValid === 'review' ? 'processing' : undefined} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('review')}>审核 {s.pending.reviews}</Tag>
+                {(s.pending.countersigns ?? 0) > 0 && (
+                  <Tag color={todoValid === 'countersign' ? 'processing' : 'gold'} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('countersign')}>会签 {s.pending.countersigns}</Tag>
+                )}
+                <Tag color={todoValid === 'change' ? 'processing' : undefined} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('change')}>变更 {s.pending.changes}</Tag>
+                {(s.pending.settlements ?? 0) > 0 && (
+                  <Tag color={todoValid === 'settlement' ? 'processing' : undefined} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('settlement')}>结算 {s.pending.settlements}</Tag>
+                )}
+                <Tag color={todoValid === 'payment' ? 'processing' : undefined} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('payment')}>付款 {s.pending.payments}</Tag>
+                <Tag color={todoValid === 'pay' ? 'processing' : undefined} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('pay')}>待支付 {s.pending.unpaidApproved}</Tag>
+                {(s.pending.receipts ?? 0) > 0 && (
+                  <Tag color={todoValid === 'receipt' ? 'processing' : undefined} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('receipt')}>收款 {s.pending.receipts}</Tag>
+                )}
+                {(s.pending.distributions ?? 0) > 0 && (
+                  <Tag color={todoValid === 'distribution' ? 'processing' : 'orange'} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('distribution')}>待分发 {s.pending.distributions}</Tag>
+                )}
+                {(s.pending.guaranteeWarranty ?? 0) > 0 && (
+                  <Tag color={todoValid === 'guarantee_warranty' ? 'processing' : 'orange'} style={{ cursor: 'pointer' }} onClick={() => toggleTodoFilter('guarantee_warranty')}>临期保函/质保 {s.pending.guaranteeWarranty}</Tag>
+                )}
               </Space></div>
             </Col>
             {(s.incomeCurrentAmount && s.incomeCurrentAmount !== '0.00') || (s.foreignCurrencyCount ?? 0) > 0 ? (
@@ -555,23 +837,70 @@ export default function Contracts() {
                 </Space>
               </Col>
             ) : null}
+            {s.byStage && (
+              <Col span={24}>
+                <div
+                  aria-label="全生命周期八阶段分布"
+                  style={{
+                    borderTop: '1px solid var(--newfc-border-subtle)',
+                    paddingTop: 8,
+                    marginTop: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                  }}
+                >
+                  <Typography.Text type="secondary" style={{ fontSize: 12, marginRight: 4 }}>
+                    全生命周期阶段：
+                  </Typography.Text>
+                  {CONTRACT_STAGE_ORDER.map((stg, idx) => {
+                    const cnt = s.byStage?.[stg] ?? 0;
+                    const active = stage === stg;
+                    return (
+                      <span key={stg} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Button
+                          size="small"
+                          type={active ? 'primary' : 'default'}
+                          onClick={() => update({ stage: active ? undefined : stg })}
+                          style={{ height: 26, paddingInline: 8, fontSize: 12 }}
+                        >
+                          <span>{idx + 1}. {CONTRACT_STAGE_LABELS[stg]}</span>
+                          <span style={{ marginLeft: 4, opacity: active ? 0.95 : 0.72, fontVariantNumeric: 'tabular-nums' }}>
+                            {cnt}
+                          </span>
+                        </Button>
+                        {idx < CONTRACT_STAGE_ORDER.length - 1 && (
+                          <span aria-hidden style={{ color: 'var(--newfc-text-tertiary)', fontSize: 11 }}>→</span>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+              </Col>
+            )}
           </Row>
         </Card>
       )}
+      <ContractSupervisionOverviewBar open={supervisionOverviewOpen} orgId={orgId} />
       <ContractLegalCatalog open={catalogOpen} onClose={()=>setCatalogOpen(false)}/>
-      <ContractExportModal open={exportOpen} onClose={() => setExportOpen(false)} />
-      <div style={{ marginBottom: 8 }}>
+      <ContractExportModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onOpenContract={(cid) => setOpenId(cid)}
+      />
+      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <Segmented<string>
           value={queueParam}
           onChange={(q) => {
             if (q === 'review') {
-              update({ queue: 'review', todo: 'review', migrationMode: undefined, archiveStatus: undefined });
+              update({ queue: 'review', todo: 'review_or_countersign', migrationMode: undefined, legacyFilter: undefined, archiveStatus: undefined });
             } else if (q === 'legacy_fill') {
-              update({ queue: 'legacy_fill', todo: undefined, migrationMode: 'legacy_tolerant', archiveStatus: 'collecting' });
+              update({ queue: 'legacy_fill', todo: undefined, migrationMode: 'legacy_tolerant', legacyFilter: undefined, archiveStatus: 'collecting' });
             } else if (q === 'legacy_clue') {
-              update({ queue: 'legacy_clue', todo: undefined, migrationMode: 'legacy_tolerant', archiveStatus: undefined });
+              update({ queue: 'legacy_clue', todo: undefined, migrationMode: 'legacy_tolerant', legacyFilter: 'clue', archiveStatus: undefined });
             } else {
-              update({ queue: undefined, todo: undefined, migrationMode: undefined, archiveStatus: undefined });
+              update({ queue: undefined, todo: undefined, migrationMode: undefined, legacyFilter: undefined, archiveStatus: undefined });
             }
           }}
           options={[
@@ -581,61 +910,101 @@ export default function Contracts() {
             { value: 'legacy_clue', label: '重号与凭证线索待核' },
           ]}
         />
+        <Space wrap size={8}>
+          <Button size="small" onClick={() => setSupervisionOverviewOpen((v) => !v)}>
+            {supervisionOverviewOpen ? '收起监督统计' : '协同监督概览'}
+          </Button>
+          <Button size="small" onClick={() => setCatalogOpen(true)}>法审制度与范本</Button>
+          <Button size="small" onClick={() => setExportOpen(true)}>报送导出 (月报 / 纪巡财审)</Button>
+          {can('contract:import') && <Button size="small" onClick={() => navigate('/contracts/import')}>台账导入</Button>}
+          {can('contract:write') && <Button type="primary" onClick={() => setCreating(true)}>新建合同</Button>}
+        </Space>
       </div>
-      <Space wrap style={{ marginBottom: 12 }}>
-        <Button onClick={()=>setCatalogOpen(true)}>法审制度与范本</Button>
-        <Button onClick={() => setExportOpen(true)}>报送导出 (月报 / 纪巡财审)</Button>
-        {can('contract:import') && <Button onClick={() => navigate('/contracts/import')}>台账导入</Button>}
+      <Space wrap style={{ marginBottom: moreFiltersOpen ? 8 : 12 }}>
         <Select allowClear placeholder="状态" value={status} onChange={(v) => update({ status: v })} style={{ width: 110 }} options={Object.entries(CONTRACT_STATUS).map(([value, m]) => ({ value, label: m.text }))} />
         <Select allowClear placeholder="阶段" value={stage} onChange={(v) => update({ stage: v })} style={{ width: 120 }} options={CONTRACT_STAGE_ORDER.map((value) => ({ value, label: CONTRACT_STAGE_LABELS[value] }))} />
         <Select allowClear placeholder="收支方向" value={direction} onChange={(v) => update({ direction: v })} style={{ width: 110 }} options={Object.entries(DIRECTION_LABELS).map(([value, label]) => ({ value, label }))} />
-        <Select allowClear placeholder="计价方式" value={pricingMode} onChange={(v) => update({ pricingMode: v })} style={{ width: 110 }} options={Object.entries(PRICING_MODE_LABELS).map(([value, label]) => ({ value, label }))} />
-        <Select allowClear placeholder="归档状态" value={archiveStatus} onChange={(v) => update({ archiveStatus: v })} style={{ width: 130 }} options={Object.entries(ARCHIVE_STATUS_LABELS).map(([value, label]) => ({ value, label }))} />
-        <Select
-          aria-label="法审类别筛选"
-          allowClear
-          placeholder="法审类别"
-          value={legalCategory}
-          onChange={(v) => update({ legalCategory: v })}
-          style={{ width: 135 }}
-          options={LEGAL_CATEGORIES.map((value) => ({ value, label: LEGAL_LABELS[value] }))}
-        />
-        <Select
-          aria-label="采购方式筛选"
-          allowClear
-          placeholder="采购方式"
-          value={procurementMethod}
-          onChange={(v) => update({ procurementMethod: v })}
-          style={{ width: 135 }}
-          options={PROCUREMENT_METHODS.map((value) => ({ value, label: METHOD_LABELS[value] }))}
-        />
-        <DatePicker.RangePicker
-          value={signDateFrom && signDateTo ? [dayjs(signDateFrom), dayjs(signDateTo)] : null}
-          placeholder={['签订起日', '签订止日']}
-          style={{ width: 235 }}
-          onChange={(dates) =>
-            update({
-              signDateFrom: dates?.[0] ? dates[0].format('YYYY-MM-DD') : undefined,
-              signDateTo: dates?.[1] ? dates[1].format('YYYY-MM-DD') : undefined,
-            })
-          }
-        />
-        <Select
-          aria-label="建档模式筛选"
-          allowClear
-          placeholder="建档来源"
-          value={migrationMode}
-          onChange={(v) => update({ migrationMode: v })}
-          style={{ width: 125 }}
-          options={[
-            { value: 'normal', label: '正常建档' },
-            { value: 'legacy_tolerant', label: '历史容缺' },
-          ]}
-        />
         <OrgSelect value={orgId} onChange={(v) => update({ orgId: v })} placeholder="全部授权组织" />
         <Input.Search key={keyword ?? ''} defaultValue={keyword} maxLength={100} allowClear placeholder="编号或名称" onSearch={(v) => update({ keyword: v.trim() || undefined })} style={{ width: 200 }} />
-        {can('contract:write') && <Button type="primary" onClick={() => setCreating(true)}>新建合同</Button>}
+        <Button size="small" type={moreFiltersOpen ? 'link' : 'default'} onClick={() => setMoreFiltersOpen((v) => !v)}>
+          {moreFiltersOpen ? '收起更多筛选' : '更多筛选'}
+        </Button>
+        {hasAnyFilter && (
+          <Button
+            size="small"
+            onClick={() =>
+              update({
+                queue: undefined,
+                todo: undefined,
+                status: undefined,
+                stage: undefined,
+                direction: undefined,
+                pricingMode: undefined,
+                archiveStatus: undefined,
+                legalCategory: undefined,
+                procurementMethod: undefined,
+                signDateFrom: undefined,
+                signDateTo: undefined,
+                migrationMode: undefined,
+                legacyFilter: undefined,
+                projectId: undefined,
+                planItemId: undefined,
+                orgId: undefined,
+                keyword: undefined,
+              })
+            }
+          >
+            重置筛选
+          </Button>
+        )}
       </Space>
+      {moreFiltersOpen && (
+        <Space wrap style={{ marginBottom: 12 }}>
+          <Select allowClear placeholder="计价方式" value={pricingMode} onChange={(v) => update({ pricingMode: v })} style={{ width: 110 }} options={Object.entries(PRICING_MODE_LABELS).map(([value, label]) => ({ value, label }))} />
+          <Select allowClear placeholder="归档状态" value={archiveStatus} onChange={(v) => update({ archiveStatus: v })} style={{ width: 130 }} options={Object.entries(ARCHIVE_STATUS_LABELS).map(([value, label]) => ({ value, label }))} />
+          <Select
+            aria-label="法审类别筛选"
+            allowClear
+            placeholder="法审类别"
+            value={legalCategory}
+            onChange={(v) => update({ legalCategory: v })}
+            style={{ width: 135 }}
+            options={LEGAL_CATEGORIES.map((value) => ({ value, label: LEGAL_LABELS[value] }))}
+          />
+          <Select
+            aria-label="采购方式筛选"
+            allowClear
+            placeholder="采购方式"
+            value={procurementMethod}
+            onChange={(v) => update({ procurementMethod: v })}
+            style={{ width: 135 }}
+            options={PROCUREMENT_METHODS.map((value) => ({ value, label: METHOD_LABELS[value] }))}
+          />
+          <DatePicker.RangePicker
+            value={signDateFrom && signDateTo ? [dayjs(signDateFrom), dayjs(signDateTo)] : null}
+            placeholder={['签订起日', '签订止日']}
+            style={{ width: 235 }}
+            onChange={(dates) =>
+              update({
+                signDateFrom: dates?.[0] ? dates[0].format('YYYY-MM-DD') : undefined,
+                signDateTo: dates?.[1] ? dates[1].format('YYYY-MM-DD') : undefined,
+              })
+            }
+          />
+          <Select
+            aria-label="建档模式筛选"
+            allowClear
+            placeholder="建档来源"
+            value={migrationMode}
+            onChange={(v) => update({ migrationMode: v })}
+            style={{ width: 125 }}
+            options={[
+              { value: 'normal', label: '正常建档' },
+              { value: 'legacy_tolerant', label: '历史容缺' },
+            ]}
+          />
+        </Space>
+      )}
       {todoValid && (
         <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`只显示:${TODO_LABEL[todoValid]}`}
           action={<Button size="small" onClick={() => update({ todo: undefined })}>显示全部</Button>} />
@@ -717,6 +1086,7 @@ export default function Contracts() {
               title: '待办', key: 'todo', width: 150, render: (_, r) => (
                 <Space size={2} wrap>
                   {r.pendingReviews > 0 && <Tag color="warning">审核 {r.pendingReviews}</Tag>}
+                  {(r.pendingCountersigns ?? 0) > 0 && <Tag color="gold">会签 {r.pendingCountersigns}</Tag>}
                   {r.pendingChanges > 0 && <Tag color="warning">变更 {r.pendingChanges}</Tag>}
                   {r.openPayments > 0 && <Tag color="warning">付款 {r.openPayments}</Tag>}
                   {(r.openReceipts ?? 0) > 0 && <Tag color="warning">收款 {r.openReceipts}</Tag>}
